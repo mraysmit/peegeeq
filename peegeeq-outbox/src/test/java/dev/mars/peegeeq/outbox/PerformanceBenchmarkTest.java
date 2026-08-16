@@ -13,8 +13,11 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.TransactionPropagation;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -25,7 +28,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
-import java.util.concurrent.TimeUnit;
+import java.util.function.IntFunction;
 
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
@@ -35,6 +38,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  */
 @Tag(TestCategories.PERFORMANCE)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 public class PerformanceBenchmarkTest {
 
     private static final Logger logger = LoggerFactory.getLogger(PerformanceBenchmarkTest.class);
@@ -43,10 +47,11 @@ public class PerformanceBenchmarkTest {
     static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
+    private QueueFactory factory;
     private MessageProducer<String> producer;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
@@ -66,33 +71,55 @@ public class PerformanceBenchmarkTest {
 
         // Initialize manager
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-        logger.info("PeeGeeQ Manager started successfully");
+        manager.start()
+                .compose(v -> {
+                    logger.info("PeeGeeQ Manager started successfully");
 
-        // Create outbox factory and producer - following existing patterns
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-        OutboxFactoryRegistrar.registerWith(provider);
+                    // Create outbox factory and producer - following existing patterns
+                    PgDatabaseService databaseService = new PgDatabaseService(manager);
+                    PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+                    OutboxFactoryRegistrar.registerWith(provider);
 
-        QueueFactory factory = provider.createFactory("outbox", databaseService);
-        producer = factory.createProducer("performance-test", String.class);
+                    factory = provider.createFactory("outbox", databaseService);
+                    producer = factory.createProducer("performance-test", String.class);
 
-        logger.info("Performance benchmark test setup complete");
+                    logger.info("Performance benchmark test setup complete");
+                    return Future.succeededFuture();
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
-        if (producer != null) producer.close();
-        if (manager != null) {
-            manager.closeReactive().await();
-        }
-        logger.info("Performance benchmark test cleanup completed");
+        Future<Void> factoryClose = factory != null
+                ? factory.close()
+                : Future.succeededFuture();
+        factoryClose.transform(factoryResult -> {
+                    Future<Void> managerClose = manager != null
+                            ? manager.closeReactive()
+                            : Future.succeededFuture();
+                    return managerClose.transform(managerResult -> {
+                        if (factoryResult.failed()) {
+                            return Future.failedFuture(factoryResult.cause());
+                        }
+                        if (managerResult.failed()) {
+                            return Future.failedFuture(managerResult.cause());
+                        }
+                        return Future.succeededFuture();
+                    });
+                })
+                .onSuccess(v -> {
+                    logger.info("Performance benchmark test cleanup completed");
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
     }
 
     @Test
     @DisplayName("BENCHMARK: JDBC vs Reactive Performance Comparison")
-    void benchmarkJdbcVsReactivePerformance() throws Exception {
+    void benchmarkJdbcVsReactivePerformance(VertxTestContext testContext) {
         logger.info("=== PERFORMANCE BENCHMARK: JDBC vs Reactive ===");
 
         int messageCount = 1000;
@@ -102,73 +129,69 @@ public class PerformanceBenchmarkTest {
         logger.info(" Benchmarking JDBC approach with {} messages...", messageCount);
         long jdbcStartTime = System.currentTimeMillis();
 
-        for (int i = 0; i < messageCount; i++) {
-            producer.send(testPayload + i).await();
-        }
+        sendSequentially(0, messageCount, i -> producer.send(testPayload + i))
+                .compose(v -> {
+                    long jdbcDuration = System.currentTimeMillis() - jdbcStartTime;
+                    double jdbcThroughput = (double) messageCount / (jdbcDuration / 1000.0);
 
-        long jdbcEndTime = System.currentTimeMillis();
-        long jdbcDuration = jdbcEndTime - jdbcStartTime;
-        double jdbcThroughput = (double) messageCount / (jdbcDuration / 1000.0);
+                    logger.info("JDBC Approach: {} messages in {} ms ({:.1f} msg/sec)",
+                            messageCount, jdbcDuration, jdbcThroughput);
 
-        logger.info("JDBC Approach: {} messages in {} ms ({:.1f} msg/sec)",
-                   messageCount, jdbcDuration, jdbcThroughput);
+                    // Benchmark Reactive approach
+                    logger.info(" Benchmarking Reactive approach with {} messages...", messageCount);
+                    long reactiveStartTime = System.currentTimeMillis();
 
-        // Benchmark Reactive approach
-        logger.info(" Benchmarking Reactive approach with {} messages...", messageCount);
-        long reactiveStartTime = System.currentTimeMillis();
+                    List<Future<?>> reactiveFutures = new ArrayList<>();
+                    for (int i = 0; i < messageCount; i++) {
+                        reactiveFutures.add(producer.send(testPayload + "reactive-" + i));
+                    }
 
-        List<Future<?>> reactiveFutures = new ArrayList<>();
-        for (int i = 0; i < messageCount; i++) {
-            reactiveFutures.add(producer.send(testPayload + "reactive-" + i));
-        }
+                    return Future.all(reactiveFutures).map(completed -> {
+                        long reactiveDuration = System.currentTimeMillis() - reactiveStartTime;
+                        double reactiveThroughput = (double) messageCount / (reactiveDuration / 1000.0);
 
-        // Wait for all reactive operations to complete
-        Future.all(reactiveFutures).await();
+                        logger.info("Reactive Approach: {} messages in {} ms ({:.1f} msg/sec)",
+                                messageCount, reactiveDuration, reactiveThroughput);
 
-        long reactiveEndTime = System.currentTimeMillis();
-        long reactiveDuration = reactiveEndTime - reactiveStartTime;
-        double reactiveThroughput = (double) messageCount / (reactiveDuration / 1000.0);
+                        double improvementFactor = reactiveThroughput / jdbcThroughput;
+                        logger.info(" Performance Improvement: {}x faster with reactive approach",
+                                String.format("%.2f", improvementFactor));
 
-        logger.info("Reactive Approach: {} messages in {} ms ({:.1f} msg/sec)",
-                   messageCount, reactiveDuration, reactiveThroughput);
+                        logger.info("=== PERFORMANCE BENCHMARK RESULTS ===");
+                        logger.info("JDBC:     {} messages in {} seconds ({} msg/sec)",
+                                messageCount, String.format("%.1f", jdbcDuration / 1000.0),
+                                String.format("%.0f", jdbcThroughput));
+                        logger.info("Reactive: {} messages in {} seconds ({} msg/sec)",
+                                messageCount, String.format("%.1f", reactiveDuration / 1000.0),
+                                String.format("%.0f", reactiveThroughput));
+                        logger.info("Improvement: {}x faster with reactive approach",
+                                String.format("%.2f", improvementFactor));
+                        logger.info("Performance comparison result: {:.2f}x improvement with reactive approach",
+                                improvementFactor);
 
-        // Calculate improvement
-        double improvementFactor = reactiveThroughput / jdbcThroughput;
-        logger.info(" Performance Improvement: {}x faster with reactive approach", String.format("%.2f", improvementFactor));
+                        Assertions.assertTrue(improvementFactor >= 0.5,
+                                String.format("Reactive approach is significantly slower than JDBC (%.2fx), indicating a potential issue",
+                                        improvementFactor));
 
-        // Log detailed results
-        logger.info("=== PERFORMANCE BENCHMARK RESULTS ===");
-        logger.info("JDBC:     {} messages in {} seconds ({} msg/sec)",
-                   messageCount, String.format("%.1f", jdbcDuration / 1000.0), String.format("%.0f", jdbcThroughput));
-        logger.info("Reactive: {} messages in {} seconds ({} msg/sec)",
-                   messageCount, String.format("%.1f", reactiveDuration / 1000.0), String.format("%.0f", reactiveThroughput));
-        logger.info("Improvement: {}x faster with reactive approach", String.format("%.2f", improvementFactor));
-
-        // Note: Performance comparison is environment-dependent
-        // In production environments, improvements of 3-5x are typical
-        // Test environments may show variable results due to overhead and resource constraints
-        // We log the results but don't fail the test based on performance alone
-        logger.info("Performance comparison result: {:.2f}x improvement with reactive approach", improvementFactor);
-
-        // Only fail if reactive is significantly slower (indicating a real problem)
-        Assertions.assertTrue(improvementFactor >= 0.5,
-            String.format("Reactive approach is significantly slower than JDBC (%.2fx), indicating a potential issue", improvementFactor));
-
-        // Log performance analysis
-        if (improvementFactor >= 3.0) {
-            logger.info(" EXCELLENT: Reactive approach shows excellent performance improvement");
-        } else if (improvementFactor >= 2.0) {
-            logger.info("GOOD: Reactive approach shows good performance improvement");
-        } else if (improvementFactor >= 1.5) {
-            logger.info(" MODERATE: Reactive approach shows moderate improvement (typical in test environments)");
-        } else {
-            logger.info(" MINIMAL: Reactive approach shows minimal improvement (may be due to test environment limitations)");
-        }
+                        if (improvementFactor >= 3.0) {
+                            logger.info(" EXCELLENT: Reactive approach shows excellent performance improvement");
+                        } else if (improvementFactor >= 2.0) {
+                            logger.info("GOOD: Reactive approach shows good performance improvement");
+                        } else if (improvementFactor >= 1.5) {
+                            logger.info(" MODERATE: Reactive approach shows moderate improvement (typical in test environments)");
+                        } else {
+                            logger.info(" MINIMAL: Reactive approach shows minimal improvement (may be due to test environment limitations)");
+                        }
+                        return (Void) null;
+                    });
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @Test
     @DisplayName("BENCHMARK: TransactionPropagation Performance")
-    void benchmarkTransactionPropagationPerformance() throws Exception {
+    void benchmarkTransactionPropagationPerformance(VertxTestContext testContext) {
         logger.info("=== BENCHMARK: TransactionPropagation Performance ===");
 
         int messageCount = 500;
@@ -184,52 +207,42 @@ public class PerformanceBenchmarkTest {
             basicFutures.add(outboxProducer.sendInOwnTransaction(testPayload + i));
         }
 
-        Future.all(basicFutures).await();
+        Future.all(basicFutures)
+                .compose(v -> {
+                    long basicDuration = System.currentTimeMillis() - basicStartTime;
+                    double basicThroughput = (double) messageCount / (basicDuration / 1000.0);
 
-        long basicEndTime = System.currentTimeMillis();
-        long basicDuration = basicEndTime - basicStartTime;
-        double basicThroughput = (double) messageCount / (basicDuration / 1000.0);
+                    logger.info(" Benchmarking with TransactionPropagation.CONTEXT...");
+                    long contextStartTime = System.currentTimeMillis();
+                    return sendOnVertxContext(messageCount, i -> outboxProducer.sendInOwnTransaction(
+                                    testPayload + "context-" + i,
+                                    TransactionPropagation.CONTEXT))
+                            .map(completed -> {
+                                long contextDuration = System.currentTimeMillis() - contextStartTime;
+                                double contextThroughput = (double) messageCount / (contextDuration / 1000.0);
 
-        // Benchmark with TransactionPropagation.CONTEXT
-        logger.info(" Benchmarking with TransactionPropagation.CONTEXT...");
-        long contextStartTime = System.currentTimeMillis();
+                                logger.info("Basic Transaction: {} messages in {} ms ({:.1f} msg/sec)",
+                                        messageCount, basicDuration, basicThroughput);
+                                logger.info("TransactionPropagation.CONTEXT: {} messages in {} ms ({:.1f} msg/sec)",
+                                        messageCount, contextDuration, contextThroughput);
 
-        Promise<Void> contextDone = Promise.promise();
-        manager.getVertx().runOnContext(v0 -> {
-            List<Future<?>> contextFutures = new ArrayList<>();
-            for (int i = 0; i < messageCount; i++) {
-                contextFutures.add(outboxProducer.sendInOwnTransaction(
-                    testPayload + "context-" + i,
-                    TransactionPropagation.CONTEXT
-                ));
-            }
-            Future.all(contextFutures)
-                .onSuccess(cf -> contextDone.complete())
-                .onFailure(contextDone::fail);
-        });
-        contextDone.future().await();
+                                double contextEfficiency = contextThroughput / basicThroughput;
+                                logger.info(" TransactionPropagation efficiency: {:.2f}x", contextEfficiency);
 
-        long contextEndTime = System.currentTimeMillis();
-        long contextDuration = contextEndTime - contextStartTime;
-        double contextThroughput = (double) messageCount / (contextDuration / 1000.0);
-
-        // Log results
-        logger.info("Basic Transaction: {} messages in {} ms ({:.1f} msg/sec)",
-                   messageCount, basicDuration, basicThroughput);
-        logger.info("TransactionPropagation.CONTEXT: {} messages in {} ms ({:.1f} msg/sec)",
-                   messageCount, contextDuration, contextThroughput);
-
-        double contextEfficiency = contextThroughput / basicThroughput;
-        logger.info(" TransactionPropagation efficiency: {:.2f}x", contextEfficiency);
-
-        // Both should complete successfully (performance may vary)
-        Assertions.assertTrue(basicThroughput > 0, "Basic transaction throughput should be positive");
-        Assertions.assertTrue(contextThroughput > 0, "Context transaction throughput should be positive");
+                                Assertions.assertTrue(basicThroughput > 0,
+                                        "Basic transaction throughput should be positive");
+                                Assertions.assertTrue(contextThroughput > 0,
+                                        "Context transaction throughput should be positive");
+                                return (Void) null;
+                            });
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @Test
     @DisplayName("BENCHMARK: Batch Operations Performance")
-    void benchmarkBatchOperationsPerformance() throws Exception {
+    void benchmarkBatchOperationsPerformance(VertxTestContext testContext) {
         logger.info("=== BENCHMARK: Batch Operations Performance ===");
 
         int batchSize = 100;
@@ -241,55 +254,73 @@ public class PerformanceBenchmarkTest {
         long individualStartTime = System.currentTimeMillis();
 
         OutboxProducer<String> outboxProducer = (OutboxProducer<String>) producer;
-        for (int batch = 0; batch < batchCount; batch++) {
-            for (int i = 0; i < batchSize; i++) {
-                outboxProducer.sendInOwnTransaction(testPayload + batch + "-" + i).await();
-            }
-        }
-
-        long individualEndTime = System.currentTimeMillis();
-        long individualDuration = individualEndTime - individualStartTime;
         int totalMessages = batchSize * batchCount;
-        double individualThroughput = (double) totalMessages / (individualDuration / 1000.0);
+        sendSequentially(0, totalMessages, index -> {
+                    int batch = index / batchSize;
+                    int item = index % batchSize;
+                    return outboxProducer.sendInOwnTransaction(testPayload + batch + "-" + item);
+                })
+                .compose(v -> {
+                    long individualDuration = System.currentTimeMillis() - individualStartTime;
+                    double individualThroughput = (double) totalMessages / (individualDuration / 1000.0);
 
-        // Benchmark batch operations
-        logger.info(" Benchmarking batch operations...");
-        long batchStartTime = System.currentTimeMillis();
+                    logger.info(" Benchmarking batch operations...");
+                    long batchStartTime = System.currentTimeMillis();
+                    return sendOnVertxContext(totalMessages, index -> {
+                                int batch = index / batchSize;
+                                int item = index % batchSize;
+                                return outboxProducer.sendInOwnTransaction(
+                                        testPayload + "batch-" + batch + "-" + item,
+                                        TransactionPropagation.CONTEXT);
+                            })
+                            .map(completed -> {
+                                long batchDuration = System.currentTimeMillis() - batchStartTime;
+                                double batchThroughput = (double) totalMessages / (batchDuration / 1000.0);
 
-        Promise<Void> batchDone = Promise.promise();
-        manager.getVertx().runOnContext(v0 -> {
-            List<Future<?>> batchFutures = new ArrayList<>();
-            for (int batch = 0; batch < batchCount; batch++) {
-                for (int i = 0; i < batchSize; i++) {
-                    batchFutures.add(outboxProducer.sendInOwnTransaction(
-                        testPayload + "batch-" + batch + "-" + i,
-                        TransactionPropagation.CONTEXT
-                    ));
+                                logger.info("Individual Operations: {} messages in {} ms ({:.1f} msg/sec)",
+                                        totalMessages, individualDuration, individualThroughput);
+                                logger.info("Batch Operations: {} messages in {} ms ({:.1f} msg/sec)",
+                                        totalMessages, batchDuration, batchThroughput);
+
+                                double batchImprovement = batchThroughput / individualThroughput;
+                                logger.info(" Batch improvement: {:.2f}x faster", batchImprovement);
+
+                                Assertions.assertTrue(batchThroughput >= individualThroughput,
+                                        "Batch operations should be at least as fast as individual operations");
+                                return (Void) null;
+                            });
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+    }
+
+    private Future<Void> sendSequentially(int index, int total,
+                                          IntFunction<? extends Future<?>> sendOperation) {
+        if (index >= total) {
+            return Future.succeededFuture();
+        }
+        return sendOperation.apply(index)
+                .compose(v -> sendSequentially(index + 1, total, sendOperation));
+    }
+
+    private Future<Void> sendOnVertxContext(int total,
+                                            IntFunction<? extends Future<?>> sendOperation) {
+        Promise<Void> completion = Promise.promise();
+        manager.getVertx().runOnContext(ignored -> {
+            List<Future<?>> futures = new ArrayList<>(total);
+            try {
+                for (int i = 0; i < total; i++) {
+                    futures.add(sendOperation.apply(i));
                 }
+            } catch (RuntimeException error) {
+                completion.fail(error);
+                return;
             }
-            Future.all(batchFutures)
-                .onSuccess(cf -> batchDone.complete())
-                .onFailure(batchDone::fail);
+            Future.all(futures)
+                    .mapEmpty()
+                    .onSuccess(ignoredResult -> completion.complete())
+                    .onFailure(completion::fail);
         });
-        batchDone.future().await();
-
-        long batchEndTime = System.currentTimeMillis();
-        long batchDuration = batchEndTime - batchStartTime;
-        double batchThroughput = (double) totalMessages / (batchDuration / 1000.0);
-
-        // Log results
-        logger.info("Individual Operations: {} messages in {} ms ({:.1f} msg/sec)",
-                   totalMessages, individualDuration, individualThroughput);
-        logger.info("Batch Operations: {} messages in {} ms ({:.1f} msg/sec)",
-                   totalMessages, batchDuration, batchThroughput);
-
-        double batchImprovement = batchThroughput / individualThroughput;
-        logger.info(" Batch improvement: {:.2f}x faster", batchImprovement);
-
-        // Batch operations should be faster
-        Assertions.assertTrue(batchThroughput >= individualThroughput,
-            "Batch operations should be at least as fast as individual operations");
+        return completion.future();
     }
 }
-
-

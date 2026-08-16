@@ -1,0 +1,42 @@
+# Tier-9 discarded-Future-from-subscribe ratchet. One row per pre-existing file with violations.
+# Guard: OnSuccessExceptionSwallowingGuardTest.noDiscardedFuturesFromSubscribeInTestSources.
+# This is not a waiver: increases fail, and every remediation makes its row stale until reduced/removed.
+# Rows are removed one file at a time before each focused TDD red phase.
+path,count
+peegeeq-bitemporal/src/test/java/dev/mars/peegeeq/bitemporal/PeeGeeQBiTemporalIntegrationTest.java,3
+peegeeq-bitemporal/src/test/java/dev/mars/peegeeq/bitemporal/PeeGeeQBiTemporalWorkingIntegrationTest.java,3
+peegeeq-examples-spring/src/test/java/dev/mars/peegeeq/examples/springboot/outbox/OutboxDeadLetterQueueSpringBootTest.java,2
+peegeeq-examples-spring/src/test/java/dev/mars/peegeeq/examples/springboot/outbox/OutboxErrorHandlingSpringBootTest.java,3
+peegeeq-examples-spring/src/test/java/dev/mars/peegeeq/examples/springboot/outbox/OutboxMessageOrderingSpringBootTest.java,3
+peegeeq-examples-spring/src/test/java/dev/mars/peegeeq/examples/springboot/outbox/OutboxMetricsSpringBootTest.java,3
+peegeeq-examples-spring/src/test/java/dev/mars/peegeeq/examples/springboot/outbox/OutboxPerformanceSpringBootTest.java,3
+peegeeq-examples-spring/src/test/java/dev/mars/peegeeq/examples/springboot/outbox/OutboxRetrySpringBootTest.java,2
+peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/nativequeue/ConsumerGroupLoadBalancingDemoTest.java,2
+peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/nativequeue/DistributedSystemResilienceDemoTest.java,2
+peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/nativequeue/EnhancedErrorHandlingDemoTest.java,2
+peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/nativequeue/EnterpriseIntegrationDemoTest.java,6
+peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/nativequeue/MicroservicesCommunicationDemoTest.java,2
+peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/nativequeue/NativeQueueFeatureTest.java,2
+peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/outbox/EventSourcingCQRSDemoTest.java,4
+peegeeq-integration-tests/src/test/java/dev/mars/peegeeq/integration/nativequeue/NativeConcurrencySmokeTest.java,3
+peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/ConsumerModeIntegrationTest.java,3
+peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/ConsumerModeMetricsTest.java,2
+peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/ConsumerModePerformanceStandardizedTest.java,1
+peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/ConsumerModeTypeSafetyTest.java,2
+peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/HybridModeEdgeCaseTest.java,6
+peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/JsonbConversionValidationTest.java,1
+peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/ListenReconnectFaultInjectionIT.java,2
+peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/MemoryAndResourceLeakTest.java,4
+peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/MultiConsumerModeTest.java,9
+peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PeeGeeQConfigurationConsumerModeTest.java,6
+peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PgNativeQueueConcurrentClaimIT.java,2
+peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PgNativeQueueConsumerClaimIT.java,1
+peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PgNativeQueueConsumerCleanupIT.java,1
+peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PgNativeQueueConsumerListenIT.java,1
+peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PgNativeQueueShutdownTest.java,3
+peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PollingOnlyEdgeCaseTest.java,6
+peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PostgreSQLErrorHandlingTest.java,6
+peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/QueueFactoryConsumerModeTest.java,3
+peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/RetryableErrorIT.java,1
+peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/examples/MessagePriorityExampleTest.java,6
+peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/examples/PerformanceComparisonExampleTest.java,1

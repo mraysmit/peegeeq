@@ -23,10 +23,13 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -59,6 +62,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 public class BatchOperationsWithPropagationExampleTest {
     
     private static final Logger logger = LoggerFactory.getLogger(BatchOperationsWithPropagationExampleTest.class);
@@ -69,7 +73,7 @@ public class BatchOperationsWithPropagationExampleTest {
     private PeeGeeQManager manager;
     
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
 
@@ -77,15 +81,21 @@ public class BatchOperationsWithPropagationExampleTest {
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
+        manager.start()
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
-        if (manager != null) {
-            manager.closeReactive().await();
+        if (manager == null) {
+            testContext.completeNow();
+            return;
         }
+        manager.closeReactive()
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     /**
@@ -480,5 +490,4 @@ public class BatchOperationsWithPropagationExampleTest {
         }
     }
 }
-
 

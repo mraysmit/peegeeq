@@ -92,14 +92,16 @@ class DistributedTracingTest {
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().onSuccess(v -> {
-            DatabaseService databaseService = new PgDatabaseService(manager);
-            outboxFactory = new OutboxFactory(databaseService, config);
+        manager.start()
+                .onSuccess(v -> testContext.verify(() -> {
+                    DatabaseService databaseService = new PgDatabaseService(manager);
+                    outboxFactory = new OutboxFactory(databaseService, config);
 
-            producer = outboxFactory.createProducer(testTopic, String.class);
-            consumer = outboxFactory.createConsumer(testTopic, String.class);
-            testContext.completeNow();
-        }).onFailure(testContext::failNow);
+                    producer = outboxFactory.createProducer(testTopic, String.class);
+                    consumer = outboxFactory.createConsumer(testTopic, String.class);
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 
     @AfterEach
@@ -111,16 +113,15 @@ class DistributedTracingTest {
         if (producer != null) {
             producer.close();
         }
-        if (outboxFactory != null) {
-            outboxFactory.close();
-        }
-        if (manager != null) {
-            manager.closeReactive()
+        Future<Void> factoryClose = outboxFactory != null
+                ? outboxFactory.close()
+                : Future.succeededFuture();
+        factoryClose
+                .eventually(() -> manager != null
+                        ? manager.closeReactive()
+                        : Future.succeededFuture())
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-        } else {
-            testContext.completeNow();
-        }
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
@@ -150,16 +151,15 @@ class DistributedTracingTest {
 
         // Subscribe consumer
         consumer.subscribe(message -> {
-            consumerTraceId.set(MDC.get("traceId"));
-            consumerSpanId.set(MDC.get("spanId"));
-            consumerCorrelationId.set(MDC.get("correlationId"));
+                    consumerTraceId.set(MDC.get("traceId"));
+                    consumerSpanId.set(MDC.get("spanId"));
+                    consumerCorrelationId.set(MDC.get("correlationId"));
 
-            messageReceived.flag();
-            return Future.succeededFuture();
-        });
-
-        // Send message with trace context
-        producer.send("test-payload-with-tracing", headers, correlationId).onFailure(testContext::failNow);
+                    messageReceived.flag();
+                    return Future.succeededFuture();
+                })
+                .compose(v -> producer.send("test-payload-with-tracing", headers, correlationId).mapEmpty())
+                .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Consumer should receive message");
 
@@ -177,14 +177,13 @@ class DistributedTracingTest {
 
         // Subscribe consumer
         consumer.subscribe(message -> {
-            consumerTraceId.set(MDC.get("traceId"));
+                    consumerTraceId.set(MDC.get("traceId"));
 
-            messageReceived.flag();
-            return Future.succeededFuture();
-        });
-
-        // Send message without any trace headers
-        producer.send("payload-with-no-headers").onFailure(testContext::failNow);
+                    messageReceived.flag();
+                    return Future.succeededFuture();
+                })
+                .compose(v -> producer.send("payload-with-no-headers").mapEmpty())
+                .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Consumer should receive message");
 
@@ -206,6 +205,5 @@ class DistributedTracingTest {
         return UUID.randomUUID().toString().replace("-", "").substring(0, 16);
     }
 }
-
 
 

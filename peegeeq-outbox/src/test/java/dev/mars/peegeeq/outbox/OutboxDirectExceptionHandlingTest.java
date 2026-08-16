@@ -29,6 +29,7 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -69,11 +70,12 @@ public class OutboxDirectExceptionHandlingTest {
     private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
+    private QueueFactory factory;
     private MessageProducer<String> producer;
     private MessageConsumer<String> consumer;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
@@ -87,26 +89,41 @@ public class OutboxDirectExceptionHandlingTest {
 
         // Initialize PeeGeeQ
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
-        manager.start().await();
+        manager.start()
+                .onSuccess(v -> {
+                    PgDatabaseService databaseService = new PgDatabaseService(manager);
+                    PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+                    OutboxFactoryRegistrar.registerWith(provider);
 
-        // Create outbox factory and producer/consumer
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-        OutboxFactoryRegistrar.registerWith(provider);
-        
-        QueueFactory factory = provider.createFactory("outbox", databaseService);
-        producer = factory.createProducer("test-direct-exceptions", String.class);
-        consumer = factory.createConsumer("test-direct-exceptions", String.class);
+                    factory = provider.createFactory("outbox", databaseService);
+                    producer = factory.createProducer("test-direct-exceptions", String.class);
+                    consumer = factory.createConsumer("test-direct-exceptions", String.class);
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
-        if (consumer != null) consumer.close();
-        if (producer != null) producer.close();
-        if (manager != null) {
-            manager.closeReactive().await();
-        }
+        Future<Void> closeFactory = factory != null ? factory.close() : Future.succeededFuture();
+        closeFactory
+                .transform(factoryResult -> {
+                    Future<Void> closeManager = manager != null
+                            ? manager.closeReactive()
+                            : Future.succeededFuture();
+                    return closeManager.transform(managerResult -> {
+                        if (factoryResult.failed()) {
+                            return Future.failedFuture(factoryResult.cause());
+                        }
+                        if (managerResult.failed()) {
+                            return Future.failedFuture(managerResult.cause());
+                        }
+                        return Future.succeededFuture();
+                    });
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -117,9 +134,6 @@ public class OutboxDirectExceptionHandlingTest {
         AtomicInteger attemptCount = new AtomicInteger(0);
         Checkpoint retryCheckpoint = testContext.checkpoint(3); // Expect 3 attempts (initial + 2 retries)
 
-        // Send the message
-        producer.send(testMessage).onFailure(testContext::failNow);
-
         // Set up consumer that throws RuntimeException directly
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
@@ -129,7 +143,8 @@ public class OutboxDirectExceptionHandlingTest {
             
             // This throws directly from the handler method - should be caught and handled
             throw new RuntimeException("INTENTIONAL FAILURE: Direct RuntimeException, attempt " + attempt);
-        });
+        }).compose(v -> producer.send(testMessage))
+          .onFailure(testContext::failNow);
 
         // Wait for all retry attempts
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times (initial + 2 retries)");
@@ -146,8 +161,6 @@ public class OutboxDirectExceptionHandlingTest {
         AtomicInteger attemptCount = new AtomicInteger(0);
         Checkpoint retryCheckpoint = testContext.checkpoint(3);
 
-        producer.send(testMessage).onFailure(testContext::failNow);
-
         // Set up consumer that throws checked exception (wrapped in RuntimeException)
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
@@ -157,7 +170,8 @@ public class OutboxDirectExceptionHandlingTest {
             // Simulate checked exception scenario
             throw new RuntimeException("INTENTIONAL FAILURE: Wrapped IOException", 
                 new IOException("Simulated IO failure, attempt " + attempt));
-        });
+        }).compose(v -> producer.send(testMessage))
+          .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times for checked exception");
         assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
@@ -173,8 +187,6 @@ public class OutboxDirectExceptionHandlingTest {
         AtomicInteger attemptCount = new AtomicInteger(0);
         Checkpoint retryCheckpoint = testContext.checkpoint(3);
 
-        producer.send(testMessage).onFailure(testContext::failNow);
-
         // Set up consumer that throws custom business exception
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
@@ -184,7 +196,8 @@ public class OutboxDirectExceptionHandlingTest {
             // Custom business exception
             throw new BusinessProcessingException("INTENTIONAL FAILURE: Order validation failed", 
                 "VALIDATION_ERROR", attempt);
-        });
+        }).compose(v -> producer.send(testMessage))
+          .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times for business exception");
         assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
@@ -200,8 +213,6 @@ public class OutboxDirectExceptionHandlingTest {
         AtomicInteger attemptCount = new AtomicInteger(0);
         Checkpoint retryCheckpoint = testContext.checkpoint(3);
 
-        producer.send(testMessage).onFailure(testContext::failNow);
-
         // Set up consumer that throws NPE
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
@@ -210,7 +221,8 @@ public class OutboxDirectExceptionHandlingTest {
 
             // Intentionally throw NPE to test exception handling
             throw new NullPointerException("INTENTIONAL TEST FAILURE: Simulated NPE for retry testing");
-        });
+        }).compose(v -> producer.send(testMessage))
+          .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times for NPE");
         assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
@@ -235,5 +247,4 @@ public class OutboxDirectExceptionHandlingTest {
         public int getAttemptNumber() { return attemptNumber; }
     }
 }
-
 

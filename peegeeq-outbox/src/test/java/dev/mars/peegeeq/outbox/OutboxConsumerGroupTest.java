@@ -41,6 +41,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
@@ -74,7 +76,7 @@ class OutboxConsumerGroupTest {
     private String testGroupName;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
 
@@ -85,29 +87,40 @@ class OutboxConsumerGroupTest {
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-        producer = outboxFactory.createProducer(testTopic, String.class);
-        consumerGroup = outboxFactory.createConsumerGroup(testGroupName, testTopic, String.class);
+        manager.start()
+                .onSuccess(v -> {
+                    PgDatabaseService databaseService = new PgDatabaseService(manager);
+                    outboxFactory = new OutboxFactory(databaseService, config);
+                    producer = outboxFactory.createProducer(testTopic, String.class);
+                    consumerGroup = outboxFactory.createConsumerGroup(testGroupName, testTopic, String.class);
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
-        if (consumerGroup != null) {
-            consumerGroup.close().onFailure(e -> logger.warn("consumerGroup.close() failed in tearDown", e));
-        }
-        if (producer != null) {
-            producer.close();
-        }
-        if (outboxFactory != null) {
-            outboxFactory.close();
-        }
-        if (manager != null) {
-            manager.closeReactive().await();
-        }
+        Future<Void> closeFactory = outboxFactory != null
+                ? outboxFactory.close()
+                : Future.succeededFuture();
+        closeFactory
+                .transform(factoryResult -> {
+                    Future<Void> closeManager = manager != null
+                            ? manager.closeReactive()
+                            : Future.succeededFuture();
+                    return closeManager.transform(managerResult -> {
+                        if (factoryResult.failed()) {
+                            return Future.failedFuture(factoryResult.cause());
+                        }
+                        if (managerResult.failed()) {
+                            return Future.failedFuture(managerResult.cause());
+                        }
+                        return Future.succeededFuture();
+                    });
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -135,11 +148,15 @@ class OutboxConsumerGroupTest {
             return Future.succeededFuture();
         });
 
-        consumerGroup.start();
-
-        for (int i = 0; i < messageCount; i++) {
-            producer.send("Group test message " + i).await();
-        }
+        consumerGroup.start()
+                .compose(v -> {
+                    List<Future<Void>> sends = new ArrayList<>(messageCount);
+                    for (int i = 0; i < messageCount; i++) {
+                        sends.add(producer.send("Group test message " + i));
+                    }
+                    return Future.all(sends).mapEmpty();
+                })
+                .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
             "All messages should be processed by consumer group within timeout");
@@ -174,15 +191,19 @@ class OutboxConsumerGroupTest {
             message -> "EU".equals(message.getHeaders().get("region"))
         );
 
-        consumerGroup.start();
-
         Map<String, String> usHeaders = Map.of("region", "US");
         Map<String, String> euHeaders = Map.of("region", "EU");
 
-        for (int i = 0; i < 3; i++) {
-            producer.send("US message " + i, usHeaders).await();
-            producer.send("EU message " + i, euHeaders).await();
-        }
+        consumerGroup.start()
+                .compose(v -> {
+                    List<Future<Void>> sends = new ArrayList<>(messageCount);
+                    for (int i = 0; i < 3; i++) {
+                        sends.add(producer.send("US message " + i, usHeaders));
+                        sends.add(producer.send("EU message " + i, euHeaders));
+                    }
+                    return Future.all(sends).mapEmpty();
+                })
+                .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
             "All filtered messages should be processed within timeout");
@@ -220,11 +241,15 @@ class OutboxConsumerGroupTest {
             return Future.succeededFuture();
         });
 
-        consumerGroup.start();
-
-        for (int i = 0; i < messageCount; i++) {
-            producer.send("Load balance test message " + i).await();
-        }
+        consumerGroup.start()
+                .compose(v -> {
+                    List<Future<Void>> sends = new ArrayList<>(messageCount);
+                    for (int i = 0; i < messageCount; i++) {
+                        sends.add(producer.send("Load balance test message " + i));
+                    }
+                    return Future.all(sends).mapEmpty();
+                })
+                .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(45, TimeUnit.SECONDS),
             "All messages should be processed within timeout");
@@ -259,33 +284,38 @@ class OutboxConsumerGroupTest {
             return Future.succeededFuture();
         });
 
-        consumerGroup.start();
-
-        for (int i = 0; i < initialMessageCount; i++) {
-            producer.send("Initial message " + i).await();
-        }
-
-        initialPhaseDone.future().await();
-
         Set<String> activeConsumers = ConcurrentHashMap.newKeySet();
+        consumerGroup.start()
+                .compose(v -> {
+                    List<Future<Void>> initialSends = new ArrayList<>(initialMessageCount);
+                    for (int i = 0; i < initialMessageCount; i++) {
+                        initialSends.add(producer.send("Initial message " + i));
+                    }
+                    return Future.all(initialSends).mapEmpty();
+                })
+                .compose(v -> initialPhaseDone.future())
+                .compose(v -> {
+                    consumerGroup.addConsumer("additional-consumer-1", message -> {
+                        activeConsumers.add("additional-consumer-1");
+                        processedCount.incrementAndGet();
+                        totalCheckpoint.flag();
+                        return Future.succeededFuture();
+                    });
 
-        consumerGroup.addConsumer("additional-consumer-1", message -> {
-            activeConsumers.add("additional-consumer-1");
-            processedCount.incrementAndGet();
-            totalCheckpoint.flag();
-            return Future.succeededFuture();
-        });
+                    consumerGroup.addConsumer("additional-consumer-2", message -> {
+                        activeConsumers.add("additional-consumer-2");
+                        processedCount.incrementAndGet();
+                        totalCheckpoint.flag();
+                        return Future.succeededFuture();
+                    });
 
-        consumerGroup.addConsumer("additional-consumer-2", message -> {
-            activeConsumers.add("additional-consumer-2");
-            processedCount.incrementAndGet();
-            totalCheckpoint.flag();
-            return Future.succeededFuture();
-        });
-
-        for (int i = 0; i < additionalMessageCount; i++) {
-            producer.send("Additional message " + i).await();
-        }
+                    List<Future<Void>> additionalSends = new ArrayList<>(additionalMessageCount);
+                    for (int i = 0; i < additionalMessageCount; i++) {
+                        additionalSends.add(producer.send("Additional message " + i));
+                    }
+                    return Future.all(additionalSends).mapEmpty();
+                })
+                .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS),
             "All messages should be processed");
@@ -296,5 +326,4 @@ class OutboxConsumerGroupTest {
             "Should have active additional consumers");
     }
 }
-
 

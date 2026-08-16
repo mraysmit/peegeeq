@@ -9,10 +9,13 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import java.util.Properties;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.junit.jupiter.Container;
@@ -34,6 +37,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 class ZombieVertxReproA {
 
     private static final Logger logger = LoggerFactory.getLogger(ZombieVertxReproA.class);
@@ -44,21 +48,27 @@ class ZombieVertxReproA {
     private PeeGeeQManager manager;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) throws Exception {
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
 
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
+        manager.start()
+                .onSuccess(ignored -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
-        if (manager != null) {
-            manager.closeReactive().await();
+    void tearDown(VertxTestContext testContext) {
+        if (manager == null) {
+            testContext.completeNow();
+            return;
         }
+        manager.closeReactive()
+                .onSuccess(ignored -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @Test

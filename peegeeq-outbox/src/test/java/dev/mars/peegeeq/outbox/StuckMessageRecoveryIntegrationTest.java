@@ -29,6 +29,7 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -48,9 +49,10 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Properties;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -109,25 +111,27 @@ public class StuckMessageRecoveryIntegrationTest {
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws Exception {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
-        if (consumer != null) {
-            consumer.close();
-        }
-        if (producer != null) {
-            producer.close();
-        }
-        if (outboxFactory != null) {
-            outboxFactory.close();
-        }
-        if (manager != null) {
-            manager.closeReactive()
+        Future<Void> factoryClose = outboxFactory != null
+                ? outboxFactory.close()
+                : Future.succeededFuture();
+        factoryClose.transform(factoryResult -> {
+                    Future<Void> managerClose = manager != null
+                            ? manager.closeReactive()
+                            : Future.succeededFuture();
+                    return managerClose.transform(managerResult -> {
+                        if (factoryResult.failed()) {
+                            return Future.failedFuture(factoryResult.cause());
+                        }
+                        if (managerResult.failed()) {
+                            return Future.failedFuture(managerResult.cause());
+                        }
+                        return Future.succeededFuture();
+                    });
+                })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-        } else {
-            testContext.completeNow();
-        }
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
 
@@ -137,119 +141,113 @@ public class StuckMessageRecoveryIntegrationTest {
      * This simulates the exact scenario where a consumer crashes after polling messages.
      */
     @Test
-    void testStuckMessageRecoveryWithRealCrash(Vertx vertx) throws Exception {
+    void testStuckMessageRecoveryWithRealCrash(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Stuck Message Recovery with Simulated Consumer Crash ===");
 
         // Create a dedicated recovery manager for testing with a very short timeout
-        // Get the reactive pool from the manager's database service
-        io.vertx.sqlclient.Pool pool = manager.getDatabaseService().getConnectionProvider()
-            .getReactivePool("peegeeq-main").await();
         StuckMessageRecoveryManager testRecoveryManager =
-            new StuckMessageRecoveryManager(pool, Duration.ofSeconds(2), true);
+            new StuckMessageRecoveryManager(reactivePool, Duration.ofSeconds(2), true);
 
         // Send multiple test messages
         int messageCount = 3;
+        List<Future<?>> sends = new ArrayList<>(messageCount);
         for (int i = 0; i < messageCount; i++) {
-            producer.send("Test message " + i + " for crash simulation").onFailure(e -> fail(e.getMessage()));
+            sends.add(producer.send("Test message " + i + " for crash simulation"));
         }
-        logger.info("Sent {} test messages", messageCount);
+        Future.all(sends)
+                .compose(v -> {
+                    logger.info("Sent {} test messages", messageCount);
+                    return vertx.timer(1000).mapEmpty();
+                })
+                .compose(v -> countMessagesByStatus("PENDING"))
+                .compose(pendingCount -> {
+                    logger.info("Found {} messages in PENDING state", pendingCount);
+                    assertTrue(pendingCount >= messageCount,
+                            "Should have at least " + messageCount + " pending messages");
+                    logger.info("Simulating consumer crash - forcing messages into PROCESSING state");
+                    return forceMessagesIntoProcessingState(messageCount);
+                })
+                .compose(forcedCount -> countMessagesByStatus("PROCESSING")
+                        .map(processingCount -> new int[]{forcedCount, processingCount}))
+                .compose(counts -> {
+                    int forcedCount = counts[0];
+                    int processingCount = counts[1];
+                    logger.info("Found {} messages stuck in PROCESSING state after simulated crash", processingCount);
 
-        // Wait for messages to be persisted
-        vertx.timer(1000).await();
+                    if (forcedCount == 0 || processingCount == 0) {
+                        logger.info("No messages were forced into PROCESSING state - this may be due to timing");
+                        logger.info("The recovery mechanism is still functional, as demonstrated by other tests");
+                        return Future.<Void>succeededFuture();
+                    }
 
-        // Verify messages are in PENDING state
-        int pendingCount = countMessagesByStatus("PENDING");
-        logger.info("Found {} messages in PENDING state", pendingCount);
-        assertTrue(pendingCount >= messageCount, "Should have at least " + messageCount + " pending messages");
-
-        // Simulate the exact crash scenario: consumer polls messages (moves them to PROCESSING)
-        // but crashes before completing processing
-        logger.info("Simulating consumer crash - forcing messages into PROCESSING state");
-        int forcedCount = forceMessagesIntoProcessingState(messageCount);
-
-        // Verify messages are now stuck in PROCESSING state
-        int processingCount = countMessagesByStatus("PROCESSING");
-        logger.info("Found {} messages stuck in PROCESSING state after simulated crash", processingCount);
-
-        // If we couldn't force any messages into PROCESSING state, skip the recovery test
-        // but still consider this a successful demonstration of the mechanism
-        if (forcedCount == 0 || processingCount == 0) {
-            logger.info("No messages were forced into PROCESSING state - this may be due to timing");
-            logger.info("The recovery mechanism is still functional, as demonstrated by other tests");
-            return; // Skip the rest of the test
-        }
-
-        assertTrue(processingCount > 0, "Should have messages stuck in PROCESSING state after crash");
-
-        // Wait for messages to be considered stuck (longer than the recovery timeout)
-        vertx.timer(3000).await();
-
-        // Now test the recovery mechanism
-        logger.info("Running stuck message recovery...");
-        int recoveredCount = testRecoveryManager.recoverStuckMessages().await();
-
-        // Verify that messages were recovered
-        assertTrue(recoveredCount > 0, "Recovery manager should have recovered stuck messages");
-        logger.info("Recovery manager recovered {} stuck messages", recoveredCount);
-
-        // Wait for recovery to complete
-        vertx.timer(1000).await();
-
-        // Verify messages are back in PENDING state
-        int pendingAfterRecovery = countMessagesByStatus("PENDING");
-        int processingAfterRecovery = countMessagesByStatus("PROCESSING");
-
-        logger.info("After recovery: {} PENDING, {} PROCESSING", pendingAfterRecovery, processingAfterRecovery);
-
-        // Should have fewer (ideally zero) messages in PROCESSING state after recovery
-        assertTrue(processingAfterRecovery < processingCount,
-            "Should have fewer PROCESSING messages after recovery");
-
-        // Verify recovery statistics
-        StuckMessageRecoveryManager.RecoveryStats stats = testRecoveryManager.getRecoveryStats().await();
-        assertTrue(stats.isEnabled(), "Recovery should be enabled");
-        logger.info("Recovery stats: {}", stats);
-
-        logger.info("Stuck message recovery test completed successfully!");
-        logger.info("This test demonstrates that the recovery mechanism can successfully");
-        logger.info("   recover messages that get stuck in PROCESSING state due to consumer crashes");
+                    assertTrue(processingCount > 0,
+                            "Should have messages stuck in PROCESSING state after crash");
+                    return vertx.timer(3000)
+                            .compose(v -> {
+                                logger.info("Running stuck message recovery...");
+                                return testRecoveryManager.recoverStuckMessages();
+                            })
+                            .compose(recoveredCount -> {
+                                assertTrue(recoveredCount > 0,
+                                        "Recovery manager should have recovered stuck messages");
+                                logger.info("Recovery manager recovered {} stuck messages", recoveredCount);
+                                return vertx.timer(1000);
+                            })
+                            .compose(v -> Future.all(
+                                    countMessagesByStatus("PENDING"),
+                                    countMessagesByStatus("PROCESSING")))
+                            .compose(afterRecovery -> {
+                                int pendingAfterRecovery = afterRecovery.resultAt(0);
+                                int processingAfterRecovery = afterRecovery.resultAt(1);
+                                logger.info("After recovery: {} PENDING, {} PROCESSING",
+                                        pendingAfterRecovery, processingAfterRecovery);
+                                assertTrue(processingAfterRecovery < processingCount,
+                                        "Should have fewer PROCESSING messages after recovery");
+                                return testRecoveryManager.getRecoveryStats();
+                            })
+                            .map(stats -> {
+                                assertTrue(stats.isEnabled(), "Recovery should be enabled");
+                                logger.info("Recovery stats: {}", stats);
+                                logger.info("Stuck message recovery test completed successfully!");
+                                logger.info("This test demonstrates that the recovery mechanism can successfully");
+                                logger.info("   recover messages that get stuck in PROCESSING state due to consumer crashes");
+                                return (Void) null;
+                            });
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     /**
      * Test recovery manager with disabled recovery.
      */
     @Test
-    void testDisabledRecovery() throws Exception {
+    void testDisabledRecovery(VertxTestContext testContext) {
         logger.info("=== Testing Disabled Recovery Mechanism ===");
 
         // Create a recovery manager with recovery disabled
-        // Get the reactive pool from the manager's database service
-        io.vertx.sqlclient.Pool pool = manager.getDatabaseService().getConnectionProvider()
-            .getReactivePool("peegeeq-main").await();
         StuckMessageRecoveryManager disabledRecoveryManager =
-            new StuckMessageRecoveryManager(pool, Duration.ofMinutes(1), false);
+            new StuckMessageRecoveryManager(reactivePool, Duration.ofMinutes(1), false);
 
-        // Insert a stuck message directly
-        long stuckMessageId = insertStuckProcessingMessage();
-        logger.info("Inserted stuck PROCESSING message with ID: {}", stuckMessageId);
-
-        // Verify message is stuck
-        verifyMessageStatus(stuckMessageId, "PROCESSING");
-
-        // Try recovery with disabled manager
-        int recoveredCount = disabledRecoveryManager.recoverStuckMessages().await();
-
-        // Should not recover anything
-        assertEquals(0, recoveredCount, "Disabled recovery manager should not recover any messages");
-
-        // Message should still be stuck
-        verifyMessageStatus(stuckMessageId, "PROCESSING");
-
-        // Stats should show disabled
-        StuckMessageRecoveryManager.RecoveryStats stats = disabledRecoveryManager.getRecoveryStats().await();
-        assertFalse(stats.isEnabled(), "Recovery should be disabled");
-
-        logger.info("Disabled recovery test completed successfully");
+        insertStuckProcessingMessage()
+                .compose(stuckMessageId -> {
+                    logger.info("Inserted stuck PROCESSING message with ID: {}", stuckMessageId);
+                    return verifyMessageStatus(stuckMessageId, "PROCESSING")
+                            .compose(v -> disabledRecoveryManager.recoverStuckMessages())
+                            .compose(recoveredCount -> {
+                                assertEquals(0, recoveredCount,
+                                        "Disabled recovery manager should not recover any messages");
+                                return verifyMessageStatus(stuckMessageId, "PROCESSING");
+                            });
+                })
+                .compose(v -> disabledRecoveryManager.getRecoveryStats())
+                .map(stats -> {
+                    assertFalse(stats.isEnabled(), "Recovery should be disabled");
+                    logger.info("Disabled recovery test completed successfully");
+                    return (Void) null;
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     /**
@@ -257,50 +255,55 @@ public class StuckMessageRecoveryIntegrationTest {
      * This creates an even more realistic crash scenario.
      */
     @Test
-    void testStuckMessageRecoveryWithThreadCrash(Vertx vertx) throws Exception {
+    void testStuckMessageRecoveryWithThreadCrash(Vertx vertx, VertxTestContext testContext) {
         logger.info("TEST STARTED: testStuckMessageRecoveryWithThreadCrash");
         logger.info("=== Testing Stuck Message Recovery with Direct Database Insertion ===");
 
         // Create recovery manager with short timeout for testing
-        // Get the reactive pool from the manager's database service
-        io.vertx.sqlclient.Pool pool = manager.getDatabaseService().getConnectionProvider()
-            .getReactivePool("peegeeq-main").await();
         StuckMessageRecoveryManager testRecoveryManager =
-            new StuckMessageRecoveryManager(pool, Duration.ofSeconds(3), true);
+            new StuckMessageRecoveryManager(reactivePool, Duration.ofSeconds(3), true);
 
         // Instead of complex crash simulation, directly insert a stuck message
         logger.info("Inserting stuck PROCESSING message directly into database...");
-        long stuckMessageId = insertStuckProcessingMessage();
-        logger.info("Inserted stuck message with ID: {}", stuckMessageId);
+        insertStuckProcessingMessage()
+                .compose(stuckMessageId -> {
+                    logger.info("Inserted stuck message with ID: {}", stuckMessageId);
+                    return countMessagesByStatus("PROCESSING");
+                })
+                .compose(processingCount -> {
+                    logger.info("Messages in PROCESSING state: {}", processingCount);
+                    assertTrue(processingCount > 0, "Should have at least one PROCESSING message");
+                    return vertx.timer(4000)
+                            .compose(v -> {
+                                logger.info("Running stuck message recovery...");
+                                return testRecoveryManager.recoverStuckMessages();
+                            })
+                            .compose(recoveredCount -> {
+                                logger.info("Recovery manager recovered {} stuck messages", recoveredCount);
+                                assertTrue(recoveredCount > 0, "Should have recovered stuck messages");
+                                return Future.all(
+                                        countMessagesByStatus("PROCESSING"),
+                                        countMessagesByStatus("PENDING"));
+                            })
+                            .map(afterRecovery -> {
+                                int processingAfterRecovery = afterRecovery.resultAt(0);
+                                int pendingAfterRecovery = afterRecovery.resultAt(1);
+                                logger.info("After recovery: {} PROCESSING, {} PENDING",
+                                        processingAfterRecovery, pendingAfterRecovery);
+                                logger.info("Comparison: processingCount={}, processingAfterRecovery={}",
+                                        processingCount, processingAfterRecovery);
 
-        // Verify the stuck message exists
-        int processingCount = countMessagesByStatus("PROCESSING");
-        logger.info("Messages in PROCESSING state: {}", processingCount);
-        assertTrue(processingCount > 0, "Should have at least one PROCESSING message");
-
-        // Wait for the message to be considered stuck (timeout is 3 seconds)
-        vertx.timer(4000).await();
-
-        // Test recovery
-        logger.info("Running stuck message recovery...");
-        int recoveredCount = testRecoveryManager.recoverStuckMessages().await();
-        logger.info("Recovery manager recovered {} stuck messages", recoveredCount);
-
-        // Verify recovery worked
-        assertTrue(recoveredCount > 0, "Should have recovered stuck messages");
-
-        // Verify the message was moved back to PENDING
-        int processingAfterRecovery = countMessagesByStatus("PROCESSING");
-        int pendingAfterRecovery = countMessagesByStatus("PENDING");
-        logger.info("After recovery: {} PROCESSING, {} PENDING", processingAfterRecovery, pendingAfterRecovery);
-        logger.info("Comparison: processingCount={}, processingAfterRecovery={}", processingCount, processingAfterRecovery);
-
-        assertTrue(processingAfterRecovery < processingCount,
-            String.format("Should have fewer PROCESSING messages after recovery. Before: %d, After: %d",
-                processingCount, processingAfterRecovery));
-        assertTrue(pendingAfterRecovery > 0, "Should have PENDING messages after recovery");
-
-        logger.info("Stuck message recovery test completed successfully!");
+                                assertTrue(processingAfterRecovery < processingCount,
+                                        String.format("Should have fewer PROCESSING messages after recovery. Before: %d, After: %d",
+                                                processingCount, processingAfterRecovery));
+                                assertTrue(pendingAfterRecovery > 0,
+                                        "Should have PENDING messages after recovery");
+                                logger.info("Stuck message recovery test completed successfully!");
+                                return (Void) null;
+                            });
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     /**
@@ -309,7 +312,7 @@ public class StuckMessageRecoveryIntegrationTest {
      *
      * @return the ID of the inserted stuck message
      */
-    private long insertStuckProcessingMessage() throws Exception {
+    private Future<Long> insertStuckProcessingMessage() {
         logger.info("About to insert stuck PROCESSING message");
 
         String insertSql = """
@@ -321,7 +324,7 @@ public class StuckMessageRecoveryIntegrationTest {
         Instant now = Instant.now();
         Instant stuckTime = now.minus(Duration.ofMinutes(10));
 
-        long messageId = reactivePool.withConnection(conn ->
+        return reactivePool.withConnection(conn ->
             conn.preparedQuery(insertSql)
                 .execute(Tuple.of(testTopic, "\"Stuck message for recovery test\"",
                     stuckTime.atOffset(ZoneOffset.UTC), now.atOffset(ZoneOffset.UTC)))
@@ -334,18 +337,16 @@ public class StuckMessageRecoveryIntegrationTest {
                         throw new RuntimeException("Failed to insert stuck message - no ID returned");
                     }
                 })
-        ).await();
-        
-        return messageId;
+        );
     }
 
     /**
      * Verifies that a message with the given ID has the expected status using reactive pool.
      */
-    private void verifyMessageStatus(long messageId, String expectedStatus) throws Exception {
+    private Future<Void> verifyMessageStatus(long messageId, String expectedStatus) {
         logger.info("Looking for message with ID: {}", messageId);
 
-        reactivePool.withConnection(conn -> {
+        return reactivePool.withConnection(conn -> {
             // First, let's see all messages in the database
             String allSql = "SELECT id, topic, status, processed_at FROM outbox ORDER BY id";
             return conn.query(allSql).execute()
@@ -373,15 +374,15 @@ public class StuckMessageRecoveryIntegrationTest {
 
                     assertEquals(expectedStatus, status,
                         "Message " + messageId + " should have status: " + expectedStatus);
-                    return null;
+                    return (Void) null;
                 });
-        }).await();
+        });
     }
 
     /**
      * Counts messages by status for the test topic using reactive pool.
      */
-    private int countMessagesByStatus(String status) throws Exception {
+    private Future<Integer> countMessagesByStatus(String status) {
         String sql = "SELECT COUNT(*) as count FROM outbox WHERE topic = $1 AND status = $2";
         
         return reactivePool.withConnection(conn ->
@@ -394,7 +395,7 @@ public class StuckMessageRecoveryIntegrationTest {
                     }
                     return 0;
                 })
-        ).await();
+        );
     }
 
     /**
@@ -402,7 +403,7 @@ public class StuckMessageRecoveryIntegrationTest {
      * This simulates the exact moment when a consumer polls messages but crashes before completing.
      * @return the number of messages that were forced into PROCESSING state
      */
-    private int forceMessagesIntoProcessingState(int maxMessages) throws Exception {
+    private Future<Integer> forceMessagesIntoProcessingState(int maxMessages) {
         return reactivePool.withConnection(conn -> {
             // First, let's see what messages exist
             String selectSql = "SELECT id, topic, status, payload::text as payload_text FROM outbox WHERE topic = $1";
@@ -438,9 +439,7 @@ public class StuckMessageRecoveryIntegrationTest {
                     logger.info("Forced {} messages from PENDING to PROCESSING state", updated);
                     return updated;
                 });
-        }).await();
+        });
     }
 
 }
-
-

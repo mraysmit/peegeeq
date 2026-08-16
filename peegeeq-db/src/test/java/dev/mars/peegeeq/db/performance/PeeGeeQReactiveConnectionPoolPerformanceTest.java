@@ -22,7 +22,6 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
-import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
@@ -47,12 +46,14 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 /**
  * Reactive-only connection pool burst performance test.
  *
  * <p>Verifies that the Vert.x reactive pool handles a large burst of concurrent
  * database requests using only Vert.x {@code Future} composition  no
- * {@code ThreadPoolExecutor}, no blocking, no {@code .join()/.get()}.
+ * {@code ThreadPoolExecutor} and no blocking terminal waits.
  *
  * <p>This is the correct Vert.x 5.x counterpart to
  * {@link PeeGeeQPerformanceTest#testConnectionPoolHandlesBurstLoadFromThreadPoolExecutor}.
@@ -81,7 +82,7 @@ class PeeGeeQReactiveConnectionPoolPerformanceTest {
     private PeeGeeQManager manager;
 
     @BeforeEach
-    void setUp(Vertx injectedVertx, VertxTestContext testContext) {
+    void setUp(VertxTestContext testContext) {
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
         Properties testProps = new Properties();
@@ -104,7 +105,7 @@ class PeeGeeQReactiveConnectionPoolPerformanceTest {
         testProps.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
         testProps.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
         testProps.setProperty("peegeeq.queue.batch-size", "100");
-        testProps.setProperty("peegeeq.queue.polling-interval", "PT100MS");
+        testProps.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
         testProps.setProperty("peegeeq.metrics.enabled", "true");
         testProps.setProperty("peegeeq.metrics.reporting-interval", "PT5S");
         testProps.setProperty("peegeeq.queue.consumer-group-retry.enabled", "false");
@@ -134,8 +135,8 @@ class PeeGeeQReactiveConnectionPoolPerformanceTest {
      *
      * <p>Each {@code withConnection} call returns immediately with a pending
      * {@code Future<Integer>}; the Vert.x event loop services the pool asynchronously.
-     * {@code Future.join(futures)} waits for all 2000 futures to settle (succeeding even
-     * when individual futures fail), then completes the test context and logs the result.
+     * {@code Future.join(futures)} waits for all 2000 futures to settle and propagates
+     * any query failure to the test context before the exact success count is asserted.
      *
      * <p>Successful query count and aggregate latency are tracked via thread-safe
      * {@code AtomicInteger}/{@code AtomicLong} updated from {@code onSuccess} handlers
@@ -157,7 +158,13 @@ class PeeGeeQReactiveConnectionPoolPerformanceTest {
                     .withConnection("peegeeq-main", connection ->
                         connection.query("SELECT 1")
                             .execute()
-                            .map(rowSet -> rowSet.iterator().next().getInteger(0))
+                            .map(rowSet -> {
+                                int result = rowSet.iterator().next().getInteger(0);
+                                if (result != 1) {
+                                    throw new AssertionError("SELECT 1 returned " + result);
+                                }
+                                return result;
+                            })
                     )
                     .onSuccess(result -> {
                         successfulQueries.incrementAndGet();
@@ -167,15 +174,15 @@ class PeeGeeQReactiveConnectionPoolPerformanceTest {
             );
         }
 
-        // Future.join waits for all futures regardless of individual failures,
-        // matching the ThreadPoolExecutor variant's behaviour of logging failures
-        // without failing the test.
         Future.join(futures)
-            .onComplete(ar -> {
+            .onSuccess(ignored -> testContext.verify(() -> {
                 Duration elapsed = Duration.between(startTime, Instant.now());
+                assertEquals(totalQueries, successfulQueries.intValue(),
+                        "Every submitted reactive query should complete successfully");
                 logger.info("Reactive burst load: {}/{} queries succeeded in {} ms",
-                    successfulQueries.get(), totalQueries, elapsed.toMillis());
+                    successfulQueries.intValue(), totalQueries, elapsed.toMillis());
                 testContext.completeNow();
-            });
+            }))
+            .onFailure(testContext::failNow);
     }
 }

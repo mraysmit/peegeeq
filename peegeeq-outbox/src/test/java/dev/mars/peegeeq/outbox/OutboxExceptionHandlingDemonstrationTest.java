@@ -61,7 +61,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  * - After fix: Direct exceptions are caught and processed through retry/DLQ logic
  * 
  * The test output will show "Message processing failed" log entries, proving that
- * direct exceptions are now being caught by the .exceptionally() handler.
+ * direct exceptions are now being caught and converted into failed Vert.x Futures.
  */
 @Tag(TestCategories.INTEGRATION)
 @ExtendWith(VertxExtension.class)
@@ -74,11 +74,12 @@ public class OutboxExceptionHandlingDemonstrationTest {
     static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
+    private QueueFactory factory;
     private MessageProducer<String> producer;
     private MessageConsumer<String> consumer;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
@@ -93,33 +94,41 @@ public class OutboxExceptionHandlingDemonstrationTest {
 
         // Initialize PeeGeeQ
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
-        manager.start().await();
+        manager.start()
+                .onSuccess(v -> {
+                    PgDatabaseService databaseService = new PgDatabaseService(manager);
+                    PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+                    OutboxFactoryRegistrar.registerWith(provider);
 
-        // Create outbox factory and producer/consumer
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-        OutboxFactoryRegistrar.registerWith(provider);
-        
-        QueueFactory factory = provider.createFactory("outbox", databaseService);
-        producer = factory.createProducer("exception-fix-demo", String.class);
-        consumer = factory.createConsumer("exception-fix-demo", String.class);
+                    factory = provider.createFactory("outbox", databaseService);
+                    producer = factory.createProducer("exception-fix-demo", String.class);
+                    consumer = factory.createConsumer("exception-fix-demo", String.class);
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws Exception {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
-        if (consumer != null) consumer.close();
-        if (producer != null) producer.close();
-        if (manager != null) {
-            manager.closeReactive()
-                    .onSuccess(v -> {
-                    testContext.completeNow();
-                    })
-                    .onFailure(testContext::failNow);
-        } else {
-            testContext.completeNow();
-        }
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        Future<Void> closeFactory = factory != null ? factory.close() : Future.succeededFuture();
+        closeFactory
+                .transform(factoryResult -> {
+                    Future<Void> closeManager = manager != null
+                            ? manager.closeReactive()
+                            : Future.succeededFuture();
+                    return closeManager.transform(managerResult -> {
+                        if (factoryResult.failed()) {
+                            return Future.failedFuture(factoryResult.cause());
+                        }
+                        if (managerResult.failed()) {
+                            return Future.failedFuture(managerResult.cause());
+                        }
+                        return Future.succeededFuture();
+                    });
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -136,10 +145,6 @@ public class OutboxExceptionHandlingDemonstrationTest {
         AtomicInteger attemptCount = new AtomicInteger(0);
         Checkpoint retryCheckpoint = testContext.checkpoint(3); // Initial + 2 retries
 
-        // Send the test message
-        producer.send(testMessage).onFailure(testContext::failNow);
-        logger.info("Sent test message: {}", testMessage);
-
         // Set up consumer that throws exception DIRECTLY from the handler method
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
@@ -148,10 +153,12 @@ public class OutboxExceptionHandlingDemonstrationTest {
             retryCheckpoint.flag();
             
             // CRITICAL: This throws directly from the handler method
-            // Before fix: This would NOT be caught by .exceptionally() handler
-            // After fix: This IS caught and converted to failed CompletableFuture
+            // Before fix: This was not caught by the consumer pipeline.
+            // After fix: This is caught and converted to a failed Vert.x Future.
             throw new RuntimeException("INTENTIONAL FAILURE: Direct exception from handler, attempt " + attempt);
-        });
+        }).compose(v -> producer.send(testMessage))
+          .onSuccess(v -> logger.info("Sent test message: {}", testMessage))
+          .onFailure(testContext::failNow);
 
         logger.info(" Waiting for retry attempts to complete...");
         
@@ -178,14 +185,12 @@ public class OutboxExceptionHandlingDemonstrationTest {
         logger.info("=================================================================");
         logger.info("This test shows the difference between the two exception patterns:");
         logger.info("1. Direct exceptions (FIXED by this change)");
-        logger.info("2. CompletableFuture exceptions (always worked)");
+        logger.info("2. Failed Future exceptions (always worked)");
         logger.info("=================================================================");
         
         // Phase 1: Direct Exception (now fixed)
         AtomicInteger directAttemptCount = new AtomicInteger(0);
         io.vertx.core.Promise<Void> directDone = io.vertx.core.Promise.promise();
-
-        producer.send("Direct exception test").onFailure(testContext::failNow);
 
         consumer.subscribe(message -> {
             int attempt = directAttemptCount.incrementAndGet();
@@ -195,47 +200,43 @@ public class OutboxExceptionHandlingDemonstrationTest {
                 directDone.tryComplete();
             }
             throw new RuntimeException("INTENTIONAL FAILURE: Direct exception, attempt " + attempt);
-        });
-
-        directDone.future().await();
-        assertEquals(3, directAttemptCount.get(), "Should have 3 attempts for direct exception");
-        logger.info("Pattern 1 (Direct Exception): {} attempts - WORKING", directAttemptCount.get());
-
-        // Reset consumer for next pattern
-        consumer.unsubscribe();
-        vertx.timer(500).await();
-        
-        // Phase 2: Failed Future Exception (always worked)
-        AtomicInteger futureAttemptCount = new AtomicInteger(0);
-        io.vertx.core.Promise<Void> futureDone = io.vertx.core.Promise.promise();
-
-        producer.send("Failed future exception test").onFailure(testContext::failNow);
-
-        consumer.subscribe(message -> {
-            int attempt = futureAttemptCount.incrementAndGet();
-            logger.info("INTENTIONAL FAILURE: Failed future attempt {} for: {}",
-                attempt, message.getPayload());
-            if (attempt >= 3) {
-                futureDone.tryComplete();
-            }
-            return Future.failedFuture(
-                new RuntimeException("INTENTIONAL FAILURE: Failed future, attempt " + attempt));
-        });
-
-        futureDone.future().await();
-        assertEquals(3, futureAttemptCount.get(), "Should have 3 attempts for failed future");
-        logger.info("Pattern 2 (Failed Future): {} attempts - WORKING", futureAttemptCount.get());
-
-        logger.info("=================================================================");
-        logger.info("CONCLUSION: Both patterns now work identically!");
-        logger.info("Direct exceptions and CompletableFuture exceptions are");
-        logger.info("handled consistently through the same retry/DLQ logic!");
-        logger.info("=================================================================");
-
-        testContext.completeNow();
+        }).compose(v -> producer.send("Direct exception test"))
+          .compose(v -> directDone.future())
+          .compose(v -> {
+              assertEquals(3, directAttemptCount.get(), "Should have 3 attempts for direct exception");
+              logger.info("Pattern 1 (Direct Exception): {} attempts - WORKING", directAttemptCount.get());
+              consumer.unsubscribe();
+              return vertx.timer(500);
+          })
+          .compose(v -> {
+              AtomicInteger futureAttemptCount = new AtomicInteger(0);
+              io.vertx.core.Promise<Void> futureDone = io.vertx.core.Promise.promise();
+              return consumer.subscribe(message -> {
+                  int attempt = futureAttemptCount.incrementAndGet();
+                  logger.info("INTENTIONAL FAILURE: Failed future attempt {} for: {}",
+                      attempt, message.getPayload());
+                  if (attempt >= 3) {
+                      futureDone.tryComplete();
+                  }
+                  return Future.failedFuture(
+                      new RuntimeException("INTENTIONAL FAILURE: Failed future, attempt " + attempt));
+              }).compose(ignored -> producer.send("Failed future exception test"))
+                .compose(ignored -> futureDone.future())
+                .map(futureAttemptCount);
+          })
+          .onSuccess(futureAttemptCount -> testContext.verify(() -> {
+              assertEquals(3, futureAttemptCount.get(), "Should have 3 attempts for failed future");
+              logger.info("Pattern 2 (Failed Future): {} attempts - WORKING", futureAttemptCount.get());
+              logger.info("=================================================================");
+              logger.info("CONCLUSION: Both patterns now work identically!");
+              logger.info("Direct exceptions and failed Future exceptions are");
+              logger.info("handled consistently through the same retry/DLQ logic!");
+              logger.info("=================================================================");
+              testContext.completeNow();
+          }))
+          .onFailure(testContext::failNow);
     }
 
     // Helper methods removed test phases are now inline using Promises
     // to avoid VertxTestContext checkpoint accumulation across phases.
 }
-

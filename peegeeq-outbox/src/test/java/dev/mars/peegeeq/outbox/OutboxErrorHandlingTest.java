@@ -30,11 +30,11 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import io.vertx.core.Future;
-import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.sqlclient.Row;
+import io.vertx.sqlclient.Tuple;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,8 +47,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.Properties;
 import java.util.UUID;
-
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -83,244 +81,213 @@ public class OutboxErrorHandlingTest {
 
         // Set up database connection
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
-                .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
+                .property("peegeeq.queue.max-retries", "3")
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
+                .build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start()
-            .onSuccess(v -> {
+            .map(v -> {
                 // Create factory and components
                 DatabaseService databaseService = new PgDatabaseService(manager);
                 outboxFactory = new OutboxFactory(databaseService, config);
                 producer = outboxFactory.createProducer(testTopic, String.class);
                 consumer = outboxFactory.createConsumer(testTopic, String.class);
-                testContext.completeNow();
+                return (Void) null;
             })
+            .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws Exception {
-        logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        if (consumer != null) {
-            consumer.close();
-        }
-        if (producer != null) {
-            producer.close();
-        }
-        if (outboxFactory != null) {
-            outboxFactory.close();
-        }
-        
-        if (manager != null) {
-            manager.closeReactive()
-                    .onSuccess(v -> testContext.completeNow())
-                    .onFailure(testContext::failNow);
-        } else {
-            testContext.completeNow();
-        }
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+    void tearDown(VertxTestContext testContext) {
+        logger.info("Tearing down: closing resources and manager");
+        Future<Void> closeFactory = outboxFactory != null
+                ? outboxFactory.close()
+                : Future.succeededFuture();
+        closeFactory
+                .eventually(() -> manager != null
+                        ? manager.closeReactive()
+                        : Future.succeededFuture())
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @Test
-    void testMessageProcessingFailureAndRetry(VertxTestContext testContext) throws Exception {
-        String testMessage = "Message that will fail initially";
-        AtomicInteger attemptCount = new AtomicInteger(0);
-        Checkpoint successCheckpoint = testContext.checkpoint();
+    void testMessageProcessingFailureAndRetry(Vertx vertx, VertxTestContext testContext) {
+        AtomicInteger attemptCount = new AtomicInteger();
 
-        // Set up consumer that fails first few times
         consumer.subscribe(message -> {
-        logger.info("Test: message processing failure and retry");
-            int attempt = attemptCount.incrementAndGet();
-            logger.info("Processing attempt {} for message: {}", attempt, message.getPayload());
-            
-            if (attempt < 3) {
-                // Fail the first 2 attempts
-                logger.info("INTENTIONAL FAILURE: Simulating processing failure on attempt {}", attempt);
-                return Future.failedFuture(
-                    new RuntimeException("Simulated processing failure, attempt " + attempt));
-            } else {
-                // Succeed on the 3rd attempt
+                int attempt = attemptCount.incrementAndGet();
+                logger.info("Processing attempt {} for message: {}", attempt, message.getPayload());
+                if (attempt < 3) {
+                    logger.info("INTENTIONAL FAILURE: Simulating processing failure on attempt {}", attempt);
+                    return Future.failedFuture(
+                            new RuntimeException("Simulated processing failure, attempt " + attempt));
+                }
                 logger.info("SUCCESS: Processing succeeded on attempt {}", attempt);
-                successCheckpoint.flag();
                 return Future.succeededFuture();
-            }
-        });
-
-        // Send the message
-        producer.send(testMessage).onFailure(testContext::failNow);
-
-        // Wait for eventual success (should retry and eventually succeed)
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
-            "Message should eventually be processed successfully after retries");
-        assertTrue(attemptCount.get() >= 3, 
-            "Should have made at least 3 attempts (2 failures + 1 success)");
+            })
+            .compose(v -> producer.send("Message that will fail initially"))
+            .compose(v -> awaitStatus(vertx, "COMPLETED", 100))
+            .onSuccess(row -> testContext.verify(() -> {
+                assertState(row, attemptCount, 3, "COMPLETED", 2);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testConsumerExceptionHandling(VertxTestContext testContext) throws Exception {
-        String testMessage = "Message that causes exception";
-        AtomicInteger exceptionCount = new AtomicInteger(0);
-        Checkpoint exceptionCheckpoint = testContext.checkpoint();
+    void testConsumerExceptionHandling(Vertx vertx, VertxTestContext testContext) {
+        AtomicInteger exceptionCount = new AtomicInteger();
 
-        // Set up consumer that always throws exception
         consumer.subscribe(message -> {
-        logger.info("Test: consumer exception handling");
-            int count = exceptionCount.incrementAndGet();
-            logger.info("INTENTIONAL FAILURE: Processing attempt {}, throwing exception", count);
-            exceptionCheckpoint.flag();
-            throw new RuntimeException("Intentional exception for testing");
-        });
-
-        // Send the message
-        producer.send(testMessage).onFailure(testContext::failNow);
-
-        // Wait for at least one exception to be thrown
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), 
-            "Consumer should throw exception when processing message");
-        assertTrue(exceptionCount.get() >= 1, 
-            "Should have thrown at least one exception");
+                int count = exceptionCount.incrementAndGet();
+                logger.info("INTENTIONAL FAILURE: Processing attempt {}, throwing exception", count);
+                throw new RuntimeException("Intentional exception for testing");
+            })
+            .compose(v -> producer.send("Message that causes exception"))
+            .compose(v -> awaitStatus(vertx, "DEAD_LETTER", 100))
+            .onSuccess(row -> testContext.verify(() -> {
+                assertState(row, exceptionCount, 4, "DEAD_LETTER", 3);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testProducerWithClosedConnection(VertxTestContext testContext) throws Exception {
+    void testProducerWithClosedConnection(VertxTestContext testContext) {
         logger.info("===== RUNNING INTENTIONAL CLOSED CONNECTION TEST =====");
-        logger.info("**INTENTIONAL TEST** - This test deliberately closes the producer and attempts to send a message");
-        logger.info("**INTENTIONAL TEST FAILURE** - Expected exception when sending with closed producer");
-
-        String testMessage = "Message after close";
-
-        // Close the producer
         producer.close();
 
-        // Try to send message with closed producer should fail
-        producer.send(testMessage).onComplete(ar -> testContext.verify(() -> {
-        logger.info("Test: producer with closed connection");
-            assertTrue(ar.failed(), "Sending with closed producer should fail");
-            logger.info("**SUCCESS** - Closed producer properly threw exception");
-            logger.info("===== INTENTIONAL TEST COMPLETED =====");
-            testContext.completeNow();
-        }));
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        producer.send("Message after close")
+            .onSuccess(v -> testContext.failNow("Sending with closed producer should fail"))
+            .onFailure(cause -> testContext.verify(() -> {
+                assertNotNull(cause, "Closed producer failure should expose a cause");
+                logger.info("Closed producer correctly rejected the send: {}", cause.getMessage());
+                testContext.completeNow();
+            }));
     }
 
     @Test
-    void testConsumerUnsubscribe(Vertx vertx, VertxTestContext testContext) throws Exception {
-        AtomicInteger receivedCount = new AtomicInteger(0);
-        Promise<Void> firstMessageReceived = Promise.promise();
+    void testConsumerUnsubscribe(Vertx vertx, VertxTestContext testContext) {
+        AtomicInteger receivedCount = new AtomicInteger();
 
-        // Subscribe to messages
         consumer.subscribe(message -> {
-        logger.info("Test: consumer unsubscribe");
-            int count = receivedCount.incrementAndGet();
-            logger.info("Received message {}: {}", count, message.getPayload());
-            firstMessageReceived.tryComplete();
-            return Future.succeededFuture();
-        });
-
-        // Send first message, wait for delivery, then unsubscribe and verify isolation
-        producer.send("First message")
-            .compose(v -> firstMessageReceived.future())
-            .compose(v -> {
-                testContext.verify(() -> assertEquals(1, receivedCount.get(), "Should have received exactly one message"));
+                receivedCount.incrementAndGet();
+                return Future.succeededFuture();
+            })
+            .compose(v -> producer.send("First message"))
+            .compose(v -> awaitStatus(vertx, "COMPLETED", 100))
+            .compose(row -> {
+                assertState(row, receivedCount, 1, "COMPLETED", 0);
                 consumer.unsubscribe();
                 return producer.send("Second message after unsubscribe");
             })
-            .compose(v -> vertx.timer(3000))
-            .onSuccess(timerId -> {
-                testContext.verify(() ->
-                    assertEquals(1, receivedCount.get(), "Should not receive messages after unsubscribe")
-                );
+            .compose(v -> latestMessage())
+            .onSuccess(row -> testContext.verify(() -> {
+                assertEquals("PENDING", row.getString("status"));
+                assertEquals(1, receivedCount.intValue(),
+                        "Should not receive messages after unsubscribe");
                 testContext.completeNow();
-            })
+            }))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testConsumerClose(Vertx vertx, VertxTestContext testContext) throws Exception {
-        AtomicInteger receivedCount = new AtomicInteger(0);
-        Promise<Void> firstMessageReceived = Promise.promise();
+    void testConsumerClose(Vertx vertx, VertxTestContext testContext) {
+        AtomicInteger receivedCount = new AtomicInteger();
 
-        // Subscribe to messages
         consumer.subscribe(message -> {
-        logger.info("Test: consumer close");
-            int count = receivedCount.incrementAndGet();
-            logger.info("Received message {}: {}", count, message.getPayload());
-            firstMessageReceived.tryComplete();
-            return Future.succeededFuture();
-        });
-
-        // Send first message, wait for delivery, then close consumer and verify isolation
-        producer.send("Message before close")
-            .compose(v -> firstMessageReceived.future())
-            .compose(v -> {
-                testContext.verify(() -> assertEquals(1, receivedCount.get(), "Should have received exactly one message"));
+                receivedCount.incrementAndGet();
+                return Future.succeededFuture();
+            })
+            .compose(v -> producer.send("Message before close"))
+            .compose(v -> awaitStatus(vertx, "COMPLETED", 100))
+            .compose(row -> {
+                assertState(row, receivedCount, 1, "COMPLETED", 0);
                 consumer.close();
                 return producer.send("Message after close");
             })
-            .compose(v -> vertx.timer(3000))
-            .onSuccess(timerId -> {
-                testContext.verify(() ->
-                    assertEquals(1, receivedCount.get(), "Should not receive messages after consumer is closed")
-                );
+            .compose(v -> latestMessage())
+            .onSuccess(row -> testContext.verify(() -> {
+                assertEquals("PENDING", row.getString("status"));
+                assertEquals(1, receivedCount.intValue(),
+                        "Should not receive messages after consumer close");
                 testContext.completeNow();
-            })
+            }))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testNullMessageHandling(VertxTestContext testContext) throws Exception {
-        logger.info("===== RUNNING INTENTIONAL NULL MESSAGE TEST =====");
-        logger.info("**INTENTIONAL TEST** - This test deliberately sends a null payload");
-        logger.info("**INTENTIONAL TEST FAILURE** - Expected exception when sending null payload");
-
-        // producer.send(null) returns a failed Future (does not throw synchronously)
-        producer.send(null).onComplete(ar -> testContext.verify(() -> {
-        logger.info("Test: null message handling");
-            assertTrue(ar.failed(), "Sending null payload should return a failed Future");
-            assertInstanceOf(IllegalArgumentException.class, ar.cause(),
-                "Cause should be IllegalArgumentException, got: " + ar.cause().getClass().getSimpleName());
-            logger.info("**SUCCESS** - Null payload properly returned failed Future");
-            logger.info("===== INTENTIONAL TEST COMPLETED =====");
-            testContext.completeNow();
-        }));
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+    void testNullMessageHandling(VertxTestContext testContext) {
+        producer.send(null)
+            .onSuccess(v -> testContext.failNow("Sending null payload should fail"))
+            .onFailure(cause -> testContext.verify(() -> {
+                assertInstanceOf(IllegalArgumentException.class, cause);
+                testContext.completeNow();
+            }));
     }
 
     @Test
-    void testLargeMessageHandling(VertxTestContext testContext) throws Exception {
-        // Create a large message (1MB)
-        StringBuilder largeMessage = new StringBuilder();
-        for (int i = 0; i < 100000; i++) {
-        logger.info("Test: large message handling");
-            largeMessage.append("This is a large message for testing purposes. ");
-        }
-        
-        String testMessage = largeMessage.toString();
-        Checkpoint checkpoint = testContext.checkpoint();
-        AtomicInteger receivedCount = new AtomicInteger(0);
+    void testLargeMessageHandling(Vertx vertx, VertxTestContext testContext) {
+        String testMessage = "x".repeat(1_048_576);
+        AtomicInteger receivedCount = new AtomicInteger();
+        AtomicInteger receivedLength = new AtomicInteger();
 
-        // Set up consumer
         consumer.subscribe(message -> {
-            receivedCount.incrementAndGet();
-            checkpoint.flag();
-            return Future.succeededFuture();
+                receivedCount.incrementAndGet();
+                receivedLength.set(message.getPayload().length());
+                return Future.succeededFuture();
+            })
+            .compose(v -> producer.send(testMessage))
+            .compose(v -> awaitStatus(vertx, "COMPLETED", 100))
+            .onSuccess(row -> testContext.verify(() -> {
+                assertState(row, receivedCount, 1, "COMPLETED", 0);
+                assertEquals(testMessage.length(), receivedLength.intValue());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+    }
+
+    private Future<Row> awaitStatus(Vertx vertx, String expectedStatus, int remainingAttempts) {
+        return latestMessage().compose(row -> {
+            if (expectedStatus.equals(row.getString("status"))) {
+                return Future.succeededFuture(row);
+            }
+            if (remainingAttempts == 0) {
+                return Future.failedFuture(
+                        "Message on topic " + testTopic + " did not reach " + expectedStatus);
+            }
+            return vertx.timer(100)
+                    .compose(v -> awaitStatus(vertx, expectedStatus, remainingAttempts - 1));
         });
+    }
 
-        // Send large message
-        producer.send(testMessage).onFailure(testContext::failNow);
+    private Future<Row> latestMessage() {
+        return manager.getDatabaseService().getConnectionProvider()
+                .getReactivePool("peegeeq-main")
+                .compose(pool -> pool.withConnection(connection -> connection.preparedQuery("""
+                        SELECT status, retry_count
+                        FROM outbox
+                        WHERE topic = $1
+                        ORDER BY id DESC
+                        LIMIT 1
+                        """).execute(Tuple.of(testTopic))))
+                .compose(rows -> rows.size() == 1
+                        ? Future.succeededFuture(rows.iterator().next())
+                        : Future.failedFuture("No message found for topic " + testTopic));
+    }
 
-        // Wait for message to be received
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), 
-            "Large message should be received within timeout");
-        assertEquals(1, receivedCount.get(), 
-            "Should receive exactly one large message");
+    private void assertState(
+            Row row,
+            AtomicInteger observedCount,
+            int expectedAttempts,
+            String expectedStatus,
+            int expectedRetryCount) {
+        assertEquals(expectedAttempts, observedCount.intValue());
+        assertEquals(expectedStatus, row.getString("status"));
+        assertEquals(expectedRetryCount, row.getInteger("retry_count"));
     }
 }
-
-

@@ -28,11 +28,11 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
-import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.sqlclient.Row;
+import io.vertx.sqlclient.Tuple;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,8 +47,9 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 
+import java.time.Duration;
 import java.util.Properties;
-import java.util.concurrent.TimeUnit;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -71,7 +72,7 @@ public class OutboxRetryLogicTest {
     private QueueFactory factory;
 
     @BeforeEach
-    void setUp(VertxTestContext testContext) throws Exception {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
@@ -83,123 +84,105 @@ public class OutboxRetryLogicTest {
                 .build();
 
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
-        manager.start().onSuccess(v -> {
-            PgDatabaseService databaseService = new PgDatabaseService(manager);
-            PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-            OutboxFactoryRegistrar.registerWith(provider);
+        manager.start()
+                .map(v -> {
+                    PgDatabaseService databaseService = new PgDatabaseService(manager);
+                    PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+                    OutboxFactoryRegistrar.registerWith(provider);
 
-            factory = provider.createFactory("outbox", databaseService);
-            testContext.completeNow();
-        }).onFailure(testContext::failNow);
+                    factory = provider.createFactory("outbox", databaseService);
+                    return (Void) null;
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws Exception {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
-        if (manager != null) {
-            manager.closeReactive()
-                    .onSuccess(v -> testContext.completeNow())
-                    .onFailure(testContext::failNow);
-        } else {
-            testContext.completeNow();
-        }
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        Future<Void> closeFactory = factory != null
+                ? factory.close()
+                : Future.succeededFuture();
+        closeFactory
+                .eventually(() -> manager != null
+                        ? manager.closeReactive()
+                        : Future.succeededFuture())
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @Test
-    void testRetryCountIncrementsCorrectly(VertxTestContext testContext) throws Exception {
+    void testRetryCountIncrementsCorrectly(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Retry Count Increments ===");
 
-        String topicName = "retry-count-test-" + System.currentTimeMillis();
+        String topicName = newTopic("retry-count-test");
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class);
 
-        try {
-            String testMessage = "Message for retry count test";
-            AtomicInteger attemptCount = new AtomicInteger(0);
-            Checkpoint retryCheckpoint = testContext.checkpoint(4); // Initial + 3 retries
+        String testMessage = "Message for retry count test";
+        AtomicInteger attemptCount = new AtomicInteger(0);
 
-            // Set up consumer that always fails with direct exception
-            consumer.subscribe(message -> {
+        consumer.subscribe(message -> {
                 int attempt = attemptCount.incrementAndGet();
                 logger.info("INTENTIONAL FAILURE: Retry attempt {} for message: {}",
                     attempt, message.getPayload());
-                retryCheckpoint.flag();
 
                 throw new RuntimeException("INTENTIONAL FAILURE: Always fail for retry test, attempt " + attempt);
-            });
-
-            producer.send(testMessage).onFailure(testContext::failNow);
-
-            // Wait for all retry attempts
-            assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Should have attempted processing 4 times (initial + 3 retries)");
-            assertEquals(4, attemptCount.get(), "Should have made exactly 4 processing attempts");
-
-            logger.info("Retry count increment test completed successfully");
-        } finally {
-            consumer.close();
-            producer.close();
-        }
+            })
+            .compose(v -> producer.send(testMessage))
+            .compose(v -> awaitTerminalState(vertx, topicName, "DEAD_LETTER", 100))
+            .onSuccess(row -> testContext.verify(() -> {
+                assertRetryState(row, attemptCount, 4, "DEAD_LETTER", 3, "retry count");
+                logger.info("Retry count increment test completed successfully");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testMaxRetriesThresholdRespected(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testMaxRetriesThresholdRespected(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Max Retries Threshold ===");
 
-        String topicName = "max-retries-test-" + System.currentTimeMillis();
+        String topicName = newTopic("max-retries-test");
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-        MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class);
+        OutboxConsumerConfig consumerConfig = OutboxConsumerConfig.builder()
+                .maxRetries(1)
+                .pollingInterval(Duration.ofMillis(100))
+                .build();
+        MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class, consumerConfig);
 
-        try {
-            String testMessage = "Message for max retries test";
-            AtomicInteger attemptCount = new AtomicInteger(0);
-            Promise<Void> retriesDone = Promise.promise();
+        String testMessage = "Message for max retries test";
+        AtomicInteger attemptCount = new AtomicInteger(0);
 
-            consumer.subscribe(message -> {
+        consumer.subscribe(message -> {
                 int attempt = attemptCount.incrementAndGet();
                 logger.info("INTENTIONAL FAILURE: Max retries attempt {} for message: {}",
                     attempt, message.getPayload());
-                if (attempt >= 4) {
-                    retriesDone.tryComplete();
-                }
 
                 throw new RuntimeException("INTENTIONAL FAILURE: Testing max retries, attempt " + attempt);
-            });
-
-            producer.send(testMessage)
-                .compose(v -> retriesDone.future())
-                .compose(v -> {
-                    testContext.verify(() -> assertEquals(4, attemptCount.get(), "Should respect max retries limit"));
-                    return vertx.timer(2000);
-                })
-                .onSuccess(timerId -> {
-                    testContext.verify(() -> assertEquals(4, attemptCount.get(), "Should not exceed max retries"));
+            })
+            .compose(v -> producer.send(testMessage))
+            .compose(v -> awaitTerminalState(vertx, topicName, "DEAD_LETTER", 100))
+            .onSuccess(row -> testContext.verify(() -> {
+                    assertRetryState(row, attemptCount, 2, "DEAD_LETTER", 1, "max retries threshold");
                     logger.info("Max retries threshold test completed successfully");
                     testContext.completeNow();
-                })
-                .onFailure(testContext::failNow);
-
-            assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        } finally {
-            consumer.close();
-            producer.close();
-        }
+                }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testEventualSuccessAfterRetries(VertxTestContext testContext) throws Exception {
+    void testEventualSuccessAfterRetries(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Eventual Success After Retries ===");
 
-        String topicName = "eventual-success-test-" + System.currentTimeMillis();
+        String topicName = newTopic("eventual-success-test");
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class);
 
-        try {
-            String testMessage = "Message that eventually succeeds";
-            AtomicInteger attemptCount = new AtomicInteger(0);
-            Checkpoint successCheckpoint = testContext.checkpoint();
+        String testMessage = "Message that eventually succeeds";
+        AtomicInteger attemptCount = new AtomicInteger(0);
 
-            consumer.subscribe(message -> {
+        consumer.subscribe(message -> {
                 int attempt = attemptCount.incrementAndGet();
 
                 if (attempt < 3) {
@@ -207,74 +190,125 @@ public class OutboxRetryLogicTest {
                     throw new RuntimeException("INTENTIONAL FAILURE: Failing on purpose, attempt " + attempt);
                 } else {
                     logger.info("SUCCESS: Succeeding on attempt {} for eventual success test", attempt);
-                    successCheckpoint.flag();
                     return Future.succeededFuture();
                 }
-            });
-
-            producer.send(testMessage).onFailure(testContext::failNow);
-
-            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should eventually succeed after retries");
-            assertEquals(3, attemptCount.get(), "Should succeed on 3rd attempt");
-
-            logger.info("Eventual success after retries test completed successfully");
-        } finally {
-            consumer.close();
-            producer.close();
-        }
+            })
+            .compose(v -> producer.send(testMessage))
+            .compose(v -> awaitTerminalState(vertx, topicName, "COMPLETED", 100))
+            .onSuccess(row -> testContext.verify(() -> {
+                assertRetryState(row, attemptCount, 3, "COMPLETED", 2, "eventual success");
+                logger.info("Eventual success after retries test completed successfully");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testDifferentExceptionTypesRetryBehavior(VertxTestContext testContext) throws Exception {
+    void testDifferentExceptionTypesRetryBehavior(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Different Exception Types Retry Behavior ===");
 
-        testExceptionTypeRetry("IllegalArgumentException",
+        testExceptionTypeRetry(vertx, "IllegalArgumentException",
             () -> new IllegalArgumentException("INTENTIONAL FAILURE: Invalid argument"))
-            .compose(v -> testExceptionTypeRetry("IllegalStateException",
+            .compose(v -> testExceptionTypeRetry(vertx, "IllegalStateException",
                 () -> new IllegalStateException("INTENTIONAL FAILURE: Invalid state")))
-            .compose(v -> testExceptionTypeRetry("NullPointerException",
+            .compose(v -> testExceptionTypeRetry(vertx, "NullPointerException",
                 () -> new NullPointerException("INTENTIONAL FAILURE: Null pointer")))
             .onSuccess(v -> {
                 logger.info("Different exception types retry test completed successfully");
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
     }
 
-    private Future<Void> testExceptionTypeRetry(String exceptionType, java.util.function.Supplier<RuntimeException> exceptionSupplier) {
+    private Future<Void> testExceptionTypeRetry(
+            Vertx vertx,
+            String exceptionType,
+            ExceptionFactory exceptionFactory) {
         logger.info("Testing retry behavior for: {}", exceptionType);
 
-        String topicName = "exception-test-" + exceptionType.toLowerCase() + "-" + System.currentTimeMillis();
+        String topicName = newTopic("exception-test-" + exceptionType.toLowerCase());
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class);
 
         String testMessage = "Message for " + exceptionType + " test";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        AtomicInteger remaining = new AtomicInteger(4);
-        Promise<Void> done = Promise.promise();
 
-        consumer.subscribe(message -> {
+        Future<Void> scenario = consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: {} attempt {} for message: {}",
                 exceptionType, attempt, message.getPayload());
-            if (remaining.decrementAndGet() <= 0) {
-                done.tryComplete();
-            }
 
-            throw exceptionSupplier.get();
-        });
-
-        return producer.send(testMessage)
-            .compose(v -> done.future())
-            .map(v -> {
-                assertEquals(4, attemptCount.get(), "Should have made exactly 4 attempts for " + exceptionType);
-                consumer.close();
-                producer.close();
+            throw exceptionFactory.create();
+        })
+            .compose(v -> producer.send(testMessage))
+            .compose(v -> awaitTerminalState(vertx, topicName, "DEAD_LETTER", 100))
+            .map(row -> {
+                assertRetryState(row, attemptCount, 4, "DEAD_LETTER", 3, exceptionType);
                 return (Void) null;
             });
+
+        return scenario.eventually(() -> {
+                consumer.close();
+                producer.close();
+                return Future.succeededFuture();
+            });
+    }
+
+    private Future<Row> awaitTerminalState(
+            Vertx vertx,
+            String topicName,
+            String expectedStatus,
+            int remainingAttempts) {
+        return manager.getDatabaseService().getConnectionProvider()
+                .getReactivePool("peegeeq-main")
+                .compose(pool -> pool.withConnection(connection -> connection.preparedQuery("""
+                        SELECT status, retry_count
+                        FROM outbox
+                        WHERE topic = $1
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                        """).execute(Tuple.of(topicName))))
+                .compose(rows -> {
+                    if (rows.size() == 1) {
+                        Row row = rows.iterator().next();
+                        if (expectedStatus.equals(row.getString("status"))) {
+                            return Future.succeededFuture(row);
+                        }
+                    }
+                    if (remainingAttempts == 0) {
+                        return Future.failedFuture(
+                                "Message on topic " + topicName + " did not reach " + expectedStatus);
+                    }
+                    return vertx.timer(100)
+                            .compose(v -> awaitTerminalState(
+                                    vertx,
+                                    topicName,
+                                    expectedStatus,
+                                    remainingAttempts - 1));
+                });
+    }
+
+    private void assertRetryState(
+            Row row,
+            AtomicInteger attemptCount,
+            int expectedAttempts,
+            String expectedStatus,
+            int expectedRetryCount,
+            String scenario) {
+        assertEquals(expectedAttempts, attemptCount.intValue(),
+                "Unexpected attempt count for " + scenario);
+        assertEquals(expectedStatus, row.getString("status"),
+                "Unexpected terminal status for " + scenario);
+        assertEquals(expectedRetryCount, row.getInteger("retry_count"),
+                "Unexpected persisted retry count for " + scenario);
+    }
+
+    private String newTopic(String prefix) {
+        return prefix + "-" + UUID.randomUUID().toString().substring(0, 8);
+    }
+
+    @FunctionalInterface
+    private interface ExceptionFactory {
+        RuntimeException create();
     }
 }
-
-

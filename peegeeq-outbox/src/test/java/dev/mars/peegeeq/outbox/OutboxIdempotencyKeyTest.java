@@ -13,8 +13,8 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
@@ -33,7 +33,6 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
 
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -70,38 +69,33 @@ class OutboxIdempotencyKeyTest {
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().onSuccess(v -> {
+        manager.start().map(v -> {
             DatabaseService databaseService = new PgDatabaseService(manager);
             outboxFactory = new OutboxFactory(databaseService, config);
             producer = outboxFactory.createProducer(testTopic, String.class);
             logger.info("=== Test setup complete for topic: {} ===", testTopic);
-            testContext.completeNow();
-        }).onFailure(testContext::failNow);
+            return (Void) null;
+        })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
-        if (producer != null) {
-            producer.close();
-        }
-        if (outboxFactory != null) {
-            outboxFactory.close();
-        }
-        Future<Void> closeFuture = (manager != null)
-            ? manager.closeReactive()
-            : Future.succeededFuture();
-
-        closeFuture
-                .onSuccess(v -> {
-                    testContext.completeNow();
-                })
+        Future<Void> closeFactory = outboxFactory != null
+                ? outboxFactory.close()
+                : Future.succeededFuture();
+        closeFactory
+                .eventually(() -> manager != null
+                        ? manager.closeReactive()
+                        : Future.succeededFuture())
+                .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testSendWithIdempotencyKey_FirstSend_Success(VertxTestContext testContext) throws InterruptedException {
+    void testSendWithIdempotencyKey_FirstSend_Success(VertxTestContext testContext) {
         logger.info("=== Testing first send with idempotency key succeeds ===");
 
         Map<String, String> headers = new HashMap<>();
@@ -116,11 +110,10 @@ class OutboxIdempotencyKeyTest {
                 logger.info("First send with idempotency key succeeded");
                 testContext.completeNow();
             })));
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testSendWithIdempotencyKey_DuplicateSend_Ignored(VertxTestContext testContext) throws InterruptedException {
+    void testSendWithIdempotencyKey_DuplicateSend_Ignored(VertxTestContext testContext) {
         logger.info("=== Testing duplicate send with same idempotency key is ignored ===");
 
         Map<String, String> headers = new HashMap<>();
@@ -142,11 +135,10 @@ class OutboxIdempotencyKeyTest {
                 logger.info("Duplicate sends were correctly ignored");
                 testContext.completeNow();
             })));
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testSendWithoutIdempotencyKey_AllowsDuplicates(VertxTestContext testContext) throws InterruptedException {
+    void testSendWithoutIdempotencyKey_AllowsDuplicates(VertxTestContext testContext) {
         logger.info("=== Testing sends without idempotency key allows duplicates ===");
 
         Map<String, String> headers = new HashMap<>();
@@ -162,11 +154,10 @@ class OutboxIdempotencyKeyTest {
                 logger.info("Messages without idempotency key allow duplicates as expected");
                 testContext.completeNow();
             })));
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testSendWithDifferentIdempotencyKeys_AllSucceed(VertxTestContext testContext) throws InterruptedException {
+    void testSendWithDifferentIdempotencyKeys_AllSucceed(VertxTestContext testContext) {
         logger.info("=== Testing sends with different idempotency keys all succeed ===");
 
         Future<Void> chain = Future.succeededFuture();
@@ -186,11 +177,10 @@ class OutboxIdempotencyKeyTest {
                 logger.info("All messages with different idempotency keys were inserted");
                 testContext.completeNow();
             })));
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testSendWithIdempotencyKey_ConcurrentDuplicates_OnlyOneInserted(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
+    void testSendWithIdempotencyKey_ConcurrentDuplicates_OnlyOneInserted(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing concurrent duplicate sends with same idempotency key ===");
 
         String idempotencyKey = "concurrent-key-" + UUID.randomUUID();
@@ -217,53 +207,50 @@ class OutboxIdempotencyKeyTest {
             .compose(cf -> vertx.timer(500))
             .compose(v -> getMessageCountForIdempotencyKey(idempotencyKey))
             .onComplete(testContext.succeeding(count -> testContext.verify(() -> {
-                assertEquals(sendCount, successCount.get(), "All sends should succeed (duplicates ignored)");
-                assertEquals(0, failureCount.get(), "No failures expected");
+                assertEquals(sendCount, successCount.intValue(), "All sends should succeed (duplicates ignored)");
+                assertEquals(0, failureCount.intValue(), "No failures expected");
                 assertEquals(1, count, "Should have exactly 1 message despite concurrent sends");
                 logger.info("Concurrent duplicate sends handled correctly");
                 testContext.completeNow();
             })));
-        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
     }
 
     @Test
-    void testSendWithIdempotencyKey_ConsumerReceivesOnlyOnce(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
+    void testSendWithIdempotencyKey_ConsumerReceivesOnlyOnce(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing consumer receives message only once with idempotency key ===");
 
         String idempotencyKey = "consumer-test-key-" + UUID.randomUUID();
         Map<String, String> headers = new HashMap<>();
         headers.put("idempotencyKey", idempotencyKey);
+        MessageConsumer<String> consumer = outboxFactory.createConsumer(testTopic, String.class);
+        AtomicInteger receivedCount = new AtomicInteger(0);
+        Promise<Void> firstMessageReceived = Promise.promise();
 
         // Send same message 3 times, then subscribe and verify
         producer.send("test-payload", headers)
             .compose(v -> producer.send("test-payload", headers))
             .compose(v -> producer.send("test-payload", headers))
-            .compose(v -> {
-                // Create consumer after sends complete
-                MessageConsumer<String> consumer = outboxFactory.createConsumer(testTopic, String.class);
-                AtomicInteger receivedCount = new AtomicInteger(0);
-                Checkpoint messageReceived = testContext.checkpoint();
-
-                consumer.subscribe(message -> {
+            .compose(v -> consumer.subscribe(message -> {
                     receivedCount.incrementAndGet();
-                    messageReceived.flag();
+                    firstMessageReceived.tryComplete();
                     return Future.succeededFuture();
-                });
-
-                // Wait for message processing, then verify no duplicates
-                return vertx.timer(3000)
-                    .onSuccess(id -> testContext.verify(() -> {
-                        assertEquals(1, receivedCount.get(), "Consumer should receive message only once");
-                        consumer.close();
-                        logger.info("Consumer received message only once despite duplicate sends");
-                    }));
+                }))
+            .compose(v -> firstMessageReceived.future())
+            .compose(v -> vertx.timer(3000))
+            .eventually(() -> {
+                consumer.close();
+                return Future.succeededFuture();
             })
+            .onSuccess(v -> testContext.verify(() -> {
+                assertEquals(1, receivedCount.intValue(), "Consumer should receive message only once");
+                logger.info("Consumer received message only once despite duplicate sends");
+                testContext.completeNow();
+            }))
             .onFailure(testContext::failNow);
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testSendWithNullIdempotencyKey_AllowsDuplicates(VertxTestContext testContext) throws InterruptedException {
+    void testSendWithNullIdempotencyKey_AllowsDuplicates(VertxTestContext testContext) {
         logger.info("=== Testing sends with null idempotency key allows duplicates ===");
 
         Map<String, String> headers = new HashMap<>();
@@ -278,11 +265,10 @@ class OutboxIdempotencyKeyTest {
                 logger.info("Null idempotency key allows duplicates");
                 testContext.completeNow();
             })));
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testSendWithEmptyIdempotencyKey_AllowsDuplicates(VertxTestContext testContext) throws InterruptedException {
+    void testSendWithEmptyIdempotencyKey_AllowsDuplicates(VertxTestContext testContext) {
         logger.info("=== Testing sends with empty idempotency key allows duplicates ===");
 
         Map<String, String> headers = new HashMap<>();
@@ -297,7 +283,6 @@ class OutboxIdempotencyKeyTest {
                 logger.info("Empty idempotency key allows duplicates");
                 testContext.completeNow();
             })));
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     // Helper methods
@@ -326,5 +311,4 @@ class OutboxIdempotencyKeyTest {
                 .map(rows -> rows.iterator().next().getInteger("cnt"));
     }
 }
-
 
