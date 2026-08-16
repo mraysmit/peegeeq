@@ -28,7 +28,6 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
@@ -42,7 +41,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -62,10 +61,9 @@ public class MultiTenantSchemaIsolationTest {
     private PeeGeeQManager managerTenantB;
     private OutboxFactory factoryTenantA;
     private OutboxFactory factoryTenantB;
-    private final List<AutoCloseable> resources = new CopyOnWriteArrayList<>();
 
     @BeforeEach
-    void setUp() {
+    void setUp(VertxTestContext testContext) {
         // Initialize two separate tenant schemas
         String schemaTenantA = "tenant_a";
         String schemaTenantB = "tenant_b";
@@ -86,7 +84,6 @@ public class MultiTenantSchemaIsolationTest {
                 schemaTenantA
         );
         managerTenantA = new PeeGeeQManager(configTenantA, new SimpleMeterRegistry());
-        managerTenantA.start();
 
         // Create configuration for Tenant B using programmatic constructor
         PeeGeeQConfiguration configTenantB = new PeeGeeQConfiguration(
@@ -99,86 +96,82 @@ public class MultiTenantSchemaIsolationTest {
                 schemaTenantB
         );
         managerTenantB = new PeeGeeQManager(configTenantB, new SimpleMeterRegistry());
-        managerTenantB.start();
 
-        // Create factories for both tenants
-        factoryTenantA = new OutboxFactory(new PgDatabaseService(managerTenantA), configTenantA);
-        factoryTenantB = new OutboxFactory(new PgDatabaseService(managerTenantB), configTenantB);
+        managerTenantA.start()
+                .compose(v -> managerTenantB.start())
+                .map(v -> {
+                    factoryTenantA = new OutboxFactory(new PgDatabaseService(managerTenantA), configTenantA);
+                    factoryTenantB = new OutboxFactory(new PgDatabaseService(managerTenantB), configTenantB);
+                    return (Void) null;
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown(VertxTestContext tearDownContext) throws Exception {
-        for (AutoCloseable resource : resources) {
-            resource.close();
-        }
-        resources.clear();
-        if (factoryTenantA != null) factoryTenantA.close();
-        if (factoryTenantB != null) factoryTenantB.close();
-        Future<Void> closeChain = Future.succeededFuture();
-        if (managerTenantA != null) {
-            closeChain = closeChain.compose(v -> managerTenantA.closeReactive());
-        }
-        if (managerTenantB != null) {
-            closeChain = closeChain.compose(v -> managerTenantB.closeReactive());
-        }
-        closeChain
+    void tearDown(VertxTestContext tearDownContext) {
+        Future<Void> closeTenantAFactory = factoryTenantA != null
+                ? factoryTenantA.close()
+                : Future.succeededFuture();
+        closeTenantAFactory
+                .eventually(() -> factoryTenantB != null
+                        ? factoryTenantB.close()
+                        : Future.succeededFuture())
+                .eventually(() -> managerTenantA != null
+                        ? managerTenantA.closeReactive()
+                        : Future.succeededFuture())
+                .eventually(() -> managerTenantB != null
+                        ? managerTenantB.closeReactive()
+                        : Future.succeededFuture())
                 .onSuccess(v -> tearDownContext.completeNow())
                 .onFailure(tearDownContext::failNow);
-        assertTrue(tearDownContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test
-    void testMessageIsolationBetweenTenants(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testMessageIsolationBetweenTenants(Vertx vertx, VertxTestContext testContext) {
         // Tenant A sends a message
         MessageProducer<String> producerA = factoryTenantA.createProducer("test-topic", String.class);
-        resources.add(producerA);
-        producerA.send("tenant-a-message").onFailure(testContext::failNow);
 
         // Tenant B creates a consumer - should NOT receive tenant A's message
         MessageConsumer<String> consumerB = factoryTenantB.createConsumer("test-topic", String.class);
-        resources.add(consumerB);
         List<String> receivedMessagesB = new CopyOnWriteArrayList<>();
-
-        consumerB.subscribe(message -> {
-            receivedMessagesB.add(message.getPayload());
-            return Future.succeededFuture();
-        });
-
         List<String> receivedMessagesA = new CopyOnWriteArrayList<>();
-        Checkpoint messageReceivedA = testContext.checkpoint();
 
         // Wait 3 seconds to ensure Tenant B has not received Tenant A's message,
         // then create Tenant A's consumer
-        vertx.timer(3000)
+        consumerB.subscribe(message -> {
+                receivedMessagesB.add(message.getPayload());
+                return Future.succeededFuture();
+            })
+            .compose(v -> producerA.send("tenant-a-message"))
+            .compose(v -> vertx.timer(3000))
             .compose(timerId -> {
                 testContext.verify(() -> assertTrue(receivedMessagesB.isEmpty(), "Tenant B should have no messages"));
 
                 MessageConsumer<String> consumerA = factoryTenantA.createConsumer("test-topic", String.class);
-                resources.add(consumerA);
-
                 return consumerA.subscribe(message -> {
                     receivedMessagesA.add(message.getPayload());
-                    if (receivedMessagesA.size() == 1) {
-                        testContext.verify(() -> {
-                            assertEquals("tenant-a-message", receivedMessagesA.get(0), "Tenant A should receive correct message");
-                            messageReceivedA.flag();
-                        });
-                    }
                     return Future.succeededFuture();
                 });
             })
+            .compose(v -> awaitCondition(
+                    vertx,
+                    () -> !receivedMessagesA.isEmpty(),
+                    "Tenant A should receive its own message",
+                    150))
+            .onSuccess(v -> testContext.verify(() -> {
+                assertTrue(receivedMessagesB.isEmpty(), "Tenant B should have no messages");
+                assertEquals(List.of("tenant-a-message"), receivedMessagesA,
+                        "Tenant A should receive exactly its own message");
+                testContext.completeNow();
+            }))
             .onFailure(testContext::failNow);
-
-        // Tenant A should receive its own message
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Tenant A should receive its own message");
-        assertEquals(1, receivedMessagesA.size(), "Tenant A should have exactly 1 message");
     }
 
     @Test
     void testStatsIsolationBetweenTenants(VertxTestContext testContext) {
         // Tenant A sends 5 messages, sequencing sends via compose to ensure persistence ordering
         MessageProducer<String> producerA = factoryTenantA.createProducer("stats-topic", String.class);
-        resources.add(producerA);
         Future<Void> chainA = Future.succeededFuture();
         for (int i = 0; i < 5; i++) {
             final int idx = i;
@@ -187,7 +180,6 @@ public class MultiTenantSchemaIsolationTest {
 
         // Tenant B sends 3 messages
         MessageProducer<String> producerB = factoryTenantB.createProducer("stats-topic", String.class);
-        resources.add(producerB);
         Future<Void> chainB = Future.succeededFuture();
         for (int i = 0; i < 3; i++) {
             final int idx = i;
@@ -209,55 +201,67 @@ public class MultiTenantSchemaIsolationTest {
     }
 
     @Test
-    void testSameTopicNameAcrossTenants(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testSameTopicNameAcrossTenants(Vertx vertx, VertxTestContext testContext) {
         // Both tenants use the same topic name but should be isolated
         String sharedTopicName = "shared-topic-name";
 
         MessageProducer<String> producerA = factoryTenantA.createProducer(sharedTopicName, String.class);
-        resources.add(producerA);
         MessageProducer<String> producerB = factoryTenantB.createProducer(sharedTopicName, String.class);
-        resources.add(producerB);
-
-        producerA.send("message-from-tenant-a").onFailure(testContext::failNow);
-        producerB.send("message-from-tenant-b").onFailure(testContext::failNow);
-
-        // Use a shared context with 2 checkpoints (one per tenant)
-        Checkpoint tenantAReceived = testContext.checkpoint();
-        Checkpoint tenantBReceived = testContext.checkpoint();
 
         // Tenant A consumer should only receive tenant A's message
         MessageConsumer<String> consumerA = factoryTenantA.createConsumer(sharedTopicName, String.class);
-        resources.add(consumerA);
         List<String> receivedA = new CopyOnWriteArrayList<>();
-
-        consumerA.subscribe(message -> {
-            receivedA.add(message.getPayload());
-            if (receivedA.size() == 1) {
-                tenantAReceived.flag();
-            }
-            return Future.succeededFuture();
-        });
 
         // Tenant B consumer should only receive tenant B's message
         MessageConsumer<String> consumerB = factoryTenantB.createConsumer(sharedTopicName, String.class);
-        resources.add(consumerB);
         List<String> receivedB = new CopyOnWriteArrayList<>();
 
-        consumerB.subscribe(message -> {
+        Future<Void> subscribeA = consumerA.subscribe(message -> {
+            receivedA.add(message.getPayload());
+            return Future.succeededFuture();
+        });
+        Future<Void> subscribeB = consumerB.subscribe(message -> {
             receivedB.add(message.getPayload());
-            if (receivedB.size() == 1) {
-                tenantBReceived.flag();
-            }
             return Future.succeededFuture();
         });
 
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Both tenants should receive messages");
-        assertEquals(1, receivedA.size(), "Tenant A should receive exactly 1 message");
-        assertEquals("message-from-tenant-a", receivedA.get(0), "Tenant A should receive its own message");
-        assertEquals(1, receivedB.size(), "Tenant B should receive exactly 1 message");
-        assertEquals("message-from-tenant-b", receivedB.get(0), "Tenant B should receive its own message");
+        Future.all(subscribeA, subscribeB)
+                .compose(v -> Future.all(
+                        producerA.send("message-from-tenant-a"),
+                        producerB.send("message-from-tenant-b")))
+                .compose(v -> awaitCondition(
+                        vertx,
+                        () -> !receivedA.isEmpty() && !receivedB.isEmpty(),
+                        "Both tenants should receive messages",
+                        100))
+                .onSuccess(v -> testContext.verify(() -> {
+                    assertEquals(List.of("message-from-tenant-a"), receivedA,
+                            "Tenant A should receive exactly its own message");
+                    assertEquals(List.of("message-from-tenant-b"), receivedB,
+                            "Tenant B should receive exactly its own message");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
+    }
+
+    private Future<Void> awaitCondition(
+            Vertx vertx,
+            BooleanSupplier condition,
+            String timeoutMessage,
+            int remainingAttempts) {
+        if (condition.getAsBoolean()) {
+            return Future.succeededFuture();
+        }
+        if (remainingAttempts == 0) {
+            return Future.failedFuture(timeoutMessage);
+        }
+        return vertx.timer(100)
+                .compose(v -> awaitCondition(
+                        vertx,
+                        condition,
+                        timeoutMessage,
+                        remainingAttempts - 1));
     }
 }
-
 
 

@@ -88,13 +88,13 @@ class OutboxBasicTest {
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start()
-            .onSuccess(v -> {
+            .onSuccess(v -> testContext.verify(() -> {
                 DatabaseService databaseService = new PgDatabaseService(manager);
                 outboxFactory = new OutboxFactory(databaseService, config);
                 producer = outboxFactory.createProducer(testTopic, String.class);
                 consumer = outboxFactory.createConsumer(testTopic, String.class);
                 testContext.completeNow();
-            })
+            }))
             .onFailure(testContext::failNow);
     }
 
@@ -107,16 +107,15 @@ class OutboxBasicTest {
         if (producer != null) {
             producer.close();
         }
-        if (outboxFactory != null) {
-            outboxFactory.close();
-        }
-        if (manager != null) {
-            manager.closeReactive()
-                .onSuccess(v -> testContext.completeNow())
-                .onFailure(testContext::failNow);
-        } else {
-            testContext.completeNow();
-        }
+        Future<Void> factoryClose = outboxFactory != null
+                ? outboxFactory.close()
+                : Future.succeededFuture();
+        factoryClose
+            .eventually(() -> manager != null
+                    ? manager.closeReactive()
+                    : Future.succeededFuture())
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
@@ -134,9 +133,9 @@ class OutboxBasicTest {
             receivedCount.incrementAndGet();
             messageReceived.flag();
             return Future.succeededFuture();
-        });
-
-        producer.send(testMessage).onFailure(testContext::failNow);
+        })
+            .compose(v -> producer.send(testMessage))
+            .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received within timeout");
         assertEquals(1, receivedCount.get(), "Should receive exactly one message");
         assertEquals(testMessage, receivedMessages.get(0), "Should receive the correct message");
@@ -150,15 +149,15 @@ class OutboxBasicTest {
         logger.info("Test: processing-time percentiles exposed on stats");
         int messageCount = 20;
 
-        // subscribe returns Future<Void>; observed, unlike the older tests in
-        // this file whose bare calls are a pre-existing fire-and-forget
-        // violation (flagged, not copied).
         consumer.subscribe(message -> Future.succeededFuture())
+                .compose(v -> {
+                    List<Future<Void>> sends = new ArrayList<>();
+                    for (int i = 0; i < messageCount; i++) {
+                        sends.add(producer.send("Percentile message " + i));
+                    }
+                    return Future.all(sends).mapEmpty();
+                })
                 .onFailure(testContext::failNow);
-
-        for (int i = 0; i < messageCount; i++) {
-            producer.send("Percentile message " + i).onFailure(testContext::failNow);
-        }
 
         // The consumer records processing time at ack, after the handler
         // future settles — poll the stats until the distribution covers every
@@ -228,9 +227,9 @@ class OutboxBasicTest {
             receivedMessages.add(message);
             messageReceived.flag();
             return Future.succeededFuture();
-        });
-
-        producer.send(testMessage, headers).onFailure(testContext::failNow);
+        })
+            .compose(v -> producer.send(testMessage, headers))
+            .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received within timeout");
         assertEquals(1, receivedMessages.size(), "Should receive exactly one message");
@@ -255,12 +254,15 @@ class OutboxBasicTest {
             }
             messagesReceived.flag();
             return Future.succeededFuture();
-        });
-
-        for (int i = 0; i < messageCount; i++) {
-            String message = "Basic Test Message " + i;
-            producer.send(message).onFailure(testContext::failNow);
-        }
+        })
+            .compose(v -> {
+                List<Future<Void>> sends = new ArrayList<>();
+                for (int i = 0; i < messageCount; i++) {
+                    sends.add(producer.send("Basic Test Message " + i));
+                }
+                return Future.all(sends).mapEmpty();
+            })
+            .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "All messages should be received within timeout");
         assertEquals(messageCount, receivedMessages.size(), "Should receive all sent messages");
@@ -280,9 +282,9 @@ class OutboxBasicTest {
             receivedMessages.add(message);
             messageReceived.flag();
             return Future.succeededFuture();
-        });
-
-        producer.send(testMessage, Map.of(), correlationId).onFailure(testContext::failNow);
+        })
+            .compose(v -> producer.send(testMessage, Map.of(), correlationId))
+            .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received within timeout");
         assertEquals(1, receivedMessages.size(), "Should receive exactly one message");
@@ -309,14 +311,13 @@ class OutboxBasicTest {
             receivedMessages.add(message.getPayload());
             messageReceived.flag();
             return Future.succeededFuture();
-        });
-
-        producer.send(testMessage, Map.of(), null, messageGroup).onFailure(testContext::failNow);
+        })
+            .compose(v -> producer.send(testMessage, Map.of(), null, messageGroup))
+            .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received within timeout");
         assertEquals(1, receivedMessages.size(), "Should receive exactly one message");
         assertEquals(testMessage, receivedMessages.get(0), "Should receive correct message");
     }
 }
-
 

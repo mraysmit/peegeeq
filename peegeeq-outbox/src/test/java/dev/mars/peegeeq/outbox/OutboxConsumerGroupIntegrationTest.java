@@ -32,6 +32,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -58,7 +59,7 @@ public class OutboxConsumerGroupIntegrationTest {
     private String testTopic;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
 
         testTopic = "group-test-" + UUID.randomUUID().toString().substring(0, 8);
@@ -69,36 +70,40 @@ public class OutboxConsumerGroupIntegrationTest {
                 .build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-        producer = outboxFactory.createProducer(testTopic, String.class);
-        consumerGroup = outboxFactory.createConsumerGroup("test-group", testTopic, String.class);
+        manager.start()
+                .onSuccess(v -> {
+                    DatabaseService databaseService = new PgDatabaseService(manager);
+                    outboxFactory = new OutboxFactory(databaseService, config);
+                    producer = outboxFactory.createProducer(testTopic, String.class);
+                    consumerGroup = outboxFactory.createConsumerGroup("test-group", testTopic, String.class);
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws Exception {
-        logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        if (consumerGroup != null) {
-            consumerGroup.stop()
-                .compose(v -> consumerGroup.close())
-                .onFailure(e -> logger.warn("consumerGroup stop/close failed in tearDown", e));
-        }
-        if (producer != null) {
-            producer.close();
-        }
-        if (outboxFactory != null) {
-            outboxFactory.close();
-        }
-        if (manager != null) {
-            manager.closeReactive()
-                    .onSuccess(v -> testContext.completeNow())
-                    .onFailure(testContext::failNow);
-        } else {
-            testContext.completeNow();
-        }
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+    void tearDown(VertxTestContext testContext) {
+        logger.info("Tearing down: closing factory resources and manager");
+        Future<Void> closeFactory = outboxFactory != null
+                ? outboxFactory.close()
+                : Future.succeededFuture();
+        closeFactory
+                .transform(factoryResult -> {
+                    Future<Void> closeManager = manager != null
+                            ? manager.closeReactive()
+                            : Future.succeededFuture();
+                    return closeManager.transform(managerResult -> {
+                        if (factoryResult.failed()) {
+                            return Future.failedFuture(factoryResult.cause());
+                        }
+                        if (managerResult.failed()) {
+                            return Future.failedFuture(managerResult.cause());
+                        }
+                        return Future.succeededFuture();
+                    });
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -121,14 +126,15 @@ public class OutboxConsumerGroupIntegrationTest {
             return Future.succeededFuture();
         });
 
-        consumerGroup.start();
-
-        // Give group workers a brief moment to fully subscribe before publishing.
-        vertx.timer(300).await();
-
-        for (int i = 0; i < messageCount; i++) {
-            producer.send("Message-" + i).onFailure(testContext::failNow);
-        }
+        consumerGroup.start()
+                .compose(v -> {
+                    List<Future<Void>> sends = new ArrayList<>(messageCount);
+                    for (int i = 0; i < messageCount; i++) {
+                        sends.add(producer.send("Message-" + i));
+                    }
+                    return Future.all(sends).mapEmpty();
+                })
+                .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Did not receive all messages");
 
@@ -143,41 +149,38 @@ public class OutboxConsumerGroupIntegrationTest {
     @Test
     void testGroupFiltering(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
         int messageCount = 10;
-        Checkpoint latch = testContext.checkpoint(messageCount / 2); // Expect half
         List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
 
         consumerGroup.setGroupFilter(msg -> msg.getPayload().startsWith("Keep"));
 
         consumerGroup.addConsumer("member-1", message -> {
-        logger.info("Test: group filtering");
+            logger.info("Test: group filtering");
             receivedMessages.add(message.getPayload());
-            latch.flag();
             return Future.succeededFuture();
         });
 
-        consumerGroup.start();
-
-        for (int i = 0; i < messageCount; i++) {
-            if (i % 2 == 0) {
-                producer.send("Keep-" + i);
-            } else {
-                producer.send("Drop-" + i);
-            }
-        }
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Did not receive expected messages");
-        
-        // Wait a bit more to ensure no dropped messages are received
-        vertx.timer(1000).await();
-
-        assertEquals(messageCount / 2, receivedMessages.size());
-        assertTrue(receivedMessages.stream().allMatch(s -> s.startsWith("Keep")));
-        
-        // With the current retry/DLQ handling for rejected messages, each filtered message
-        // is re-polled on retries so totalMessagesFiltered may exceed messageCount/2.
-        assertTrue(consumerGroup.getStats().getTotalMessagesFiltered() >= messageCount / 2,
-            "At least " + (messageCount / 2) + " messages should have been filtered, got: " +
-            consumerGroup.getStats().getTotalMessagesFiltered());
+        consumerGroup.start()
+                .compose(v -> {
+                    List<Future<Void>> sends = new ArrayList<>(messageCount);
+                    for (int i = 0; i < messageCount; i++) {
+                        sends.add(producer.send(i % 2 == 0 ? "Keep-" + i : "Drop-" + i));
+                    }
+                    return Future.all(sends).mapEmpty();
+                })
+                .compose(v -> awaitCondition(vertx,
+                        () -> receivedMessages.size() == messageCount / 2
+                                && consumerGroup.getStats().getTotalMessagesFiltered() >= messageCount / 2,
+                        System.currentTimeMillis() + 30_000,
+                        "Expected accepted and filtered messages were not both observed"))
+                .onSuccess(v -> testContext.verify(() -> {
+                    assertEquals(messageCount / 2, receivedMessages.size());
+                    assertTrue(receivedMessages.stream().allMatch(s -> s.startsWith("Keep")));
+                    assertTrue(consumerGroup.getStats().getTotalMessagesFiltered() >= messageCount / 2,
+                        "At least " + (messageCount / 2) + " messages should have been filtered, got: " +
+                        consumerGroup.getStats().getTotalMessagesFiltered());
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -200,12 +203,16 @@ public class OutboxConsumerGroupIntegrationTest {
             return Future.succeededFuture();
         }, msg -> msg.getPayload().contains("-B-"));
 
-        consumerGroup.start();
-
-        for (int i = 0; i < messageCount / 2; i++) {
-            producer.send("Message-A-" + i);
-            producer.send("Message-B-" + i);
-        }
+        consumerGroup.start()
+                .compose(v -> {
+                    List<Future<Void>> sends = new ArrayList<>(messageCount);
+                    for (int i = 0; i < messageCount / 2; i++) {
+                        sends.add(producer.send("Message-A-" + i));
+                        sends.add(producer.send("Message-B-" + i));
+                    }
+                    return Future.all(sends).mapEmpty();
+                })
+                .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Did not receive all messages");
 
@@ -226,20 +233,20 @@ public class OutboxConsumerGroupIntegrationTest {
             return Future.succeededFuture();
         }, msg -> msg.getPayload().equals("A"));
         
-        consumerGroup.start();
-        
-        producer.send("B");
-        
-        // Wait to ensure it's processed (and filtered)
-        vertx.timer(2000).await();
-        
-        assertEquals(0, processedCount.get(), "Message should not have been processed");
-        // With no-eligible-consumer handling (MessageFilteredException  reset to PENDING),
-        // the message may be polled and filtered multiple times before the test checks.
-        assertTrue(consumerGroup.getStats().getTotalMessagesFiltered() >= 1,
-            "At least 1 message should have been filtered, got: " +
-            consumerGroup.getStats().getTotalMessagesFiltered());
-        testContext.completeNow();
+        consumerGroup.start()
+                .compose(v -> producer.send("B"))
+                .compose(v -> awaitCondition(vertx,
+                        () -> consumerGroup.getStats().getTotalMessagesFiltered() >= 1,
+                        System.currentTimeMillis() + 10_000,
+                        "No-eligible-consumer filter was not observed"))
+                .onSuccess(v -> testContext.verify(() -> {
+                    assertEquals(0, processedCount.get(), "Message should not have been processed");
+                    assertTrue(consumerGroup.getStats().getTotalMessagesFiltered() >= 1,
+                        "At least 1 message should have been filtered, got: " +
+                        consumerGroup.getStats().getTotalMessagesFiltered());
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
     
     @Test
@@ -251,28 +258,42 @@ public class OutboxConsumerGroupIntegrationTest {
             return Future.succeededFuture();
         });
         
-        consumerGroup.start();
-        
-        producer.send("Msg1").onFailure(testContext::failNow);
-        signal1.future().await();
-        
-        // Remove member
-        consumerGroup.removeConsumer("member-1");
-        assertEquals(0, consumerGroup.getActiveConsumerCount());
-        
-        // Add new member
         io.vertx.core.Promise<Void> signal2 = io.vertx.core.Promise.promise();
-        consumerGroup.addConsumer("member-2", message -> {
-            signal2.tryComplete();
+        consumerGroup.start()
+                .compose(v -> producer.send("Msg1"))
+                .compose(v -> signal1.future())
+                .compose(v -> {
+                    assertTrue(consumerGroup.removeConsumer("member-1"));
+                    assertEquals(0, consumerGroup.getActiveConsumerCount());
+
+                    consumerGroup.addConsumer("member-2", message -> {
+                        signal2.tryComplete();
+                        return Future.succeededFuture();
+                    });
+                    assertEquals(1, consumerGroup.getActiveConsumerCount());
+                    return producer.send("Msg2");
+                })
+                .compose(v -> signal2.future())
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+    }
+
+    private Future<Void> awaitCondition(io.vertx.core.Vertx vertx, Supplier<Boolean> condition,
+                                        long deadline, String failureMessage) {
+        final boolean ready;
+        try {
+            ready = condition.get();
+        } catch (Throwable error) {
+            return Future.failedFuture(error);
+        }
+        if (ready) {
             return Future.succeededFuture();
-        });
-        
-        assertEquals(1, consumerGroup.getActiveConsumerCount());
-        
-        producer.send("Msg2").onFailure(testContext::failNow);
-        signal2.future().await();
-        testContext.completeNow();
+        }
+        if (System.currentTimeMillis() >= deadline) {
+            return Future.failedFuture(new AssertionError(failureMessage));
+        }
+        return vertx.timer(50)
+                .compose(v -> awaitCondition(vertx, condition, deadline, failureMessage));
     }
 }
-
 

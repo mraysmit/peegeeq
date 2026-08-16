@@ -25,8 +25,6 @@ import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
-import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
@@ -43,6 +41,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -86,7 +86,7 @@ class PeeGeeQPerformanceTest {
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQPerformanceTest.class);
 
     private PeeGeeQManager manager;
-    private Vertx vertx;
+    private ExecutorService executor;
 
     @BeforeAll
     static void logSystemInfo() {
@@ -97,8 +97,7 @@ class PeeGeeQPerformanceTest {
     }
 
     @BeforeEach
-    void setUp(Vertx injectedVertx, VertxTestContext testContext) {
-        this.vertx = injectedVertx;
+    void setUp(VertxTestContext testContext) {
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
         // Configure for performance testing.
@@ -122,7 +121,7 @@ class PeeGeeQPerformanceTest {
         testProps.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
         testProps.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
         testProps.setProperty("peegeeq.queue.batch-size", "100");
-        testProps.setProperty("peegeeq.queue.polling-interval", "PT100MS");
+        testProps.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
         testProps.setProperty("peegeeq.metrics.enabled", "true");
         testProps.setProperty("peegeeq.metrics.reporting-interval", "PT5S");
         // Unlimited wait queue: several tests saturate the pool deliberately; -1 prevents
@@ -138,7 +137,11 @@ class PeeGeeQPerformanceTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) {
-        logger.info("Tearing down: closing PeeGeeQManager");
+        if (executor != null) {
+            executor.shutdownNow();
+            executor = null;
+        }
+
         if (manager != null) {
             manager.closeReactive()
                 .onSuccess(v -> testContext.completeNow())
@@ -151,20 +154,22 @@ class PeeGeeQPerformanceTest {
     @Test
     void testHighThroughputMetricsRecording(VertxTestContext testContext) {
         PeeGeeQMetrics metrics = manager.getMetrics();
-        metrics.bindTo(manager.getMeterRegistry());
 
         int threadCount = 10;
         int operationsPerThread = 1000;
         int totalOperations = threadCount * operationsPerThread;
+        int expectedFailures = threadCount * (operationsPerThread / 10);
 
-        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
-        Checkpoint latch = testContext.checkpoint(threadCount);
+        executor = Executors.newFixedThreadPool(threadCount);
+        List<Future<Void>> workerFutures = new ArrayList<>(threadCount);
         AtomicLong totalTime = new AtomicLong(0);
 
         Instant startTime = Instant.now();
 
         for (int i = 0; i < threadCount; i++) {
-            executor.submit(() -> {
+            Promise<Void> workerCompletion = Promise.promise();
+            workerFutures.add(workerCompletion.future());
+            executor.execute(() -> {
                 try {
                     Instant threadStart = Instant.now();
                     
@@ -180,12 +185,44 @@ class PeeGeeQPerformanceTest {
                     
                     Instant threadEnd = Instant.now();
                     totalTime.addAndGet(Duration.between(threadStart, threadEnd).toMillis());
-                } finally {
-                    latch.flag();
+                    workerCompletion.complete();
+                } catch (Throwable error) {
+                    workerCompletion.fail(error);
                 }
             });
         }
 
+        Future.join(workerFutures)
+                .onSuccess(v -> testContext.verify(() -> {
+                    String instanceId = metrics.getInstanceId();
+                    assertEquals(totalOperations, manager.getMeterRegistry()
+                            .get("peegeeq.messages.sent.by.topic")
+                            .tags("instance", instanceId, "topic", "perf-topic")
+                            .counter().count(), 0.0);
+                    assertEquals(totalOperations, manager.getMeterRegistry()
+                            .get("peegeeq.messages.received.by.topic")
+                            .tags("instance", instanceId, "topic", "perf-topic")
+                            .counter().count(), 0.0);
+                    assertEquals(totalOperations, manager.getMeterRegistry()
+                            .get("peegeeq.messages.processed.by.topic")
+                            .tags("instance", instanceId, "topic", "perf-topic")
+                            .counter().count(), 0.0);
+                    assertEquals(expectedFailures, manager.getMeterRegistry()
+                            .get("peegeeq.messages.failed.by.topic")
+                            .tags("instance", instanceId, "topic", "perf-topic", "error_type", "test-error")
+                            .counter().count(), 0.0);
+                    assertEquals(totalOperations, manager.getMeterRegistry()
+                            .get("peegeeq.message.processing.time.by.topic")
+                            .tags("instance", instanceId, "topic", "perf-topic")
+                            .timer().count());
+
+                    logger.info("Recorded {} metric operations across {} workers in {} ms (aggregate worker time {} ms)",
+                            totalOperations, threadCount,
+                            Duration.between(startTime, Instant.now()).toMillis(), totalTime.longValue());
+                    executor.shutdown();
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 
     // testBackpressureUnderLoad deleted 2026-08-09 with the BackpressureManager itself
@@ -197,8 +234,9 @@ class PeeGeeQPerformanceTest {
         
         int threadCount = 10;
         int checksPerThread = 50;
-        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
-        Checkpoint latch = testContext.checkpoint(threadCount);
+        int totalChecks = threadCount * checksPerThread;
+        executor = Executors.newFixedThreadPool(threadCount);
+        List<Future<Void>> workerFutures = new ArrayList<>(threadCount);
         
         AtomicInteger healthyCount = new AtomicInteger(0);
         AtomicLong totalCheckTime = new AtomicLong(0);
@@ -206,7 +244,9 @@ class PeeGeeQPerformanceTest {
         Instant startTime = Instant.now();
 
         for (int i = 0; i < threadCount; i++) {
-            executor.submit(() -> {
+            Promise<Void> workerCompletion = Promise.promise();
+            workerFutures.add(workerCompletion.future());
+            executor.execute(() -> {
                 try {
                     for (int j = 0; j < checksPerThread; j++) {
                         Instant checkStart = Instant.now();
@@ -219,12 +259,23 @@ class PeeGeeQPerformanceTest {
                             healthyCount.incrementAndGet();
                         }
                     }
-                } finally {
-                    latch.flag();
+                    workerCompletion.complete();
+                } catch (Throwable error) {
+                    workerCompletion.fail(error);
                 }
             });
         }
 
+        Future.join(workerFutures)
+                .onSuccess(v -> testContext.verify(() -> {
+                    assertEquals(totalChecks, healthyCount.intValue(),
+                            "Every health check should observe the live Testcontainers database as healthy");
+                    logger.info("Completed {} concurrent health checks in {} ms (aggregate check time {} ms)",
+                            totalChecks, Duration.between(startTime, Instant.now()).toMillis(), totalCheckTime.longValue());
+                    executor.shutdown();
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 
     /**
@@ -236,17 +287,18 @@ class PeeGeeQPerformanceTest {
      * be served immediately are held in the pool's wait queue and served in order.
      * This requires {@code max-wait-queue-size = -1}; see class-level Javadoc.
      *
-     * <p>Successful query count is recorded via {@code AtomicInteger}. The checkpoint
-     * fires when all 20 threads finish submitting, not when all queries complete
-     * (queries are fire-and-forget from each thread). The intent is to verify that
-     * the pool does not throw under sustained burst load.
+     * <p>Worker Futures first prove that all 20 threads finished submitting. The test
+     * then waits for every query Future to settle before asserting the exact success
+     * count, so teardown cannot close the pool under active queries.
      */
     @Test
     void testConnectionPoolHandlesBurstLoadFromThreadPoolExecutor(VertxTestContext testContext) {
         int threadCount = 20;
         int queriesPerThread = 100;
-        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
-        Checkpoint latch = testContext.checkpoint(threadCount);
+        int totalQueries = threadCount * queriesPerThread;
+        executor = Executors.newFixedThreadPool(threadCount);
+        List<Future<Void>> workerFutures = new ArrayList<>(threadCount);
+        List<Future<Integer>> queryFutures = new CopyOnWriteArrayList<>();
 
         AtomicInteger successfulQueries = new AtomicInteger(0);
         AtomicLong totalQueryTime = new AtomicLong(0);
@@ -254,87 +306,98 @@ class PeeGeeQPerformanceTest {
         Instant startTime = Instant.now();
 
         for (int i = 0; i < threadCount; i++) {
-            executor.submit(() -> {
+            Promise<Void> workerCompletion = Promise.promise();
+            workerFutures.add(workerCompletion.future());
+            executor.execute(() -> {
                 try {
                     for (int j = 0; j < queriesPerThread; j++) {
                         Instant queryStart = Instant.now();
 
-                        // Use reactive patterns without blocking
-                        manager.getDatabaseService().getConnectionProvider()
+                        Future<Integer> queryFuture = manager.getDatabaseService().getConnectionProvider()
                             .withConnection("peegeeq-main", connection -> {
                                 return connection.query("SELECT 1")
                                     .execute()
                                     .map(rowSet -> {
                                         var row = rowSet.iterator().next();
-                                        return row.getInteger(0);
+                                        int result = row.getInteger(0);
+                                        if (result != 1) {
+                                            throw new AssertionError("SELECT 1 returned " + result);
+                                        }
+                                        return result;
                                     });
                             })
                             .onSuccess(result -> {
                                 successfulQueries.incrementAndGet();
                                 Instant queryEnd = Instant.now();
                                 totalQueryTime.addAndGet(Duration.between(queryStart, queryEnd).toMillis());
-                            })
-                            .onFailure(cause -> logger.warn("Query failed", cause));
+                            });
+                        queryFutures.add(queryFuture);
 
                     }
-                } catch (Exception e) {
-                    logger.warn("Unexpected exception during query execution", e);
-                } finally {
-                    latch.flag();
+                    workerCompletion.complete();
+                } catch (Throwable error) {
+                    workerCompletion.fail(error);
                 }
             });
         }
 
+        Future.join(workerFutures)
+                .transform(workerResult -> Future.join(queryFutures)
+                        .transform(queryResult -> {
+                            if (workerResult.failed()) {
+                                return Future.failedFuture(workerResult.cause());
+                            }
+                            if (queryResult.failed()) {
+                                return Future.failedFuture(queryResult.cause());
+                            }
+                            return Future.succeededFuture();
+                        }))
+                .onSuccess(v -> testContext.verify(() -> {
+                    assertEquals(totalQueries, queryFutures.size(),
+                            "Every worker should submit its full query allocation");
+                    assertEquals(totalQueries, successfulQueries.intValue(),
+                            "Every submitted query should complete successfully before teardown");
+                    logger.info("Completed {}/{} burst queries in {} ms (aggregate query time {} ms)",
+                            successfulQueries.intValue(), totalQueries,
+                            Duration.between(startTime, Instant.now()).toMillis(), totalQueryTime.longValue());
+                    executor.shutdown();
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 
     @Test
-    void testMemoryUsageUnderLoad(VertxTestContext testContext) {
+    void testMemoryUsageUnderLoad() {
         Runtime runtime = Runtime.getRuntime();
-        
-        // Force garbage collection and get baseline
+
         System.gc();
-        
-        // Use reactive timer for delay instead of blocking join
-        vertx.setTimer(1000, timerId -> {
-            long baselineMemory = runtime.totalMemory() - runtime.freeMemory();
-            
-            PeeGeeQMetrics metrics = manager.getMetrics();
-            metrics.bindTo(manager.getMeterRegistry());
-            
-            // Generate load
-            int operations = 10000;
-            for (int i = 0; i < operations; i++) {
-                metrics.recordMessageSent("memory-test");
-                metrics.recordMessageReceived("memory-test");
-                metrics.recordMessageProcessed("memory-test", Duration.ofMillis(1));
-                
-                if (i % 1000 == 0) {
-                    // Check memory periodically
-                    long currentMemory = runtime.totalMemory() - runtime.freeMemory();
-                    long memoryIncrease = currentMemory - baselineMemory;
-                    
-                    // Memory increase should be reasonable
-                    assertTrue(memoryIncrease < 100 * 1024 * 1024, // 100MB
+        long baselineMemory = runtime.totalMemory() - runtime.freeMemory();
+
+        PeeGeeQMetrics metrics = manager.getMetrics();
+        int operations = 10000;
+        for (int i = 0; i < operations; i++) {
+            metrics.recordMessageSent("memory-test");
+            metrics.recordMessageReceived("memory-test");
+            metrics.recordMessageProcessed("memory-test", Duration.ofMillis(1));
+
+            if (i % 1000 == 0) {
+                long currentMemory = runtime.totalMemory() - runtime.freeMemory();
+                long memoryIncrease = currentMemory - baselineMemory;
+                assertTrue(memoryIncrease < 100 * 1024 * 1024,
                         "Memory usage should not increase excessively");
-                }
             }
-            
-            // Final memory check - use reactive timer again
-            System.gc();
-            vertx.setTimer(1000, finalTimerId -> {
-                long finalMemory = runtime.totalMemory() - runtime.freeMemory();
-                long totalIncrease = finalMemory - baselineMemory;
-                
-                System.out.printf("Memory Usage Results:%n");
-                System.out.printf("  Baseline Memory: %d MB%n", baselineMemory / 1024 / 1024);
-                System.out.printf("  Final Memory: %d MB%n", finalMemory / 1024 / 1024);
-                System.out.printf("  Memory Increase: %d MB%n", totalIncrease / 1024 / 1024);
-                
-                // Memory should not increase significantly
-                assertTrue(totalIncrease < 50 * 1024 * 1024, // 50MB
-                    "Memory increase should be minimal after operations");
-                testContext.completeNow();
-            });
-        });
+        }
+
+        System.gc();
+        long finalMemory = runtime.totalMemory() - runtime.freeMemory();
+        long totalIncrease = finalMemory - baselineMemory;
+
+        logger.info("Memory load: baseline={} MB, final={} MB, increase={} MB",
+                baselineMemory / 1024 / 1024,
+                finalMemory / 1024 / 1024,
+                totalIncrease / 1024 / 1024);
+
+        assertTrue(totalIncrease < 50 * 1024 * 1024,
+                "Memory increase should be minimal after operations");
     }
 }

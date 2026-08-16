@@ -15,11 +15,10 @@ import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
-import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -33,31 +32,25 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
+import java.util.UUID;
 
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
 /**
- * Comprehensive test for IntegrationPatternsExample functionality.
- * 
- * This test validates all integration patterns from the original 648-line example:
+ * Integration tests for the implemented IntegrationPatternsExample patterns:
  * 1. Request-Reply Pattern - Synchronous communication with correlation IDs
  * 2. Publish-Subscribe Pattern - Event broadcasting to multiple subscribers
  * 3. Message Router Pattern - Conditional routing based on message content
- * 4. Content-Based Router Pattern - Routes based on payload analysis
- * 5. Aggregator Pattern - Combines related messages
- * 6. Scatter-Gather Pattern - Broadcasts requests and aggregates responses
- * 7. Saga Pattern - Manages distributed transactions with compensation
- * 8. CQRS Pattern - Separates command and query responsibilities
- * 
- * All original functionality is preserved with enhanced test assertions and documentation.
+ *
  * Tests use outbox queue implementation for reliable message processing.
  */
 @Tag(TestCategories.INTEGRATION)
@@ -84,7 +77,9 @@ public class IntegrationPatternsExampleTest {
 
         // Configure system properties for TestContainer
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
-                .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
+                .build();
 
         // Initialize PeeGeeQ manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
@@ -109,28 +104,16 @@ public class IntegrationPatternsExampleTest {
         logger.info("Tearing down: closing resources and manager");
         logger.info("Tearing down Integration Patterns Example Test");
 
-        if (outboxFactory != null) {
-            try {
-                outboxFactory.close();
-            } catch (Exception e) {
-                logger.warn("Error closing outbox factory: {}", e.getMessage());
-            }
-        }
-
-        if (manager != null) {
-            manager.closeReactive()
+        Future<Void> closeChain = outboxFactory != null
+                ? outboxFactory.close()
+                : Future.succeededFuture();
+        closeChain
+                .eventually(() -> manager != null ? manager.closeReactive() : Future.succeededFuture())
                 .onSuccess(v -> {
-                    logger.info(" Integration Patterns Example Test teardown completed");
+                    logger.info("Integration Patterns Example Test teardown completed");
                     testContext.completeNow();
                 })
-                .onFailure(err -> {
-                    logger.error("Error closing manager", err);
-                    testContext.failNow(err);
-                });
-        } else {
-            logger.info(" Integration Patterns Example Test teardown completed");
-            testContext.completeNow();
-        }
+                .onFailure(testContext::failNow);
     }
 
     /**
@@ -138,30 +121,28 @@ public class IntegrationPatternsExampleTest {
      * Validates synchronous communication with correlation IDs and timeout handling
      */
     @Test
-    void testRequestReplyPattern(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testRequestReplyPattern(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Request-Reply Pattern ===");
-        
+
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        String requestTopic = "rr-requests-" + suffix;
+        String replyTopic = "rr-replies-" + suffix;
+
         // Create request and reply queues
-        MessageProducer<IntegrationMessage> requestProducer = outboxFactory.createProducer("order-requests", IntegrationMessage.class);
-        MessageConsumer<IntegrationMessage> requestConsumer = outboxFactory.createConsumer("order-requests", IntegrationMessage.class);
-        MessageProducer<IntegrationMessage> replyProducer = outboxFactory.createProducer("order-replies", IntegrationMessage.class);
-        MessageConsumer<IntegrationMessage> replyConsumer = outboxFactory.createConsumer("order-replies", IntegrationMessage.class);
-        
-        AtomicInteger processedRequests = new AtomicInteger(0);
-        AtomicInteger receivedReplies = new AtomicInteger(0);
-        Checkpoint requestCheckpoint = testContext.checkpoint(3);
-        Checkpoint replyCheckpoint = testContext.checkpoint(3);
-        
+        MessageProducer<IntegrationMessage> requestProducer = outboxFactory.createProducer(requestTopic, IntegrationMessage.class);
+        MessageConsumer<IntegrationMessage> requestConsumer = outboxFactory.createConsumer(requestTopic, IntegrationMessage.class);
+        MessageProducer<IntegrationMessage> replyProducer = outboxFactory.createProducer(replyTopic, IntegrationMessage.class);
+        MessageConsumer<IntegrationMessage> replyConsumer = outboxFactory.createConsumer(replyTopic, IntegrationMessage.class);
+
+        AtomicInteger processedRequests = new AtomicInteger();
+        AtomicInteger receivedReplies = new AtomicInteger();
+
         // Set up request processor (simulates order service)
-        requestConsumer.subscribe(message -> {
+        Future<Void> requestSubscription = requestConsumer.subscribe(message -> {
             IntegrationMessage request = message.getPayload();
-            logger.info(" Processing request: {} from {}", request.getMessageId(), request.getSource());
-            
-            // Simulate processing with non-blocking delay
-            Promise<Void> promise = Promise.promise();
-            vertx.setTimer(50, id -> {
-                // Send reply
-                IntegrationMessage reply = new IntegrationMessage(
+            logger.info("Processing request: {} from {}", request.getMessageId(), request.getSource());
+
+            IntegrationMessage reply = new IntegrationMessage(
                     "reply-" + request.getMessageId(),
                     "ORDER_REPLY",
                     "order-service",
@@ -170,70 +151,37 @@ public class IntegrationPatternsExampleTest {
                     "{\"status\": \"processed\", \"orderId\": \"" + request.getCorrelationId() + "\"}",
                     "2025-01-01T00:00:00Z",
                     Map.of("replyTo", request.getSource())
-                );
-                
-                try {
-                    replyProducer.send(reply);
-                    logger.info("Sent reply: {} to {}", reply.getMessageId(), reply.getDestination());
-                } catch (Exception e) {
-                    logger.error("Failed to send reply", e);
-                }
-                
-                processedRequests.incrementAndGet();
-                requestCheckpoint.flag();
-                promise.complete();
-            });
-            return promise.future();
+            );
+
+            return vertx.timer(50)
+                    .compose(v -> replyProducer.send(reply))
+                    .map(v -> {
+                        processedRequests.incrementAndGet();
+                        logger.info("Sent reply: {} to {}", reply.getMessageId(), reply.getDestination());
+                        return (Void) null;
+                    });
         });
-        
+
         // Set up reply processor (simulates client service)
-        replyConsumer.subscribe(message -> {
+        Future<Void> replySubscription = replyConsumer.subscribe(message -> {
             IntegrationMessage reply = message.getPayload();
-            logger.info(" Received reply: {} for correlation: {}", 
+            logger.info("Received reply: {} for correlation: {}",
                 reply.getMessageId(), reply.getCorrelationId());
-            
+
             receivedReplies.incrementAndGet();
-            replyCheckpoint.flag();
             return Future.succeededFuture();
         });
-        
-        // Send requests
-        logger.info("Sending requests...");
-        for (int i = 1; i <= 3; i++) {
-            String correlationId = "order-" + i;
-            IntegrationMessage request = new IntegrationMessage(
-                "req-" + i,
-                "ORDER_REQUEST",
-                "client-service",
-                "order-service",
-                correlationId,
-                "{\"customerId\": \"cust-" + i + "\", \"items\": [\"item1\", \"item2\"]}",
-                "2025-01-01T00:00:00Z",
-                Map.of("replyTo", "client-service")
-            );
-            
-            requestProducer.send(request);
-            logger.info(" Sent request: {} with correlation: {}", request.getMessageId(), correlationId);
-        }
-        
-        // Wait for processing - increased timeout for integration test
-        assertTrue(testContext.awaitCompletion(120, TimeUnit.SECONDS), "Request-reply test should complete within timeout");
-        
-        // Validate results
-        assertEquals(3, processedRequests.get(), "Should process 3 requests");
-        assertEquals(3, receivedReplies.get(), "Should receive 3 replies");
-        
-        logger.info("Request-Reply Results:");
-        logger.info("   Requests processed: {}", processedRequests.get());
-        logger.info("   Replies received: {}", receivedReplies.get());
-        
-        // Cleanup
-        requestConsumer.close();
-        replyConsumer.close();
-        requestProducer.close();
-        replyProducer.close();
-        
-        logger.info("Request-Reply pattern validated successfully");
+
+        Future.all(List.of(replySubscription, requestSubscription))
+                .compose(v -> sendRequests(requestProducer))
+                .compose(v -> awaitCompletedCount(vertx, requestTopic, 3, 100))
+                .compose(v -> awaitCompletedCount(vertx, replyTopic, 3, 100))
+                .onSuccess(v -> testContext.verify(() -> {
+                    assertEquals(3, processedRequests.intValue(), "Should process 3 requests");
+                    assertEquals(3, receivedReplies.intValue(), "Should receive 3 replies");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 
     /**
@@ -241,96 +189,64 @@ public class IntegrationPatternsExampleTest {
      * Validates event broadcasting using separate queues for each subscriber (outbox pattern)
      */
     @Test
-    void testPublishSubscribePattern(VertxTestContext testContext) throws Exception {
+    void testPublishSubscribePattern(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Publish-Subscribe Pattern ===");
 
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        String emailTopic = "pub-email-" + suffix;
+        String analyticsTopic = "pub-analytics-" + suffix;
+        String auditTopic = "pub-audit-" + suffix;
+
         // In outbox pattern, we use separate queues for each subscriber to simulate pub-sub
-        MessageProducer<IntegrationMessage> emailProducer = outboxFactory.createProducer("email-events", IntegrationMessage.class);
-        MessageProducer<IntegrationMessage> analyticsProducer = outboxFactory.createProducer("analytics-events", IntegrationMessage.class);
-        MessageProducer<IntegrationMessage> auditProducer = outboxFactory.createProducer("audit-events", IntegrationMessage.class);
+        MessageProducer<IntegrationMessage> emailProducer = outboxFactory.createProducer(emailTopic, IntegrationMessage.class);
+        MessageProducer<IntegrationMessage> analyticsProducer = outboxFactory.createProducer(analyticsTopic, IntegrationMessage.class);
+        MessageProducer<IntegrationMessage> auditProducer = outboxFactory.createProducer(auditTopic, IntegrationMessage.class);
 
         // Create subscribers for each service
-        MessageConsumer<IntegrationMessage> emailService = outboxFactory.createConsumer("email-events", IntegrationMessage.class);
-        MessageConsumer<IntegrationMessage> analyticsService = outboxFactory.createConsumer("analytics-events", IntegrationMessage.class);
-        MessageConsumer<IntegrationMessage> auditService = outboxFactory.createConsumer("audit-events", IntegrationMessage.class);
+        MessageConsumer<IntegrationMessage> emailService = outboxFactory.createConsumer(emailTopic, IntegrationMessage.class);
+        MessageConsumer<IntegrationMessage> analyticsService = outboxFactory.createConsumer(analyticsTopic, IntegrationMessage.class);
+        MessageConsumer<IntegrationMessage> auditService = outboxFactory.createConsumer(auditTopic, IntegrationMessage.class);
 
-        AtomicInteger emailEvents = new AtomicInteger(0);
-        AtomicInteger analyticsEvents = new AtomicInteger(0);
-        AtomicInteger auditEvents = new AtomicInteger(0);
-        Checkpoint checkpoint = testContext.checkpoint(9); // 3 events x 3 subscribers
+        AtomicInteger emailEvents = new AtomicInteger();
+        AtomicInteger analyticsEvents = new AtomicInteger();
+        AtomicInteger auditEvents = new AtomicInteger();
 
         // Email service subscriber
-        emailService.subscribe(message -> {
+        Future<Void> emailSubscription = emailService.subscribe(message -> {
             IntegrationMessage event = message.getPayload();
             logger.info(" Email Service received: {} - {}", event.getMessageType(), event.getMessageId());
             emailEvents.incrementAndGet();
-            checkpoint.flag();
             return Future.succeededFuture();
         });
 
         // Analytics service subscriber
-        analyticsService.subscribe(message -> {
+        Future<Void> analyticsSubscription = analyticsService.subscribe(message -> {
             IntegrationMessage event = message.getPayload();
             logger.info("\ud83d\udcca Analytics Service received: {} - {}", event.getMessageType(), event.getMessageId());
             analyticsEvents.incrementAndGet();
-            checkpoint.flag();
             return Future.succeededFuture();
         });
 
         // Audit service subscriber
-        auditService.subscribe(message -> {
+        Future<Void> auditSubscription = auditService.subscribe(message -> {
             IntegrationMessage event = message.getPayload();
             logger.info("\ud83d\udcdd Audit Service received: {} - {}", event.getMessageType(), event.getMessageId());
             auditEvents.incrementAndGet();
-            checkpoint.flag();
             return Future.succeededFuture();
         });
 
-        // Publish events to all subscriber queues (simulating pub-sub with outbox pattern)
-        logger.info(" Publishing customer events to all subscribers...");
-        String[] eventTypes = {"CUSTOMER_CREATED", "CUSTOMER_UPDATED", "CUSTOMER_DELETED"};
-
-        for (int i = 0; i < eventTypes.length; i++) {
-            IntegrationMessage event = new IntegrationMessage(
-                "event-" + (i + 1),
-                eventTypes[i],
-                "customer-service",
-                "all-subscribers",
-                "customer-123",
-                "{\"customerId\": \"customer-123\", \"action\": \"" + eventTypes[i] + "\"}",
-                "2025-01-01T00:00:00Z",
-                Map.of("eventType", eventTypes[i])
-            );
-
-            // Send to all subscriber queues (simulating broadcast)
-            emailProducer.send(event);
-            analyticsProducer.send(event);
-            auditProducer.send(event);
-            logger.info("Published event: {} - {} to all subscribers", event.getMessageType(), event.getMessageId());
-        }
-
-        // Wait for all subscribers to process events - increased timeout for integration test
-        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "All events should be processed by all subscribers");
-
-        // Validate results
-        assertEquals(3, emailEvents.get(), "Email service should receive 3 events");
-        assertEquals(3, analyticsEvents.get(), "Analytics service should receive 3 events");
-        assertEquals(3, auditEvents.get(), "Audit service should receive 3 events");
-
-        logger.info("Publish-Subscribe Results:");
-        logger.info("   Email Service events: {}", emailEvents.get());
-        logger.info("   Analytics Service events: {}", analyticsEvents.get());
-        logger.info("   Audit Service events: {}", auditEvents.get());
-
-        // Cleanup
-        emailService.close();
-        analyticsService.close();
-        auditService.close();
-        emailProducer.close();
-        analyticsProducer.close();
-        auditProducer.close();
-
-        logger.info("Publish-Subscribe pattern validated successfully");
+        Future.all(List.of(emailSubscription, analyticsSubscription, auditSubscription))
+                .compose(v -> publishEvents(emailProducer, analyticsProducer, auditProducer))
+                .compose(v -> awaitCompletedCount(vertx, emailTopic, 3, 100))
+                .compose(v -> awaitCompletedCount(vertx, analyticsTopic, 3, 100))
+                .compose(v -> awaitCompletedCount(vertx, auditTopic, 3, 100))
+                .onSuccess(v -> testContext.verify(() -> {
+                    assertEquals(3, emailEvents.intValue(), "Email service should receive 3 events");
+                    assertEquals(3, analyticsEvents.intValue(), "Analytics service should receive 3 events");
+                    assertEquals(3, auditEvents.intValue(), "Audit service should receive 3 events");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 
     /**
@@ -338,28 +254,33 @@ public class IntegrationPatternsExampleTest {
      * Validates conditional routing based on message headers and content
      */
     @Test
-    void testMessageRouterPattern(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testMessageRouterPattern(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Message Router Pattern ===");
 
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        String inputTopic = "route-input-" + suffix;
+        String domesticTopic = "route-domestic-" + suffix;
+        String internationalTopic = "route-intl-" + suffix;
+        String expressTopic = "route-express-" + suffix;
+
         // Create input queue and output queues
-        MessageProducer<IntegrationMessage> inputProducer = outboxFactory.createProducer("order-input", IntegrationMessage.class);
-        MessageConsumer<IntegrationMessage> routerConsumer = outboxFactory.createConsumer("order-input", IntegrationMessage.class);
+        MessageProducer<IntegrationMessage> inputProducer = outboxFactory.createProducer(inputTopic, IntegrationMessage.class);
+        MessageConsumer<IntegrationMessage> routerConsumer = outboxFactory.createConsumer(inputTopic, IntegrationMessage.class);
 
-        MessageProducer<IntegrationMessage> domesticProducer = outboxFactory.createProducer("domestic-orders", IntegrationMessage.class);
-        MessageProducer<IntegrationMessage> internationalProducer = outboxFactory.createProducer("international-orders", IntegrationMessage.class);
-        MessageProducer<IntegrationMessage> expressProducer = outboxFactory.createProducer("express-orders", IntegrationMessage.class);
+        MessageProducer<IntegrationMessage> domesticProducer = outboxFactory.createProducer(domesticTopic, IntegrationMessage.class);
+        MessageProducer<IntegrationMessage> internationalProducer = outboxFactory.createProducer(internationalTopic, IntegrationMessage.class);
+        MessageProducer<IntegrationMessage> expressProducer = outboxFactory.createProducer(expressTopic, IntegrationMessage.class);
 
-        MessageConsumer<IntegrationMessage> domesticConsumer = outboxFactory.createConsumer("domestic-orders", IntegrationMessage.class);
-        MessageConsumer<IntegrationMessage> internationalConsumer = outboxFactory.createConsumer("international-orders", IntegrationMessage.class);
-        MessageConsumer<IntegrationMessage> expressConsumer = outboxFactory.createConsumer("express-orders", IntegrationMessage.class);
+        MessageConsumer<IntegrationMessage> domesticConsumer = outboxFactory.createConsumer(domesticTopic, IntegrationMessage.class);
+        MessageConsumer<IntegrationMessage> internationalConsumer = outboxFactory.createConsumer(internationalTopic, IntegrationMessage.class);
+        MessageConsumer<IntegrationMessage> expressConsumer = outboxFactory.createConsumer(expressTopic, IntegrationMessage.class);
 
-        AtomicInteger domesticCount = new AtomicInteger(0);
-        AtomicInteger internationalCount = new AtomicInteger(0);
-        AtomicInteger expressCount = new AtomicInteger(0);
-        Checkpoint checkpoint = testContext.checkpoint(6); // Total messages to route
+        AtomicInteger domesticCount = new AtomicInteger();
+        AtomicInteger internationalCount = new AtomicInteger();
+        AtomicInteger expressCount = new AtomicInteger();
 
         // Set up router logic
-        routerConsumer.subscribe(message -> {
+        Future<Void> routerSubscription = routerConsumer.subscribe(message -> {
             IntegrationMessage order = message.getPayload();
             String country = order.getHeaders().get("country");
             String priority = order.getHeaders().get("priority");
@@ -367,99 +288,141 @@ public class IntegrationPatternsExampleTest {
             logger.info(" Routing order: {} (country: {}, priority: {})",
                 order.getMessageId(), country, priority);
 
-            try {
-                if ("express".equals(priority)) {
-                    expressProducer.send(order);
-                    logger.info(" Routed to express: {}", order.getMessageId());
-                } else if ("US".equals(country)) {
-                    domesticProducer.send(order);
-                    logger.info("Routed to domestic: {}", order.getMessageId());
-                } else {
-                    internationalProducer.send(order);
-                    logger.info(" Routed to international: {}", order.getMessageId());
-                }
-            } catch (Exception e) {
-                logger.error("Failed to route message: {}", order.getMessageId(), e);
+            if ("express".equals(priority)) {
+                return expressProducer.send(order).mapEmpty();
             }
-
-            return Future.succeededFuture();
+            if ("US".equals(country)) {
+                return domesticProducer.send(order).mapEmpty();
+            }
+            return internationalProducer.send(order).mapEmpty();
         });
 
         // Set up destination consumers
-        domesticConsumer.subscribe(message -> {
+        Future<Void> domesticSubscription = domesticConsumer.subscribe(message -> {
             logger.info("Domestic processor received: {}", message.getPayload().getMessageId());
             domesticCount.incrementAndGet();
-            checkpoint.flag();
             return Future.succeededFuture();
         });
 
-        internationalConsumer.subscribe(message -> {
+        Future<Void> internationalSubscription = internationalConsumer.subscribe(message -> {
             logger.info("\ud83c\udf0d International processor received: {}", message.getPayload().getMessageId());
             internationalCount.incrementAndGet();
-            checkpoint.flag();
             return Future.succeededFuture();
         });
 
-        expressConsumer.subscribe(message -> {
+        Future<Void> expressSubscription = expressConsumer.subscribe(message -> {
             logger.info("\u26a1 Express processor received: {}", message.getPayload().getMessageId());
             expressCount.incrementAndGet();
-            checkpoint.flag();
             return Future.succeededFuture();
         });
 
-        // Send test messages with different routing criteria
-        logger.info("Sending orders for routing...");
+        Future.all(List.of(
+                        domesticSubscription,
+                        internationalSubscription,
+                        expressSubscription,
+                        routerSubscription))
+                .compose(v -> sendOrders(inputProducer))
+                .compose(v -> awaitCompletedCount(vertx, inputTopic, 6, 100))
+                .compose(v -> awaitCompletedCount(vertx, domesticTopic, 1, 100))
+                .compose(v -> awaitCompletedCount(vertx, internationalTopic, 1, 100))
+                .compose(v -> awaitCompletedCount(vertx, expressTopic, 4, 100))
+                .onSuccess(v -> testContext.verify(() -> {
+                    assertEquals(1, domesticCount.intValue(), "Should route 1 domestic order");
+                    assertEquals(1, internationalCount.intValue(), "Should route 1 international order");
+                    assertEquals(4, expressCount.intValue(), "Should route 4 express orders");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
+    }
 
-        // Domestic order
-        IntegrationMessage domesticOrder = new IntegrationMessage(
-            "order-1", "ORDER", "order-service", "router", "corr-1",
-            "{\"orderId\": \"order-1\", \"customerId\": \"cust-1\"}", "2025-01-01T00:00:00Z",
-            Map.of("country", "US", "priority", "normal"));
-        inputProducer.send(domesticOrder);
-
-        // International order
-        IntegrationMessage intlOrder = new IntegrationMessage(
-            "order-2", "ORDER", "order-service", "router", "corr-2",
-            "{\"orderId\": \"order-2\", \"customerId\": \"cust-2\"}", "2025-01-01T00:00:00Z",
-            Map.of("country", "CA", "priority", "normal"));
-        inputProducer.send(intlOrder);
-
-        // Express orders
-        for (int i = 3; i <= 6; i++) {
-            IntegrationMessage expressOrder = new IntegrationMessage(
-                "order-" + i, "ORDER", "order-service", "router", "corr-" + i,
-                "{\"orderId\": \"order-" + i + "\", \"customerId\": \"cust-" + i + "\"}", "2025-01-01T00:00:00Z",
-                Map.of("country", i % 2 == 0 ? "US" : "UK", "priority", "express"));
-            inputProducer.send(expressOrder);
+    private Future<Void> sendRequests(MessageProducer<IntegrationMessage> producer) {
+        List<Future<?>> sends = new ArrayList<>();
+        for (int i = 1; i <= 3; i++) {
+            String correlationId = "order-" + i;
+            IntegrationMessage request = new IntegrationMessage(
+                    "req-" + i,
+                    "ORDER_REQUEST",
+                    "client-service",
+                    "order-service",
+                    correlationId,
+                    "{\"customerId\": \"cust-" + i + "\", \"items\": [\"item1\", \"item2\"]}",
+                    "2025-01-01T00:00:00Z",
+                    Map.of("replyTo", "client-service"));
+            sends.add(producer.send(request));
         }
+        return Future.all(sends).mapEmpty();
+    }
 
-        logger.info("All orders sent for routing");
+    private Future<Void> publishEvents(
+            MessageProducer<IntegrationMessage> emailProducer,
+            MessageProducer<IntegrationMessage> analyticsProducer,
+            MessageProducer<IntegrationMessage> auditProducer) {
+        String[] eventTypes = {"CUSTOMER_CREATED", "CUSTOMER_UPDATED", "CUSTOMER_DELETED"};
+        List<Future<?>> sends = new ArrayList<>();
+        for (int i = 0; i < eventTypes.length; i++) {
+            IntegrationMessage event = new IntegrationMessage(
+                    "event-" + (i + 1),
+                    eventTypes[i],
+                    "customer-service",
+                    "all-subscribers",
+                    "customer-123",
+                    "{\"customerId\": \"customer-123\", \"action\": \"" + eventTypes[i] + "\"}",
+                    "2025-01-01T00:00:00Z",
+                    Map.of("eventType", eventTypes[i]));
+            sends.add(emailProducer.send(event));
+            sends.add(analyticsProducer.send(event));
+            sends.add(auditProducer.send(event));
+        }
+        return Future.all(sends).mapEmpty();
+    }
 
-        // Wait for routing to complete - increased timeout for integration test
-        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "All messages should be routed within timeout");
+    private Future<Void> sendOrders(MessageProducer<IntegrationMessage> producer) {
+        List<Future<?>> sends = new ArrayList<>();
+        sends.add(producer.send(new IntegrationMessage(
+                "order-1", "ORDER", "order-service", "router", "corr-1",
+                "{\"orderId\": \"order-1\", \"customerId\": \"cust-1\"}", "2025-01-01T00:00:00Z",
+                Map.of("country", "US", "priority", "normal"))));
+        sends.add(producer.send(new IntegrationMessage(
+                "order-2", "ORDER", "order-service", "router", "corr-2",
+                "{\"orderId\": \"order-2\", \"customerId\": \"cust-2\"}", "2025-01-01T00:00:00Z",
+                Map.of("country", "CA", "priority", "normal"))));
+        for (int i = 3; i <= 6; i++) {
+            sends.add(producer.send(new IntegrationMessage(
+                    "order-" + i, "ORDER", "order-service", "router", "corr-" + i,
+                    "{\"orderId\": \"order-" + i + "\", \"customerId\": \"cust-" + i + "\"}",
+                    "2025-01-01T00:00:00Z",
+                    Map.of("country", i % 2 == 0 ? "US" : "UK", "priority", "express"))));
+        }
+        return Future.all(sends).mapEmpty();
+    }
 
-        // Validate routing results
+    private Future<Integer> awaitCompletedCount(
+            Vertx vertx,
+            String topic,
+            int expectedCount,
+            int remainingAttempts) {
+        return statusCount(topic, "COMPLETED").compose(count -> {
+            if (count == expectedCount) {
+                return Future.succeededFuture(count);
+            }
+            if (remainingAttempts == 0) {
+                return Future.failedFuture(
+                        "Expected " + expectedCount + " completed messages for " + topic + " but found " + count);
+            }
+            return vertx.timer(100)
+                    .compose(v -> awaitCompletedCount(vertx, topic, expectedCount, remainingAttempts - 1));
+        });
+    }
 
-        assertEquals(1, domesticCount.get(), "Should route 1 domestic order");
-        assertEquals(1, internationalCount.get(), "Should route 1 international order");
-        assertEquals(4, expressCount.get(), "Should route 4 express orders");
-
-        logger.info("Message Router Results:");
-        logger.info("   Domestic orders: {}", domesticCount.get());
-        logger.info("   International orders: {}", internationalCount.get());
-        logger.info("   Express orders: {}", expressCount.get());
-
-        // Cleanup
-        routerConsumer.close();
-        domesticConsumer.close();
-        internationalConsumer.close();
-        expressConsumer.close();
-        inputProducer.close();
-        domesticProducer.close();
-        internationalProducer.close();
-        expressProducer.close();
-
-        logger.info("Message Router pattern validated successfully");
+    private Future<Integer> statusCount(String topic, String status) {
+        return manager.getDatabaseService().getConnectionProvider()
+                .getReactivePool("peegeeq-main")
+                .compose(pool -> pool.withConnection(connection -> connection.preparedQuery("""
+                        SELECT CAST(COUNT(*) AS INTEGER) AS message_count
+                        FROM outbox
+                        WHERE topic = $1 AND status = $2
+                        """).execute(Tuple.of(topic, status))))
+                .map(rows -> rows.iterator().next().getInteger("message_count"));
     }
 
     /**
@@ -519,5 +482,3 @@ public class IntegrationPatternsExampleTest {
         }
     }
 }
-
-

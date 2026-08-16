@@ -36,7 +36,6 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Properties;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -88,49 +87,43 @@ public class OutboxResourceLeakDetectionTest {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
-        manager.start().onSuccess(v -> {
-            // Create outbox factory
-            PgDatabaseService databaseService = new PgDatabaseService(manager);
-            PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-            OutboxFactoryRegistrar.registerWith(provider);
-            queueFactory = provider.createFactory("outbox", databaseService);
+        manager.start()
+            .map(v -> {
+                PgDatabaseService databaseService = new PgDatabaseService(manager);
+                PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+                OutboxFactoryRegistrar.registerWith(provider);
+                queueFactory = provider.createFactory("outbox", databaseService);
 
-            logger.info("Test setup completed - initial thread count: {}", initialThreadCount);
-            logger.info("=== OutboxResourceLeakDetectionTest.setUp() COMPLETED ===");
-            testContext.completeNow();
-        }).onFailure(testContext::failNow);
+                logger.info("Test setup completed - initial thread count: {}", initialThreadCount);
+                logger.info("=== OutboxResourceLeakDetectionTest.setUp() COMPLETED ===");
+                return (Void) null;
+            })
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws InterruptedException {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
         logger.info("=== OutboxResourceLeakDetectionTest.tearDown() STARTED ===");
 
-        if (queueFactory != null) {
-            try {
-                queueFactory.close();
-            } catch (Exception e) {
-                logger.error("Error closing queue factory", e);
-            }
-        }
-
-        if (manager != null) {
-            manager.closeReactive()
-                .onSuccess(v -> {
-                    logger.info("=== OutboxResourceLeakDetectionTest.tearDown() COMPLETED ===");
-                    testContext.completeNow();
-                })
-                .onFailure(testContext::failNow);
-        } else {
-            logger.info("=== OutboxResourceLeakDetectionTest.tearDown() COMPLETED ===");
-            testContext.completeNow();
-        }
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        Future<Void> closeFactory = queueFactory != null
+                ? queueFactory.close()
+                : Future.succeededFuture();
+        closeFactory
+            .eventually(() -> manager != null
+                    ? manager.closeReactive()
+                    : Future.succeededFuture())
+            .onSuccess(v -> {
+                logger.info("=== OutboxResourceLeakDetectionTest.tearDown() COMPLETED ===");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @Test
     @DisplayName("Should not leak threads after producer close")
-    void testNoThreadLeaksAfterProducerClose(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
+    void testNoThreadLeaksAfterProducerClose(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== TEST: testNoThreadLeaksAfterProducerClose STARTED ===");
 
         // Capture threads before creating producer
@@ -157,7 +150,7 @@ public class OutboxResourceLeakDetectionTest {
                 // GC-settle: give time for shutdown
                 return vertx.timer(5000);
             })
-            .onComplete(testContext.succeeding(timerId -> testContext.verify(() -> {
+            .onSuccess(timerId -> testContext.verify(() -> {
                 // Capture threads after close
                 Set<Long> afterThreadIds = getCurrentThreadIds();
                 int afterCount = afterThreadIds.size();
@@ -180,13 +173,13 @@ public class OutboxResourceLeakDetectionTest {
 
                 logger.info("=== TEST: testNoThreadLeaksAfterProducerClose COMPLETED ===");
                 testContext.completeNow();
-            })));
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
     @DisplayName("Should not leak threads after consumer close")
-    void testNoThreadLeaksAfterConsumerClose(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
+    void testNoThreadLeaksAfterConsumerClose(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== TEST: testNoThreadLeaksAfterConsumerClose STARTED ===");
 
         // Capture threads before creating consumer
@@ -197,12 +190,11 @@ public class OutboxResourceLeakDetectionTest {
         // Create and subscribe consumer
         MessageConsumer<String> consumer = queueFactory.createConsumer("leak-test-consumer", String.class);
         consumer.subscribe(message -> {
-            logger.debug("Received message: {}", message.getPayload());
-            return Future.succeededFuture();
-        });
-
-        // GC-settle: let consumer start polling
-        vertx.timer(1000)
+                logger.debug("Received message: {}", message.getPayload());
+                return Future.succeededFuture();
+            })
+            // GC-settle: let consumer start polling
+            .compose(v -> vertx.timer(1000))
             .compose(timerId -> {
                 // Capture threads while consumer is active
                 Set<Long> activeThreadIds = getCurrentThreadIds();
@@ -219,7 +211,7 @@ public class OutboxResourceLeakDetectionTest {
                 // GC-settle: give scheduler time to shut down
                 return vertx.timer(5000);
             })
-            .onComplete(testContext.succeeding(timerId -> testContext.verify(() -> {
+            .onSuccess(timerId -> testContext.verify(() -> {
                 // Capture threads after close
                 Set<Long> afterThreadIds = getCurrentThreadIds();
                 int afterCount = afterThreadIds.size();
@@ -242,13 +234,13 @@ public class OutboxResourceLeakDetectionTest {
 
                 logger.info("=== TEST: testNoThreadLeaksAfterConsumerClose COMPLETED ===");
                 testContext.completeNow();
-            })));
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
     @DisplayName("Should not leak threads with multiple producer/consumer cycles")
-    void testNoThreadLeaksWithMultipleCycles(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
+    void testNoThreadLeaksWithMultipleCycles(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== TEST: testNoThreadLeaksWithMultipleCycles STARTED ===");
 
         // Capture initial state
@@ -264,8 +256,8 @@ public class OutboxResourceLeakDetectionTest {
                 MessageProducer<String> producer = queueFactory.createProducer("cycle-test-" + iteration, String.class);
                 MessageConsumer<String> consumer = queueFactory.createConsumer("cycle-test-" + iteration, String.class);
 
-                consumer.subscribe(message -> Future.succeededFuture());
-                return producer.send("test")
+                return consumer.subscribe(message -> Future.succeededFuture())
+                    .compose(v2 -> producer.send("test"))
                     // GC-settle: allow components to initialize
                     .compose(v2 -> vertx.timer(500))
                     .compose(timerId -> {
@@ -285,7 +277,7 @@ public class OutboxResourceLeakDetectionTest {
             // GC-settle: allow GC and thread cleanup
             return vertx.timer(1000);
         })
-        .onComplete(testContext.succeeding(timerId -> testContext.verify(() -> {
+        .onSuccess(timerId -> testContext.verify(() -> {
             // Verify no threads leaked (excluding expected shared infrastructure threads)
             Set<Long> finalIds = getCurrentThreadIds();
             Set<Long> leakedIds = new HashSet<>(finalIds);
@@ -304,21 +296,21 @@ public class OutboxResourceLeakDetectionTest {
 
             logger.info("=== TEST: testNoThreadLeaksWithMultipleCycles COMPLETED ===");
             testContext.completeNow();
-        })));
-        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
+        }))
+        .onFailure(testContext::failNow);
     }
 
     @Test
     @DisplayName("Should close shared Vert.x instances when manager closes")
-    void testSharedVertxInstancesClosed(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
+    void testSharedVertxInstancesClosed(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== TEST: testSharedVertxInstancesClosed STARTED ===");
 
         // Create producer and consumer to trigger shared Vert.x creation
         MessageProducer<String> producer = queueFactory.createProducer("shared-test", String.class);
         MessageConsumer<String> consumer = queueFactory.createConsumer("shared-test", String.class);
 
-        consumer.subscribe(message -> Future.succeededFuture());
-        producer.send("test")
+        consumer.subscribe(message -> Future.succeededFuture())
+            .compose(v -> producer.send("test"))
             // GC-settle: allow components to initialize
             .compose(v -> vertx.timer(500))
             .compose(timerId -> {
@@ -330,47 +322,43 @@ public class OutboxResourceLeakDetectionTest {
                 // Close resources
                 consumer.close();
                 producer.close();
-                try {
-                    queueFactory.close();
-                } catch (Exception e) {
-                    logger.warn("Error closing queue factory", e);
-                }
-                queueFactory = null;
-
-                // Close manager (this will close shared Vert.x instances)
-                return manager.closeReactive();
+                return queueFactory.close()
+                    .compose(v -> {
+                        queueFactory = null;
+                        // Close manager (this will close shared Vert.x instances)
+                        return manager.closeReactive();
+                    });
             })
             .compose(v -> {
                 manager = null;
                 // GC-settle: give time for shutdown
                 return vertx.timer(5000);
             })
-            .onComplete(testContext.succeeding(timerId -> testContext.verify(() -> {
+            .onSuccess(timerId -> testContext.verify(() -> {
                 // Verify no new Vert.x threads remain compared to initial baseline
                 Set<String> remainingVertxThreads = getVertxThreadNames();
                 logger.info("Vert.x threads after close: {}", remainingVertxThreads);
                 Set<String> leakedVertxThreads = new java.util.HashSet<>(remainingVertxThreads);
                 leakedVertxThreads.removeAll(initialVertxThreadNames);
                 if (!leakedVertxThreads.isEmpty()) {
-                    logger.error("LEAKED NEW VERT.X THREADS: {}", leakedVertxThreads);
                     // The @ExtendWith(VertxExtension.class) injected Vertx instance creates
                     // event loop threads that may not be present in the initial baseline
                     // (captured before VertxExtension initializes). These are test infrastructure,
                     // not leaks from our code. Allow up to 2 for the injected Vertx event loops.
                     if (leakedVertxThreads.size() <= 2) {
-                        logger.warn("Allowing up to 2 remaining Vert.x threads from test-injected Vertx instance");
-                        logger.info("=== TEST: testSharedVertxInstancesClosed COMPLETED ===");
-                        testContext.completeNow();
-                        return;
+                        logger.info("Observed {} Vert.x thread(s) owned by the test-injected Vertx instance: {}",
+                                leakedVertxThreads.size(), leakedVertxThreads);
+                    } else {
+                        logger.error("LEAKED NEW VERT.X THREADS: {}", leakedVertxThreads);
                     }
                 }
-                assertEquals(0, leakedVertxThreads.size(),
-                    "No new Vert.x threads should remain after close. Leaked: " + leakedVertxThreads);
+                assertTrue(leakedVertxThreads.size() <= 2,
+                    "No component-owned Vert.x threads should remain after close. Leaked: " + leakedVertxThreads);
 
                 logger.info("=== TEST: testSharedVertxInstancesClosed COMPLETED ===");
                 testContext.completeNow();
-            })));
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+            }))
+            .onFailure(testContext::failNow);
     }
 
     // Helper methods
@@ -460,6 +448,5 @@ public class OutboxResourceLeakDetectionTest {
             .orElse(null);
     }
 }
-
 
 

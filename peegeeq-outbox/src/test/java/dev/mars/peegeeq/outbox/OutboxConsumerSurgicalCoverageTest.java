@@ -11,6 +11,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
@@ -35,7 +36,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
@@ -65,6 +65,7 @@ class OutboxConsumerSurgicalCoverageTest {
     private OutboxFactory outboxFactory;
     private MessageProducer<String> producer;
     private MessageConsumer<String> consumer;
+    private SimpleMeterRegistry meterRegistry;
     private String testTopic;
 
     @BeforeEach
@@ -75,35 +76,43 @@ class OutboxConsumerSurgicalCoverageTest {
     }
 
     @AfterEach
-    void cleanup() throws Exception {
-        if (consumer != null) {
-            try {
-                consumer.close();
-            } catch (Exception e) {
-                logger.warn("Error closing consumer: {}", e.getMessage());
+    void cleanup(VertxTestContext testContext) throws Exception {
+        Future<Void> factoryClose = outboxFactory != null
+                ? outboxFactory.close()
+                : Future.succeededFuture();
+        factoryClose
+                .eventually(() -> manager != null
+                        ? manager.closeReactive()
+                        : Future.succeededFuture())
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
+    }
+
+    private Future<Void> startManager(PeeGeeQConfiguration config, boolean createProducer) {
+        meterRegistry = new SimpleMeterRegistry();
+        manager = new PeeGeeQManager(config, meterRegistry);
+        return manager.start().map(v -> {
+            DatabaseService databaseService = new PgDatabaseService(manager);
+            outboxFactory = new OutboxFactory(databaseService, config);
+            if (createProducer) {
+                producer = outboxFactory.createProducer(testTopic, String.class);
             }
+            consumer = outboxFactory.createConsumer(testTopic, String.class);
+            return null;
+        });
+    }
+
+    private Future<Double> awaitCounter(Vertx vertx, String meterName, long deadline) {
+        Counter counter = meterRegistry.find(meterName).tag("topic", testTopic).counter();
+        if (counter != null && counter.count() > 0) {
+            return Future.succeededFuture(counter.count());
         }
-        if (producer != null) {
-            try {
-                producer.close();
-            } catch (Exception e) {
-                logger.warn("Error closing producer: {}", e.getMessage());
-            }
+        if (System.currentTimeMillis() >= deadline) {
+            return Future.failedFuture(new AssertionError(
+                    "Counter " + meterName + " was not incremented for topic " + testTopic));
         }
-        if (outboxFactory != null) {
-            try {
-                outboxFactory.close();
-            } catch (Exception e) {
-                logger.warn("Error closing outbox factory: {}", e.getMessage());
-            }
-        }
-        if (manager != null) {
-            try {
-                manager.closeReactive().await();
-            } catch (Exception e) {
-                logger.warn("Error closing manager: {}", e.getMessage());
-            }
-        }
+        return vertx.timer(50).compose(v -> awaitCounter(vertx, meterName, deadline));
     }
 
     /**
@@ -111,7 +120,7 @@ class OutboxConsumerSurgicalCoverageTest {
      * OutboxConsumer constructor uses configuration.getQueueConfig().getConsumerThreads().
      */
     @Test
-    void testConsumerWithMultipleThreads(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testConsumerWithMultipleThreads(VertxTestContext testContext) throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.consumer-threads", "4")
@@ -119,27 +128,20 @@ class OutboxConsumerSurgicalCoverageTest {
                 .build();
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
-        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-        producer = outboxFactory.createProducer(testTopic, String.class);
-        consumer = outboxFactory.createConsumer(testTopic, String.class);
-
         Checkpoint checkpoint = testContext.checkpoint(3);
         AtomicInteger receivedCount = new AtomicInteger(0);
 
-        consumer.subscribe(message -> {
-            receivedCount.incrementAndGet();
-            checkpoint.flag();
-            return Future.succeededFuture();
-        });
-
-        // Send multiple messages to exercise thread pool
-        producer.send("msg1").onFailure(testContext::failNow);
-        producer.send("msg2").onFailure(testContext::failNow);
-        producer.send("msg3").onFailure(testContext::failNow);
+        startManager(config, true)
+                .compose(v -> consumer.subscribe(message -> {
+                    receivedCount.incrementAndGet();
+                    checkpoint.flag();
+                    return Future.succeededFuture();
+                }))
+                .compose(v -> Future.all(
+                        producer.send("msg1"),
+                        producer.send("msg2"),
+                        producer.send("msg3")).mapEmpty())
+                .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process all messages with multi-threaded executor");
         assertEquals(3, receivedCount.get(), "Should process exactly 3 messages");
@@ -150,7 +152,7 @@ class OutboxConsumerSurgicalCoverageTest {
      * processAvailableMessages() uses configuration.getQueueConfig().getBatchSize().
      */
     @Test
-    void testConsumerWithCustomBatchSize(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testConsumerWithCustomBatchSize(VertxTestContext testContext) throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.batch-size", "5")
@@ -158,27 +160,22 @@ class OutboxConsumerSurgicalCoverageTest {
                 .build();
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
-        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-        producer = outboxFactory.createProducer(testTopic, String.class);
-        consumer = outboxFactory.createConsumer(testTopic, String.class);
-
         Checkpoint checkpoint = testContext.checkpoint(5);
         AtomicInteger receivedCount = new AtomicInteger(0);
 
-        consumer.subscribe(message -> {
-            receivedCount.incrementAndGet();
-            checkpoint.flag();
-            return Future.succeededFuture();
-        });
-
-        // Send batch of messages
-        for (int i = 0; i < 5; i++) {
-            producer.send("batch-msg-" + i).onFailure(testContext::failNow);
-        }
+        startManager(config, true)
+                .compose(v -> consumer.subscribe(message -> {
+                    receivedCount.incrementAndGet();
+                    checkpoint.flag();
+                    return Future.succeededFuture();
+                }))
+                .compose(v -> Future.all(
+                        producer.send("batch-msg-0"),
+                        producer.send("batch-msg-1"),
+                        producer.send("batch-msg-2"),
+                        producer.send("batch-msg-3"),
+                        producer.send("batch-msg-4")).mapEmpty())
+                .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process batch of messages");
         assertEquals(5, receivedCount.get(), "Should process all batch messages");
@@ -189,7 +186,7 @@ class OutboxConsumerSurgicalCoverageTest {
      * handleMessageFailureWithRetry() checks configuration.getQueueConfig().getMaxRetries().
      */
     @Test
-    void testRetryWithConfiguredMaxRetries(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testRetryWithConfiguredMaxRetries(VertxTestContext testContext) throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.max-retries", "1")
@@ -197,24 +194,17 @@ class OutboxConsumerSurgicalCoverageTest {
                 .build();
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
-        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-        producer = outboxFactory.createProducer(testTopic, String.class);
-        consumer = outboxFactory.createConsumer(testTopic, String.class);
-
         AtomicInteger attemptCount = new AtomicInteger(0);
         Checkpoint firstAttemptCheckpoint = testContext.checkpoint();
 
-        consumer.subscribe(message -> {
-            int attempt = attemptCount.incrementAndGet();
-            firstAttemptCheckpoint.flag();
-            throw new RuntimeException("Intentional failure for retry test");
-        });
-
-        producer.send("retry-msg").onFailure(testContext::failNow);
+        startManager(config, true)
+                .compose(v -> consumer.subscribe(message -> {
+                    attemptCount.incrementAndGet();
+                    firstAttemptCheckpoint.flag();
+                    throw new RuntimeException("Intentional failure for retry test");
+                }))
+                .compose(v -> producer.send("retry-msg"))
+                .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should attempt message processing");
         assertTrue(attemptCount.get() >= 1);
@@ -224,34 +214,25 @@ class OutboxConsumerSurgicalCoverageTest {
      * Test setConsumerGroupName() to cover consumer group tracking branch.
      */
     @Test
-    void testSetConsumerGroupName(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testSetConsumerGroupName(VertxTestContext testContext) throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
-        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-        producer = outboxFactory.createProducer(testTopic, String.class);
-        consumer = outboxFactory.createConsumer(testTopic, String.class);
-
-        // Cast to OutboxConsumer to access setConsumerGroupName
-        if (consumer instanceof OutboxConsumer) {
-            OutboxConsumer<String> outboxConsumer = (OutboxConsumer<String>) consumer;
-            outboxConsumer.setConsumerGroupName("test-group");
-        }
-
         Checkpoint checkpoint = testContext.checkpoint();
-        consumer.subscribe(message -> {
-            checkpoint.flag();
-            return Future.succeededFuture();
-        });
-
-        producer.send("group-msg").onFailure(testContext::failNow);
+        startManager(config, true)
+                .compose(v -> {
+                    OutboxConsumer<?> outboxConsumer = assertInstanceOf(OutboxConsumer.class, consumer);
+                    outboxConsumer.setConsumerGroupName("test-group");
+                    return consumer.subscribe(message -> {
+                        checkpoint.flag();
+                        return Future.succeededFuture();
+                    });
+                })
+                .compose(v -> producer.send("group-msg"))
+                .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process message with consumer group name set");
     }
@@ -268,24 +249,21 @@ class OutboxConsumerSurgicalCoverageTest {
                 .build();
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
-        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
+        startManager(config, true)
+                .compose(v -> consumer.subscribe(message -> {
+                    return Future.failedFuture(new RuntimeException("Async failure"));
+                }))
+                .compose(v -> producer.send("async-fail"))
+                .compose(v -> awaitCounter(vertx, "peegeeq.messages.failed.by.topic",
+                        System.currentTimeMillis() + 10_000))
+                .onSuccess(count -> testContext.verify(() -> {
+                    assertEquals(1.0, count, "Failed handler should increment the per-topic failure counter");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
 
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-        producer = outboxFactory.createProducer(testTopic, String.class);
-        consumer = outboxFactory.createConsumer(testTopic, String.class);
-
-        Checkpoint checkpoint = testContext.checkpoint();
-
-        consumer.subscribe(message -> {
-            checkpoint.flag();
-            return Future.failedFuture(new RuntimeException("Async failure"));
-        });
-
-        producer.send("async-fail").onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should invoke handler");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS),
+                "Failed handler should produce an observable failure metric");
     }
 
     /**
@@ -293,35 +271,28 @@ class OutboxConsumerSurgicalCoverageTest {
      * processRow() adds correlationId to headers if present.
      */
     @Test
-    void testMessageWithCorrelationId(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testMessageWithCorrelationId(VertxTestContext testContext) throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
-        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-        producer = outboxFactory.createProducer(testTopic, String.class);
-        consumer = outboxFactory.createConsumer(testTopic, String.class);
-
         Checkpoint checkpoint = testContext.checkpoint();
         AtomicReference<Map<String, String>> receivedHeaders = new AtomicReference<>();
-
-        consumer.subscribe(message -> {
-            receivedHeaders.set(message.getHeaders());
-            checkpoint.flag();
-            return Future.succeededFuture();
-        });
 
         Map<String, String> headers = new HashMap<>();
         headers.put("key1", "value1");
         String correlationId = "corr-" + UUID.randomUUID();
 
-        producer.send("correlation-msg", headers, correlationId).onFailure(testContext::failNow);
+        startManager(config, true)
+                .compose(v -> consumer.subscribe(message -> {
+                    receivedHeaders.set(message.getHeaders());
+                    checkpoint.flag();
+                    return Future.succeededFuture();
+                }))
+                .compose(v -> producer.send("correlation-msg", headers, correlationId))
+                .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message");
         assertNotNull(receivedHeaders.get(), "Should have headers");
@@ -332,104 +303,87 @@ class OutboxConsumerSurgicalCoverageTest {
      * Test subscribing when already subscribed to cover "Already subscribed" warning branch.
      */
     @Test
-    void testDoubleSubscribe() throws Exception {
+    void testDoubleSubscribe(VertxTestContext testContext) throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
-        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-        consumer = outboxFactory.createConsumer(testTopic, String.class);
-
-        consumer.subscribe(message -> Future.succeededFuture());
-
-        // Subscribe again - should log warning but not fail
-        consumer.subscribe(message -> Future.succeededFuture());
+        startManager(config, false)
+                .compose(v -> consumer.subscribe(message -> Future.succeededFuture()))
+                .compose(v -> consumer.subscribe(message -> Future.succeededFuture()))
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     /**
      * Test subscribe after consumer is closed to cover IllegalStateException branch.
      */
     @Test
-    void testSubscribeAfterClose() throws Exception {
+    void testSubscribeAfterClose(VertxTestContext testContext) throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
-        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-        consumer = outboxFactory.createConsumer(testTopic, String.class);
-
-        consumer.close();
-
-        Future<Void> result = consumer.subscribe(message -> Future.succeededFuture());
-        assertTrue(result.failed(), "subscribe on closed consumer should return a failed future");
-        assertInstanceOf(IllegalStateException.class, result.cause(),
-                "Should fail with IllegalStateException when subscribing to closed consumer");
+        startManager(config, false)
+                .onSuccess(v -> testContext.verify(() -> {
+                    consumer.close();
+                    Future<Void> result = consumer.subscribe(message -> Future.succeededFuture());
+                    assertTrue(result.failed(), "subscribe on closed consumer should return a failed future");
+                    assertInstanceOf(IllegalStateException.class, result.cause(),
+                            "Should fail with IllegalStateException when subscribing to closed consumer");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     /**
      * Test unsubscribe without prior subscribe to cover compareAndSet false branch.
      */
     @Test
-    void testUnsubscribeWithoutSubscribe() throws Exception {
+    void testUnsubscribeWithoutSubscribe(VertxTestContext testContext) throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
-        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-        consumer = outboxFactory.createConsumer(testTopic, String.class);
-
-        // Unsubscribe without subscribing - should be no-op
-        consumer.unsubscribe();
+        startManager(config, false)
+                .onSuccess(v -> testContext.verify(() -> {
+                    consumer.unsubscribe();
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     /**
      * Test message with null headers to cover header parsing edge case.
      */
     @Test
-    void testMessageWithNullHeaders(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testMessageWithNullHeaders(VertxTestContext testContext) throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
-        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-        producer = outboxFactory.createProducer(testTopic, String.class);
-        consumer = outboxFactory.createConsumer(testTopic, String.class);
-
         Checkpoint checkpoint = testContext.checkpoint();
         AtomicReference<Map<String, String>> receivedHeaders = new AtomicReference<>();
 
-        consumer.subscribe(message -> {
-            receivedHeaders.set(message.getHeaders());
-            checkpoint.flag();
-            return Future.succeededFuture();
-        });
-
-        // Send with null headers
-        producer.send("null-header-msg", null).onFailure(testContext::failNow);
+        startManager(config, true)
+                .compose(v -> consumer.subscribe(message -> {
+                    receivedHeaders.set(message.getHeaders());
+                    checkpoint.flag();
+                    return Future.succeededFuture();
+                }))
+                .compose(v -> producer.send("null-header-msg", null))
+                .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message");
         assertNotNull(receivedHeaders.get(), "Headers map should not be null (should be empty map)");
@@ -439,32 +393,24 @@ class OutboxConsumerSurgicalCoverageTest {
      * Test message with empty headers to cover parseHeadersFromJsonObject empty case.
      */
     @Test
-    void testMessageWithEmptyHeaders(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testMessageWithEmptyHeaders(VertxTestContext testContext) throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
-        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-        producer = outboxFactory.createProducer(testTopic, String.class);
-        consumer = outboxFactory.createConsumer(testTopic, String.class);
-
         Checkpoint checkpoint = testContext.checkpoint();
         AtomicReference<Map<String, String>> receivedHeaders = new AtomicReference<>();
 
-        consumer.subscribe(message -> {
-            receivedHeaders.set(message.getHeaders());
-            checkpoint.flag();
-            return Future.succeededFuture();
-        });
-
-        // Send with empty headers map
-        producer.send("empty-header-msg", new HashMap<>()).onFailure(testContext::failNow);
+        startManager(config, true)
+                .compose(v -> consumer.subscribe(message -> {
+                    receivedHeaders.set(message.getHeaders());
+                    checkpoint.flag();
+                    return Future.succeededFuture();
+                }))
+                .compose(v -> producer.send("empty-header-msg", new HashMap<>()))
+                .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message");
         assertNotNull(receivedHeaders.get(), "Headers should not be null");
@@ -482,26 +428,20 @@ class OutboxConsumerSurgicalCoverageTest {
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
 
-        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
-        manager = new PeeGeeQManager(config, meterRegistry);
-        manager.start().await();
+        startManager(config, true)
+                .compose(v -> consumer.subscribe(message -> Future.succeededFuture()))
+                .compose(v -> producer.send("metrics-msg"))
+                .compose(v -> awaitCounter(vertx, "peegeeq.messages.processed.by.topic",
+                        System.currentTimeMillis() + 10_000))
+                .onSuccess(count -> testContext.verify(() -> {
+                    assertEquals(1.0, count, "Successful processing should increment the per-topic counter");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
 
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-        producer = outboxFactory.createProducer(testTopic, String.class);
-        consumer = outboxFactory.createConsumer(testTopic, String.class);
-
-        Checkpoint checkpoint = testContext.checkpoint();
-
-        consumer.subscribe(message -> {
-            checkpoint.flag();
-            return Future.succeededFuture();
-        });
-
-        producer.send("metrics-msg").onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process message");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS),
+                "Successful processing metric should become observable");
     }
 
     /**
@@ -514,49 +454,42 @@ class OutboxConsumerSurgicalCoverageTest {
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
 
-        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
-        manager = new PeeGeeQManager(config, meterRegistry);
-        manager.start().await();
+        startManager(config, true)
+                .compose(v -> consumer.subscribe(message -> {
+                    throw new IllegalArgumentException("Test failure for metrics");
+                }))
+                .compose(v -> producer.send("failure-metrics-msg"))
+                .compose(v -> awaitCounter(vertx, "peegeeq.messages.failed.by.topic",
+                        System.currentTimeMillis() + 10_000))
+                .onSuccess(count -> testContext.verify(() -> {
+                    assertEquals(1.0, count, "Failed processing should increment the per-topic failure counter");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
 
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-        producer = outboxFactory.createProducer(testTopic, String.class);
-        consumer = outboxFactory.createConsumer(testTopic, String.class);
-
-        Checkpoint checkpoint = testContext.checkpoint();
-
-        consumer.subscribe(message -> {
-            checkpoint.flag();
-            throw new IllegalArgumentException("Test failure for metrics");
-        });
-
-        producer.send("failure-metrics-msg").onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should attempt to process message");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS),
+                "Failed processing metric should become observable");
     }
 
     /**
      * Test double close to cover close() compareAndSet false branch.
      */
     @Test
-    void testDoubleClose() throws Exception {
+    void testDoubleClose(VertxTestContext testContext) throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
-        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-        consumer = outboxFactory.createConsumer(testTopic, String.class);
-
-        consumer.close();
-        consumer.close(); // Second close should be no-op
+        startManager(config, false)
+                .onSuccess(v -> testContext.verify(() -> {
+                    consumer.close();
+                    consumer.close();
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 }
-
-

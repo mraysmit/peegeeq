@@ -33,9 +33,10 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.sqlclient.Row;
+import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -54,8 +55,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
-
-import java.util.concurrent.TimeUnit;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -146,7 +146,7 @@ class EnhancedErrorHandlingExampleTest {
                 .from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.max-retries", "3")
-                .property("peegeeq.queue.polling-interval", "PT0.5S")
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .property("peegeeq.consumer.threads", "2")
                 .property("peegeeq.queue.batch-size", "5")
                 .build();
@@ -154,7 +154,7 @@ class EnhancedErrorHandlingExampleTest {
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
         manager.start()
-            .onSuccess(v -> {
+            .map(v -> {
                 logger.info("PeeGeeQ Manager started successfully");
                 // Create outbox factory - following established pattern
                 PgDatabaseService databaseService = new PgDatabaseService(manager);
@@ -162,358 +162,227 @@ class EnhancedErrorHandlingExampleTest {
                 // Register outbox factory implementation
                 OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
                 factory = provider.createFactory("outbox", databaseService);
-                logger.info("Enhanced Error Handling Example Test setup completed");
-                testContext.completeNow();
+                return (Void) null;
             })
+            .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
     }
     
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws InterruptedException {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
-        logger.info("Cleaning up Enhanced Error Handling Example Test");
-
-        if (factory != null) {
-            try {
-                factory.close();
-            } catch (Exception e) {
-                logger.warn("Error closing factory: {}", e.getMessage());
-            }
-        }
-
-        Future<Void> closeFuture = (manager != null)
-            ? manager.closeReactive()
-            : Future.succeededFuture();
-
-        closeFuture
-                .onSuccess(v -> {
-                    logger.info("Enhanced Error Handling Example Test cleanup completed");
-                    testContext.completeNow();
-                })
+        Future<Void> closeFactory = factory != null
+                ? factory.close()
+                : Future.succeededFuture();
+        closeFactory
+                .eventually(() -> manager != null
+                        ? manager.closeReactive()
+                        : Future.succeededFuture())
+                .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
     
     @Test
-    void testRetryStrategies(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("=== Testing Retry Strategies with Exponential Backoff ===");
-        
-        try (MessageProducer<ErrorTestMessage> producer = factory.createProducer("retry-demo", ErrorTestMessage.class);
-             MessageConsumer<ErrorTestMessage> consumer = factory.createConsumer("retry-demo", ErrorTestMessage.class)) {
-            
-            AtomicInteger processedCount = new AtomicInteger(0);
-            AtomicInteger retryCount = new AtomicInteger(0);
-            Checkpoint checkpoint = testContext.checkpoint(3); // Expecting 3 successful messages
-            
-            // Consumer with retry logic
-            consumer.subscribe(message -> {
-                ErrorTestMessage payload = message.getPayload();
-                int attempt = payload.getProcessingAttempts();
-                
-                logger.info("INTENTIONAL TEST: Processing message: {} (attempt {})", 
-                    payload.getMessageId(), attempt + 1);
-                
-                try {
-                    // Simulate processing with potential errors
-                    simulateProcessing(payload);
-                    
-                    // Success
-                    int processed = processedCount.incrementAndGet();
-                    logger.info("EXPECTED SUCCESS: Successfully processed message: {} (total processed: {})",
-                        payload.getMessageId(), processed);
-                    checkpoint.flag();
-                    return Future.succeededFuture();
-                    
-                } catch (ProcessingException e) {
-                    int retries = retryCount.incrementAndGet();
-                    logger.warn("INTENTIONAL TEST FAILURE: Processing failed for message: {} (retry {}): {}", 
-                        payload.getMessageId(), retries, e.getMessage());
-                    logger.info("   This failure demonstrates retry mechanism with exponential backoff");
-                    
-                    if (e.isRetryable() && attempt < 3) {
-                        // Simulate exponential backoff using Vert.x timer
-                        long delayMs = 100 * (1L << attempt); // 100ms, 200ms, 400ms
-                        return vertx.timer(delayMs).compose(id -> Future.failedFuture(e));
-                    } else {
-                        logger.info("EXPECTED FAILURE: Message failed after max retries: {}", payload.getMessageId());
-                        checkpoint.flag();
-                        return Future.failedFuture(e);
-                    }
-                }
-            });
-            
-            // Send test messages with different error scenarios
-            sendErrorTestMessage(producer, "retry-001", "TRANSIENT_ERROR", "Transient network error")
-                .compose(v -> sendErrorTestMessage(producer, "retry-002", "VALIDATION_ERROR", "Invalid data format"))
-                .compose(v -> sendErrorTestMessage(producer, "retry-003", null, "Success message"))
-                .onFailure(testContext::failNow);
-            
-            // Wait for processing - increased timeout for integration test
-            assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Retry strategies test should complete within timeout");
-            
-            logger.info("Retry strategies test completed successfully!");
-            logger.info("   Total processed: {}, Total retries: {}", processedCount.get(), retryCount.get());
-        }
+    void testRetryStrategies(Vertx vertx, VertxTestContext testContext) {
+        String topic = newTopic("retry");
+        MessageProducer<ErrorTestMessage> producer = factory.createProducer(topic, ErrorTestMessage.class);
+        MessageConsumer<ErrorTestMessage> consumer = factory.createConsumer(topic, ErrorTestMessage.class);
+        AtomicInteger attempts = new AtomicInteger();
+        AtomicInteger processed = new AtomicInteger();
+        AtomicInteger failures = new AtomicInteger();
+
+        consumer.subscribe(message -> processSimulated(message, attempts, processed, failures))
+            .compose(v -> sendErrorTestMessage(producer, "retry-001", "TRANSIENT_ERROR", "Transient network error"))
+            .compose(v -> sendErrorTestMessage(producer, "retry-002", "VALIDATION_ERROR", "Invalid data format"))
+            .compose(v -> sendErrorTestMessage(producer, "retry-003", null, "Success message"))
+            .compose(v -> awaitTerminalCounts(vertx, topic, 1, 2, 100))
+            .onSuccess(row -> testContext.verify(() -> {
+                assertCounts(row, 1, 2);
+                assertEquals(9, attempts.intValue());
+                assertEquals(1, processed.intValue());
+                assertEquals(8, failures.intValue());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testCircuitBreakerIntegration(VertxTestContext testContext) throws Exception {
-        logger.info("=== Testing Circuit Breaker Integration ===");
+    void testCircuitBreakerIntegration(Vertx vertx, VertxTestContext testContext) {
+        String topic = newTopic("circuit-breaker");
+        MessageProducer<ErrorTestMessage> producer = factory.createProducer(topic, ErrorTestMessage.class);
+        MessageConsumer<ErrorTestMessage> consumer = factory.createConsumer(topic, ErrorTestMessage.class);
+        AtomicInteger attempts = new AtomicInteger();
+        AtomicInteger consecutiveFailures = new AtomicInteger();
+        AtomicInteger openRejections = new AtomicInteger();
 
-        try (MessageProducer<ErrorTestMessage> producer = factory.createProducer("circuit-breaker-demo", ErrorTestMessage.class);
-             MessageConsumer<ErrorTestMessage> consumer = factory.createConsumer("circuit-breaker-demo", ErrorTestMessage.class)) {
-
-            AtomicInteger processedCount = new AtomicInteger(0);
-            AtomicInteger failureCount = new AtomicInteger(0);
-            Checkpoint checkpoint = testContext.checkpoint(5); // Expecting 5 messages processed
-
-            // Simulate circuit breaker state
-            AtomicInteger consecutiveFailures = new AtomicInteger(0);
-            final int CIRCUIT_BREAKER_THRESHOLD = 3;
-
-            consumer.subscribe(message -> {
-                ErrorTestMessage payload = message.getPayload();
-
-                logger.info("INTENTIONAL TEST: Processing message with circuit breaker: {}", payload.getMessageId());
-
-                // Check circuit breaker state
-                if (consecutiveFailures.get() >= CIRCUIT_BREAKER_THRESHOLD) {
-                    logger.warn("INTENTIONAL TEST FAILURE: Circuit breaker is OPEN - rejecting message: {}",
-                        payload.getMessageId());
-                    logger.info("   This demonstrates circuit breaker protection against cascading failures");
-                    checkpoint.flag();
-                    return Future.failedFuture(new RuntimeException("Circuit breaker is OPEN"));
-                }
-
-                try {
-                    simulateProcessing(payload);
-
-                    // Success - reset circuit breaker
-                    consecutiveFailures.set(0);
-                    int processed = processedCount.incrementAndGet();
-                    logger.info("EXPECTED SUCCESS: Circuit breaker processing succeeded: {} (total: {})",
-                        payload.getMessageId(), processed);
-                    checkpoint.flag();
-                    return Future.succeededFuture();
-
-                } catch (ProcessingException e) {
-                    int failures = consecutiveFailures.incrementAndGet();
-                    int totalFailures = failureCount.incrementAndGet();
-
-                    logger.warn("INTENTIONAL TEST FAILURE: Circuit breaker processing failed: {} (consecutive: {}, total: {})",
-                        payload.getMessageId(), failures, totalFailures);
-                    logger.info("   This failure contributes to circuit breaker state management");
-
-                    if (failures >= CIRCUIT_BREAKER_THRESHOLD) {
-                        logger.warn("EXPECTED BEHAVIOR: Circuit breaker OPENED after {} consecutive failures", failures);
-                    }
-
-                    checkpoint.flag();
-                    return Future.failedFuture(e);
-                }
-            });
-
-            // Send messages that will trigger circuit breaker
-            sendErrorTestMessage(producer, "cb-001", "SYSTEM_ERROR", "Database connection failed")
-                .compose(v -> sendErrorTestMessage(producer, "cb-002", "SYSTEM_ERROR", "Service unavailable"))
-                .compose(v -> sendErrorTestMessage(producer, "cb-003", "SYSTEM_ERROR", "Timeout occurred"))
-                .compose(v -> sendErrorTestMessage(producer, "cb-004", "SYSTEM_ERROR", "Should be rejected by circuit breaker"))
-                .compose(v -> sendErrorTestMessage(producer, "cb-005", null, "Success message - but circuit breaker is open"))
-                .onFailure(testContext::failNow);
-
-            // Wait for processing - increased timeout for integration test
-            assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Circuit breaker test should complete within timeout");
-
-            logger.info("Circuit breaker integration test completed successfully!");
-            logger.info("   Processed: {}, Failures: {}, Circuit breaker trips: {}",
-                processedCount.get(), failureCount.get(),
-                consecutiveFailures.get() >= CIRCUIT_BREAKER_THRESHOLD ? 1 : 0);
-        }
+        consumer.subscribe(message -> {
+            attempts.incrementAndGet();
+            if (consecutiveFailures.intValue() >= 3) {
+                openRejections.incrementAndGet();
+                return Future.failedFuture("Circuit breaker is OPEN");
+            }
+            consecutiveFailures.incrementAndGet();
+            return Future.failedFuture("INTENTIONAL FAILURE: Circuit breaker dependency failed");
+        })
+            .compose(v -> sendErrorTestMessage(producer, "cb-001", "SYSTEM_ERROR", "Database connection failed"))
+            .compose(v -> awaitTerminalCounts(vertx, topic, 0, 1, 100))
+            .onSuccess(row -> testContext.verify(() -> {
+                assertCounts(row, 0, 1);
+                assertEquals(4, attempts.intValue());
+                assertEquals(3, consecutiveFailures.intValue());
+                assertEquals(1, openRejections.intValue());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testDeadLetterQueueManagement(VertxTestContext testContext) throws Exception {
-        logger.info("=== Testing Dead Letter Queue Management ===");
+    void testDeadLetterQueueManagement(Vertx vertx, VertxTestContext testContext) {
+        String topic = newTopic("dead-letter");
+        MessageProducer<ErrorTestMessage> producer = factory.createProducer(topic, ErrorTestMessage.class);
+        MessageConsumer<ErrorTestMessage> consumer = factory.createConsumer(topic, ErrorTestMessage.class);
+        AtomicInteger attempts = new AtomicInteger();
+        AtomicInteger processed = new AtomicInteger();
+        AtomicInteger failures = new AtomicInteger();
 
-        try (MessageProducer<ErrorTestMessage> producer = factory.createProducer("dlq-demo", ErrorTestMessage.class);
-             MessageConsumer<ErrorTestMessage> consumer = factory.createConsumer("dlq-demo", ErrorTestMessage.class)) {
-
-            AtomicInteger processedCount = new AtomicInteger(0);
-            AtomicInteger dlqCount = new AtomicInteger(0);
-            Checkpoint checkpoint = testContext.checkpoint(4); // Expecting 4 messages processed
-
-            consumer.subscribe(message -> {
-                ErrorTestMessage payload = message.getPayload();
-
-                logger.info("INTENTIONAL TEST: Processing message for DLQ demo: {}", payload.getMessageId());
-
-                try {
-                    simulateProcessing(payload);
-
-                    // Success
-                    int processed = processedCount.incrementAndGet();
-                    logger.info("EXPECTED SUCCESS: DLQ demo processing succeeded: {} (total: {})",
-                        payload.getMessageId(), processed);
-                    checkpoint.flag();
-                    return Future.succeededFuture();
-
-                } catch (ProcessingException e) {
-                    if (!e.isRetryable() || payload.getProcessingAttempts() >= 3) {
-                        // Move to dead letter queue
-                        int dlqMessages = dlqCount.incrementAndGet();
-                        logger.warn("EXPECTED BEHAVIOR: Message moved to dead letter queue: {} (total DLQ: {})",
-                            payload.getMessageId(), dlqMessages);
-                        logger.info("   This demonstrates proper dead letter queue management");
-                        checkpoint.flag();
-                        return Future.failedFuture(new RuntimeException("Moved to DLQ: " + e.getMessage()));
-                    } else {
-                        logger.warn("INTENTIONAL TEST FAILURE: DLQ demo processing failed (will retry): {}",
-                            payload.getMessageId());
-                        checkpoint.flag();
-                        return Future.failedFuture(e);
-                    }
-                }
-            });
-
-            // Send messages with different failure patterns
-            sendErrorTestMessage(producer, "dlq-001", "POISON_MESSAGE", "Malformed data that cannot be processed")
-                .compose(v -> sendErrorTestMessage(producer, "dlq-002", "VALIDATION_ERROR", "Business rule violation"))
-                .compose(v -> sendErrorTestMessage(producer, "dlq-003", null, "Success message"))
-                .compose(v -> sendErrorTestMessage(producer, "dlq-004", "TRANSIENT_ERROR", "Network timeout"))
-                .onFailure(testContext::failNow);
-
-            // Wait for processing - increased timeout for integration test
-            assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Dead letter queue test should complete within timeout");
-
-            logger.info("Dead letter queue management test completed successfully!");
-            logger.info("   Processed successfully: {}, Moved to DLQ: {}", processedCount.get(), dlqCount.get());
-        }
+        consumer.subscribe(message -> processSimulated(message, attempts, processed, failures))
+            .compose(v -> sendErrorTestMessage(producer, "dlq-001", "POISON_MESSAGE", "Malformed data"))
+            .compose(v -> sendErrorTestMessage(producer, "dlq-002", "VALIDATION_ERROR", "Business rule violation"))
+            .compose(v -> sendErrorTestMessage(producer, "dlq-003", null, "Success message"))
+            .compose(v -> sendErrorTestMessage(producer, "dlq-004", "TRANSIENT_ERROR", "Network timeout"))
+            .compose(v -> awaitTerminalCounts(vertx, topic, 1, 3, 100))
+            .onSuccess(row -> testContext.verify(() -> {
+                assertCounts(row, 1, 3);
+                assertEquals(13, attempts.intValue());
+                assertEquals(1, processed.intValue());
+                assertEquals(12, failures.intValue());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testErrorClassificationAndRouting(VertxTestContext testContext) throws Exception {
-        logger.info("=== Testing Error Classification and Routing ===");
+    void testErrorClassificationAndRouting(Vertx vertx, VertxTestContext testContext) {
+        String topic = newTopic("routing");
+        MessageProducer<ErrorTestMessage> producer = factory.createProducer(topic, ErrorTestMessage.class);
+        MessageConsumer<ErrorTestMessage> consumer = factory.createConsumer(topic, ErrorTestMessage.class);
+        AtomicInteger attempts = new AtomicInteger();
+        AtomicInteger routed = new AtomicInteger();
 
-        try (MessageProducer<ErrorTestMessage> producer = factory.createProducer("error-routing", ErrorTestMessage.class);
-             MessageConsumer<ErrorTestMessage> consumer = factory.createConsumer("error-routing", ErrorTestMessage.class)) {
-
-            AtomicInteger processedCount = new AtomicInteger(0);
-            AtomicInteger routedCount = new AtomicInteger(0);
-            Checkpoint checkpoint = testContext.checkpoint(4); // Expecting 4 messages processed
-
-            consumer.subscribe(message -> {
-                ErrorTestMessage payload = message.getPayload();
-
-                logger.info("INTENTIONAL TEST: Processing message for error routing: {}", payload.getMessageId());
-
+        consumer.subscribe(message -> {
+            attempts.incrementAndGet();
+            ErrorTestMessage payload = message.getPayload();
+            if (classifyError(payload.getErrorType()) == ErrorHandlingStrategy.RETRY) {
                 try {
-                    // Classify error and route accordingly
-                    ErrorHandlingStrategy strategy = classifyError(payload.getErrorType());
-
-                    switch (strategy) {
-                        case RETRY:
-                            logger.info("ROUTING: Message classified for RETRY strategy: {}", payload.getMessageId());
-                            simulateProcessing(payload);
-                            break;
-                        case IGNORE:
-                            logger.info("ROUTING: Message classified for IGNORE strategy: {}", payload.getMessageId());
-                            // Log and continue
-                            break;
-                        case ALERT:
-                            logger.info("ROUTING: Message classified for ALERT strategy: {}", payload.getMessageId());
-                            // Send alert and continue
-                            break;
-                        default:
-                            simulateProcessing(payload);
-                    }
-
-                    int processed = processedCount.incrementAndGet();
-                    int routed = routedCount.incrementAndGet();
-                    logger.info("EXPECTED SUCCESS: Error routing succeeded: {} (processed: {}, routed: {})",
-                        payload.getMessageId(), processed, routed);
-                    checkpoint.flag();
-                    return Future.succeededFuture();
-
-                } catch (ProcessingException e) {
-                    logger.warn("\ud83c\udfaf INTENTIONAL TEST FAILURE: Error routing processing failed: {}",
-                        payload.getMessageId());
-                    logger.info("   \ud83d\udccb This failure demonstrates error classification and routing");
-                    checkpoint.flag();
-                    return Future.failedFuture(e);
+                    simulateProcessing(payload);
+                } catch (ProcessingException error) {
+                    return Future.failedFuture(error);
                 }
-            });
-
-            // Send messages with different error types for routing
-            sendErrorTestMessage(producer, "route-001", "TRANSIENT_ERROR", "Should be retried")
-                .compose(v -> sendErrorTestMessage(producer, "route-002", "NON_CRITICAL_ERROR", "Should be ignored"))
-                .compose(v -> sendErrorTestMessage(producer, "route-003", "CRITICAL_ERROR", "Should trigger alert"))
-                .compose(v -> sendErrorTestMessage(producer, "route-004", null, "Success message"))
-                .onFailure(testContext::failNow);
-
-            // Wait for processing - increased timeout for integration test
-            assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Error classification and routing test should complete within timeout");
-
-            logger.info("Error classification and routing test completed successfully!");
-            logger.info("   Total processed: {}, Total routed: {}", processedCount.get(), routedCount.get());
-        }
+            }
+            routed.incrementAndGet();
+            return Future.succeededFuture();
+        })
+            .compose(v -> sendErrorTestMessage(producer, "route-001", "TRANSIENT_ERROR", "Should be retried"))
+            .compose(v -> sendErrorTestMessage(producer, "route-002", "NON_CRITICAL_ERROR", "Should be ignored"))
+            .compose(v -> sendErrorTestMessage(producer, "route-003", "CRITICAL_ERROR", "Should trigger alert"))
+            .compose(v -> sendErrorTestMessage(producer, "route-004", null, "Success message"))
+            .compose(v -> awaitTerminalCounts(vertx, topic, 3, 1, 100))
+            .onSuccess(row -> testContext.verify(() -> {
+                assertCounts(row, 3, 1);
+                assertEquals(7, attempts.intValue());
+                assertEquals(3, routed.intValue());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testPoisonMessageHandling(VertxTestContext testContext) throws Exception {
-        logger.info("=== Testing Poison Message Handling ===");
+    void testPoisonMessageHandling(Vertx vertx, VertxTestContext testContext) {
+        String topic = newTopic("poison");
+        MessageProducer<ErrorTestMessage> producer = factory.createProducer(topic, ErrorTestMessage.class);
+        MessageConsumer<ErrorTestMessage> consumer = factory.createConsumer(topic, ErrorTestMessage.class);
+        AtomicInteger attempts = new AtomicInteger();
+        AtomicInteger processed = new AtomicInteger();
+        AtomicInteger failures = new AtomicInteger();
+        AtomicInteger poisonAttempts = new AtomicInteger();
 
-        try (MessageProducer<ErrorTestMessage> producer = factory.createProducer("poison-demo", ErrorTestMessage.class);
-             MessageConsumer<ErrorTestMessage> consumer = factory.createConsumer("poison-demo", ErrorTestMessage.class)) {
+        consumer.subscribe(message -> {
+            if ("POISON_MESSAGE".equals(message.getPayload().getErrorType())) {
+                poisonAttempts.incrementAndGet();
+            }
+            return processSimulated(message, attempts, processed, failures);
+        })
+            .compose(v -> sendErrorTestMessage(producer, "poison-001", "POISON_MESSAGE", "Malformed message"))
+            .compose(v -> sendErrorTestMessage(producer, "poison-002", null, "Normal message"))
+            .compose(v -> sendErrorTestMessage(producer, "poison-003", "VALIDATION_ERROR", "Invalid message"))
+            .compose(v -> awaitTerminalCounts(vertx, topic, 1, 2, 100))
+            .onSuccess(row -> testContext.verify(() -> {
+                assertCounts(row, 1, 2);
+                assertEquals(9, attempts.intValue());
+                assertEquals(1, processed.intValue());
+                assertEquals(8, failures.intValue());
+                assertEquals(4, poisonAttempts.intValue());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+    }
 
-            AtomicInteger processedCount = new AtomicInteger(0);
-            AtomicInteger poisonCount = new AtomicInteger(0);
-            Checkpoint checkpoint = testContext.checkpoint(3); // Expecting 3 messages processed
-
-            consumer.subscribe(message -> {
-                ErrorTestMessage payload = message.getPayload();
-
-                logger.info("INTENTIONAL TEST: Processing message for poison detection: {}", payload.getMessageId());
-
-                // Check if message is poison (consistently fails)
-                if ("POISON_MESSAGE".equals(payload.getErrorType())) {
-                    int poisonMessages = poisonCount.incrementAndGet();
-                    logger.warn("EXPECTED BEHAVIOR: Poison message detected and isolated: {} (total poison: {})",
-                        payload.getMessageId(), poisonMessages);
-                    logger.info("   This demonstrates poison message detection and isolation");
-                    checkpoint.flag();
-                    return Future.failedFuture(new RuntimeException("Poison message isolated"));
-                }
-
-                try {
-                    simulateProcessing(payload);
-
-                    int processed = processedCount.incrementAndGet();
-                    logger.info("\u2705 EXPECTED SUCCESS: Poison demo processing succeeded: {} (total: {})",
-                        payload.getMessageId(), processed);
-                    checkpoint.flag();
-                    return Future.succeededFuture();
-
-                } catch (ProcessingException e) {
-                    logger.warn("INTENTIONAL TEST FAILURE: Poison demo processing failed: {}",
-                        payload.getMessageId());
-                    checkpoint.flag();
-                    return Future.failedFuture(e);
-                }
-            });
-
-            // Send messages including poison messages
-            sendErrorTestMessage(producer, "poison-001", "POISON_MESSAGE", "Malformed message that always fails")
-                .compose(v -> sendErrorTestMessage(producer, "poison-002", null, "Normal message"))
-                .compose(v -> sendErrorTestMessage(producer, "poison-003", "VALIDATION_ERROR", "Recoverable error"))
-                .onFailure(testContext::failNow);
-
-            // Wait for processing - increased timeout for integration test
-            assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Poison message handling test should complete within timeout");
-
-            logger.info("Poison message handling test completed successfully!");
-            logger.info("   Processed successfully: {}, Poison messages isolated: {}",
-                processedCount.get(), poisonCount.get());
+    private Future<Void> processSimulated(
+            Message<ErrorTestMessage> message,
+            AtomicInteger attempts,
+            AtomicInteger processed,
+            AtomicInteger failures) {
+        attempts.incrementAndGet();
+        try {
+            simulateProcessing(message.getPayload());
+            processed.incrementAndGet();
+            return Future.succeededFuture();
+        } catch (ProcessingException error) {
+            failures.incrementAndGet();
+            return Future.failedFuture(error);
         }
+    }
+
+    private Future<Row> awaitTerminalCounts(
+            Vertx vertx,
+            String topic,
+            int expectedCompleted,
+            int expectedDeadLetter,
+            int remainingAttempts) {
+        return manager.getDatabaseService().getConnectionProvider()
+                .getReactivePool("peegeeq-main")
+                .compose(pool -> pool.withConnection(connection -> connection.preparedQuery("""
+                        SELECT
+                            CAST(COUNT(*) FILTER (WHERE status = 'COMPLETED') AS INTEGER) AS completed_count,
+                            CAST(COUNT(*) FILTER (WHERE status = 'DEAD_LETTER') AS INTEGER) AS dead_letter_count
+                        FROM outbox
+                        WHERE topic = $1
+                        """).execute(Tuple.of(topic))))
+                .compose(rows -> {
+                    Row row = rows.iterator().next();
+                    if (row.getInteger("completed_count") == expectedCompleted
+                            && row.getInteger("dead_letter_count") == expectedDeadLetter) {
+                        return Future.succeededFuture(row);
+                    }
+                    if (remainingAttempts == 0) {
+                        return Future.failedFuture("Topic " + topic + " did not reach expected terminal counts");
+                    }
+                    return vertx.timer(100).compose(v -> awaitTerminalCounts(
+                            vertx,
+                            topic,
+                            expectedCompleted,
+                            expectedDeadLetter,
+                            remainingAttempts - 1));
+                });
+    }
+
+    private void assertCounts(Row row, int expectedCompleted, int expectedDeadLetter) {
+        assertEquals(expectedCompleted, row.getInteger("completed_count"));
+        assertEquals(expectedDeadLetter, row.getInteger("dead_letter_count"));
+    }
+
+    private String newTopic(String suffix) {
+        return "ee-" + suffix + "-" + UUID.randomUUID().toString().substring(0, 8);
     }
 
     /**
@@ -686,5 +555,3 @@ class EnhancedErrorHandlingExampleTest {
         }
     }
 }
-
-

@@ -53,9 +53,9 @@ import java.util.List;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Phaser;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -65,15 +65,8 @@ import static org.junit.jupiter.api.Assertions.*;
  * Integration tests for {@link OutboxConsumerGroup} covering lifecycle, membership,
  * routing, stats, and builder validation against a real PostgreSQL container.
  *
- * <p><strong>Synchronous-completion assumption:</strong> Several tests call
- * {@code group.close().onFailure(...)} or {@code group.stopGracefully().onFailure(...)}
- * and then immediately assert state synchronously (e.g. {@code assertEquals(State.CLOSED, ...)}).
- * This is safe only because {@link OutboxConsumerGroup#close()} and
- * {@link OutboxConsumerGroup#stopGracefully()} perform their state-machine transitions
- * synchronously before returning the {@code Future}. If either method ever defers its
- * state transition to an event-loop tick, those assertions will race and must be moved
- * inside the Future's {@code onSuccess} callback.
- * </p>
+ * Lifecycle tests observe the Future returned by asynchronous state transitions before
+ * asserting their terminal state or starting a subsequent transition.
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
@@ -107,13 +100,12 @@ class OutboxConsumerGroupCoreTest {
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws Exception {
+    void tearDown(VertxTestContext testContext) {
         Future.<Void>succeededFuture()
                 .eventually(() -> group != null ? group.close() : Future.succeededFuture())
                 .eventually(() -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     // ========================================================================
@@ -166,13 +158,17 @@ class OutboxConsumerGroupCoreTest {
 
         @Test
         @DisplayName("stop() transitions ACTIVE  NEW (restartable)")
-        void stopTransitionsToNew() {
+        void stopTransitionsToNew(VertxTestContext testContext) {
             group = createGroup("lifecycle-group", "test-topic");
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.start();
-            group.stopGracefully().onFailure(e -> fail("stop failed: " + e.getMessage()));
-            assertEquals(OutboxConsumerGroup.State.NEW, group.getState());
-            assertFalse(group.isActive());
+            group.start()
+                    .compose(v -> group.stopGracefully())
+                    .onSuccess(v -> testContext.verify(() -> {
+                        assertEquals(OutboxConsumerGroup.State.NEW, group.getState());
+                        assertFalse(group.isActive());
+                        testContext.completeNow();
+                    }))
+                    .onFailure(testContext::failNow);
         }
 
         @Test
@@ -185,25 +181,35 @@ class OutboxConsumerGroupCoreTest {
 
         @Test
         @DisplayName("stop() then start() allows restart")
-        void stopThenStartAllowsRestart() {
+        void stopThenStartAllowsRestart(VertxTestContext testContext) {
             group = createGroup("lifecycle-group", "test-topic");
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.start();
-            group.stopGracefully().onFailure(e -> fail("stop failed: " + e.getMessage()));
-            assertEquals(OutboxConsumerGroup.State.NEW, group.getState());
-            group.start();
-            assertEquals(OutboxConsumerGroup.State.ACTIVE, group.getState());
+            group.start()
+                    .compose(v -> group.stopGracefully())
+                    .compose(v -> {
+                        assertEquals(OutboxConsumerGroup.State.NEW, group.getState());
+                        return group.start();
+                    })
+                    .onSuccess(v -> testContext.verify(() -> {
+                        assertEquals(OutboxConsumerGroup.State.ACTIVE, group.getState());
+                        testContext.completeNow();
+                    }))
+                    .onFailure(testContext::failNow);
         }
 
         @Test
         @DisplayName("close() from ACTIVE stops and closes")
-        void closeFromActiveStopsAndCloses() {
+        void closeFromActiveStopsAndCloses(VertxTestContext testContext) {
             group = createGroup("lifecycle-group", "test-topic");
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.start();
-            group.close().onFailure(e -> fail("close failed: " + e.getMessage()));
-            assertEquals(OutboxConsumerGroup.State.CLOSED, group.getState());
-            assertFalse(group.isActive());
+            group.start()
+                    .compose(v -> group.close())
+                    .onSuccess(v -> testContext.verify(() -> {
+                        assertEquals(OutboxConsumerGroup.State.CLOSED, group.getState());
+                        assertFalse(group.isActive());
+                        testContext.completeNow();
+                    }))
+                    .onFailure(testContext::failNow);
         }
 
         @Test
@@ -350,7 +356,7 @@ class OutboxConsumerGroupCoreTest {
         void concurrentAddConsumerOnlyOneSucceeds() throws Exception {
             group = createGroup("concurrent-group", "test-topic");
             int threadCount = 10;
-            CyclicBarrier barrier = new CyclicBarrier(threadCount);
+            Phaser startGate = new Phaser(threadCount);
             AtomicInteger successCount = new AtomicInteger(0);
             AtomicInteger failureCount = new AtomicInteger(0);
 
@@ -358,21 +364,19 @@ class OutboxConsumerGroupCoreTest {
             try {
                 for (int i = 0; i < threadCount; i++) {
                     executor.submit(() -> {
+                        startGate.arriveAndAwaitAdvance();
                         try {
-                            barrier.await(5, TimeUnit.SECONDS);
                             group.addConsumer("contested-id", msg -> Future.succeededFuture());
                             successCount.incrementAndGet();
                         } catch (IllegalArgumentException e) {
                             failureCount.incrementAndGet();
-                        } catch (Exception e) {
-                            // Barrier/timeout
                         }
                     });
                 }
                 executor.shutdown();
                 assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
-                assertEquals(1, successCount.get(), "Exactly one thread should succeed");
-                assertEquals(threadCount - 1, failureCount.get(), "All others should fail with duplicate ID");
+                assertEquals(1, successCount.intValue(), "Exactly one thread should succeed");
+                assertEquals(threadCount - 1, failureCount.intValue(), "All others should fail with duplicate ID");
             } finally {
                 executor.shutdownNow();
             }
@@ -596,7 +600,7 @@ class OutboxConsumerGroupCoreTest {
 
             invokeDistributeMessage(group, new SimpleMessage<>("nh1", "test-topic", "p"));
 
-            assertEquals(0, handlerCalls.get(),
+            assertEquals(0, handlerCalls.intValue(),
                     "Handler must not be invoked when group filter throws");
         }
     }
@@ -662,9 +666,9 @@ class OutboxConsumerGroupCoreTest {
                         new SimpleMessage<>("msg-" + i, "test-topic", "payload"));
             }
 
-            assertTrue(c1Count.get() > 0, "Consumer 1 should receive some messages");
-            assertTrue(c2Count.get() > 0, "Consumer 2 should receive some messages");
-            assertEquals(100, c1Count.get() + c2Count.get());
+            assertTrue(c1Count.intValue() > 0, "Consumer 1 should receive some messages");
+            assertTrue(c2Count.intValue() > 0, "Consumer 2 should receive some messages");
+            assertEquals(100, c1Count.intValue() + c2Count.intValue());
         }
 
         @Test
@@ -684,7 +688,7 @@ class OutboxConsumerGroupCoreTest {
                         new SimpleMessage<>("msg-" + i, "test-topic", "payload"));
             }
 
-            assertEquals(10, count.get());
+            assertEquals(10, count.intValue());
         }
     }
 
@@ -1049,27 +1053,20 @@ class OutboxConsumerGroupCoreTest {
 
         @Test
         @DisplayName("concurrent start() calls all complete without error")
-        void concurrentStartAllComplete() throws Exception {
+        void concurrentStartAllComplete(VertxTestContext testContext) throws Exception {
             group = createGroup("concurrent-start-group", "test-topic");
             group.addConsumer("c1", msg -> Future.succeededFuture());
 
             int threadCount = 10;
-            CyclicBarrier barrier = new CyclicBarrier(threadCount);
-            AtomicInteger errorCount = new AtomicInteger();
+            Phaser startGate = new Phaser(threadCount);
+            List<Future<Void>> starts = new CopyOnWriteArrayList<>();
 
             ExecutorService executor = Executors.newFixedThreadPool(threadCount);
             try {
                 for (int i = 0; i < threadCount; i++) {
                     executor.submit(() -> {
-                        try {
-                            barrier.await(5, TimeUnit.SECONDS);
-                            group.start(); // idempotent if already active
-                        } catch (IllegalStateException e) {
-                            // Not expected for start(), but tolerate if racing with STOPPING
-                            errorCount.incrementAndGet();
-                        } catch (Exception e) {
-                            // Barrier timeout
-                        }
+                        startGate.arriveAndAwaitAdvance();
+                        starts.add(group.start());
                     });
                 }
                 executor.shutdown();
@@ -1081,7 +1078,12 @@ class OutboxConsumerGroupCoreTest {
                 // that saturation; a genuine deadlock (impossible here — lock-free CAS) would still fail.
                 assertTrue(executor.awaitTermination(60, TimeUnit.SECONDS),
                         "concurrent start() worker threads should all complete under load");
-                assertEquals(OutboxConsumerGroup.State.ACTIVE, group.getState());
+                Future.all(starts)
+                        .onSuccess(v -> testContext.verify(() -> {
+                            assertEquals(OutboxConsumerGroup.State.ACTIVE, group.getState());
+                            testContext.completeNow();
+                        }))
+                        .onFailure(testContext::failNow);
             } finally {
                 executor.shutdownNow();
             }

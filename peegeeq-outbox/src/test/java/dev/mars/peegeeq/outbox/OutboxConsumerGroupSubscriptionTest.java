@@ -84,7 +84,7 @@ class OutboxConsumerGroupSubscriptionTest {
     private MessageProducer<String> producer;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.5S")
@@ -94,28 +94,40 @@ class OutboxConsumerGroupSubscriptionTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
+        manager.start()
+                .onSuccess(v -> {
+                    DatabaseService databaseService = new PgDatabaseService(manager);
+                    QueueFactoryProvider provider = new PgQueueFactoryProvider();
+                    OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
 
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        QueueFactoryProvider provider = new PgQueueFactoryProvider();
-        OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-
-        factory = provider.createFactory("outbox", databaseService);
-        producer = factory.createProducer("test-topic", String.class);
+                    factory = provider.createFactory("outbox", databaseService);
+                    producer = factory.createProducer("test-topic", String.class);
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and clearing system properties");
-        if (producer != null) {
-            producer.close();
-        }
-        if (factory != null) {
-            factory.close();
-        }
-        if (manager != null) {
-            manager.closeReactive().await();
-        }
+        Future<Void> closeFactory = factory != null ? factory.close() : Future.succeededFuture();
+        closeFactory
+                .transform(factoryResult -> {
+                    Future<Void> closeManager = manager != null
+                            ? manager.closeReactive()
+                            : Future.succeededFuture();
+                    return closeManager.transform(managerResult -> {
+                        if (factoryResult.failed()) {
+                            return Future.failedFuture(factoryResult.cause());
+                        }
+                        if (managerResult.failed()) {
+                            return Future.failedFuture(managerResult.cause());
+                        }
+                        return Future.succeededFuture();
+                    });
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -154,22 +166,15 @@ class OutboxConsumerGroupSubscriptionTest {
                 .onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
         @DisplayName("should start with FROM_BEGINNING position")
         void testStartWithOptions_FromBeginning(Vertx vertx, VertxTestContext testContext) throws Exception {
-            for (int i = 0; i < 5; i++) {
-        logger.info("Test: start with options  from beginning");
-                producer.send("Historical-" + i).await();
-            }
-            vertx.timer(1000).await();
-
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
-            Checkpoint messageCheckpoint = testContext.checkpoint(3);
+            Checkpoint messageCheckpoint = testContext.checkpoint(5);
             group.addConsumer("consumer-1", msg -> {
                 messageCheckpoint.flag();
                 return Future.succeededFuture();
@@ -179,52 +184,40 @@ class OutboxConsumerGroupSubscriptionTest {
                 .startPosition(StartPosition.FROM_BEGINNING)
                 .build();
 
-            group.start(options);
+            sendBatch("Historical-", 5)
+                .compose(v -> group.start(options))
+                .onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
             assertTrue(group.isActive());
-            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
         @DisplayName("should start with FROM_TIMESTAMP position")
         void testStartWithOptions_FromTimestamp(Vertx vertx, VertxTestContext testContext) throws Exception {
-            vertx.timer(100).await();
-
-            for (int i = 0; i < 3; i++) {
-        logger.info("Test: start with options  from timestamp");
-                producer.send("Before-" + i).await();
-            }
-
-            vertx.timer(100).await();
-            Instant cutoffTimestamp = Instant.now();
-            vertx.timer(100).await();
-
-            for (int i = 0; i < 3; i++) {
-                producer.send("After-" + i).await();
-            }
-
-            vertx.timer(1000).await();
-
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
-            Checkpoint messageCheckpoint = testContext.checkpoint();
+            Checkpoint messageCheckpoint = testContext.checkpoint(3);
             group.addConsumer("consumer-1", msg -> {
                 messageCheckpoint.flag();
                 return Future.succeededFuture();
             });
 
-            SubscriptionOptions options = SubscriptionOptions.builder()
-                .startPosition(StartPosition.FROM_TIMESTAMP)
-                .startFromTimestamp(cutoffTimestamp)
-                .build();
-
-            group.start(options);
+            vertx.timer(100)
+                .compose(v -> sendBatch("Before-", 3))
+                .compose(v -> vertx.timer(100))
+                .map(v -> Instant.now())
+                .compose(cutoff -> vertx.timer(100).map(cutoff))
+                .compose(cutoff -> sendBatch("After-", 3).map(cutoff))
+                .compose(cutoff -> group.start(SubscriptionOptions.builder()
+                    .startPosition(StartPosition.FROM_TIMESTAMP)
+                    .startFromTimestamp(cutoff)
+                    .build()))
+                .onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
             assertTrue(group.isActive());
-            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
@@ -236,7 +229,6 @@ class OutboxConsumerGroupSubscriptionTest {
             group.addConsumer("consumer-1", msg -> Future.succeededFuture());
 
             assertThrows(IllegalArgumentException.class, () -> group.start(null));
-            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
@@ -254,7 +246,6 @@ class OutboxConsumerGroupSubscriptionTest {
                 .onSuccess(v -> testContext.failNow("Should have failed with IllegalStateException"))
                 .onFailure(e -> testContext.verify(() -> {
                     assertInstanceOf(IllegalStateException.class, e);
-                    group.close().onFailure(testContext::failNow);
                     testContext.completeNow();
                 }));
 
@@ -267,11 +258,10 @@ class OutboxConsumerGroupSubscriptionTest {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
-            group.addConsumer("consumer-1", msg -> Future.succeededFuture());
-            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
-
             SubscriptionOptions options = SubscriptionOptions.defaults();
-            group.start(options)
+            group.addConsumer("consumer-1", msg -> Future.succeededFuture());
+            group.close()
+                .compose(v -> group.start(options))
                 .onSuccess(v -> testContext.failNow("Should have failed with IllegalStateException"))
                 .onFailure(e -> testContext.verify(() -> {
         logger.info("Test: start with options  after close");
@@ -307,7 +297,6 @@ class OutboxConsumerGroupSubscriptionTest {
                 .onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
@@ -320,9 +309,11 @@ class OutboxConsumerGroupSubscriptionTest {
             group1.start(SubscriptionOptions.builder()
                 .startPosition(StartPosition.FROM_NOW).build())
                 .compose(v -> {
-        logger.info("Test: start with options  multiple positions");
+                    logger.info("Test: start with options  multiple positions");
                     testContext.verify(() -> assertTrue(group1.isActive()));
-                    group1.close().onFailure(e -> logger.warn("group1.close() failed", e));
+                    return group1.close();
+                })
+                .compose(v -> {
                     // FROM_BEGINNING
                     ConsumerGroup<String> group2 = factory.createConsumerGroup(
                         "group-from-beginning", "test-topic", String.class);
@@ -333,7 +324,9 @@ class OutboxConsumerGroupSubscriptionTest {
                 })
                 .compose(group2 -> {
                     testContext.verify(() -> assertTrue(group2.isActive()));
-                    group2.close().onFailure(e -> logger.warn("group2.close() failed", e));
+                    return group2.close();
+                })
+                .compose(v -> {
                     // Defaults
                     ConsumerGroup<String> group3 = factory.createConsumerGroup(
                         "group-defaults", "test-topic", String.class);
@@ -341,11 +334,11 @@ class OutboxConsumerGroupSubscriptionTest {
                     return group3.start(SubscriptionOptions.defaults())
                         .map(v3 -> group3);
                 })
-                .onComplete(testContext.succeeding(group3 -> testContext.verify(() -> {
+                .onSuccess(group3 -> testContext.verify(() -> {
                     assertTrue(group3.isActive());
-                    group3.close().onFailure(e -> logger.warn("group3.close() failed", e));
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
         }
@@ -372,8 +365,6 @@ class OutboxConsumerGroupSubscriptionTest {
             assertEquals("test-group-default-consumer", member.getConsumerId());
             assertEquals(1, group.getConsumerIds().size());
             assertTrue(group.getConsumerIds().contains("test-group-default-consumer"));
-
-            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
@@ -390,8 +381,6 @@ class OutboxConsumerGroupSubscriptionTest {
             assertInstanceOf(ConsumerGroupMember.class, member);
             assertEquals("test-group", member.getGroupName());
             assertEquals("test-topic", member.getTopic());
-
-            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
@@ -400,7 +389,7 @@ class OutboxConsumerGroupSubscriptionTest {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
-            Checkpoint messageCheckpoint = testContext.checkpoint(2);
+            Checkpoint messageCheckpoint = testContext.checkpoint(3);
 
             group.setMessageHandler(msg -> {
         logger.info("Test: set message handler  processes messages");
@@ -408,15 +397,14 @@ class OutboxConsumerGroupSubscriptionTest {
                 return Future.succeededFuture();
             });
 
-            group.start();
-
-            producer.send("Message-1").await();
-            producer.send("Message-2").await();
-            producer.send("Message-3").await();
+            group.start()
+                .compose(v -> Future.all(
+                    producer.send("Message-1"),
+                    producer.send("Message-2"),
+                    producer.send("Message-3")))
+                .onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-
-            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
@@ -429,8 +417,6 @@ class OutboxConsumerGroupSubscriptionTest {
 
             assertThrows(IllegalStateException.class,
                 () -> group.setMessageHandler(msg -> Future.succeededFuture()));
-
-            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
@@ -442,20 +428,21 @@ class OutboxConsumerGroupSubscriptionTest {
 
             assertThrows(NullPointerException.class,
                 () -> group.setMessageHandler(null));
-
-            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
         @DisplayName("should throw IllegalStateException after close")
-        void testSetMessageHandler_AfterClose() throws Exception {
+        void testSetMessageHandler_AfterClose(VertxTestContext testContext) {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
-            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
-
-            assertThrows(IllegalStateException.class,
-                () -> group.setMessageHandler(msg -> Future.succeededFuture()));
+            group.close()
+                .onSuccess(v -> testContext.verify(() -> {
+                    assertThrows(IllegalStateException.class,
+                        () -> group.setMessageHandler(msg -> Future.succeededFuture()));
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
         }
 
         @Test
@@ -465,36 +452,29 @@ class OutboxConsumerGroupSubscriptionTest {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
-            Checkpoint messageCheckpoint = testContext.checkpoint();
+            Checkpoint messageCheckpoint = testContext.checkpoint(2);
             group.setMessageHandler(msg -> {
                 messageCheckpoint.flag();
                 return Future.succeededFuture();
             });
 
-            group.start();
-
-            producer.send("Test-1").await();
-            producer.send("Test-2").await();
+            group.start()
+                .compose(v -> Future.all(
+                    producer.send("Test-1"),
+                    producer.send("Test-2")))
+                .onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
             assertTrue(group.isActive());
-
-            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
         @DisplayName("should work with start(SubscriptionOptions)")
         void testSetMessageHandler_IntegrationWithStartOptions(Vertx vertx, VertxTestContext testContext) throws Exception {
-            for (int i = 0; i < 3; i++) {
-        logger.info("Test: set message handler  integration with start options");
-                producer.send("Historical-" + i).await();
-            }
-            vertx.timer(1000).await();
-
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
-            Checkpoint messageCheckpoint = testContext.checkpoint(2);
+            Checkpoint messageCheckpoint = testContext.checkpoint(3);
             group.setMessageHandler(msg -> {
                 messageCheckpoint.flag();
                 return Future.succeededFuture();
@@ -504,12 +484,12 @@ class OutboxConsumerGroupSubscriptionTest {
                 .startPosition(StartPosition.FROM_BEGINNING)
                 .build();
 
-            group.start(options);
+            sendBatch("Historical-", 3)
+                .compose(v -> group.start(options))
+                .onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
             assertTrue(group.isActive());
-
-            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
@@ -525,11 +505,9 @@ class OutboxConsumerGroupSubscriptionTest {
                 return Future.succeededFuture();
             });
 
-            group.start();
-
-            for (int i = 0; i < 5; i++) {
-                producer.send("Message-" + i).await();
-            }
+            group.start()
+                .compose(v -> sendBatch("Message-", 5))
+                .onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
 
@@ -542,8 +520,6 @@ class OutboxConsumerGroupSubscriptionTest {
             assertNotNull(memberStats);
             assertEquals("test-group-default-consumer", memberStats.getConsumerId());
             assertTrue(memberStats.isActive());
-
-            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
@@ -555,44 +531,51 @@ class OutboxConsumerGroupSubscriptionTest {
             ExecutorService executor = Executors.newFixedThreadPool(5);
             CyclicBarrier startBarrier = new CyclicBarrier(6);
 
-            AtomicInteger successCount = new AtomicInteger(0);
-            AtomicInteger failureCount = new AtomicInteger(0);
-            List<Exception> exceptions = Collections.synchronizedList(new ArrayList<>());
+            try {
+                AtomicInteger successCount = new AtomicInteger(0);
+                AtomicInteger failureCount = new AtomicInteger(0);
+                List<Exception> exceptions = Collections.synchronizedList(new ArrayList<>());
 
-            List<java.util.concurrent.Future<?>> futures = new ArrayList<>();
-            for (int i = 0; i < 5; i++) {
-        logger.info("Test: set message handler  thread safety");
-                futures.add(executor.submit(() -> {
-                    try {
-                        startBarrier.await();
-                        group.setMessageHandler(msg -> Future.succeededFuture());
-                        successCount.incrementAndGet();
-                    } catch (IllegalStateException e) {
-                        failureCount.incrementAndGet();
-                        exceptions.add(e);
-                    } catch (Exception e) {
-                        exceptions.add(e);
-                    }
-                }));
+                List<java.util.concurrent.Future<?>> futures = new ArrayList<>();
+                for (int i = 0; i < 5; i++) {
+                    logger.info("Test: set message handler  thread safety");
+                    futures.add(executor.submit(() -> {
+                        try {
+                            startBarrier.await(10, TimeUnit.SECONDS);
+                            group.setMessageHandler(msg -> Future.succeededFuture());
+                            successCount.incrementAndGet();
+                        } catch (IllegalStateException e) {
+                            failureCount.incrementAndGet();
+                            exceptions.add(e);
+                        } catch (Exception e) {
+                            exceptions.add(e);
+                        }
+                    }));
+                }
+
+                startBarrier.await(10, TimeUnit.SECONDS);
+
+                for (java.util.concurrent.Future<?> future : futures) {
+                    future.get(5, TimeUnit.SECONDS);
+                }
+
+                assertEquals(1, successCount.get());
+                assertEquals(4, failureCount.get());
+
+                for (Exception e : exceptions) {
+                    assertInstanceOf(IllegalStateException.class, e);
+                }
+            } finally {
+                executor.shutdown();
             }
-
-            startBarrier.await();
-
-            for (java.util.concurrent.Future<?> future : futures) {
-                future.get(5, TimeUnit.SECONDS);
-            }
-
-            assertEquals(1, successCount.get());
-            assertEquals(4, failureCount.get());
-
-            for (Exception e : exceptions) {
-                assertInstanceOf(IllegalStateException.class, e);
-            }
-
-            executor.shutdown();
-            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
     }
+
+    private Future<Void> sendBatch(String prefix, int count) {
+        List<Future<Void>> sends = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            sends.add(producer.send(prefix + i));
+        }
+        return Future.all(sends).mapEmpty();
+    }
 }
-
-

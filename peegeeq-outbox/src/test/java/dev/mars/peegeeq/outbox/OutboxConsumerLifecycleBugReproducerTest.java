@@ -28,6 +28,8 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
@@ -44,11 +46,9 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import java.util.List;
 import java.util.Properties;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Regression test for consumer lifecycle during manager shutdown.
@@ -119,7 +119,7 @@ public class OutboxConsumerLifecycleBugReproducerTest {
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
         if (logAppender != null) {
             ch.qos.logback.classic.Logger consumerLogger = (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(OutboxConsumer.class);
@@ -132,29 +132,35 @@ public class OutboxConsumerLifecycleBugReproducerTest {
             logAppender.stop();
         }
 
-        // Force-close the consumer if still alive (cleanup only)
         if (consumer != null) {
-            try { consumer.close(); } catch (Exception e) { logger.warn("consumer.close() failed", e); }
+            consumer.close();
         }
-        if (outboxFactory != null) {
-            try { outboxFactory.close(); } catch (Exception e) { logger.warn("outboxFactory.close() failed", e); }
-        }
+        Future<Void> closeFactory = outboxFactory != null
+                ? outboxFactory.close()
+                : Future.succeededFuture();
+        closeFactory
+                .eventually(() -> manager != null
+                        ? manager.closeReactive()
+                        : Future.succeededFuture())
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @Test
-    void consumerPollingAfterManagerCloseProducesClientNotFoundErrors(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
-        // Subscribe the consumer this starts polling
-        consumer.subscribe(message -> io.vertx.core.Future.succeededFuture());
-
+    void consumerPollingAfterManagerCloseProducesClientNotFoundErrors(Vertx vertx, VertxTestContext testContext) {
         // Give the consumer a moment to start polling and establish the pool,
         // then close the manager WITHOUT explicitly closing the consumer/factory first.
         // If the OutboxFactory close hook properly calls consumer.close(), the consumer
         // will be cleanly stopped before pools are destroyed the bug is fixed.
         // If the hook is a no-op, the consumer keeps polling and hits "Client not found".
-        vertx.timer(500)
+        consumer.subscribe(message -> Future.succeededFuture())
+                .compose(v -> vertx.timer(500))
                 .compose(v -> manager.closeReactive())
-                .compose(v -> vertx.timer(2000))
-                .onSuccess(v -> {
+                .compose(v -> {
+                    manager = null;
+                    return vertx.timer(2000);
+                })
+                .onSuccess(v -> testContext.verify(() -> {
                     // Check captured logs for the bug's signature errors
                     List<ILoggingEvent> events = logAppender.list;
                     boolean hasClientNotFound = events.stream()
@@ -183,13 +189,11 @@ public class OutboxConsumerLifecycleBugReproducerTest {
                     // pools are destroyed, so no "Client not found" errors should appear.
                     // This test is a regression guard: if the close hook is broken in future,
                     // error messages will reappear and this assertion will catch it.
-                    testContext.verify(() -> assertFalse(bugReproduced,
+                    assertFalse(bugReproduced,
                             "OutboxFactory close hook should have cleanly closed the consumer before pools "
-                                    + "were destroyed, but " + errorCount + " shutdown-related error(s) appeared."));
+                                    + "were destroyed, but " + errorCount + " shutdown-related error(s) appeared.");
                     testContext.completeNow();
-                })
+                }))
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
     }
 }

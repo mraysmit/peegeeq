@@ -26,12 +26,8 @@ import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
-import dev.mars.peegeeq.db.connection.PgConnectionManager;
-import dev.mars.peegeeq.db.config.PgConnectionConfig;
-import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
-import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
@@ -46,17 +42,16 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.sqlclient.Row;
+import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -87,14 +82,10 @@ public class OutboxRetryConcurrencyTest {
     private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
-    private List<MessageProducer<String>> producers;
-    private List<MessageConsumer<String>> consumers;
     private OutboxFactory outboxFactory;
-    private io.vertx.sqlclient.Pool testReactivePool;
-    private PgConnectionManager connectionManager;
 
     @BeforeEach
-    void setUp(VertxTestContext ctx) throws Exception {
+    void setUp(VertxTestContext ctx) {
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
 
@@ -112,371 +103,210 @@ public class OutboxRetryConcurrencyTest {
         // Initialize manager and components
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
         manager.start()
-            .onSuccess(v -> {
+            .map(v -> {
                 DatabaseService databaseService = new PgDatabaseService(manager);
                 outboxFactory = new OutboxFactory(databaseService, manager.getConfiguration());
-
-                // Create test-specific DataSource for verification
-                connectionManager = new PgConnectionManager(Vertx.vertx());
-                PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
-                        .host(postgres.getHost())
-                        .port(postgres.getFirstMappedPort())
-                        .database(postgres.getDatabaseName())
-                        .username(postgres.getUsername())
-                        .password(postgres.getPassword())
-                        .schema(PostgreSQLTestConstants.TEST_SCHEMA)
-                        .build();
-                PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).build();
-                testReactivePool = connectionManager.getOrCreateReactivePool("test-verification", connectionConfig, poolConfig);
-
-                // Initialize collections for multiple producers/consumers
-                producers = new ArrayList<>();
-                consumers = new ArrayList<>();
-
-                ctx.completeNow();
+                return (Void) null;
             })
+            .onSuccess(v -> ctx.completeNow())
             .onFailure(ctx::failNow);
     }
 
     @AfterEach
-    void tearDown(VertxTestContext ctx) throws Exception {
-        // Close all consumers
-        for (MessageConsumer<String> consumer : consumers) {
-            try { consumer.close(); } catch (Exception e) { logger.warn("Error closing consumer: {}", e.getMessage()); }
-        }
-
-        // Close all producers
-        for (MessageProducer<String> producer : producers) {
-            try { producer.close(); } catch (Exception e) { logger.warn("Error closing producer: {}", e.getMessage()); }
-        }
-
+    void tearDown(VertxTestContext ctx) {
         (outboxFactory != null ? outboxFactory.close() : Future.<Void>succeededFuture())
             .eventually(() -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
-            .eventually(() -> connectionManager != null
-                ? connectionManager.close()
-                : Future.<Void>succeededFuture())
             .onSuccess(v -> ctx.completeNow())
             .onFailure(ctx::failNow);
     }
 
     @Test
     @DisplayName("CONCURRENCY: Multiple threads processing same message simultaneously")
-    void testConcurrentMessageProcessing(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testConcurrentMessageProcessing(Vertx vertx, VertxTestContext testContext) {
         String testTopic = "test-concurrent-processing-" + UUID.randomUUID().toString().substring(0, 8);
         MessageProducer<String> producer = outboxFactory.createProducer(testTopic, String.class);
-        producers.add(producer);
-        
-        // Create multiple consumers for the same topic
-        int consumerCount = 5;
-        List<MessageConsumer<String>> topicConsumers = new ArrayList<>();
-        
-        for (int i = 0; i < consumerCount; i++) {
+        AtomicInteger attempts = new AtomicInteger();
+        List<Future<?>> subscriptions = new ArrayList<>();
+        for (int i = 0; i < 5; i++) {
             MessageConsumer<String> consumer = outboxFactory.createConsumer(testTopic, String.class);
-            consumers.add(consumer);
-            topicConsumers.add(consumer);
+            subscriptions.add(consumer.subscribe(message -> {
+                attempts.incrementAndGet();
+                return vertx.timer(100).mapEmpty();
+            }));
         }
-        
-        String testMessage = "Message for concurrent processing test";
-        AtomicInteger totalAttempts = new AtomicInteger(0);
-        AtomicInteger successfulProcessing = new AtomicInteger(0);
-        Checkpoint processingCheckpoint = testContext.checkpoint();
-        Checkpoint completionCheckpoint = testContext.checkpoint();
 
-        // Send message first
-        producer.send(testMessage).onFailure(testContext::failNow);
-
-        // Wait a bit to ensure message is committed to database
-        Checkpoint setupCheckpoint = testContext.checkpoint();
-        vertx.setTimer(500, setupId -> {
-            setupCheckpoint.flag();
-        });
-
-        // Set up all consumers to compete for the same message
-        for (int i = 0; i < consumerCount; i++) {
-            final int consumerIndex = i;
-            MessageConsumer<String> consumer = topicConsumers.get(i);
-
-            consumer.subscribe(message -> {
-                totalAttempts.incrementAndGet();
-
-                // Simulate some processing time to increase chance of race conditions
-                Promise<Void> result = Promise.promise();
-                vertx.setTimer(100, timerId -> {
-                    // Only one consumer should successfully process the message
-                    if (successfulProcessing.incrementAndGet() == 1) {
-                        processingCheckpoint.flag();
-
-                        // Add delay to allow database completion, verify, then signal completion
-                        vertx.setTimer(1000, timerId2 ->
-                            verifyMessageProcessedOnce(testMessage)
-                                .onSuccess(v -> completionCheckpoint.flag())
-                                .onFailure(testContext::failNow));
-                    } else {
-                        testContext.failNow(new AssertionError(
-                            "Multiple consumers processed the same message - database locking failed"));
-                    }
-                    result.complete();
-                });
-                return result.future();
-            });
-        }
-        
-        // Wait for processing to complete
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Message should be processed by exactly one consumer");
-
-        // Synchronous assertions after awaitCompletion are fine in the test method body
-        assertEquals(1, successfulProcessing.get(),
-            "Exactly one consumer should have successfully processed the message");
+        Future.all(subscriptions)
+            .compose(v -> producer.send("Message for concurrent processing test"))
+            .compose(v -> awaitStatusCount(vertx, testTopic, "COMPLETED", 1, 100))
+            .onSuccess(count -> testContext.verify(() -> {
+                assertEquals(1, count);
+                assertEquals(1, attempts.intValue(), "Database locking must permit exactly one handler");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
     @DisplayName("CONCURRENCY: Race conditions in retry count updates")
-    void testRaceConditionsInRetryCountUpdates(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testRaceConditionsInRetryCountUpdates(Vertx vertx, VertxTestContext testContext) {
         String testTopic = "test-retry-race-conditions-" + UUID.randomUUID().toString().substring(0, 8);
         MessageProducer<String> producer = outboxFactory.createProducer(testTopic, String.class);
         MessageConsumer<String> consumer = outboxFactory.createConsumer(testTopic, String.class);
-        producers.add(producer);
-        consumers.add(consumer);
-        
-        String testMessage = "Message for retry race condition test";
-        AtomicInteger attemptCount = new AtomicInteger(0);
-        AtomicInteger retryFlags = new AtomicInteger(0);
-        Checkpoint retryCheckpoint = testContext.checkpoint(4); // Initial + 3 retries
-        Checkpoint verifyCheckpoint = testContext.checkpoint();
-
-        // Send message first
-        producer.send(testMessage).onFailure(testContext::failNow);
-
-        // Set up consumer that always fails to trigger retry logic
+        AtomicInteger attemptCount = new AtomicInteger();
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
-
-            retryCheckpoint.flag();
-            if (retryFlags.incrementAndGet() == 4) {
-                // All retries done  verify retry count consistency before completing
-                verifyRetryCountConsistency(testMessage, 3)
-                    .onSuccess(v -> verifyCheckpoint.flag())
-                    .onFailure(testContext::failNow);
-            }
-
-            // Simulate concurrent retry count updates by adding some processing time
-            Promise<Void> result = Promise.promise();
-            vertx.setTimer(50, timerId -> {
-                result.fail(new RuntimeException("INTENTIONAL FAILURE: Testing retry race conditions, attempt " + attempt));
-            });
-            return result.future();
-        });
-        
-        // Wait for all retry attempts
-        assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Should have attempted processing 4 times");
-        assertEquals(4, attemptCount.get(), "Should have made exactly 4 processing attempts");
-    }
-
-    /**
-     * Verifies that a message was processed exactly once.
-     */
-    private Future<Void> verifyMessageProcessedOnce(String expectedPayload) {
-        return testReactivePool.withConnection(connection ->
-            connection.preparedQuery("SELECT COUNT(*) FROM outbox WHERE payload::text LIKE $1 AND status = 'COMPLETED'")
-                .execute(io.vertx.sqlclient.Tuple.of("%" + expectedPayload + "%"))
-                .map(rowSet -> rowSet.iterator().next().getInteger(0))
-        ).map(count -> {
-            assertNotNull(count, "Should have received count from database");
-            assertEquals(1, count, "Message should be processed exactly once");
-            logger.info("Verified message processed once: {} completed entries found", count);
-            return (Void) null;
-        });
+            return vertx.timer(50).compose(v -> Future.failedFuture(
+                    new RuntimeException("INTENTIONAL FAILURE: Retry race attempt " + attempt)));
+        })
+            .compose(v -> producer.send("Message for retry race condition test"))
+            .compose(v -> awaitLatestStatus(vertx, testTopic, "DEAD_LETTER", 100))
+            .onSuccess(row -> testContext.verify(() -> {
+                assertEquals(4, attemptCount.intValue());
+                assertEquals(3, row.getInteger("retry_count"));
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
     @DisplayName("CONCURRENCY: Thread pool exhaustion during message processing")
-    void testThreadPoolExhaustionDuringMessageProcessing(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testThreadPoolExhaustionDuringMessageProcessing(Vertx vertx, VertxTestContext testContext) {
         String testTopic = "test-thread-exhaustion-" + UUID.randomUUID().toString().substring(0, 8);
         MessageProducer<String> producer = outboxFactory.createProducer(testTopic, String.class);
         MessageConsumer<String> consumer = outboxFactory.createConsumer(testTopic, String.class);
-        producers.add(producer);
-        consumers.add(consumer);
-
-        // Send multiple messages to exhaust thread pool
-        int messageCount = 15; // More than thread pool size
-        List<String> testMessages = new ArrayList<>();
-
-        for (int i = 1; i <= messageCount; i++) {
-            String message = "Thread exhaustion test message " + i;
-            testMessages.add(message);
-            producer.send(message).onFailure(testContext::failNow);
-        }
-
-        AtomicInteger processedCount = new AtomicInteger(0);
-        Checkpoint processingCheckpoint = testContext.checkpoint(messageCount);
-
-        // Set up consumer that simulates slow processing to exhaust threads
+        int messageCount = 15;
+        AtomicInteger processedCount = new AtomicInteger();
         consumer.subscribe(message -> {
             processedCount.incrementAndGet();
-
-            // Simulate slow processing via non-blocking delay
-            Promise<Void> result = Promise.promise();
-            vertx.setTimer(200, timerId -> {
-                processingCheckpoint.flag();
-                result.complete();
-            });
-            return result.future();
-        });
-
-        // Wait for all messages to be processed (with generous timeout)
-        boolean completed = testContext.awaitCompletion(30, TimeUnit.SECONDS);
-        assertTrue(completed, "All messages should eventually be processed despite thread exhaustion");
-
-        // Verify all messages were processed
-        assertEquals(messageCount, processedCount.get(), "All messages should be processed");
+            return vertx.timer(200).mapEmpty();
+        })
+            .compose(v -> sendMessages(producer, "Thread exhaustion test message ", messageCount))
+            .compose(v -> awaitStatusCount(vertx, testTopic, "COMPLETED", messageCount, 200))
+            .onSuccess(count -> testContext.verify(() -> {
+                assertEquals(messageCount, count);
+                assertEquals(messageCount, processedCount.intValue());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
     @DisplayName("CONCURRENCY: Thread safety during consumer shutdown")
-    void testThreadSafetyDuringConsumerShutdown(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testThreadSafetyDuringConsumerShutdown(Vertx vertx, VertxTestContext testContext) {
         String testTopic = "test-shutdown-safety-" + UUID.randomUUID().toString().substring(0, 8);
         MessageProducer<String> producer = outboxFactory.createProducer(testTopic, String.class);
         MessageConsumer<String> consumer = outboxFactory.createConsumer(testTopic, String.class);
-        producers.add(producer);
-        consumers.add(consumer);
-
-        // Send messages that will be processing during shutdown
         int messageCount = 10;
-        for (int i = 1; i <= messageCount; i++) {
-            String message = "Shutdown safety test message " + i;
-            producer.send(message).onFailure(testContext::failNow);
-        }
-
-        AtomicInteger processedCount = new AtomicInteger(0);
-        AtomicBoolean closeSucceeded = new AtomicBoolean(false);
-        Checkpoint shutdownCheckpoint = testContext.checkpoint();
-
-        // Set up consumer with processing that can be interrupted
+        AtomicInteger processedCount = new AtomicInteger();
         consumer.subscribe(message -> {
             processedCount.incrementAndGet();
-
-            // Simulate processing time during which shutdown might occur
-            Promise<Void> result = Promise.promise();
-            vertx.setTimer(300, timerId -> result.complete());
-            return result.future();
-        });
-
-        // Allow some processing to start, then shutdown consumer
-        vertx.setTimer(500, id1 -> {
-            try {
+            return vertx.timer(300).mapEmpty();
+        })
+            .compose(v -> sendMessages(producer, "Shutdown safety test message ", messageCount))
+            .compose(v -> awaitObserved(vertx, processedCount, 100))
+            .compose(v -> {
                 consumer.close();
-                closeSucceeded.set(true);
-            } catch (Exception e) {
-                logger.error("Consumer close failed during shutdown test", e);
-            }
-            shutdownCheckpoint.flag();
-        });
-
-        // Wait for shutdown to complete
-        boolean completed = testContext.awaitCompletion(15, TimeUnit.SECONDS);
-        assertTrue(completed, "Consumer shutdown should complete");
-
-        assertTrue(closeSucceeded.get(), "Consumer should have closed without exception during active processing");
-        assertTrue(processedCount.get() >= 1, "At least 1 message should have completed in the window before shutdown");
+                return awaitStatusCount(vertx, testTopic, "COMPLETED", 1, 100);
+            })
+            .onSuccess(count -> testContext.verify(() -> {
+                assertTrue(processedCount.intValue() >= 1);
+                assertTrue(count >= 1, "In-flight processing should complete during close");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
     @DisplayName("CONCURRENCY: High-load concurrent retry processing")
-    void testHighLoadConcurrentRetryProcessing(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testHighLoadConcurrentRetryProcessing(Vertx vertx, VertxTestContext testContext) {
         String testTopic = "test-high-load-retry-" + UUID.randomUUID().toString().substring(0, 8);
         MessageProducer<String> producer = outboxFactory.createProducer(testTopic, String.class);
         MessageConsumer<String> consumer = outboxFactory.createConsumer(testTopic, String.class);
-        producers.add(producer);
-        consumers.add(consumer);
-
-        // Send multiple messages that will all fail and retry
         int messageCount = 20;
-        List<String> testMessages = new ArrayList<>();
-
-        for (int i = 1; i <= messageCount; i++) {
-            String message = "High load retry test message " + i;
-            testMessages.add(message);
-            producer.send(message).onFailure(testContext::failNow);
-        }
-
-        AtomicInteger totalAttempts = new AtomicInteger(0);
+        AtomicInteger totalAttempts = new AtomicInteger();
         int totalExpected = messageCount * 4;
-        Checkpoint retryCheckpoint = testContext.checkpoint(totalExpected); // Each message: initial + 3 retries
-        Checkpoint verifyCheckpoint = testContext.checkpoint();
-
-        // Set up consumer that always fails to trigger maximum retries
         consumer.subscribe(message -> {
             int attempt = totalAttempts.incrementAndGet();
-
-            retryCheckpoint.flag();
-            if (attempt == totalExpected) {
-                // All retries done  wait 2 s for DLQ processor then verify
-                vertx.setTimer(2000, timerId ->
-                    verifyAllMessagesInDeadLetterQueue(testMessages)
-                        .onSuccess(v -> verifyCheckpoint.flag())
-                        .onFailure(testContext::failNow));
-            }
-
-            // Add small delay to simulate processing and increase concurrency pressure
-            Promise<Void> result = Promise.promise();
-            vertx.setTimer(10, timerId -> {
-                result.fail(new RuntimeException("INTENTIONAL FAILURE: High-load retry test, attempt " + attempt));
-            });
-            return result.future();
-        });
-
-        // Wait for all retry attempts (generous timeout for high load + 2 s DLQ timer + verification)
-        assertTrue(testContext.awaitCompletion(90, TimeUnit.SECONDS), "All retry attempts should complete under high load");
-
-        // Synchronous assertion after awaitCompletion is fine in the test method body
-        int expectedAttempts = messageCount * 4;
-        assertEquals(expectedAttempts, totalAttempts.get(),
-            "Should have exactly " + expectedAttempts + " total attempts under high load");
+            return vertx.timer(10).compose(v -> Future.failedFuture(
+                    new RuntimeException("INTENTIONAL FAILURE: High-load retry attempt " + attempt)));
+        })
+            .compose(v -> sendMessages(producer, "High load retry test message ", messageCount))
+            .compose(v -> awaitStatusCount(vertx, testTopic, "DEAD_LETTER", messageCount, 300))
+            .onSuccess(count -> testContext.verify(() -> {
+                assertEquals(messageCount, count);
+                assertEquals(totalExpected, totalAttempts.intValue());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
-    /**
-     * Verifies that all test messages have been moved to the dead letter queue.
-     */
-    private Future<Void> verifyAllMessagesInDeadLetterQueue(List<String> expectedMessages) {
-        Future<Integer> foundCountFuture = Future.succeededFuture(0);
-        for (String message : expectedMessages) {
-            foundCountFuture = foundCountFuture.compose(acc ->
-                testReactivePool.withConnection(connection ->
-                    connection.preparedQuery("SELECT COUNT(*) FROM dead_letter_queue WHERE payload::text LIKE $1")
-                        .execute(io.vertx.sqlclient.Tuple.of("%" + message + "%"))
-                        .map(rowSet -> rowSet.iterator().next().getInteger(0))
-                ).map(count -> acc + (count != null && count > 0 ? 1 : 0))
-            );
+    private Future<Void> sendMessages(MessageProducer<String> producer, String prefix, int count) {
+        List<Future<?>> sends = new ArrayList<>();
+        for (int i = 1; i <= count; i++) {
+            sends.add(producer.send(prefix + i));
         }
-        return foundCountFuture.map(foundCount -> {
-            logger.info("Dead letter queue verification: {}/{} messages found",
-                foundCount, expectedMessages.size());
-            assertEquals(expectedMessages.size(), foundCount,
-                "All messages should be in dead letter queue, found " + foundCount + "/" + expectedMessages.size());
-            return (Void) null;
+        return Future.all(sends).mapEmpty();
+    }
+
+    private Future<Integer> awaitStatusCount(
+            Vertx vertx, String topic, String status, int expected, int remainingAttempts) {
+        return statusCount(topic, status).compose(count -> {
+            if (count == expected) {
+                return Future.succeededFuture(count);
+            }
+            if (remainingAttempts == 0) {
+                return Future.failedFuture(
+                        "Expected " + expected + " " + status + " messages but found " + count);
+            }
+            return vertx.timer(100).compose(v ->
+                    awaitStatusCount(vertx, topic, status, expected, remainingAttempts - 1));
         });
     }
 
-    /**
-     * Verifies retry count consistency after concurrent updates.
-     */
-    private Future<Void> verifyRetryCountConsistency(String expectedPayload, int expectedRetryCount) {
-        return testReactivePool.withConnection(connection ->
-            connection.preparedQuery("SELECT retry_count, status FROM outbox WHERE payload::text LIKE $1 ORDER BY created_at DESC LIMIT 1")
-                .execute(io.vertx.sqlclient.Tuple.of("%" + expectedPayload + "%"))
-                .map(rowSet -> {
-                    assertTrue(rowSet.iterator().hasNext(), "Should find message in outbox");
-                    io.vertx.sqlclient.Row row = rowSet.iterator().next();
-                    int actualRetryCount = row.getInteger("retry_count");
-                    String status = row.getString("status");
-                    logger.info("Retry count verification: expected={}, actual={}, status={}",
-                        expectedRetryCount, actualRetryCount, status);
-                    assertEquals(expectedRetryCount, actualRetryCount,
-                        "Retry count should be consistent despite concurrent updates");
-                    return (Void) null;
-                })
-        );
+    private Future<Integer> statusCount(String topic, String status) {
+        return manager.getDatabaseService().getConnectionProvider()
+                .getReactivePool("peegeeq-main")
+                .compose(pool -> pool.withConnection(connection -> connection.preparedQuery("""
+                        SELECT COUNT(*) AS message_count
+                        FROM outbox
+                        WHERE topic = $1 AND status = $2
+                        """).execute(Tuple.of(topic, status))))
+                .map(rows -> rows.iterator().next().getInteger("message_count"));
+    }
+
+    private Future<Row> awaitLatestStatus(
+            Vertx vertx, String topic, String expectedStatus, int remainingAttempts) {
+        return manager.getDatabaseService().getConnectionProvider()
+                .getReactivePool("peegeeq-main")
+                .compose(pool -> pool.withConnection(connection -> connection.preparedQuery("""
+                        SELECT status, retry_count
+                        FROM outbox
+                        WHERE topic = $1
+                        ORDER BY id DESC
+                        LIMIT 1
+                        """).execute(Tuple.of(topic))))
+                .compose(rows -> {
+                    if (rows.size() == 1) {
+                        Row row = rows.iterator().next();
+                        if (expectedStatus.equals(row.getString("status"))) {
+                            return Future.succeededFuture(row);
+                        }
+                    }
+                    if (remainingAttempts == 0) {
+                        return Future.failedFuture("Message did not reach " + expectedStatus);
+                    }
+                    return vertx.timer(100).compose(v ->
+                            awaitLatestStatus(vertx, topic, expectedStatus, remainingAttempts - 1));
+                });
+    }
+
+    private Future<Void> awaitObserved(Vertx vertx, AtomicInteger count, int remainingAttempts) {
+        if (count.intValue() > 0) {
+            return Future.succeededFuture();
+        }
+        if (remainingAttempts == 0) {
+            return Future.failedFuture("No handler started before shutdown");
+        }
+        return vertx.timer(10).compose(v -> awaitObserved(vertx, count, remainingAttempts - 1));
     }
 }
-
-

@@ -577,8 +577,8 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
         try {
             logger.info("Stopping outbox consumer group '{}' for topic '{}'", groupName, topic);
 
-            // Stop members synchronously. User-handler future lifetime is the caller's
-            // concern, not the consumer's: we do not await in-flight handler futures.
+            // Stop members from accepting new work. The underlying consumer close below
+            // waits for handler Futures already dispatched through this group.
             members.values().forEach(OutboxConsumerGroupMember::stop);
 
             startedWithSubscription = false;
@@ -598,19 +598,26 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     }
 
     private Future<Void> closeUnderlyingConsumerAsync(String logMessage, String logGroupName) {
-        if (underlyingConsumer == null) {
+        MessageConsumer<T> consumer = underlyingConsumer;
+        if (consumer == null) {
             return Future.succeededFuture();
         }
+        underlyingConsumer = null;
 
-        underlyingConsumer.unsubscribe();
+        consumer.unsubscribe();
 
-        try {
-            underlyingConsumer.close();
-        } catch (Exception err) {
-            logger.warn(logMessage, logGroupName, err.getMessage());
+        if (consumer instanceof OutboxConsumer<?> outboxConsumer) {
+            return outboxConsumer.closeAsync()
+                    .onFailure(err -> logger.error(logMessage, logGroupName, err.getMessage(), err));
         }
 
-        underlyingConsumer = null;
+        try {
+            consumer.close();
+        } catch (Exception err) {
+            logger.error(logMessage, logGroupName, err.getMessage(), err);
+            return Future.failedFuture(err);
+        }
+
         return Future.succeededFuture();
     }
 

@@ -46,7 +46,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -93,23 +92,23 @@ class JsonbConversionValidationTest {
         PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).build();
         reactivePool = connectionManager.getOrCreateReactivePool("test-verification", connectionConfig, poolConfig);
         manager.start()
-                .onSuccess(v -> {
+                .map(v -> {
                     factory = new OutboxFactory(manager.getDatabaseService());
-                    testContext.completeNow();
+                    return (Void) null;
                 })
+                .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
-        try { if (factory != null) factory.close(); } catch (Exception e) { logger.warn("factory.close() failed", e); }
-        Future.<Void>succeededFuture()
+        Future<Void> closeFactory = factory != null ? factory.close() : Future.succeededFuture();
+        closeFactory
                 .eventually(() -> connectionManager != null ? connectionManager.close() : Future.succeededFuture())
                 .eventually(() -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -232,16 +231,19 @@ class JsonbConversionValidationTest {
                 done.tryFail(e);
                 return Future.failedFuture(e instanceof RuntimeException ? (RuntimeException) e : new RuntimeException(e));
             }
-        });
-
-        producer.send(testOrder, headers)
+        })
+                .compose(v -> producer.send(testOrder, headers))
                 .compose(v -> done.future())
-                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                .eventually(() -> {
                     consumer.close();
                     producer.close();
-                    assertEquals(1, processedCount.get(), "Should have processed exactly 1 message");
+                    return Future.succeededFuture();
+                })
+                .onSuccess(v -> testContext.verify(() -> {
+                    assertEquals(1, processedCount.intValue(), "Should have processed exactly 1 message");
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
 
     /**
@@ -273,5 +275,3 @@ class JsonbConversionValidationTest {
         public void setStatus(String status) { this.status = status; }
     }
 }
-
-

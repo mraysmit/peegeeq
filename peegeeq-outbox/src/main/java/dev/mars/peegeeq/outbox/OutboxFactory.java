@@ -76,6 +76,7 @@ public class OutboxFactory implements QueueFactory {
     // Common fields
     private final ObjectMapper objectMapper;
     private final AtomicBoolean closed = new AtomicBoolean(false);
+    private io.vertx.core.Future<Void> closeFuture;
 
     // Track created consumers and producers for proper cleanup
     private final Set<AutoCloseable> createdResources = ConcurrentHashMap.newKeySet();
@@ -501,39 +502,48 @@ public class OutboxFactory implements QueueFactory {
      * use their async close path; producers and browsers use sync close (lightweight).
      * Idempotent safe to call from both the close hook and explicit close().
      */
-    private io.vertx.core.Future<Void> closeTrackedResourcesAsync() {
-        if (!closed.compareAndSet(false, true)) {
-            return io.vertx.core.Future.succeededFuture();
+    private synchronized io.vertx.core.Future<Void> closeTrackedResourcesAsync() {
+        if (closeFuture != null) {
+            return closeFuture;
         }
+        closed.set(true);
 
         logger.info("Closing {} tracked resources", createdResources.size() + createdConsumerGroups.size());
 
         java.util.List<io.vertx.core.Future<Void>> asyncCloses = new java.util.ArrayList<>();
         for (ConsumerGroup<?> group : createdConsumerGroups) {
             asyncCloses.add(group.close()
-                .onFailure(e -> logger.warn("Error closing consumer group: {}", e.getMessage()))
-                .transform(ar -> io.vertx.core.Future.<Void>succeededFuture()));
+                .onFailure(e -> logger.error("Error closing consumer group", e)));
         }
         createdConsumerGroups.clear();
         for (AutoCloseable resource : createdResources) {
-            try {
-                resource.close();
-                logger.debug("Closed resource: {}", resource.getClass().getSimpleName());
-            } catch (Exception e) {
-                logger.warn("Error closing resource {}: {}",
-                    resource.getClass().getSimpleName(), e.getMessage());
+            if (resource instanceof OutboxConsumer<?> consumer) {
+                asyncCloses.add(consumer.closeAsync()
+                        .onFailure(e -> logger.error("Error closing outbox consumer", e)));
+            } else {
+                try {
+                    resource.close();
+                    logger.debug("Closed resource: {}", resource.getClass().getSimpleName());
+                } catch (Exception e) {
+                    logger.error("Error closing resource {}",
+                            resource.getClass().getSimpleName(), e);
+                    asyncCloses.add(io.vertx.core.Future.failedFuture(e));
+                }
             }
         }
         createdResources.clear();
 
         if (asyncCloses.isEmpty()) {
             logger.info("OutboxFactory closed successfully");
-            return io.vertx.core.Future.succeededFuture();
+            closeFuture = io.vertx.core.Future.succeededFuture();
+            return closeFuture;
         }
 
-        return io.vertx.core.Future.all(asyncCloses)
+        closeFuture = io.vertx.core.Future.join(asyncCloses)
             .<Void>mapEmpty()
-            .onSuccess(v -> logger.info("OutboxFactory closed successfully"));
+            .onSuccess(v -> logger.info("OutboxFactory closed successfully"))
+            .onFailure(error -> logger.error("OutboxFactory close failed", error));
+        return closeFuture;
     }
 
     @Override
