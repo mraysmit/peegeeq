@@ -37,11 +37,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 /**
  * Native PostgreSQL implementation of a consumer group.
@@ -90,6 +93,12 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
     private final PgConnectionManager connectionManager;
     private final String connectionServiceId;
     private volatile PartitionedConsumerEngine<T> partitionedEngine;
+
+    private record NativeQueueStartPosition(Long minimumMessageId, OffsetDateTime minimumCreatedAt) {
+        private static NativeQueueStartPosition allAvailable() {
+            return new NativeQueueStartPosition(null, null);
+        }
+    }
 
     // Single canonical constructor. The earlier telescoping overloads (6-, 7-, 8-arg) were
     // removed: production builds groups only through this full form (PgNativeQueueFactory),
@@ -142,6 +151,16 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
     @Override
     public ConsumerGroupMember<T> addConsumer(String consumerId, MessageHandler<T> handler, 
                                              Predicate<Message<T>> messageFilter) {
+        return registerConsumer(consumerId, handler, messageFilter,
+            () -> new IllegalArgumentException(
+                "Consumer with ID '" + consumerId + "' already exists in group"));
+    }
+
+    private ConsumerGroupMember<T> registerConsumer(
+            String consumerId,
+            MessageHandler<T> handler,
+            Predicate<Message<T>> messageFilter,
+            Supplier<? extends RuntimeException> duplicateException) {
         if (state.get() == State.CLOSED) {
             throw new IllegalStateException("Consumer group is closed");
         }
@@ -152,7 +171,7 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
         
         PgNativeConsumerGroupMember<T> existing = members.putIfAbsent(consumerId, member);
         if (existing != null) {
-            throw new IllegalArgumentException("Consumer with ID '" + consumerId + "' already exists in group");
+            throw duplicateException.get();
         }
         
         // If the group is already active, start the new member
@@ -202,7 +221,7 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
             return Future.failedFuture(new IllegalStateException("Cannot start consumer group in state: " + current));
         }
 
-        return startInternal()
+        return startInternal(NativeQueueStartPosition.allAvailable())
                 .onFailure(err -> {
                     String msg = err.getMessage();
                     if (msg != null && msg.contains("Consumer group closed during startup")) {
@@ -265,7 +284,7 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
      *
      * @return future completing when the consumer group is fully started
      */
-    private Future<Void> startInternal() {
+    private Future<Void> startInternal(NativeQueueStartPosition startPosition) {
         logger.info("Starting consumer group '{}' for topic '{}'", groupName, topic);
 
         if (connectionManager != null) {
@@ -282,26 +301,34 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
                         if (isOffsetWatermark) {
                             return startPartitioned();
                         } else {
-                            return startReferenceCounting();
+                            return startReferenceCounting(startPosition);
                         }
                     });
         } else {
-            return startReferenceCounting();
+            return startReferenceCounting(startPosition);
         }
     }
 
     /**
      * Starts in reference-counting mode. Synchronous sets ACTIVE immediately.
      */
-    private Future<Void> startReferenceCounting() {
+    private Future<Void> startReferenceCounting(NativeQueueStartPosition startPosition) {
         try {
             // CAS: only transition if still STARTING (close() may have set CLOSED)
             if (!state.compareAndSet(State.STARTING, State.ACTIVE)) {
                 return Future.failedFuture(
                         new IllegalStateException("Consumer group closed during startup"));
             }
-            startReferenceCountingInternal();
-            return Future.succeededFuture();
+            return startReferenceCountingInternal(startPosition)
+                    .onFailure(err -> {
+                        if (state.compareAndSet(State.ACTIVE, State.NEW)) {
+                            members.values().forEach(PgNativeConsumerGroupMember::stop);
+                            if (underlyingConsumer != null) {
+                                underlyingConsumer.close();
+                                underlyingConsumer = null;
+                            }
+                        }
+                    });
         } catch (Exception e) {
             state.compareAndSet(State.ACTIVE, State.NEW);
             return Future.failedFuture(e);
@@ -311,16 +338,33 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
     /**
      * Original start path for REFERENCE_COUNTING topics.
      */
-    private void startReferenceCountingInternal() {
+    private Future<Void> startReferenceCountingInternal(NativeQueueStartPosition startPosition) {
         // Create the underlying consumer that will receive all messages
         // The configuration is required: the consumer's LISTEN channel derives from
         // the configured schema — PeeGeeQ has no default schema.
-        underlyingConsumer = new PgNativeQueueConsumer<>(
-            poolAdapter, objectMapper, topic, payloadType, metrics, configuration
+        PgNativeQueueConsumer<T> consumer = new PgNativeQueueConsumer<>(
+            poolAdapter, objectMapper, topic, payloadType, metrics, configuration,
+            startPosition.minimumMessageId(), startPosition.minimumCreatedAt()
         );
+        underlyingConsumer = consumer;
 
         // Subscribe to messages and distribute them to group members
-        underlyingConsumer.subscribe(this::distributeMessage)
+        return consumer.subscribe(this::distributeMessage)
+                .compose(v -> {
+                    if (state.get() != State.ACTIVE) {
+                        consumer.close();
+                        if (underlyingConsumer == consumer) {
+                            underlyingConsumer = null;
+                        }
+                        return Future.<Void>failedFuture(
+                            new IllegalStateException("Consumer group closed during startup"));
+                    }
+                    members.values().forEach(PgNativeConsumerGroupMember::start);
+                    logger.info(
+                        "Consumer group '{}' started in REFERENCE_COUNTING mode with {} members",
+                        groupName, members.size());
+                    return Future.<Void>succeededFuture();
+                })
                 .onFailure(err -> {
                     if (state.get() == State.CLOSED || state.get() == State.STOPPING) {
                         logger.debug("Consumer group subscription aborted for group '{}' topic '{}' - consumer closed",
@@ -330,11 +374,6 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
                                 groupName, topic, err.getMessage(), err);
                     }
                 });
-
-        // Start all existing members
-        members.values().forEach(PgNativeConsumerGroupMember::start);
-
-        logger.info("Consumer group '{}' started in REFERENCE_COUNTING mode with {} members", groupName, members.size());
     }
     
     @Override
@@ -362,24 +401,50 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
         logger.info("Starting consumer group '{}' for topic '{}' with subscription options: {}",
                    groupName, topic, subscriptionOptions);
 
-        if (databaseService != null) {
-            logger.debug("Creating subscription for group '{}' on topic '{}' with options: {}",
-                       groupName, topic, subscriptionOptions);
+        return resolveNativeQueueStartPosition(subscriptionOptions)
+                .compose(startPosition -> {
+                    if (databaseService != null) {
+                        logger.debug("Creating subscription for group '{}' on topic '{}' with options: {}",
+                                groupName, topic, subscriptionOptions);
+                        return databaseService.getSubscriptionService()
+                                .subscribe(topic, groupName, subscriptionOptions)
+                                .compose(v -> {
+                                    logger.info("Subscription created successfully for group '{}' on topic '{}'",
+                                            groupName, topic);
+                                    startedWithSubscription = true;
+                                    return startInternal(startPosition);
+                                });
+                    }
 
-            return databaseService.getSubscriptionService()
-                .subscribe(topic, groupName, subscriptionOptions)
-                .compose(v -> {
-                    logger.info("Subscription created successfully for group '{}' on topic '{}'", groupName, topic);
-                    startedWithSubscription = true;
-                    return startInternal();
+                    logger.warn("DatabaseService is null - cannot create subscription. " +
+                            "Subscription must be created manually via SubscriptionManager before starting.");
+                    return startInternal(startPosition);
                 })
-                .onFailure(err -> {
-                    state.compareAndSet(State.STARTING, State.NEW);
-                });
-        } else {
-            logger.warn("DatabaseService is null - cannot create subscription. " +
-                       "Subscription must be created manually via SubscriptionManager before starting.");
-            return startInternal();
+                .onFailure(err -> state.compareAndSet(State.STARTING, State.NEW));
+    }
+
+    private Future<NativeQueueStartPosition> resolveNativeQueueStartPosition(
+            SubscriptionOptions subscriptionOptions) {
+        try {
+            return switch (subscriptionOptions.getStartPosition()) {
+                case FROM_NOW -> poolAdapter.getPoolOrThrow()
+                        .preparedQuery(
+                            "SELECT COALESCE(MAX(id), 0) AS max_id FROM queue_messages WHERE topic = $1")
+                        .execute(io.vertx.sqlclient.Tuple.of(topic))
+                        .map(rows -> {
+                            long maximumMessageId = rows.iterator().next().getLong("max_id");
+                            return new NativeQueueStartPosition(maximumMessageId + 1, null);
+                        });
+                case FROM_BEGINNING -> Future.succeededFuture(
+                        new NativeQueueStartPosition(1L, null));
+                case FROM_MESSAGE_ID -> Future.succeededFuture(
+                        new NativeQueueStartPosition(subscriptionOptions.getStartFromMessageId(), null));
+                case FROM_TIMESTAMP -> Future.succeededFuture(
+                        new NativeQueueStartPosition(null,
+                            subscriptionOptions.getStartFromTimestamp().atOffset(ZoneOffset.UTC)));
+            };
+        } catch (Exception e) {
+            return Future.failedFuture(e);
         }
     }
     
@@ -512,17 +577,13 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
             throw new IllegalArgumentException("handler cannot be null");
         }
         
-        // Check if a default consumer already exists
         String defaultConsumerId = groupName + "-default-consumer";
-        if (members.containsKey(defaultConsumerId)) {
-            throw new IllegalStateException(
+        logger.info("Setting default message handler for consumer group '{}'", groupName);
+        return registerConsumer(defaultConsumerId, handler, null,
+            () -> new IllegalStateException(
                 "A message handler has already been set for this consumer group. " +
                 "Use addConsumer() for multiple consumers."
-            );
-        }
-        
-        logger.info("Setting default message handler for consumer group '{}'", groupName);
-        return addConsumer(defaultConsumerId, handler);
+            ));
     }
     
     @Override
