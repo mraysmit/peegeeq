@@ -18,6 +18,9 @@ package dev.mars.peegeeq.outbox;
 
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.messaging.ConsumerGroup;
+import dev.mars.peegeeq.api.messaging.MessageConsumer;
+import dev.mars.peegeeq.api.messaging.MessageProducer;
+import dev.mars.peegeeq.db.PeeGeeQDefaults;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
@@ -31,20 +34,22 @@ import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.sqlclient.Pool;
+import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Properties;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -63,20 +68,23 @@ import static org.junit.jupiter.api.Assertions.*;
 @DisplayName("H1: clientId propagation through consumer group path")
 class OutboxConsumerGroupClientIdPropagationTest {
 
-    private static final Logger logger = LoggerFactory.getLogger(OutboxConsumerGroupClientIdPropagationTest.class);
-
     @Container
     static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private DatabaseService databaseService;
     private PeeGeeQConfiguration config;
+    private OutboxConsumerGroup<String> startedConsumerGroup;
+    private OutboxProducer<String> startedProducer;
+    private OutboxFactory startedFactory;
 
     @BeforeEach
     void setUp(VertxTestContext testContext) throws Exception {
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
-                .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
+                .property("peegeeq.queue.polling-interval", "PT0.05S")
+                .build();
         this.config = new PeeGeeQConfiguration("default", testProps);
         this.manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         this.manager.start().onSuccess(v -> {
@@ -87,13 +95,30 @@ class OutboxConsumerGroupClientIdPropagationTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
-        if (manager != null) {
-            manager.closeReactive()
-                    .onSuccess(v -> testContext.completeNow())
-                    .onFailure(testContext::failNow);
-        } else {
-            testContext.completeNow();
+        List<Throwable> cleanupFailures = new ArrayList<>();
+
+        if (startedProducer != null) {
+            try {
+                startedProducer.close();
+            } catch (Exception error) {
+                cleanupFailures.add(error);
+            }
         }
+
+        Future.<Void>succeededFuture()
+                .compose(v -> captureCleanupFailure(
+                        startedConsumerGroup != null ? startedConsumerGroup.close() : Future.succeededFuture(),
+                        cleanupFailures))
+                .compose(v -> captureCleanupFailure(
+                        startedFactory != null ? startedFactory.close() : Future.succeededFuture(),
+                        cleanupFailures))
+                .compose(v -> captureCleanupFailure(
+                        manager != null ? manager.closeReactive() : Future.succeededFuture(),
+                        cleanupFailures))
+                .compose(v -> failIfCleanupFailed(cleanupFailures))
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
@@ -102,65 +127,66 @@ class OutboxConsumerGroupClientIdPropagationTest {
     // ========================================================================
 
     @Test
-    @DisplayName("OutboxFactory with clientId should propagate it to created consumer groups")
-    void factoryWithClientIdShouldPropagateToConsumerGroup() throws Exception {
-        // Given: a factory constructed with an explicit clientId
-        String expectedClientId = "tenant-pool-42";
+    @DisplayName("OutboxFactory consumer group should deliver through its named client")
+    void factoryWithClientIdShouldPropagateToConsumerGroup(
+            Vertx vertx, VertxTestContext testContext) throws Exception {
+        String expectedPayload = "factory-named-client-message";
 
-        OutboxFactory factory = new OutboxFactory(databaseService, null, config, expectedClientId);
+        exerciseFactoryGroupFlow(
+                vertx, "tenant-pool-42", "factory-named-group",
+                "factory-named-topic", expectedPayload)
+                .onSuccess(receivedPayloads -> testContext.verify(() -> {
+                    assertEquals(List.of(expectedPayload), receivedPayloads,
+                            "Factory-created consumer group should deliver through the named client pool");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
 
-        // When: we create a consumer group through the factory
-        ConsumerGroup<String> group = factory.createConsumerGroup("my-group", "my-topic", String.class);
-
-        // Then: the consumer group should have captured the clientId
-        assertNotNull(group);
-        assertInstanceOf(OutboxConsumerGroup.class, group, "Expected OutboxConsumerGroup instance");
-
-        OutboxConsumerGroup<String> outboxGroup = (OutboxConsumerGroup<String>) group;
-
-        // Verify clientId is present on the consumer group itself
-        String actualClientId = getPrivateField(outboxGroup, "clientId", String.class);
-        assertEquals(expectedClientId, actualClientId,
-                "Consumer group should hold the factory's clientId for propagation to its underlying consumer");
-
-        factory.close();
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     @Test
     @DisplayName("Consumer group start() should create underlying consumer with correct clientId")
-    void consumerGroupStartShouldPassClientIdToUnderlyingConsumer() throws Exception {
-        // Given: a consumer group that was created with a specific clientId
+    void consumerGroupStartShouldPassClientIdToUnderlyingConsumer(
+            Vertx vertx, VertxTestContext testContext) throws Exception {
+        // Given: only a specifically named client can access the outbox during this test
         String expectedClientId = "tenant-pool-99";
+        String topic = "client-id-propagation-topic";
+        String expectedPayload = "named-client-message";
+        List<String> receivedPayloads = new CopyOnWriteArrayList<>();
 
-        OutboxConsumerGroup<String> group = new OutboxConsumerGroup<>(
-                "test-group", "test-topic", String.class,
-                databaseService, null, null, config);
+        manager.getClientFactory().createClient(
+                expectedClientId, config.getDatabaseConfig(), config.getPoolConfig());
+        Pool namedPool = manager.getClientFactory().getPool(expectedClientId)
+                .orElseThrow(() -> new IllegalStateException("Named client pool was not registered"));
 
-        // NOTE: With the fix, this constructor should accept clientId.
-        // For now, we set it reflectively to test the start() propagation path
-        // independently of the constructor fix.
-        setPrivateField(group, "clientId", expectedClientId);
+        startedConsumerGroup = new OutboxConsumerGroup<>(
+                "test-group", topic, String.class,
+                databaseService, null, null, config, expectedClientId);
+        startedProducer = new OutboxProducer<>(
+                databaseService, null, topic, String.class, null, expectedClientId);
 
-        // Add a member so start() has something to work with
-        group.addConsumer("member-1", message -> Future.succeededFuture());
+        startedConsumerGroup.addConsumer("member-1", message -> {
+            receivedPayloads.add(message.getPayload());
+            return Future.succeededFuture();
+        });
 
-        // When: we start the group (creates the underlying OutboxConsumer)
-        try {
-            group.start();
-        } catch (Exception e) {
-            logger.debug("group.start() failed: {}", e.getMessage());
-        }
+        // Removing the default pool makes the observable message flow fail unless both
+        // the producer and the consumer group use the registered named client.
+        manager.getClientFactory().removeClient(PeeGeeQDefaults.DEFAULT_POOL_ID)
+                .compose(v -> startedConsumerGroup.start())
+                .compose(v -> startedProducer.send(expectedPayload))
+                .compose(v -> awaitMessageCompleted(vertx, namedPool, topic, 10_000))
+                .onSuccess(v -> testContext.verify(() -> {
+                    assertEquals(List.of(expectedPayload), receivedPayloads,
+                            "Consumer group should receive the message through the named client pool");
+                    assertTrue(startedConsumerGroup.isActive(),
+                            "Consumer group should remain active after processing through the named client pool");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
 
-        // Then: the underlying consumer should have the same clientId
-        Object underlyingConsumer = getPrivateField(group, "underlyingConsumer", Object.class);
-        if (underlyingConsumer instanceof OutboxConsumer<?> consumer) {
-            String actualClientId = getPrivateField(consumer, "clientId", String.class);
-            assertEquals(expectedClientId, actualClientId,
-                    "Underlying consumer created by start() should have the group's clientId");
-        }
-        // If underlyingConsumer is null, start() failed before creating it  acceptable
-
-        group.close().onFailure(e -> logger.warn("group.close() failed in cleanup", e));
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     // ========================================================================
@@ -168,81 +194,154 @@ class OutboxConsumerGroupClientIdPropagationTest {
     // ========================================================================
 
     @Test
-    @DisplayName("OutboxFactory with null clientId should propagate null to consumer groups")
-    void factoryWithNullClientIdShouldPropagateNullToConsumerGroup() throws Exception {
-        // Given: a factory constructed without a clientId (uses default pool)
-        OutboxFactory factory = new OutboxFactory(databaseService, config);
+    @DisplayName("OutboxFactory consumer group without clientId should use the default pool")
+    void factoryWithNullClientIdShouldPropagateNullToConsumerGroup(
+            Vertx vertx, VertxTestContext testContext) throws Exception {
+        String expectedPayload = "factory-default-client-message";
 
-        // When: we create a consumer group
-        ConsumerGroup<String> group = factory.createConsumerGroup("my-group", "my-topic", String.class);
+        exerciseFactoryGroupFlow(
+                vertx, null, "factory-default-group",
+                "factory-default-topic", expectedPayload)
+                .onSuccess(receivedPayloads -> testContext.verify(() -> {
+                    assertEquals(List.of(expectedPayload), receivedPayloads,
+                            "Factory-created consumer group should deliver through the default pool");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
 
-        // Then: the consumer group should have null clientId (default pool behaviour)
-        assertNotNull(group);
-        OutboxConsumerGroup<String> outboxGroup = (OutboxConsumerGroup<String>) group;
-
-        String actualClientId = getPrivateField(outboxGroup, "clientId", String.class);
-        assertNull(actualClientId,
-                "Consumer group created by factory with null clientId should have null clientId");
-
-        factory.close();
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     @Test
-    @DisplayName("Directly created consumer vs factory-created consumer group should have same clientId")
-    void directConsumerAndGroupConsumerShouldHaveSameClientId() throws Exception {
-        // Given: a factory with an explicit clientId
+    @DisplayName("Factory-created direct consumer and group should both use the named client")
+    void directConsumerAndGroupConsumerShouldHaveSameClientId(
+            Vertx vertx, VertxTestContext testContext) throws Exception {
         String expectedClientId = "shared-pool";
+        String directTopic = "shared-pool-direct-topic";
+        String groupTopic = "shared-pool-group-topic";
+        String directPayload = "direct-consumer-message";
+        String groupPayload = "group-consumer-message";
+        List<String> directPayloads = new CopyOnWriteArrayList<>();
+        List<String> groupPayloads = new CopyOnWriteArrayList<>();
 
-        OutboxFactory factory = new OutboxFactory(databaseService, null, config, expectedClientId);
+        Pool namedPool = registerNamedClient(expectedClientId);
+        startedFactory = new OutboxFactory(databaseService, null, config, expectedClientId);
 
-        // When: we create both a direct consumer and a consumer group
-        var directConsumer = factory.createConsumer("test-topic", String.class);
-        ConsumerGroup<String> group = factory.createConsumerGroup("my-group", "test-topic", String.class);
+        MessageProducer<String> directProducer = startedFactory.createProducer(directTopic, String.class);
+        MessageConsumer<String> directConsumer = startedFactory.createConsumer(directTopic, String.class);
+        MessageProducer<String> groupProducer = startedFactory.createProducer(groupTopic, String.class);
+        ConsumerGroup<String> group = startedFactory.createConsumerGroup(
+                "shared-pool-group", groupTopic, String.class);
 
-        // Then: both should use the same clientId
-        String directClientId = getPrivateField(directConsumer, "clientId", String.class);
-        assertEquals(expectedClientId, directClientId,
-                "Direct consumer should have the factory's clientId");
+        group.addConsumer("group-member", message -> {
+            groupPayloads.add(message.getPayload());
+            return Future.succeededFuture();
+        });
 
-        OutboxConsumerGroup<String> outboxGroup = (OutboxConsumerGroup<String>) group;
-        String groupClientId = getPrivateField(outboxGroup, "clientId", String.class);
-        assertEquals(expectedClientId, groupClientId,
-                "Consumer group should have the same clientId as a direct consumer from the same factory");
+        manager.getClientFactory().removeClient(PeeGeeQDefaults.DEFAULT_POOL_ID)
+                .compose(v -> directConsumer.subscribe(message -> {
+                    directPayloads.add(message.getPayload());
+                    return Future.succeededFuture();
+                }))
+                .compose(v -> group.start())
+                .compose(v -> Future.all(
+                        directProducer.send(directPayload),
+                        groupProducer.send(groupPayload)).mapEmpty())
+                .compose(v -> awaitMessageCompleted(vertx, namedPool, directTopic, 10_000))
+                .compose(v -> awaitMessageCompleted(vertx, namedPool, groupTopic, 10_000))
+                .onSuccess(v -> testContext.verify(() -> {
+                    assertEquals(List.of(directPayload), directPayloads,
+                            "Direct consumer should deliver through the factory's named client pool");
+                    assertEquals(List.of(groupPayload), groupPayloads,
+                            "Consumer group should deliver through the same named client pool");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
 
-        factory.close();
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     // ========================================================================
     // Helpers
     // ========================================================================
 
-    @SuppressWarnings("unchecked")
-    private static <T> T getPrivateField(Object target, String fieldName, Class<T> type) throws Exception {
-        Class<?> clazz = target.getClass();
-        while (clazz != null) {
-            try {
-                Field field = clazz.getDeclaredField(fieldName);
-                field.setAccessible(true);
-                return (T) field.get(target);
-            } catch (NoSuchFieldException e) {
-                clazz = clazz.getSuperclass();
-            }
-        }
-        throw new NoSuchFieldException("Field '" + fieldName + "' not found on " + target.getClass().getName());
+    private Pool registerNamedClient(String clientId) {
+        manager.getClientFactory().createClient(
+                clientId, config.getDatabaseConfig(), config.getPoolConfig());
+        return manager.getClientFactory().getPool(clientId)
+                .orElseThrow(() -> new IllegalStateException("Named client pool was not registered: " + clientId));
     }
 
-    private static void setPrivateField(Object target, String fieldName, Object value) throws Exception {
-        Class<?> clazz = target.getClass();
-        while (clazz != null) {
-            try {
-                Field field = clazz.getDeclaredField(fieldName);
-                field.setAccessible(true);
-                field.set(target, value);
-                return;
-            } catch (NoSuchFieldException e) {
-                clazz = clazz.getSuperclass();
-            }
-        }
-        throw new NoSuchFieldException("Field '" + fieldName + "' not found on " + target.getClass().getName());
+    private Future<List<String>> exerciseFactoryGroupFlow(
+            Vertx vertx, String clientId, String groupName, String topic, String payload) {
+        Pool pool = clientId == null ? manager.getPool() : registerNamedClient(clientId);
+        startedFactory = new OutboxFactory(databaseService, null, config, clientId);
+        MessageProducer<String> producer = startedFactory.createProducer(topic, String.class);
+        ConsumerGroup<String> group = startedFactory.createConsumerGroup(groupName, topic, String.class);
+        List<String> receivedPayloads = new CopyOnWriteArrayList<>();
+
+        group.addConsumer("member-1", message -> {
+            receivedPayloads.add(message.getPayload());
+            return Future.succeededFuture();
+        });
+
+        Future<Void> isolateNamedClient = clientId == null
+                ? Future.succeededFuture()
+                : manager.getClientFactory().removeClient(PeeGeeQDefaults.DEFAULT_POOL_ID);
+
+        return isolateNamedClient
+                .compose(v -> group.start())
+                .compose(v -> producer.send(payload))
+                .compose(v -> awaitMessageCompleted(vertx, pool, topic, 10_000))
+                .map(receivedPayloads);
     }
+
+    private Future<Void> awaitMessageCompleted(
+            Vertx vertx, Pool pool, String topic, long timeoutMillis) {
+        long deadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+        return checkMessageCompleted(vertx, pool, topic, deadlineNanos);
+    }
+
+    private Future<Void> checkMessageCompleted(
+            Vertx vertx, Pool pool, String topic, long deadlineNanos) {
+        String sql = "SELECT status FROM \"" + PostgreSQLTestConstants.TEST_SCHEMA
+                + "\".outbox WHERE topic = $1 ORDER BY created_at DESC LIMIT 1";
+
+        return pool.preparedQuery(sql)
+                .execute(Tuple.of(topic))
+                .compose(rows -> {
+                    var iterator = rows.iterator();
+                    String status = iterator.hasNext() ? iterator.next().getString("status") : null;
+                    if ("COMPLETED".equals(status)) {
+                        return Future.succeededFuture();
+                    }
+                    if (System.nanoTime() >= deadlineNanos) {
+                        return Future.failedFuture(
+                                "Timed out waiting for message to complete; last status was " + status);
+                    }
+                    return vertx.timer(50)
+                            .compose(timerId -> checkMessageCompleted(vertx, pool, topic, deadlineNanos));
+                });
+    }
+
+    private Future<Void> captureCleanupFailure(
+            Future<Void> cleanup, List<Throwable> cleanupFailures) {
+        return cleanup.transform(result -> {
+            if (result.failed()) {
+                cleanupFailures.add(result.cause());
+            }
+            return Future.succeededFuture();
+        });
+    }
+
+    private Future<Void> failIfCleanupFailed(List<Throwable> cleanupFailures) {
+        if (cleanupFailures.isEmpty()) {
+            return Future.succeededFuture();
+        }
+
+        Throwable primaryFailure = cleanupFailures.get(0);
+        cleanupFailures.stream().skip(1).forEach(primaryFailure::addSuppressed);
+        return Future.failedFuture(primaryFailure);
+    }
+
 }

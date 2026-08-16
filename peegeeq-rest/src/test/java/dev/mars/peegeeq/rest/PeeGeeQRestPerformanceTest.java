@@ -163,7 +163,6 @@ public class PeeGeeQRestPerformanceTest {
     
     @Test
     @Order(2)
-    @org.junit.jupiter.api.Disabled("Performance test - disabled for CI environment")
     void testHighVolumeMessageSending(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing High Volume Message Sending ===");
         
@@ -295,7 +294,6 @@ public class PeeGeeQRestPerformanceTest {
     
     @Test
     @Order(4)
-    @org.junit.jupiter.api.Disabled("Performance test - disabled for CI environment")
     void testSystemThroughputUnderLoad(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing System Throughput Under Load ===");
         
@@ -452,4 +450,3 @@ public class PeeGeeQRestPerformanceTest {
         return request;
     }
 }
-
