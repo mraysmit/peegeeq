@@ -70,6 +70,8 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 public class OutboxPerformanceTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxPerformanceTest.class);
+    private static final int DATABASE_POOL_SIZE = 20;
+    private static final int THROUGHPUT_SEND_CONCURRENCY = 20;
 
     @Container
     private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
@@ -97,13 +99,15 @@ public class OutboxPerformanceTest {
                 .property("peegeeq.consumer.threads", "8")
                 .property("peegeeq.queue.batch-size", "50")
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
-                .property("peegeeq.connection.pool.size", "20")
+                .property("peegeeq.database.pool.max-size", Integer.toString(DATABASE_POOL_SIZE))
                 .property("peegeeq.queue.dead-consumer-detection.enabled", "false")
                 .property("peegeeq.queue.consumer-group-retry.enabled", "false")
                 .build();
 
         // Create and start manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
+        assertEquals(DATABASE_POOL_SIZE, config.getPoolConfig().getMaxSize(),
+                "Performance test must use its configured database pool size");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start()
                 .onSuccess(v -> {
@@ -178,12 +182,16 @@ public class OutboxPerformanceTest {
             allProcessed.flag();
             return Future.succeededFuture();
         }).onComplete(testContext.succeeding(subscribed -> {
-            logger.info("Starting throughput test with {} messages...", messageCount);
+            logger.info("Starting throughput test with {} messages across {} send lanes...",
+                    messageCount, THROUGHPUT_SEND_CONCURRENCY);
             startTimeRef.set(Instant.now());
 
-            List<Future<Void>> sendFutures = new java.util.ArrayList<>(messageCount);
-            for (int i = 0; i < messageCount; i++) {
-                sendFutures.add(producer.send("Performance test message " + i));
+            assertEquals(0, messageCount % THROUGHPUT_SEND_CONCURRENCY,
+                    "Message count must divide evenly across throughput send lanes");
+            int messagesPerLane = messageCount / THROUGHPUT_SEND_CONCURRENCY;
+            List<Future<Void>> sendFutures = new java.util.ArrayList<>(THROUGHPUT_SEND_CONCURRENCY);
+            for (int lane = 0; lane < THROUGHPUT_SEND_CONCURRENCY; lane++) {
+                sendFutures.add(sendThroughputLane(lane, 0, messagesPerLane));
             }
             Future.all(sendFutures)
                 .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
@@ -373,6 +381,19 @@ public class OutboxPerformanceTest {
     }
 
     /**
+     * Sends one throughput lane serially. Multiple lanes run in parallel, keeping the pool
+     * saturated without overflowing its deliberately bounded wait queue.
+     */
+    private Future<Void> sendThroughputLane(int lane, int index, int messagesPerLane) {
+        if (index >= messagesPerLane) {
+            return Future.succeededFuture();
+        }
+        int messageNumber = lane * messagesPerLane + index;
+        return producer.send("Performance test message " + messageNumber)
+                .compose(v -> sendThroughputLane(lane, index + 1, messagesPerLane));
+    }
+
+    /**
      * Serially sends {@code total} messages from a single producer via composed futures.
      * Replaces a blocking per-producer loop that used {@code producer.send(...).await()}
      * inside an {@code ExecutorService.submit}.
@@ -385,5 +406,4 @@ public class OutboxPerformanceTest {
             .compose(v -> sendConcurrent(p, producerId, i + 1, total));
     }
 }
-
 
