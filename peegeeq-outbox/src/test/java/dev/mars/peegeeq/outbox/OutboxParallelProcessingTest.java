@@ -47,9 +47,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.Set;
 import java.util.UUID;
 import java.util.Properties;
+import java.util.ArrayList;
+import java.util.List;
 
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.ConcurrentHashMap;
@@ -77,7 +77,7 @@ public class OutboxParallelProcessingTest {
     private String testTopic;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
 
@@ -103,35 +103,40 @@ public class OutboxParallelProcessingTest {
         logger.info("   - Polling interval configured: {}", config.getQueueConfig().getPollingInterval());
 
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        // Create factory and components with configuration
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-        producer = outboxFactory.createProducer(testTopic, String.class);
-        consumer = outboxFactory.createConsumer(testTopic, String.class);
+        manager.start()
+                .onSuccess(v -> {
+                    DatabaseService databaseService = new PgDatabaseService(manager);
+                    outboxFactory = new OutboxFactory(databaseService, config);
+                    producer = outboxFactory.createProducer(testTopic, String.class);
+                    consumer = outboxFactory.createConsumer(testTopic, String.class);
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown(VertxTestContext tearDownContext) throws Exception {
-        if (consumer != null) {
+    void tearDown(VertxTestContext tearDownContext) {
         logger.info("Tearing down: closing resources and manager");
-            consumer.close();
-        }
-        if (producer != null) {
-            producer.close();
-        }
-        if (outboxFactory != null) {
-            outboxFactory.close();
-        }
-        if (manager != null) {
-            manager.closeReactive()
-                    .onSuccess(v -> tearDownContext.completeNow())
-                    .onFailure(tearDownContext::failNow);
-            assertTrue(tearDownContext.awaitCompletion(10, TimeUnit.SECONDS));
-        } else {
-            tearDownContext.completeNow();
-        }
+        Future<Void> closeFactory = outboxFactory != null
+                ? outboxFactory.close()
+                : Future.succeededFuture();
+        closeFactory
+                .transform(factoryResult -> {
+                    Future<Void> closeManager = manager != null
+                            ? manager.closeReactive()
+                            : Future.succeededFuture();
+                    return closeManager.transform(managerResult -> {
+                        if (factoryResult.failed()) {
+                            return Future.failedFuture(factoryResult.cause());
+                        }
+                        if (managerResult.failed()) {
+                            return Future.failedFuture(managerResult.cause());
+                        }
+                        return Future.succeededFuture();
+                    });
+                })
+                .onSuccess(v -> tearDownContext.completeNow())
+                .onFailure(tearDownContext::failNow);
     }
 
     @Test
@@ -141,34 +146,35 @@ public class OutboxParallelProcessingTest {
         Checkpoint completionCheckpoint = testContext.checkpoint(messageCount);
         Set<String> processingThreads = ConcurrentHashMap.newKeySet();
         AtomicInteger processedCount = new AtomicInteger(0);
+        AtomicInteger inFlight = new AtomicInteger(0);
+        AtomicInteger maxConcurrent = new AtomicInteger(0);
 
+        // Send all messages quickly to create backlog for parallel processing
+        logger.info("Sending {} messages quickly to create processing backlog...", messageCount);
         consumer.subscribe(message -> {
-        logger.info("Test: parallel consumer processing");
-            // Capture which thread is processing this message
+            logger.info("Test: parallel consumer processing");
             String threadName = Thread.currentThread().getName();
             processingThreads.add(threadName);
 
             int count = processedCount.incrementAndGet();
+            int concurrent = inFlight.incrementAndGet();
+            maxConcurrent.accumulateAndGet(concurrent, Math::max);
             logger.info("Processing message {} on thread: {} - {}", count, threadName, message.getPayload());
 
-            // Longer processing time to ensure parallel execution opportunity
-            io.vertx.core.Promise<Void> delay = io.vertx.core.Promise.promise();
-            vertx.setTimer(2000, id -> {
+            return vertx.timer(2000).map(id -> {
+                inFlight.decrementAndGet();
                 logger.info("Completed message {} on thread: {}", count, threadName);
                 completionCheckpoint.flag();
-                delay.complete(null);
+                return null;
             });
-            return delay.future();
-        });
-
-        // Send all messages quickly to create backlog for parallel processing
-        logger.info("Sending {} messages quickly to create processing backlog...", messageCount);
-        for (int i = 0; i < messageCount; i++) {
-            producer.send("Parallel message " + i).onFailure(testContext::failNow);
-            logger.info("Sent message {}", i);
-            // Small delay to ensure messages are persisted but create backlog
-            vertx.timer(10).await();
-        }
+        }).compose(v -> {
+            List<Future<Void>> sends = new ArrayList<>(messageCount);
+            for (int i = 0; i < messageCount; i++) {
+                sends.add(producer.send("Parallel message " + i));
+            }
+            return Future.all(sends).mapEmpty();
+        })
+          .onFailure(testContext::failNow);
         logger.info("All messages sent, waiting for parallel processing...");
 
         // Wait for all messages to be processed (longer timeout due to longer processing time)
@@ -176,27 +182,19 @@ public class OutboxParallelProcessingTest {
             "All messages should be processed within timeout");
         assertEquals(messageCount, processedCount.get(),
             "Should process all messages");
+        assertTrue(maxConcurrent.get() > 1,
+            "Multiple message-handler Futures should be in flight concurrently");
 
         logger.info("Final thread usage summary:");
         logger.info("   - Messages processed: {}", processedCount.get());
         logger.info("   - Processing threads used: {}", processingThreads.size());
+        logger.info("   - Maximum concurrent handlers: {}", maxConcurrent.get());
         logger.info("   - Thread names: {}", processingThreads);
 
         // In reactive mode, message handlers run on Vert.x event loop threads,
         // not on the outbox-processor executor threads. Verify threads were captured.
         assertFalse(processingThreads.isEmpty(),
             "Should have captured processing thread names");
-
-        // Note: In test environments, parallel processing may not always occur due to:
-        // - Fast message processing
-        // - Small message batches
-        // - Test environment characteristics
-        // The important thing is that the parallel processing infrastructure is configured correctly
-        if (processingThreads.size() > 1) {
-            logger.info("Multiple threads were used for processing (optimal)");
-        } else {
-            logger.info("Single thread was used (acceptable in test environment)");
-        }
 
         logger.info("Parallel processing test completed successfully!");
     }
@@ -209,7 +207,7 @@ public class OutboxParallelProcessingTest {
         Set<String> processingThreads = ConcurrentHashMap.newKeySet();
 
         consumer.subscribe(message -> {
-        logger.info("Test: batch processing");
+            logger.info("Test: batch processing");
             String threadName = Thread.currentThread().getName();
             processingThreads.add(threadName);
             
@@ -218,13 +216,14 @@ public class OutboxParallelProcessingTest {
             
             completionCheckpoint.flag();
             return Future.succeededFuture();
-        });
-
-        // Send messages in rapid succession to test batch processing
-        logger.info("Sending {} messages for batch processing...", messageCount);
-        for (int i = 0; i < messageCount; i++) {
-            producer.send("Batch message " + i).onFailure(testContext::failNow);
-        }
+        }).compose(v -> {
+            List<Future<Void>> sends = new ArrayList<>(messageCount);
+            for (int i = 0; i < messageCount; i++) {
+                sends.add(producer.send("Batch message " + i));
+            }
+            return Future.all(sends).mapEmpty();
+        })
+          .onFailure(testContext::failNow);
 
         // Wait for all messages to be processed
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
@@ -248,7 +247,7 @@ public class OutboxParallelProcessingTest {
         Set<String> processingThreads = ConcurrentHashMap.newKeySet();
 
         consumer.subscribe(message -> {
-        logger.info("Test: concurrent producers");
+            logger.info("Test: concurrent producers");
             String threadName = Thread.currentThread().getName();
             processingThreads.add(threadName);
             
@@ -257,32 +256,17 @@ public class OutboxParallelProcessingTest {
             
             completionCheckpoint.flag();
             return Future.succeededFuture();
-        });
-
-        // Create multiple producers sending concurrently
-        ExecutorService executor = Executors.newFixedThreadPool(producerCount);
-        
-        for (int p = 0; p < producerCount; p++) {
-            final int producerId = p;
-            executor.submit(() -> {
-                try {
-                    MessageProducer<String> concurrentProducer = outboxFactory.createProducer(testTopic, String.class);
-                    for (int m = 0; m < messagesPerProducer; m++) {
-                        String message = "Producer-" + producerId + "-Message-" + m;
-                        concurrentProducer.send(message).await();
-                        logger.info("Producer {} sent message {}", producerId, m);
-                    }
-                    concurrentProducer.close();
-                } catch (Exception e) {
-                    throw new RuntimeException("Producer " + producerId + " failed", e);
+        }).compose(v -> {
+            List<Future<Void>> sends = new ArrayList<>(totalMessages);
+            for (int p = 0; p < producerCount; p++) {
+                MessageProducer<String> concurrentProducer = outboxFactory.createProducer(testTopic, String.class);
+                for (int m = 0; m < messagesPerProducer; m++) {
+                    sends.add(concurrentProducer.send("Producer-" + p + "-Message-" + m));
                 }
-            });
-        }
-
-        // Wait for all producers to complete
-        executor.shutdown();
-        assertTrue(executor.awaitTermination(30, TimeUnit.SECONDS), "All producers should complete");
-        logger.info("All concurrent producers completed");
+            }
+            return Future.all(sends).mapEmpty();
+        })
+          .onFailure(testContext::failNow);
 
         // Wait for all messages to be processed
         assertTrue(testContext.awaitCompletion(45, TimeUnit.SECONDS), 
@@ -295,5 +279,3 @@ public class OutboxParallelProcessingTest {
         logger.info("   - Processing threads used: {}", processingThreads.size());
     }
 }
-
-

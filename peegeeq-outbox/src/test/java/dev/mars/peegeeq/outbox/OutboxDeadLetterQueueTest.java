@@ -30,8 +30,9 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
@@ -45,9 +46,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.util.List;
 import java.util.Properties;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -67,11 +66,12 @@ public class OutboxDeadLetterQueueTest {
     static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
+    private QueueFactory factory;
     private MessageProducer<String> producer;
     private MessageConsumer<String> consumer;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
@@ -82,25 +82,40 @@ public class OutboxDeadLetterQueueTest {
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
-        manager.start().await();
-
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-        OutboxFactoryRegistrar.registerWith(provider);
-        
-        QueueFactory factory = provider.createFactory("outbox", databaseService);
-        producer = factory.createProducer("test-dlq-integration", String.class);
-        consumer = factory.createConsumer("test-dlq-integration", String.class);
+        manager.start()
+                .compose(v -> {
+                    PgDatabaseService databaseService = new PgDatabaseService(manager);
+                    PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+                    OutboxFactoryRegistrar.registerWith(provider);
+                    factory = provider.createFactory("outbox", databaseService);
+                    producer = factory.createProducer("test-dlq-integration", String.class);
+                    consumer = factory.createConsumer("test-dlq-integration", String.class);
+                    return Future.succeededFuture();
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
-        if (consumer != null) consumer.close();
-        if (producer != null) producer.close();
-        if (manager != null) {
-            manager.closeReactive().await();
-        }
+        Future<Void> factoryClose = factory != null ? factory.close() : Future.succeededFuture();
+        factoryClose.transform(factoryResult -> {
+                    Future<Void> managerClose = manager != null
+                            ? manager.closeReactive()
+                            : Future.succeededFuture();
+                    return managerClose.transform(managerResult -> {
+                        if (factoryResult.failed()) {
+                            return Future.failedFuture(factoryResult.cause());
+                        }
+                        if (managerResult.failed()) {
+                            return Future.failedFuture(managerResult.cause());
+                        }
+                        return Future.succeededFuture();
+                    });
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -109,44 +124,41 @@ public class OutboxDeadLetterQueueTest {
         
         String testMessage = "Message that should go to DLQ";
         AtomicInteger attemptCount = new AtomicInteger(0);
+        Promise<Void> retriesComplete = Promise.promise();
         // Factory created via registrar without PeeGeeQConfiguration, so max-retries defaults to 3
         // initial attempt + 3 retries = 4 total handler invocations
-        Checkpoint retryCheckpoint = testContext.checkpoint(4);
-
-        producer.send(testMessage).await();
-
-        // Set up consumer that always fails with direct exception
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: DLQ test attempt {} for message: {}", 
                 attempt, message.getPayload());
-            retryCheckpoint.flag();
-            
+            if (attempt == 4) {
+                retriesComplete.complete();
+            }
             throw new RuntimeException("INTENTIONAL FAILURE: Should go to DLQ, attempt " + attempt);
-        });
+        })
+                .compose(v -> producer.send(testMessage))
+                .compose(v -> retriesComplete.future())
+                .compose(v -> vertx.timer(2000))
+                .compose(v -> manager.getDeadLetterQueueManager()
+                        .getDeadLetterMessages("test-dlq-integration", 10, 0))
+                .map(dlqMessages -> {
+                    assertEquals(4, attemptCount.get(),
+                            "Should have made exactly 4 processing attempts (1 initial + 3 retries, max-retries=3 default)");
+                    assertFalse(dlqMessages.isEmpty(), "Should have at least one message in dead letter queue");
 
-        // Wait for all retry attempts
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS),
-            "Should have attempted processing 4 times before DLQ");
-        assertEquals(4, attemptCount.get(), "Should have made exactly 4 processing attempts (1 initial + 3 retries, max-retries=3 default)");
-        
-        // Wait for DLQ processing
-        vertx.timer(2000).await();
-        
-        // Verify message is in dead letter queue
-        List<DeadLetterMessageInfo> dlqMessages = manager.getDeadLetterQueueManager()
-            .getDeadLetterMessages("test-dlq-integration", 10, 0)
-            .await();
-        
-        assertFalse(dlqMessages.isEmpty(), "Should have at least one message in dead letter queue");
-        
-        DeadLetterMessageInfo dlqMessage = dlqMessages.get(0);
-        assertEquals("test-dlq-integration", dlqMessage.topic(), "DLQ message should have correct topic");
-        assertTrue(dlqMessage.failureReason().contains("Should go to DLQ"),
-            "DLQ message should contain failure reason");
-        assertEquals(3, dlqMessage.retryCount(), "DLQ message should show retry_count=3 (max-retries=3 default, DLQ triggered when retry_count >= max-retries)");
-        
-        logger.info("Direct exception DLQ integration test completed successfully");
+                    DeadLetterMessageInfo dlqMessage = dlqMessages.get(0);
+                    assertEquals("test-dlq-integration", dlqMessage.topic(), "DLQ message should have correct topic");
+                    assertTrue(dlqMessage.failureReason().contains("Should go to DLQ"),
+                            "DLQ message should contain failure reason");
+                    assertEquals(3, dlqMessage.retryCount(),
+                            "DLQ message should show retry_count=3 (max-retries=3 default, DLQ triggered when retry_count >= max-retries)");
+                    return (Void) null;
+                })
+                .onSuccess(v -> {
+                    logger.info("Direct exception DLQ integration test completed successfully");
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -156,42 +168,38 @@ public class OutboxDeadLetterQueueTest {
         String testMessage = "Message with detailed error info";
         String customErrorMessage = "Custom business validation failed: Invalid order amount";
         AtomicInteger attemptCount = new AtomicInteger(0);
+        Promise<Void> retriesComplete = Promise.promise();
         // Factory created via registrar without PeeGeeQConfiguration, so max-retries defaults to 3
         // initial attempt + 3 retries = 4 total handler invocations
-        Checkpoint retryCheckpoint = testContext.checkpoint(4);
-
-        producer.send(testMessage).await();
-
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: Error info test attempt {} for message: {}", 
                 attempt, message.getPayload());
-            retryCheckpoint.flag();
-            
+            if (attempt == 4) {
+                retriesComplete.complete();
+            }
             throw new IllegalArgumentException(customErrorMessage + " (attempt " + attempt + ")");
-        });
+        })
+                .compose(v -> producer.send(testMessage))
+                .compose(v -> retriesComplete.future())
+                .compose(v -> vertx.timer(2000))
+                .compose(v -> manager.getDeadLetterQueueManager()
+                        .getDeadLetterMessages("test-dlq-integration", 10, 0))
+                .map(dlqMessages -> {
+                    assertEquals(4, attemptCount.get(), "Should complete all retry attempts");
+                    assertFalse(dlqMessages.isEmpty(), "Should have message in DLQ");
 
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS),
-            "Should complete all retry attempts");
-        
-        // Wait for DLQ processing
-        vertx.timer(2000).await();
-        
-        // Verify error information in DLQ
-        List<DeadLetterMessageInfo> dlqMessages = manager.getDeadLetterQueueManager()
-            .getDeadLetterMessages("test-dlq-integration", 10, 0)
-            .await();
-        
-        assertFalse(dlqMessages.isEmpty(), "Should have message in DLQ");
-        
-        DeadLetterMessageInfo dlqMessage = dlqMessages.get(0);
-        assertTrue(dlqMessage.failureReason().contains(customErrorMessage),
-            "DLQ should preserve custom error message");
-        assertTrue(dlqMessage.failureReason().contains("IllegalArgumentException"),
-            "DLQ should include exception type information");
-        
-        logger.info("DLQ error information preservation test completed successfully");
+                    DeadLetterMessageInfo dlqMessage = dlqMessages.get(0);
+                    assertTrue(dlqMessage.failureReason().contains(customErrorMessage),
+                            "DLQ should preserve custom error message");
+                    assertTrue(dlqMessage.failureReason().contains("IllegalArgumentException"),
+                            "DLQ should include exception type information");
+                    return (Void) null;
+                })
+                .onSuccess(v -> {
+                    logger.info("DLQ error information preservation test completed successfully");
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
     }
 }
-
-

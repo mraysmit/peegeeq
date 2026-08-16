@@ -13,6 +13,7 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -20,6 +21,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -57,6 +59,7 @@ class OutboxConsumerCoverageTest {
     private MessageConsumer<String> consumer;
     private String testTopic;
     private ObjectMapper objectMapper;
+    private SimpleMeterRegistry meterRegistry;
 
     @BeforeEach
     void setup(VertxTestContext testContext) throws Exception {
@@ -68,7 +71,8 @@ class OutboxConsumerCoverageTest {
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
-        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
+        meterRegistry = new SimpleMeterRegistry();
+        manager = new PeeGeeQManager(config, meterRegistry);
         objectMapper = new ObjectMapper();
         objectMapper.registerModule(new JavaTimeModule());
         manager.start()
@@ -89,15 +93,25 @@ class OutboxConsumerCoverageTest {
         if (producer != null) {
             producer.close();
         }
-        if (manager != null) {
-            (outboxFactory != null ? outboxFactory.close() : Future.succeededFuture())
-                    .eventually(() -> manager.closeReactive())
-                    .onSuccess(v -> tearDownContext.completeNow())
-                    .onFailure(tearDownContext::failNow);
-            assertTrue(tearDownContext.awaitCompletion(10, TimeUnit.SECONDS));
-        } else {
-            tearDownContext.completeNow();
-        }
+        Future<Void> factoryClose = outboxFactory != null
+                ? outboxFactory.close()
+                : Future.succeededFuture();
+        factoryClose
+                .transform(factoryResult -> (manager != null
+                        ? manager.closeReactive()
+                        : Future.<Void>succeededFuture())
+                        .transform(managerResult -> {
+                            if (factoryResult.failed()) {
+                                return Future.failedFuture(factoryResult.cause());
+                            }
+                            if (managerResult.failed()) {
+                                return Future.failedFuture(managerResult.cause());
+                            }
+                            return Future.succeededFuture();
+                        }))
+                .onSuccess(v -> tearDownContext.completeNow())
+                .onFailure(tearDownContext::failNow);
+        assertTrue(tearDownContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test
@@ -143,7 +157,7 @@ class OutboxConsumerCoverageTest {
     }
 
     @Test
-    void testMessageDeletedDuringProcessing(VertxTestContext testContext) throws Exception {
+    void testMessageDeletedDuringProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
         consumer = outboxFactory.createConsumer(testTopic, String.class);
         io.vertx.core.Promise<Void> startSignal = io.vertx.core.Promise.promise();
         io.vertx.core.Promise<Void> continueGate = io.vertx.core.Promise.promise();
@@ -162,10 +176,19 @@ class OutboxConsumerCoverageTest {
                 .compose(id -> manager.getPool()
                         .preparedQuery("DELETE FROM outbox WHERE id = $1")
                         .execute(Tuple.of(id)))
-                .onSuccess(v -> {
+                .compose(v -> {
                     continueGate.tryComplete();
-                    testContext.completeNow();
+                    return awaitCounter(vertx, "peegeeq.messages.failed.by.topic",
+                            System.currentTimeMillis() + 10_000);
                 })
+                .compose(count -> ((OutboxConsumer<?>) assertInstanceOf(OutboxConsumer.class, consumer))
+                        .closeAsync()
+                        .map(count))
+                .onSuccess(count -> testContext.verify(() -> {
+                    assertTrue(count >= 1.0,
+                            "Deleted message should produce an observable completion failure");
+                    testContext.completeNow();
+                }))
                 .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
@@ -203,20 +226,13 @@ class OutboxConsumerCoverageTest {
         }).compose(v -> complexProducer.send(payload))
           .onFailure(testContext::failNow);
 
-        // awaitCompletion blocks until the checkpoint fires (message processed) or timeout.
-        // close() is synchronous/void  safe to call in finally once all async work is settled.
-        try {
-            assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should process complex payload");
-            assertEquals("test", received.get().getName());
-            assertEquals(123, received.get().getValue());
-        } finally {
-            complexProducer.close();
-            complexConsumer.close();
-        }
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should process complex payload");
+        assertEquals("test", received.get().getName());
+        assertEquals(123, received.get().getValue());
     }
 
     @Test
-    void testCompletionPersistenceBlocksNextMessageProcessing(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testCompletionPersistenceBlocksNextMessageProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
         io.vertx.core.Promise<Void> firstHandled = io.vertx.core.Promise.promise();
         io.vertx.core.Promise<Void> bothHandled = io.vertx.core.Promise.promise();
         AtomicInteger handledCount = new AtomicInteger(0);
@@ -294,6 +310,23 @@ class OutboxConsumerCoverageTest {
         assertEquals("value2", receivedHeaders.get().get("key2"));
     }
 
+    private Future<Double> awaitCounter(Vertx vertx, String meterName, long deadline) {
+        double count = meterRegistry.find(meterName)
+                .tag("topic", testTopic)
+                .counters()
+                .stream()
+                .mapToDouble(Counter::count)
+                .sum();
+        if (count > 0) {
+            return Future.succeededFuture(count);
+        }
+        if (System.currentTimeMillis() >= deadline) {
+            return Future.failedFuture(new AssertionError(
+                    "Counter " + meterName + " was not incremented for topic " + testTopic));
+        }
+        return vertx.timer(50).compose(v -> awaitCounter(vertx, meterName, deadline));
+    }
+
     public static class ComplexPayload {
         private String name;
         private int value;
@@ -311,5 +344,3 @@ class OutboxConsumerCoverageTest {
         public void setValue(int value) { this.value = value; }
     }
 }
-
-

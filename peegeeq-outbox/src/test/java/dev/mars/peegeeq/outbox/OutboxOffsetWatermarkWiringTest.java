@@ -33,7 +33,6 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
-import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -66,8 +65,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@code outbox_partition_assignments}. If the engine is not wired in, the row count
  * stays at zero that is exactly what this test catches.</p>
  *
- * <p>Vert.x 5 reactive only no {@code CompletableFuture}, no blocking
- * {@code .get()}/{@code .join()}, no {@code Thread.sleep}.</p>
+ * <p>Uses Vert.x 5 reactive APIs exclusively and avoids blocking bridges and
+ * thread-based delays.</p>
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
@@ -85,7 +84,7 @@ class OutboxOffsetWatermarkWiringTest {
     private QueueFactory factory;
 
     @BeforeEach
-    void setUp() {
+    void setUp(VertxTestContext testContext) {
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres,
                 PostgreSQLTestConstants.TEST_SCHEMA,
                 SchemaComponent.QUEUE_ALL,
@@ -97,33 +96,39 @@ class OutboxOffsetWatermarkWiringTest {
                 .build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        databaseService = new PgDatabaseService(manager);
-        QueueFactoryProvider provider = new PgQueueFactoryProvider();
-        OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-        factory = provider.createFactory("outbox", (DatabaseService) databaseService);
+        manager.start()
+                .compose(v -> {
+                    databaseService = new PgDatabaseService(manager);
+                    QueueFactoryProvider provider = new PgQueueFactoryProvider();
+                    OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                    factory = provider.createFactory("outbox", (DatabaseService) databaseService);
+                    return Future.succeededFuture();
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown(Vertx vertx) {
-        if (factory != null) {
-            try {
-                factory.close();
-            } catch (Exception e) {
-                logger.warn("Error closing factory: {}", e.getMessage());
-            }
-        }
-        if (manager != null) {
-            try {
-                manager.closeReactive().await();
-            } catch (Exception e) {
-                logger.warn("Error closing manager: {}", e.getMessage());
-            }
-        }
-        Promise<Void> delay = Promise.promise();
-        vertx.setTimer(500, id -> delay.complete());
-        delay.future().await();
+    void tearDown(Vertx vertx, VertxTestContext testContext) {
+        Future<Void> closeFactory = factory != null ? factory.close() : Future.succeededFuture();
+        closeFactory
+                .transform(factoryResult -> {
+                    Future<Void> closeManager = manager != null
+                            ? manager.closeReactive()
+                            : Future.succeededFuture();
+                    return closeManager.transform(managerResult -> {
+                        if (factoryResult.failed()) {
+                            return Future.failedFuture(factoryResult.cause());
+                        }
+                        if (managerResult.failed()) {
+                            return Future.failedFuture(managerResult.cause());
+                        }
+                        return Future.succeededFuture();
+                    });
+                })
+                .eventually(() -> vertx.timer(500).mapEmpty())
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     /**
@@ -147,12 +152,8 @@ class OutboxOffsetWatermarkWiringTest {
                     group.setMessageHandler(msg -> Future.succeededFuture());
 
                     return group.start(SubscriptionOptions.fromBeginning())
-                            .compose(started -> {
-                                // Allow async join to propagate.
-                                Promise<Void> delay = Promise.promise();
-                                vertx.setTimer(2000, id -> delay.complete());
-                                return delay.future();
-                            })
+                            // Allow async join to propagate.
+                            .compose(started -> vertx.timer(2000).mapEmpty())
                             .compose(delayed -> countPartitionAssignments(topic, groupName))
                             .map(count -> {
                                 logger.info("partition assignments after start: {}", count);

@@ -71,13 +71,13 @@ class FanOutTracePropagationTest {
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start()
-            .onSuccess(v -> {
-                DatabaseService databaseService = new PgDatabaseService(manager);
-                outboxFactory = new OutboxFactory(databaseService, config);
-                producer = outboxFactory.createProducer(testTopic, String.class);
-                consumer = outboxFactory.createConsumer(testTopic, String.class);
-                testContext.completeNow();
-            })
+            .onSuccess(v -> testContext.verify(() -> {
+                    DatabaseService databaseService = new PgDatabaseService(manager);
+                    outboxFactory = new OutboxFactory(databaseService, config);
+                    producer = outboxFactory.createProducer(testTopic, String.class);
+                    consumer = outboxFactory.createConsumer(testTopic, String.class);
+                    testContext.completeNow();
+                }))
             .onFailure(testContext::failNow);
     }
 
@@ -86,15 +86,16 @@ class FanOutTracePropagationTest {
         logger.info("Tearing down: closing resources and manager");
         if (consumer != null) consumer.close();
         if (producer != null) producer.close();
-        if (outboxFactory != null) outboxFactory.close();
         MDC.clear();
-        if (manager != null) {
-            manager.closeReactive()
+        Future<Void> factoryClose = outboxFactory != null
+                ? outboxFactory.close()
+                : Future.succeededFuture();
+        factoryClose
+            .eventually(() -> manager != null
+                    ? manager.closeReactive()
+                    : Future.succeededFuture())
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-        } else {
-            testContext.completeNow();
-        }
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
@@ -118,13 +119,13 @@ class FanOutTracePropagationTest {
 
         // Act: subscribe and send
         consumer.subscribe(message -> {
-            consumerTraceId.set(MDC.get("traceId"));
-            consumerSpanId.set(MDC.get("spanId"));
-            messageReceived.flag();
-            return Future.succeededFuture();
-        });
-
-        producer.send("child-span-test", headers, null).onFailure(testContext::failNow);
+                    consumerTraceId.set(MDC.get("traceId"));
+                    consumerSpanId.set(MDC.get("spanId"));
+                    messageReceived.flag();
+                    return Future.succeededFuture();
+                })
+                .compose(v -> producer.send("child-span-test", headers, null).mapEmpty())
+                .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Consumer should receive message");
 
@@ -152,12 +153,12 @@ class FanOutTracePropagationTest {
         Checkpoint messageReceived = testContext.checkpoint();
 
         consumer.subscribe(message -> {
-            consumerGroupMdc.set(MDC.get("consumerGroup"));
-            messageReceived.flag();
-            return Future.succeededFuture();
-        });
-
-        producer.send("group-mdc-test", headers, null).onFailure(testContext::failNow);
+                    consumerGroupMdc.set(MDC.get("consumerGroup"));
+                    messageReceived.flag();
+                    return Future.succeededFuture();
+                })
+                .compose(v -> producer.send("group-mdc-test", headers, null).mapEmpty())
+                .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
 
@@ -184,13 +185,13 @@ class FanOutTracePropagationTest {
         Checkpoint messageReceived = testContext.checkpoint();
 
         consumer.subscribe(message -> {
-            consumerTraceId.set(MDC.get("traceId"));
-            consumerSpanId.set(MDC.get("spanId"));
-            messageReceived.flag();
-            return Future.succeededFuture();
-        });
-
-        producer.send("no-group-test", headers, null).onFailure(testContext::failNow);
+                    consumerTraceId.set(MDC.get("traceId"));
+                    consumerSpanId.set(MDC.get("spanId"));
+                    messageReceived.flag();
+                    return Future.succeededFuture();
+                })
+                .compose(v -> producer.send("no-group-test", headers, null).mapEmpty())
+                .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
 
@@ -215,14 +216,14 @@ class FanOutTracePropagationTest {
         Checkpoint messageReceived = testContext.checkpoint();
 
         consumer.subscribe(message -> {
-            consumerTraceId.set(MDC.get("traceId"));
-            consumerSpanId.set(MDC.get("spanId"));
-            consumerGroupMdc.set(MDC.get("consumerGroup"));
-            messageReceived.flag();
-            return Future.succeededFuture();
-        });
-
-        producer.send("no-traceparent-test").onFailure(testContext::failNow);
+                    consumerTraceId.set(MDC.get("traceId"));
+                    consumerSpanId.set(MDC.get("spanId"));
+                    consumerGroupMdc.set(MDC.get("consumerGroup"));
+                    messageReceived.flag();
+                    return Future.succeededFuture();
+                })
+                .compose(v -> producer.send("no-traceparent-test").mapEmpty())
+                .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
 

@@ -46,7 +46,9 @@ import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.extension.ExtendWith;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
@@ -89,13 +91,13 @@ public class OutboxConsumerCoreTest {
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start()
-            .onSuccess(v -> {
+            .onSuccess(v -> testContext.verify(() -> {
                 DatabaseService databaseService = new PgDatabaseService(manager);
                 outboxFactory = new OutboxFactory(databaseService, config);
                 producer = outboxFactory.createProducer(testTopic, String.class);
                 consumer = outboxFactory.createConsumer(testTopic, String.class);
                 testContext.completeNow();
-            })
+            }))
             .onFailure(testContext::failNow);
     }
 
@@ -107,16 +109,15 @@ public class OutboxConsumerCoreTest {
         if (producer != null) {
             producer.close();
         }
-        if (outboxFactory != null) {
-            outboxFactory.close();
-        }
-        if (manager != null) {
-            manager.closeReactive()
-                .onSuccess(v -> testContext.completeNow())
-                .onFailure(testContext::failNow);
-        } else {
-            testContext.completeNow();
-        }
+        Future<Void> factoryClose = outboxFactory != null
+                ? outboxFactory.close()
+                : Future.succeededFuture();
+        factoryClose
+            .eventually(() -> manager != null
+                    ? manager.closeReactive()
+                    : Future.succeededFuture())
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
@@ -135,13 +136,12 @@ public class OutboxConsumerCoreTest {
             receivedMessage.set(message.getPayload());
             latch.flag();
             return Future.succeededFuture();
-        });
-
-        String testMessage = "Test message for subscribe";
-        producer.send(testMessage).onFailure(testContext::failNow);
+        })
+            .compose(v -> producer.send("Test message for subscribe"))
+            .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message within timeout");
-        assertEquals(testMessage, receivedMessage.get(), "Should receive correct message");
+        assertEquals("Test message for subscribe", receivedMessage.get(), "Should receive correct message");
     }
 
     @Test
@@ -154,9 +154,9 @@ public class OutboxConsumerCoreTest {
             messageCount.incrementAndGet();
             firstReceived.tryComplete();
             return Future.succeededFuture();
-        });
-
-        producer.send("Message 1").onFailure(testContext::failNow);
+        })
+            .compose(v -> producer.send("Message 1"))
+            .onFailure(testContext::failNow);
         firstReceived.future()
             .onSuccess(v -> testContext.verify(() -> assertEquals(1, messageCount.get(), "Should have received one message")))
             .compose(v -> {
@@ -184,11 +184,15 @@ public class OutboxConsumerCoreTest {
             receivedCount.incrementAndGet();
             latch.flag();
             return Future.succeededFuture();
-        });
-
-        for (int i = 0; i < messageCount; i++) {
-            producer.send("Message " + i).onFailure(testContext::failNow);
-        }
+        })
+            .compose(v -> {
+                List<Future<Void>> sends = new ArrayList<>();
+                for (int i = 0; i < messageCount; i++) {
+                    sends.add(producer.send("Message " + i));
+                }
+                return Future.all(sends).mapEmpty();
+            })
+            .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive all messages within timeout");
         assertEquals(messageCount, receivedCount.get(), "Should receive all messages");
@@ -198,19 +202,18 @@ public class OutboxConsumerCoreTest {
     void testConsumerReceivesMessagesWithHeaders(Vertx vertx, VertxTestContext testContext) throws Exception {
         Checkpoint latch = testContext.checkpoint();
         AtomicReference<Map<String, String>> receivedHeaders = new AtomicReference<>();
+        Map<String, String> headers = new HashMap<>();
+        headers.put("content-type", "application/json");
+        headers.put("source", "test");
 
         consumer.subscribe(message -> {
             logger.info("Test: consumer receives messages with headers");
             receivedHeaders.set(message.getHeaders());
             latch.flag();
             return Future.succeededFuture();
-        });
-
-        Map<String, String> headers = new HashMap<>();
-        headers.put("content-type", "application/json");
-        headers.put("source", "test");
-
-        producer.send("Message with headers", headers).onFailure(testContext::failNow);
+        })
+            .compose(v -> producer.send("Message with headers", headers))
+            .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message within timeout");
         assertNotNull(receivedHeaders.get(), "Should receive headers");
@@ -232,9 +235,9 @@ public class OutboxConsumerCoreTest {
                 return Future.failedFuture(new RuntimeException("Handler error"));
             }
             return Future.succeededFuture();
-        });
-
-        producer.send("Message that causes error").onFailure(testContext::failNow);
+        })
+            .compose(v -> producer.send("Message that causes error"))
+            .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should attempt to process message");
         assertTrue(attemptCount.get() >= 1, "Should have at least one processing attempt");
@@ -250,9 +253,9 @@ public class OutboxConsumerCoreTest {
             messageCount.incrementAndGet();
             firstReceived.tryComplete();
             return Future.succeededFuture();
-        });
-
-        producer.send("Message before close").onFailure(testContext::failNow);
+        })
+            .compose(v -> producer.send("Message before close"))
+            .onFailure(testContext::failNow);
         firstReceived.future()
             .compose(v -> {
                 consumer.close();
@@ -298,12 +301,10 @@ public class OutboxConsumerCoreTest {
         consumer.subscribe(message -> {
             latch.flag();
             return Future.succeededFuture();
-        });
-
-        producer.send("Message for consumer group").onFailure(testContext::failNow);
+        })
+            .compose(v -> producer.send("Message for consumer group"))
+            .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Consumer with group should receive message");
     }
 }
-
-
