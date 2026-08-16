@@ -2,6 +2,7 @@ package dev.mars.peegeeq.servicemanager;
 
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
+import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.junit5.VertxExtension;
@@ -132,6 +133,28 @@ class PeeGeeQServiceManagerIntegrationTest {
                     testContext.completeNow();
                 })));
     }
+
+    @Test
+    void testInvalidInstanceRegistration(Vertx vertx, VertxTestContext testContext) {
+        JsonObject invalidData = new JsonObject()
+                .put("instanceId", "")
+                .put("host", "localhost")
+                .put("port", 8080);
+
+        webClient.post(TEST_PORT, "localhost", "/api/v1/instances/register")
+                .putHeader("Content-Type", "application/json")
+                .sendJsonObject(invalidData)
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
+                    assertEquals(400, response.statusCode());
+
+                    JsonObject result = response.bodyAsJsonObject();
+                    assertNotNull(result);
+                    assertEquals("instanceId is required", result.getString("error"));
+
+                    logger.info("Invalid registration test passed: {}", result.encode());
+                    testContext.completeNow();
+                })));
+    }
     
     @Test
     void testInstanceDiscovery(Vertx vertx, VertxTestContext testContext) {
@@ -200,6 +223,95 @@ class PeeGeeQServiceManagerIntegrationTest {
                     assertEquals(instanceId, result.getString("instanceId"));
                     
                     logger.info("Instance unregistration test passed: {}", result.encode());
+                    testContext.completeNow();
+                })));
+    }
+
+    @Test
+    void testInstanceHealthCheck(Vertx vertx, VertxTestContext testContext) {
+        String instanceId = "test-instance-health-01";
+        JsonObject registrationData = new JsonObject()
+                .put("instanceId", instanceId)
+                .put("host", "localhost")
+                .put("port", 8091)
+                .put("version", "1.0.0")
+                .put("environment", "test");
+
+        webClient.post(TEST_PORT, "localhost", "/api/v1/instances/register")
+                .putHeader("Content-Type", "application/json")
+                .sendJsonObject(registrationData)
+                .compose(registerResponse -> {
+                    assertEquals(201, registerResponse.statusCode());
+                    return vertx.timer(1000)
+                            .compose(timerId -> webClient.get(TEST_PORT, "localhost",
+                                            "/api/v1/instances/" + instanceId + "/health")
+                                    .send());
+                })
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
+                    assertEquals(200, response.statusCode());
+
+                    JsonObject result = response.bodyAsJsonObject();
+                    assertNotNull(result);
+                    assertEquals(instanceId, result.getString("instanceId"));
+                    assertTrue(result.containsKey("status"));
+                    assertTrue(result.containsKey("healthy"));
+                    assertTrue(result.containsKey("timestamp"));
+
+                    logger.info("Instance health test passed: {}", result.encode());
+                    testContext.completeNow();
+                })));
+    }
+
+    @Test
+    void testListInstancesWithFilters(Vertx vertx, VertxTestContext testContext) {
+        JsonObject eastInstance = new JsonObject()
+                .put("instanceId", "test-filter-east-01")
+                .put("host", "localhost")
+                .put("port", 8092)
+                .put("environment", "test")
+                .put("region", "us-east-1");
+
+        JsonObject westInstance = new JsonObject()
+                .put("instanceId", "test-filter-west-01")
+                .put("host", "localhost")
+                .put("port", 8093)
+                .put("environment", "test")
+                .put("region", "us-west-1");
+
+        webClient.post(TEST_PORT, "localhost", "/api/v1/instances/register")
+                .putHeader("Content-Type", "application/json")
+                .sendJsonObject(eastInstance)
+                .compose(eastResponse -> {
+                    assertEquals(201, eastResponse.statusCode());
+                    return webClient.post(TEST_PORT, "localhost", "/api/v1/instances/register")
+                            .putHeader("Content-Type", "application/json")
+                            .sendJsonObject(westInstance);
+                })
+                .compose(westResponse -> {
+                    assertEquals(201, westResponse.statusCode());
+                    return vertx.timer(1000)
+                            .compose(timerId -> webClient.get(TEST_PORT, "localhost",
+                                            "/api/v1/instances?environment=test&region=us-east-1")
+                                    .send());
+                })
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
+                    assertEquals(200, response.statusCode());
+
+                    JsonObject result = response.bodyAsJsonObject();
+                    assertNotNull(result);
+                    assertEquals("test", result.getString("filteredByEnvironment"));
+                    assertEquals("us-east-1", result.getString("filteredByRegion"));
+                    assertEquals(1, result.getInteger("instanceCount"));
+
+                    JsonArray instances = result.getJsonArray("instances");
+                    assertNotNull(instances);
+                    assertEquals(1, instances.size());
+                    JsonObject instance = instances.getJsonObject(0);
+                    assertEquals("test-filter-east-01", instance.getString("instanceId"));
+                    assertEquals("test", instance.getString("environment"));
+                    assertEquals("us-east-1", instance.getString("region"));
+
+                    logger.info("Filtered instance discovery test passed: {}", result.encode());
                     testContext.completeNow();
                 })));
     }
