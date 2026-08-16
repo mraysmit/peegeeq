@@ -43,7 +43,9 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -70,6 +72,8 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     private final MetricsProvider metrics;
     private final PeeGeeQConfiguration configuration;
     private final ConsumerConfig consumerConfig;
+    private final Long minimumMessageId;
+    private final OffsetDateTime minimumCreatedAt;
     private final AtomicBoolean subscribed = new AtomicBoolean(false);
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private final AtomicInteger inFlightOperations = new AtomicInteger(0);
@@ -90,25 +94,33 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     public PgNativeQueueConsumer(VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
             String topic, Class<T> payloadType, MetricsProvider metrics,
             PeeGeeQConfiguration configuration) {
-        this.poolAdapter = poolAdapter;
-        this.objectMapper = objectMapper;
-        this.topic = topic;
-        this.payloadType = payloadType;
-        this.metrics = metrics != null ? metrics : NoOpMetricsProvider.INSTANCE;
-        this.configuration = java.util.Objects.requireNonNull(configuration,
-            "configuration cannot be null — PeeGeeQ has no default schema");
-        this.notifyChannel = NativeQueueChannels.channelFor(
-            configuration.getDatabaseConfig().getSchema(), topic);
-        this.consumerConfig = null;
-        int consumerThreads = configuration.getQueueConfig().getConsumerThreads();
-
-        logger.info("Created native queue consumer for topic: {} (threads: {})",
-                topic, consumerThreads);
+        this(poolAdapter, objectMapper, topic, payloadType, metrics, configuration,
+            null, null, null);
     }
 
     public PgNativeQueueConsumer(VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
             String topic, Class<T> payloadType, MetricsProvider metrics,
             PeeGeeQConfiguration configuration, ConsumerConfig consumerConfig) {
+        this(poolAdapter, objectMapper, topic, payloadType, metrics, configuration,
+            consumerConfig, null, null);
+    }
+
+    PgNativeQueueConsumer(VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
+            String topic, Class<T> payloadType, MetricsProvider metrics,
+            PeeGeeQConfiguration configuration, Long minimumMessageId,
+            OffsetDateTime minimumCreatedAt) {
+        this(poolAdapter, objectMapper, topic, payloadType, metrics, configuration,
+            null, minimumMessageId, minimumCreatedAt);
+    }
+
+    private PgNativeQueueConsumer(VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
+            String topic, Class<T> payloadType, MetricsProvider metrics,
+            PeeGeeQConfiguration configuration, ConsumerConfig consumerConfig,
+            Long minimumMessageId, OffsetDateTime minimumCreatedAt) {
+        if (minimumMessageId != null && minimumCreatedAt != null) {
+            throw new IllegalArgumentException(
+                "Only one native queue start-position boundary may be configured");
+        }
         this.poolAdapter = poolAdapter;
         this.objectMapper = objectMapper;
         this.topic = topic;
@@ -117,6 +129,8 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
         this.configuration = java.util.Objects.requireNonNull(configuration,
             "configuration cannot be null — PeeGeeQ has no default schema");
         this.consumerConfig = consumerConfig;
+        this.minimumMessageId = minimumMessageId;
+        this.minimumCreatedAt = minimumCreatedAt;
         this.notifyChannel = NativeQueueChannels.channelFor(
             configuration.getDatabaseConfig().getSchema(), topic);
         // Determine consumer threads for logging (no dedicated executor; async
@@ -124,8 +138,10 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
         int consumerThreads = consumerConfig != null ? consumerConfig.getConsumerThreads()
                 : (configuration != null ? configuration.getQueueConfig().getConsumerThreads() : 1);
 
-        logger.info("Created native queue consumer for topic: {} with consumer mode: {} (threads: {})",
-                topic, consumerConfig != null ? consumerConfig.getMode() : "default", consumerThreads);
+        logger.info(
+            "Created native queue consumer for topic: {} with consumer mode: {} (threads: {}, minimumMessageId: {}, minimumCreatedAt: {})",
+            topic, consumerConfig != null ? consumerConfig.getMode() : "default", consumerThreads,
+            minimumMessageId, minimumCreatedAt);
     }
 
     // --- LISTEN lifecycle state accessors ---
@@ -456,16 +472,27 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
 
             // Build SQL dynamically based on whether server-side filter is present
             ServerSideFilter filter = consumerConfig != null ? consumerConfig.getServerSideFilter() : null;
+            String startPositionCondition = "";
+            List<Object> startPositionParameters = new ArrayList<>(1);
+            if (minimumMessageId != null) {
+                startPositionCondition = " AND id >= $4";
+                startPositionParameters.add(minimumMessageId);
+            } else if (minimumCreatedAt != null) {
+                startPositionCondition = " AND created_at >= $4";
+                startPositionParameters.add(minimumCreatedAt);
+            }
             String sql;
             Tuple params;
 
             if (filter != null) {
                 // Server-side filtering: add filter condition to WHERE clause
-                String filterCondition = filter.toSqlCondition(4); // $4 onwards for filter params
+                int filterParameterOffset = 4 + startPositionParameters.size();
+                String filterCondition = filter.toSqlCondition(filterParameterOffset);
                 sql = """
                         WITH c AS (
                             SELECT id FROM queue_messages
                             WHERE topic = $1 AND status = 'AVAILABLE' AND visible_at <= now()
+                              %s
                               AND %s
                             ORDER BY priority DESC, created_at ASC
                             LIMIT $2
@@ -478,17 +505,15 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                         RETURNING q.id, q.payload, q.headers, q.correlation_id, q.message_group, q.retry_count, q.created_at,
                                   EXTRACT(EPOCH FROM (now() - q.created_at)) * 1000.0 AS delivery_latency_ms
                         """
-                        .formatted(filterCondition);
+                        .formatted(startPositionCondition, filterCondition);
 
-                // Build tuple with base params + filter params
-                Object[] baseParams = new Object[] { topic, effectiveBatch, lockDurationSeconds };
-                java.util.List<Object> filterParams = filter.getParameters();
-                Object[] allParams = new Object[baseParams.length + filterParams.size()];
-                System.arraycopy(baseParams, 0, allParams, 0, baseParams.length);
-                for (int i = 0; i < filterParams.size(); i++) {
-                    allParams[baseParams.length + i] = filterParams.get(i);
-                }
-                params = Tuple.from(allParams);
+                List<Object> allParameters = new ArrayList<>();
+                allParameters.add(topic);
+                allParameters.add(effectiveBatch);
+                allParameters.add(lockDurationSeconds);
+                allParameters.addAll(startPositionParameters);
+                allParameters.addAll(filter.getParameters());
+                params = Tuple.from(allParameters);
 
                 logger.debug("Using server-side filter: {}, SQL filter: {}", filter, filterCondition);
             } else {
@@ -497,6 +522,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                         WITH c AS (
                             SELECT id FROM queue_messages
                             WHERE topic = $1 AND status = 'AVAILABLE' AND visible_at <= now()
+                              %s
                             ORDER BY priority DESC, created_at ASC
                             LIMIT $2
                             FOR UPDATE SKIP LOCKED
@@ -507,8 +533,13 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                         WHERE q.id = c.id
                         RETURNING q.id, q.payload, q.headers, q.correlation_id, q.message_group, q.retry_count, q.created_at,
                                   EXTRACT(EPOCH FROM (now() - q.created_at)) * 1000.0 AS delivery_latency_ms
-                        """;
-                params = Tuple.of(topic, effectiveBatch, lockDurationSeconds);
+                        """.formatted(startPositionCondition);
+                List<Object> allParameters = new ArrayList<>();
+                allParameters.add(topic);
+                allParameters.add(effectiveBatch);
+                allParameters.add(lockDurationSeconds);
+                allParameters.addAll(startPositionParameters);
+                params = Tuple.from(allParameters);
             }
 
             // Use injected Vert.x instance; avoid creating new Vert.x inside existing
