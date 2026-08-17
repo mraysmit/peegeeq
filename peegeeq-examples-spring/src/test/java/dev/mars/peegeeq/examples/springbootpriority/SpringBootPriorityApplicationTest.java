@@ -17,7 +17,9 @@ package dev.mars.peegeeq.examples.springbootpriority;
  */
 
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
+import dev.mars.peegeeq.examples.springbootpriority.config.PeeGeeQPriorityProperties;
 import dev.mars.peegeeq.examples.springbootpriority.controller.TradeProducerController;
 import dev.mars.peegeeq.examples.springbootpriority.service.AllTradesConsumerService;
 import dev.mars.peegeeq.examples.springbootpriority.service.CriticalTradeConsumerService;
@@ -39,6 +41,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpStatus;
@@ -86,6 +89,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @ActiveProfiles("springboot-priority")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @ExtendWith(VertxExtension.class)
+@AutoConfigureTestRestTemplate
 public class SpringBootPriorityApplicationTest {
     
     private static final Logger log = LoggerFactory.getLogger(SpringBootPriorityApplicationTest.class);
@@ -165,6 +169,12 @@ public class SpringBootPriorityApplicationTest {
     
     @Autowired
     private TradeProducerService producerService;
+
+    @Autowired
+    private PeeGeeQManager manager;
+
+    @Autowired
+    private PeeGeeQPriorityProperties properties;
     
     @Autowired(required = false)
     private AllTradesConsumerService allTradesConsumer;
@@ -187,6 +197,10 @@ public class SpringBootPriorityApplicationTest {
     void testApplicationStarts() {
         log.info("=== Testing Application Starts ===");
         assertNotNull(producerService, "Producer service should be initialized");
+        assertFalse(properties.getDatabase().getPool().isShared(),
+            "Shared test properties must bind the non-shared pool setting");
+        assertFalse(manager.getConfiguration().getPoolConfig().isShared(),
+            "Spring integration tests must create non-shared reactive pools");
         log.info("Application starts test passed");
     }
     
@@ -212,11 +226,11 @@ public class SpringBootPriorityApplicationTest {
         assertEquals("FAIL", response.getBody().get("status"));
         
         // Wait for processing then verify
-        vertx.timer(2000).onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+        vertx.timer(2000).onSuccess(v -> testContext.verify(() -> {
             assertTrue(producerService.getCriticalSent() > 0, "Critical messages should be sent");
             log.info("Send Critical Trade test passed");
             testContext.completeNow();
-        })));
+        })).onFailure(testContext::failNow);
     }
     
     @SuppressWarnings("null")
@@ -240,11 +254,11 @@ public class SpringBootPriorityApplicationTest {
         assertEquals("AMEND", response.getBody().get("status"));
         
         // Wait for processing then verify
-        vertx.timer(2000).onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+        vertx.timer(2000).onSuccess(v -> testContext.verify(() -> {
             assertTrue(producerService.getHighSent() > 0, "High priority messages should be sent");
             log.info("Send High Priority Trade test passed");
             testContext.completeNow();
-        })));
+        })).onFailure(testContext::failNow);
     }
     
     @SuppressWarnings("null")
@@ -268,11 +282,11 @@ public class SpringBootPriorityApplicationTest {
         assertEquals("NEW", response.getBody().get("status"));
         
         // Wait for processing then verify
-        vertx.timer(2000).onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+        vertx.timer(2000).onSuccess(v -> testContext.verify(() -> {
             assertTrue(producerService.getNormalSent() > 0, "Normal priority messages should be sent");
             log.info("Send Normal Priority Trade test passed");
             testContext.completeNow();
-        })));
+        })).onFailure(testContext::failNow);
     }
     
     @SuppressWarnings("null")
@@ -324,7 +338,7 @@ public class SpringBootPriorityApplicationTest {
         sendTestTrade("TRADE-TEST-003", "confirmation");
 
         // Wait for processing then verify
-        vertx.timer(3000).onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+        vertx.timer(3000).onSuccess(v -> testContext.verify(() -> {
             long totalProcessed = 0;
             long totalFiltered = 0;
 
@@ -357,7 +371,7 @@ public class SpringBootPriorityApplicationTest {
             log.info("Consumer Metrics test passed - Total processed: {}, Total filtered: {}",
                 totalProcessed, totalFiltered);
             testContext.completeNow();
-        })));
+        })).onFailure(testContext::failNow);
     }
     
     private void sendTestTrade(String tradeId, String endpoint) {
@@ -392,4 +406,3 @@ public class SpringBootPriorityApplicationTest {
         );
     }
 }
-

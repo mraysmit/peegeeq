@@ -20,7 +20,6 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.api.EventQuery;
 import dev.mars.peegeeq.api.EventStore;
-import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.springbootbitemporaltx.events.*;
 import dev.mars.peegeeq.examples.springbootbitemporaltx.service.*;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
@@ -31,8 +30,6 @@ import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -136,24 +133,6 @@ class OrderProcessingServiceTest {
     
     @Autowired
     private EventStore<AuditEvent> auditEventStore;
-
-    @Autowired(required = false)
-    private PeeGeeQManager peeGeeQManager;
-    private static PeeGeeQManager peeGeeQManagerRef;
-
-    @AfterEach
-    void captureManager() {
-        peeGeeQManagerRef = peeGeeQManager;
-    }
-
-    @AfterAll
-    static void closeManager(VertxTestContext testContext) {
-        if (peeGeeQManagerRef != null) {
-            peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
-        } else {
-            testContext.completeNow();
-        }
-    }
 
     // TestContainers @Container annotation handles lifecycle automatically
     // No manual teardown needed - this was causing race conditions with async operations
@@ -337,7 +316,11 @@ class OrderProcessingServiceTest {
                             });
                     });
             })
-            .onComplete(testContext.succeeding(v -> testContext.verify(() -> testContext.completeNow())));
+            .onSuccess(v -> testContext.verify(testContext::completeNow))
+            .onFailure(error -> {
+                logger.error("Single-product order processing test failed", error);
+                testContext.failNow(error);
+            });
     }
     
     /**
@@ -475,6 +458,10 @@ class OrderProcessingServiceTest {
                             });
                     });
             })
-            .onComplete(testContext.succeeding(v -> testContext.verify(() -> testContext.completeNow())));
+            .onSuccess(v -> testContext.verify(testContext::completeNow))
+            .onFailure(error -> {
+                logger.error("Multi-product order processing test failed", error);
+                testContext.failNow(error);
+            });
     }
 }

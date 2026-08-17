@@ -63,6 +63,7 @@ public class IntegratedProperties {
         private String username = "postgres";
         private String password = "password";
         private String schema;
+        private Pool pool = new Pool();
 
         public String getHost() { return host; }
         public void setHost(String host) { this.host = host; }
@@ -86,6 +87,15 @@ public class IntegratedProperties {
             return schema;
         }
         public void setSchema(String schema) { this.schema = schema; }
+
+        public Pool getPool() { return pool; }
+        public void setPool(Pool pool) { this.pool = pool; }
+
+        public static class Pool {
+            private boolean shared = true;
+
+            public boolean isShared() { return shared; }
+            public void setShared(boolean shared) { this.shared = shared; }
+        }
     }
 }
-

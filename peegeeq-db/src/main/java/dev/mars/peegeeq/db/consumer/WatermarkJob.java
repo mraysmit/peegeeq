@@ -34,6 +34,7 @@ public class WatermarkJob {
     private final AtomicBoolean processingInProgress = new AtomicBoolean(false);
     private final AtomicLong totalRunCount = new AtomicLong(0);
     private final AtomicLong totalSwept = new AtomicLong(0);
+    private volatile Future<Void> inFlightRun = Future.succeededFuture();
 
     public WatermarkJob(Vertx vertx, WatermarkCalculator calculator, String topic) {
         this(vertx, calculator, topic, DEFAULT_INTERVAL_MS);
@@ -60,15 +61,31 @@ public class WatermarkJob {
     }
 
     public void stop() {
-        if (!running) {
-            return;
-        }
+        stopAsync().onFailure(error ->
+                logger.error("WatermarkJob asynchronous stop failed: topic={}", topic, error));
+    }
+
+    /**
+     * Fences new runs, cancels future scheduling, and waits for the current sweep
+     * to settle before reporting that the job has stopped.
+     *
+     * @return future completing when no watermark sweep remains in flight
+     */
+    public synchronized Future<Void> stopAsync() {
         running = false;
         if (timerId >= 0) {
             vertx.cancelTimer(timerId);
             timerId = -1;
         }
-        logger.info("WatermarkJob stopped: topic={}, totalRuns={}, totalSwept={}", topic, totalRunCount.get(), totalSwept.get());
+
+        Future<Void> stopped = inFlightRun;
+        return stopped
+                .onSuccess(v -> logger.info(
+                        "WatermarkJob stopped: topic={}, totalRuns={}, totalSwept={}",
+                        topic, totalRunCount.getAcquire(), totalSwept.getAcquire()))
+                .onFailure(error -> logger.error(
+                        "WatermarkJob stopped after in-flight sweep failure: topic={}, totalRuns={}, totalSwept={}",
+                        topic, totalRunCount.getAcquire(), totalSwept.getAcquire(), error));
     }
 
     public boolean isRunning() {
@@ -76,11 +93,11 @@ public class WatermarkJob {
     }
 
     public long getTotalRunCount() {
-        return totalRunCount.get();
+        return totalRunCount.getAcquire();
     }
 
     public long getTotalSwept() {
-        return totalSwept.get();
+        return totalSwept.getAcquire();
     }
 
     /**
@@ -90,7 +107,7 @@ public class WatermarkJob {
         return calculator.calculateAndSweep(topic);
     }
 
-    private void runProcessing() {
+    private synchronized void runProcessing() {
         if (!running) {
             return;
         }
@@ -99,23 +116,40 @@ public class WatermarkJob {
             return;
         }
 
-        calculator.calculateAndSweep(topic)
+        Future<Void> currentRun = calculator.calculateAndSweep(topic)
                 .onSuccess(sweptCount -> {
                     totalRunCount.incrementAndGet();
                     totalSwept.addAndGet(sweptCount);
                     if (sweptCount > 0) {
-                        logger.info("Watermark sweep #{}: topic={}, swept={}", totalRunCount.get(), topic, sweptCount);
+                        logger.info("Watermark sweep #{}: topic={}, swept={}",
+                                totalRunCount.getAcquire(), topic, sweptCount);
                     } else {
-                        logger.debug("Watermark sweep #{}: topic={}, no messages swept", totalRunCount.get(), topic);
+                        logger.debug("Watermark sweep #{}: topic={}, no messages swept",
+                                totalRunCount.getAcquire(), topic);
                     }
                 })
                 .onFailure(throwable -> {
                     totalRunCount.incrementAndGet();
-                    logger.error("Watermark sweep #{} failed: topic={}", totalRunCount.get(), topic, throwable);
+                    logger.error("Watermark sweep #{} failed: topic={}",
+                            totalRunCount.getAcquire(), topic, throwable);
                 })
                 .eventually(() -> {
                     processingInProgress.set(false);
                     return Future.succeededFuture();
+                })
+                .mapEmpty();
+        inFlightRun = currentRun;
+        currentRun
+                .onSuccess(ignored -> clearSettledRun(currentRun))
+                .onFailure(error -> {
+                    clearSettledRun(currentRun);
+                    logger.debug("Recorded failed watermark run completion: topic={}", topic);
                 });
+    }
+
+    private synchronized void clearSettledRun(Future<Void> settledRun) {
+        if (inFlightRun == settledRun) {
+            inFlightRun = Future.succeededFuture();
+        }
     }
 }

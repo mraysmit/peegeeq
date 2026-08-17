@@ -155,7 +155,7 @@ public class OrderController {
     public Future<ResponseEntity<Map<String, Object>>> getOrderHistory(@PathVariable String orderId) {
         logger.info("Getting order history for: {}", orderId);
         
-        // Normalize async query results to CompletableFuture for consistent composition.
+        // Retain native Vert.x Future results for consistent non-blocking composition.
         Future<List<BiTemporalEvent<OrderEvent>>> orderEvents = 
             orderEventStore.query(EventQuery.forAggregate(orderId));
         

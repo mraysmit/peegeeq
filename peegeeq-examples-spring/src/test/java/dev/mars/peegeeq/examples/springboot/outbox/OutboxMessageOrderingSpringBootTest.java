@@ -3,13 +3,11 @@ package dev.mars.peegeeq.examples.springboot.outbox;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
-import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.outbox.OutboxFactory;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
@@ -18,6 +16,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -60,15 +59,12 @@ import static org.junit.jupiter.api.Assertions.*;
 )
 @Testcontainers
 @ExtendWith(VertxExtension.class)
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 public class OutboxMessageOrderingSpringBootTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxMessageOrderingSpringBootTest.class);
     @Container
     static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
-
-    @Autowired
-    private PeeGeeQManager peeGeeQManager;
-    private static PeeGeeQManager peeGeeQManagerRef;
 
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
@@ -90,47 +86,23 @@ public class OutboxMessageOrderingSpringBootTest {
     }
 
     @AfterEach
-    void tearDown(Vertx vertx, VertxTestContext tearDownContext) {
+    void tearDown() {
         logger.info(" Cleaning up Message Ordering Spring Boot Test");
         
         // Close all active consumers first
         for (MessageConsumer<?> consumer : activeConsumers) {
-            try {
-                consumer.close();
-                logger.info("Closed consumer");
-            } catch (Exception e) {
-                logger.error(" Error closing consumer: {}", e.getMessage());
-            }
+            consumer.close();
+            logger.info("Closed consumer");
         }
         activeConsumers.clear();
         
         // Close all active producers
         for (MessageProducer<?> producer : activeProducers) {
-            try {
-                producer.close();
-                logger.info("Closed producer");
-            } catch (Exception e) {
-                logger.error(" Error closing producer: {}", e.getMessage());
-            }
+            producer.close();
+            logger.info("Closed producer");
         }
         activeProducers.clear();
-        
-        // Wait for connections to be fully released before next test
-        logger.info(" Waiting for connections to be released...");
-        vertx.timer(2000).onComplete(tearDownContext.succeeding(v -> {
-            peeGeeQManagerRef = peeGeeQManager;
-            logger.info("Cleanup complete");
-            tearDownContext.completeNow();
-        }));
-    }
-
-    @AfterAll
-    static void closeManager(VertxTestContext testContext) {
-        if (peeGeeQManagerRef == null) {
-            testContext.completeNow();
-            return;
-        }
-        peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
+        logger.info("Cleanup complete");
     }
 
     /**
@@ -378,4 +350,3 @@ public class OutboxMessageOrderingSpringBootTest {
         public void setCustomerId(String customerId) { this.customerId = customerId; }
     }
 }
-

@@ -5,6 +5,7 @@ import dev.mars.peegeeq.api.tracing.TraceCtx;
 import dev.mars.peegeeq.api.tracing.TraceContextUtil;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.pgclient.PgException;
 import io.vertx.sqlclient.Row;
@@ -308,7 +309,7 @@ public class BackfillService {
             logger.info("Cancelling backfill for topic='{}', group='{}'", topic, groupName);
         }
 
-        return connectionManager.withConnection(serviceId, connection -> {
+        return connectionManager.withTransaction(serviceId, connection -> {
             String sql = """
                 UPDATE outbox_topic_subscriptions
                 SET backfill_status = $3
@@ -476,11 +477,11 @@ public class BackfillService {
     }
 
     /**
-     * Marks a backfill as completed, acquiring its own connection.
+     * Marks a backfill as completed, acquiring its own transaction.
      * Used when no existing connection is available (e.g., zero-messages path).
      */
     private Future<Void> markBackfillCompleted(TraceCtx trace, String topic, String groupName, long totalProcessed) {
-        return connectionManager.withConnection(serviceId, connection ->
+        return connectionManager.withTransaction(serviceId, connection ->
                 markBackfillCompleted(connection, trace, topic, groupName, totalProcessed)
         );
     }
@@ -528,7 +529,7 @@ public class BackfillService {
     }
 
     private Future<Void> initializeBackfill(String topic, String groupName, long totalMessages) {
-        return connectionManager.withConnection(serviceId, connection -> {
+        return connectionManager.withTransaction(serviceId, connection -> {
             // Note: backfill_status is already set to IN_PROGRESS by acquireBackfillLock
             // This method only updates the total_messages count
             String sql = """
@@ -599,10 +600,13 @@ public class BackfillService {
                                                                   long startFromId, int batchSize,
                                                                   long maxMessages, long alreadyProcessed,
                                                                   BackfillScope messageScope, int attempt) {
-        return processOneBatch(trace, topic, groupName, startFromId, batchSize, maxMessages, alreadyProcessed, messageScope)
-                .recover(err -> {
+        Promise<BatchResult> result = Promise.promise();
+        processOneBatch(trace, topic, groupName, startFromId, batchSize, maxMessages, alreadyProcessed, messageScope)
+                .onSuccess(result::complete)
+                .onFailure(err -> {
                     if (!isDeadlock(err)) {
-                        return Future.failedFuture(err);
+                        result.fail(err);
+                        return;
                     }
                     if (vertx == null) {
                         // No Vert.x  cannot back off safely; propagate immediately.
@@ -610,24 +614,29 @@ public class BackfillService {
                             logger.error("Deadlock (40P01) for topic='{}', group='{}' at id={}: cannot retry without Vert.x instance",
                                     topic, groupName, startFromId);
                         }
-                        return Future.failedFuture(err);
+                        result.fail(err);
+                        return;
                     }
                     if (attempt >= MAX_DEADLOCK_RETRIES) {
                         try (var scope = TraceContextUtil.mdcScope(trace)) {
                             logger.error("Deadlock (40P01) for topic='{}', group='{}' at id={}: exhausted {} retries",
                                     topic, groupName, startFromId, MAX_DEADLOCK_RETRIES);
                         }
-                        return Future.failedFuture(err);
+                        result.fail(err);
+                        return;
                     }
                     long delayMs = DEADLOCK_RETRY_BASE_DELAY_MS * (1L << attempt); // 50, 100, 200 ms
                     try (var scope = TraceContextUtil.mdcScope(trace)) {
                         logger.warn("Deadlock (40P01) on batch for topic='{}', group='{}' at id={}, attempt {}/{}, retrying after {}ms",
                                 topic, groupName, startFromId, attempt + 1, MAX_DEADLOCK_RETRIES, delayMs);
                     }
-                    return vertx.timer(delayMs).mapEmpty()
+                    vertx.timer(delayMs).mapEmpty()
                             .compose(v -> processOneBatchWithDeadlockRetry(
-                                    trace, topic, groupName, startFromId, batchSize, maxMessages, alreadyProcessed, messageScope, attempt + 1));
+                                    trace, topic, groupName, startFromId, batchSize, maxMessages, alreadyProcessed, messageScope, attempt + 1))
+                            .onSuccess(result::complete)
+                            .onFailure(result::fail);
                 });
+        return result.future();
     }
 
     private static boolean isDeadlock(Throwable err) {

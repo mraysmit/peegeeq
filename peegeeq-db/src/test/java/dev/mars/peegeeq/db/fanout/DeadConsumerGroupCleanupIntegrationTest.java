@@ -14,6 +14,7 @@ import dev.mars.peegeeq.db.subscription.TopicConfigService;
 import dev.mars.peegeeq.db.subscription.TopicSemantics;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Row;
@@ -282,14 +283,15 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
                 .compose(v -> subscribe(topic, "group-a"))
                 .compose(v -> markSubscriptionDead(topic, "group-a"))
                 .compose(v -> cleanup.cleanupDeadGroup(topic, "group-a"))
-                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                .onSuccess(result -> testContext.verify(() -> {
                     assertEquals(0, result.messagesDecremented());
                     assertEquals(0, result.orphanRowsRemoved());
                     assertEquals(0, result.messagesAutoCompleted());
                     assertFalse(result.hadWork());
                     logger.info("Empty cleanup verified");
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
 
     /**
@@ -545,7 +547,7 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
         Future<List<Long>> chain = Future.succeededFuture(new ArrayList<>());
         for (int i = 0; i < count; i++) {
             final int index = i;
-            chain = chain.compose(ids -> connectionManager.withConnection(SERVICE_ID, connection -> {
+            chain = chain.compose(ids -> connectionManager.withTransaction(SERVICE_ID, connection -> {
                 String sql = """
                     INSERT INTO outbox (topic, payload, created_at, status)
                     VALUES ($1, $2::jsonb, $3, 'PENDING')
@@ -603,7 +605,7 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
     }
 
     private Future<Void> markSubscriptionDead(String topic, String groupName) {
-        return connectionManager.withConnection(SERVICE_ID, connection -> {
+        return connectionManager.withTransaction(SERVICE_ID, connection -> {
             String sql = """
                 UPDATE outbox_topic_subscriptions
                 SET subscription_status = 'DEAD'
@@ -616,7 +618,7 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
     }
 
     private Future<Void> insertConsumerGroupRow(Long messageId, String groupName, String status) {
-        return connectionManager.withConnection(SERVICE_ID, connection -> {
+        return connectionManager.withTransaction(SERVICE_ID, connection -> {
             String sql = """
                 INSERT INTO outbox_consumer_groups (message_id, group_name, status)
                 VALUES ($1, $2, $3)
@@ -629,7 +631,7 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
     }
 
     private Future<Void> setRequiredConsumerGroups(Long messageId, int required) {
-        return connectionManager.withConnection(SERVICE_ID, connection -> {
+        return connectionManager.withTransaction(SERVICE_ID, connection -> {
             String sql = "UPDATE outbox SET required_consumer_groups = $1 WHERE id = $2";
             return connection.preparedQuery(sql)
                     .execute(Tuple.of(required, messageId))
@@ -705,12 +707,12 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
     }
 
     // ========================================================================
-    // Test: Cleanup error resilience one group failure doesn't break others
+    // Test: Cleanup failure propagation preserves prior committed work
     // ========================================================================
 
     /**
-     * Tests that {@code cleanupAllDeadGroups()} continues processing remaining
-     * dead groups when cleanup for one group fails.
+     * Tests that {@code cleanupAllDeadGroups()} surfaces a group cleanup failure
+     * after preserving cleanup work committed for an earlier group.
      *
      * <p>Uses a test subclass that overrides {@code cleanupDeadGroup()} to
      * inject a failure for a specific topic. This follows the project's
@@ -718,15 +720,13 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
      * {@code cleanupDeadGroup()} is already public, so no production code
      * changes are required.</p>
      *
-     * <p>Validates the {@code .transform()} block in {@code cleanupAllDeadGroups()}
-     * which catches per-group failures, logs them, and skips the failed group
-     * so the batch can continue.</p>
+     * <p>The successful topic sorts before the failing topic, proving that each
+     * group's transaction remains committed while the batch Future still fails.</p>
      */
     @Test
-    void testCleanupContinuesAfterOneGroupFails(VertxTestContext testContext) {
-        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Cleanup failed for group=...') is EXPECTED this test deliberately injects a RuntimeException to verify cleanup resilience");
-        String topicOk = uniqueTopic("resilience-ok");
-        String topicFail = uniqueTopic("resilience-fail");
+    void testCleanupFailureIsSurfacedAfterPriorGroupCommits(VertxTestContext testContext) {
+        String topicOk = uniqueTopic("resilience-a-ok");
+        String topicFail = uniqueTopic("resilience-z-fail");
 
         // Set up topic that will be cleaned successfully
         createPubSubTopic(topicOk)
@@ -757,26 +757,21 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
                                             return super.cleanupDeadGroup(topic, groupName);
                                         }
                                     };
-                                    return failingCleanup.cleanupAllDeadGroups();
+                                    Promise<Throwable> observedFailure = Promise.promise();
+                                    failingCleanup.cleanupAllDeadGroups()
+                                            .onSuccess(results -> observedFailure.tryFail(
+                                                    new AssertionError("Expected cleanupAllDeadGroups() to fail")))
+                                            .onFailure(observedFailure::tryComplete);
+                                    return observedFailure.future();
                                 })
-                                .compose(results -> {
-                                    var okResult = results.stream()
-                                            .filter(r -> r.topic().equals(topicOk) && r.groupName().equals("group-dead-ok"))
-                                            .findFirst();
-                                    var failResult = results.stream()
-                                            .filter(r -> r.topic().equals(topicFail) && r.groupName().equals("group-dead-fail"))
-                                            .findFirst();
-
+                                .compose(cleanupFailure -> {
                                     testContext.verify(() -> {
-                                        assertTrue(okResult.isPresent(), "Should have result for successfully cleaned group");
-                                        assertTrue(okResult.get().hadWork(), "Good group should have been cleaned");
-                                        assertEquals(2, okResult.get().messagesDecremented(),
-                                                "Good group should have decremented 2 messages");
-                                        assertFalse(failResult.isPresent(),
-                                                "Failed group should be skipped no fabricated result added");
+                                        assertInstanceOf(RuntimeException.class, cleanupFailure);
+                                        assertTrue(cleanupFailure.getMessage().contains("Simulated DB failure"),
+                                                "The injected cleanup failure must reach the caller");
                                     });
 
-                                    // Verify messages on the good topic were cleaned up
+                                    // The earlier group's transaction remains committed.
                                     Future<Void> verifyOk = Future.succeededFuture();
                                     for (Long msgId : okMessageIds) {
                                         verifyOk = verifyOk.compose(x -> getMessageRow(msgId).map(state -> {
@@ -789,7 +784,7 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
                                             return (Void) null;
                                         }));
                                     }
-                                    // Verify messages on the failed topic were NOT cleaned up
+                                    // The failing group's transaction was never applied.
                                     Future<Void> verifyFail = verifyOk;
                                     for (Long msgId : failMessageIds) {
                                         verifyFail = verifyFail.compose(x -> getMessageRow(msgId).map(state -> {
@@ -807,7 +802,7 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
                         )
                 )
                 .onSuccess(v -> {
-                    logger.info("Cleanup error resilience verified: good group cleaned, failed group produced zero-result");
+                    logger.info("Cleanup failure propagation and prior committed work verified");
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);

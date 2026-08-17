@@ -213,7 +213,7 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
                             .schema(schema)
                             .build();
                     verifyMgr.getOrCreateReactivePool("verify-registry", connConfig,
-                            new PgPoolConfig.Builder().maxSize(1).build());
+                            new PgPoolConfig.Builder().maxSize(1).shared(false).build());
 
                     return verifyMgr.withConnection("verify-registry", conn ->
                             // 1. Self-identifying metadata row.
@@ -303,7 +303,7 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
                             .schema(schema)
                             .build();
                     verifyMgr.getOrCreateReactivePool("verify-addqueue", connConfig,
-                            new PgPoolConfig.Builder().maxSize(1).build());
+                            new PgPoolConfig.Builder().maxSize(1).shared(false).build());
 
                     return verifyMgr.withConnection("verify-addqueue", conn ->
                             conn.preparedQuery("SELECT kind, config FROM " + schema
@@ -373,7 +373,7 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
                             .schema(schema)
                             .build();
                     verifyMgr.getOrCreateReactivePool("verify-addstore", connConfig,
-                            new PgPoolConfig.Builder().maxSize(1).build());
+                            new PgPoolConfig.Builder().maxSize(1).shared(false).build());
 
                     return verifyMgr.withConnection("verify-addstore", conn ->
                             conn.preparedQuery("SELECT kind, config FROM " + schema
@@ -443,7 +443,7 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
                             .schema(schema)
                             .build();
                     verifyMgr.getOrCreateReactivePool("verify-rmstore", connConfig,
-                            new PgPoolConfig.Builder().maxSize(1).build());
+                            new PgPoolConfig.Builder().maxSize(1).shared(false).build());
 
                     return verifyMgr.withConnection("verify-rmstore", conn ->
                             conn.preparedQuery("SELECT 1 FROM " + schema
@@ -632,7 +632,7 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
                             .schema(schema)
                             .build();
                     verifyMgr.getOrCreateReactivePool("verify-refuse", connConfig,
-                            new PgPoolConfig.Builder().maxSize(1).build());
+                            new PgPoolConfig.Builder().maxSize(1).shared(false).build());
                     return verifyMgr.withConnection("verify-refuse", conn ->
                             conn.preparedQuery("SELECT setup_id FROM " + schema
                                             + ".peegeeq_setup_metadata WHERE setup_id = $1")
@@ -689,7 +689,7 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
         setupService.createCompleteSetup(createReq)
                 .compose(created -> {
                     verifyMgr.getOrCreateReactivePool("verify-drop", adminConn,
-                            new PgPoolConfig.Builder().maxSize(1).build());
+                            new PgPoolConfig.Builder().maxSize(1).shared(false).build());
                     // A wrong confirmation must be refused (IllegalArgumentException), dropping nothing.
                     return setupService.dropSetupDatabase(setupId, "definitely-not-the-db").transform(ar -> {
                         assertTrue(ar.failed(), "drop with a wrong confirmation must fail");
@@ -742,4 +742,3 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
                 .onFailure(ctx::failNow);
     }
 }
-

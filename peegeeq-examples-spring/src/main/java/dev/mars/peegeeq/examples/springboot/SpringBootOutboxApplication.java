@@ -76,7 +76,7 @@ public class SpringBootOutboxApplication {
 
     /**
      * Configure async task executor for reactive operations.
-     * This executor is used by Spring Boot for @Async methods and CompletableFuture operations.
+     * This executor is used by Spring Boot for {@code @Async} methods.
      * 
      * @return Configured task executor
      */

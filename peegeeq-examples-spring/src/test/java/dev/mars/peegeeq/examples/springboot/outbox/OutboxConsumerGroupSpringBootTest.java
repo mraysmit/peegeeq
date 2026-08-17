@@ -19,7 +19,6 @@ package dev.mars.peegeeq.examples.springboot.outbox;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.messaging.ConsumerGroup;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
-import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springboot.SpringBootOutboxApplication;
 import dev.mars.peegeeq.outbox.OutboxFactory;
@@ -27,8 +26,6 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.vertx.core.Future;
-import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
@@ -37,6 +34,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -46,7 +44,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.*;
 
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -85,15 +82,13 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @ExtendWith(VertxExtension.class)
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class OutboxConsumerGroupSpringBootTest {
     
     private static final Logger logger = LoggerFactory.getLogger(OutboxConsumerGroupSpringBootTest.class);
     
     @Autowired
     private OutboxFactory outboxFactory;
-    @Autowired
-    private PeeGeeQManager peeGeeQManager;
-    private static PeeGeeQManager peeGeeQManagerRef;
     @Container
     static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
@@ -114,7 +109,7 @@ class OutboxConsumerGroupSpringBootTest {
     }
     
     @AfterEach
-    void tearDown(Vertx vertx, VertxTestContext tearDownContext) {
+    void tearDown(VertxTestContext tearDownContext) {
         logger.info(" Cleaning up Consumer Group Spring Boot Test");
         
         // Chain close operations reactively for each consumer group
@@ -122,40 +117,26 @@ class OutboxConsumerGroupSpringBootTest {
         for (ConsumerGroup<?> group : activeConsumerGroups) {
             closeGroups = closeGroups.compose(v ->
                 group.close()
-                    .onSuccess(v2 -> logger.info("Closed consumer group: {}", group.getGroupName()))
-                    .onFailure(err -> logger.warn("\u26a0\ufe0f Error closing consumer group: {} - {}",
-                            group.getGroupName(), err.getMessage())));
+                    .onSuccess(v2 -> logger.info("Closed consumer group: {}", group.getGroupName())));
         }
         activeConsumerGroups.clear();
         
         // Close all active producers (sync)
         for (MessageProducer<?> producer : activeProducers) {
-            try {
-                producer.close();
-                logger.info("Closed producer");
-            } catch (Exception e) {
-                logger.error(" Error closing producer: {}", e.getMessage());
-            }
+            producer.close();
+            logger.info("Closed producer");
         }
         activeProducers.clear();
-        
-        // Wait for connections to be fully released before next test
-        logger.info(" Waiting for connections to be released...");
-        closeGroups.compose(v -> vertx.timer(2000))
-            .onComplete(tearDownContext.succeeding(v -> {
-                peeGeeQManagerRef = peeGeeQManager;
+
+        closeGroups
+            .onSuccess(v -> {
                 logger.info("Cleanup complete");
                 tearDownContext.completeNow();
-            }));
-    }
-
-    @AfterAll
-    static void closeManager(VertxTestContext testContext) {
-        if (peeGeeQManagerRef == null) {
-            testContext.completeNow();
-            return;
-        }
-        peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
+            })
+            .onFailure(error -> {
+                logger.error("Consumer group cleanup failed", error);
+                tearDownContext.failNow(error);
+            });
     }
 
     /**
@@ -170,7 +151,8 @@ class OutboxConsumerGroupSpringBootTest {
     @Test
     @Order(1)
     @DisplayName("Consumer Group - Load Balancing Across Multiple Consumers")
-    void testConsumerGroupLoadBalancing(VertxTestContext testContext) throws Exception {
+    @Timeout(30)
+    void testConsumerGroupLoadBalancing(VertxTestContext testContext) {
         logger.info("=== Testing Consumer Group Load Balancing ===");
         logger.info("This test verifies that messages are distributed evenly across consumer group members");
         
@@ -189,7 +171,7 @@ class OutboxConsumerGroupSpringBootTest {
         
         // Track which consumer processed which messages
         Map<String, Set<String>> consumerMessages = new ConcurrentHashMap<>();
-        Checkpoint checkpoint = testContext.checkpoint(messageCount);
+        AtomicInteger processedCount = new AtomicInteger();
         
         // Add multiple consumers to the group
         for (int i = 0; i < consumerCount; i++) {
@@ -199,7 +181,24 @@ class OutboxConsumerGroupSpringBootTest {
             consumerGroup.addConsumer(consumerId, message -> {
                 consumerMessages.get(consumerId).add(message.getPayload());
                 logger.debug("{} processed: {}", consumerId, message.getPayload());
-                checkpoint.flag();
+                if (processedCount.incrementAndGet() == messageCount) {
+                    testContext.verify(() -> {
+                        logger.info(" Load Balancing Results:");
+                        int totalProcessed = consumerMessages.values().stream().mapToInt(Set::size).sum();
+                        consumerMessages.forEach((id, messages) ->
+                            logger.info("  {} processed {} messages", id, messages.size()));
+
+                        assertEquals(messageCount, totalProcessed,
+                            "Total processed messages should match sent messages");
+                        consumerMessages.forEach((id, messages) -> {
+                            assertFalse(messages.isEmpty(), id + " should process at least one message");
+                            assertTrue(messages.size() <= messageCount,
+                                id + " should not process more than total messages");
+                        });
+                        logger.info("Consumer Group Load Balancing test passed");
+                        testContext.completeNow();
+                    });
+                }
                 return Future.succeededFuture();
             });
         }
@@ -214,31 +213,6 @@ class OutboxConsumerGroupSpringBootTest {
             producer.send(message).onFailure(testContext::failNow);
         }
         
-        // Wait for all messages to be processed
-        boolean completed = testContext.awaitCompletion(30, TimeUnit.SECONDS);
-        assertTrue(completed, "All messages should be processed within timeout");
-        
-        // Verify distribution
-        logger.info(" Load Balancing Results:");
-        int totalProcessed = 0;
-        for (Map.Entry<String, Set<String>> entry : consumerMessages.entrySet()) {
-            int count = entry.getValue().size();
-            totalProcessed += count;
-            logger.info("  {} processed {} messages", entry.getKey(), count);
-        }
-        
-        // Assertions
-        assertEquals(messageCount, totalProcessed, "Total processed messages should match sent messages");
-        
-        // Each consumer should process at least some messages (allowing for some imbalance)
-        for (Map.Entry<String, Set<String>> entry : consumerMessages.entrySet()) {
-            int count = entry.getValue().size();
-            assertTrue(count > 0, entry.getKey() + " should process at least one message");
-            assertTrue(count <= messageCount, entry.getKey() + " should not process more than total messages");
-        }
-        
-        logger.info("Consumer Group Load Balancing test passed");
-        logger.info("{} messages distributed across {} consumers", messageCount, consumerCount);
     }
     
     /**
@@ -253,7 +227,8 @@ class OutboxConsumerGroupSpringBootTest {
     @Test
     @Order(2)
     @DisplayName("Consumer Group - Graceful Handling of Consumer Failures")
-    void testConsumerGroupFailureHandling(VertxTestContext testContext) throws Exception {
+    @Timeout(45)
+    void testConsumerGroupFailureHandling(VertxTestContext testContext) {
         logger.info("=== Testing Consumer Group Failure Handling ===");
         logger.info("This test verifies that consumer groups handle individual consumer failures gracefully");
         
@@ -272,13 +247,14 @@ class OutboxConsumerGroupSpringBootTest {
         // Track successful processing
         Set<String> successfullyProcessed = ConcurrentHashMap.newKeySet();
         AtomicInteger failureCount = new AtomicInteger(0);
-        Checkpoint checkpoint = testContext.checkpoint(messageCount);
+        AtomicInteger processedCount = new AtomicInteger();
         
         // Consumer 1: Always succeeds
         consumerGroup.addConsumer("consumer-1", message -> {
             successfullyProcessed.add(message.getPayload());
             logger.debug("Consumer-1 successfully processed: {}", message.getPayload());
-            checkpoint.flag();
+            completeFailureHandlingTest(
+                testContext, messageCount, successfullyProcessed, failureCount, processedCount);
             return Future.succeededFuture();
         });
 
@@ -297,7 +273,8 @@ class OutboxConsumerGroupSpringBootTest {
 
             successfullyProcessed.add(message.getPayload());
             logger.debug("Consumer-2 successfully processed after retries: {}", message.getPayload());
-            checkpoint.flag();
+            completeFailureHandlingTest(
+                testContext, messageCount, successfullyProcessed, failureCount, processedCount);
             return Future.succeededFuture();
         });
         
@@ -311,23 +288,26 @@ class OutboxConsumerGroupSpringBootTest {
             producer.send(message).onFailure(testContext::failNow);
         }
         
-        // Wait for all messages to be processed
-        boolean completed = testContext.awaitCompletion(45, TimeUnit.SECONDS);
-        assertTrue(completed, "All messages should eventually be processed despite failures");
-        
-        // Verify results
-        logger.info(" Failure Handling Results:");
-        logger.info("  Successfully processed: {} messages", successfullyProcessed.size());
-        logger.info("  Transient failures encountered: {}", failureCount.get());
-        
-        // Assertions
-        assertEquals(messageCount, successfullyProcessed.size(), 
-            "All messages should eventually be processed successfully");
-        assertTrue(failureCount.get() > 0, 
-            "Should have encountered some transient failures");
-        
-        logger.info("Consumer Group Failure Handling test passed");
-        logger.info("All messages processed successfully despite {} transient failures", failureCount.get());
+    }
+
+    private static void completeFailureHandlingTest(
+            VertxTestContext testContext,
+            int messageCount,
+            Set<String> successfullyProcessed,
+            AtomicInteger failureCount,
+            AtomicInteger processedCount) {
+        if (processedCount.incrementAndGet() == messageCount) {
+            testContext.verify(() -> {
+                logger.info(" Failure Handling Results:");
+                logger.info("  Successfully processed: {} messages", successfullyProcessed.size());
+                logger.info("  Transient failures encountered: {}", failureCount.get());
+                assertEquals(messageCount, successfullyProcessed.size(),
+                    "All messages should eventually be processed successfully");
+                assertTrue(failureCount.get() > 0,
+                    "Should have encountered some transient failures");
+                logger.info("Consumer Group Failure Handling test passed");
+                testContext.completeNow();
+            });
+        }
     }
 }
-

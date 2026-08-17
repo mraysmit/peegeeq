@@ -52,7 +52,6 @@ import java.util.List;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
@@ -87,6 +86,7 @@ class PartitionedConsumerSafetyIntegrationTest {
             PeeGeeQTestContainerFactory.createContainer(BASIC);
 
     private PeeGeeQManager manager;
+    private PeeGeeQConfiguration configuration;
     private PgDatabaseService databaseService;
     private VertxPoolAdapter adapter;
     private ObjectMapper mapper;
@@ -99,15 +99,15 @@ class PartitionedConsumerSafetyIntegrationTest {
     }
 
     @BeforeEach
-    void setUp(io.vertx.junit5.VertxTestContext testContext) throws Exception {
+    void setUp(io.vertx.junit5.VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
-        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
+        configuration = new PeeGeeQConfiguration("default", testProps);
+        manager = new PeeGeeQManager(configuration, new SimpleMeterRegistry());
         manager.start().onSuccess(v -> {
             databaseService = new PgDatabaseService(manager);
             adapter = new VertxPoolAdapter(
@@ -128,51 +128,54 @@ class PartitionedConsumerSafetyIntegrationTest {
                     .password(postgres.getPassword())
                     .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                     .build();
-            PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+            PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).shared(false).build();
             connectionManager.getOrCreateReactivePool(SERVICE_ID, connConfig, poolConfig);
             testContext.completeNow();
         }).onFailure(testContext::failNow);
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws InterruptedException {
         logger.info("Tearing down: closing resources and manager");
-        if (connectionManager != null) {
-            cleanupTestData()
-                .compose(v -> connectionManager.close())
+        Future<Void> cleanup = connectionManager == null
+                ? Future.succeededFuture()
+                : cleanupTestData().eventually(() -> connectionManager.close());
+        cleanup
+                .onSuccess(v -> finishManagerClose(testContext, null))
+                .onFailure(e -> finishManagerClose(testContext, e));
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test resource cleanup timed out");
+    }
+
+    private void finishManagerClose(VertxTestContext testContext, Throwable cleanupFailure) {
+        if (manager == null) {
+            if (cleanupFailure == null) {
+                testContext.completeNow();
+            } else {
+                logger.error("Test resource cleanup failed", cleanupFailure);
+                testContext.failNow(cleanupFailure);
+            }
+            return;
+        }
+
+        manager.closeReactive()
                 .onSuccess(v -> {
-                    if (manager != null) {
-                        manager.closeReactive()
-                            .onSuccess(vv -> testContext.completeNow())
-                            .onFailure(e -> { logger.error("manager close failed", e); testContext.failNow(e); });
-                    } else {
+                    if (cleanupFailure == null) {
                         testContext.completeNow();
+                    } else {
+                        logger.error("Test resource cleanup failed", cleanupFailure);
+                        testContext.failNow(cleanupFailure);
                     }
                 })
-                .onFailure(e -> {
-                    logger.error("Cleanup failed", e);
-                    // Still close the manager so the pool is released, but fail with the
-                    // original cleanup cause rather than the close outcome.
-                    if (manager != null) {
-                        manager.closeReactive()
-                            .onSuccess(vv -> testContext.failNow(e))
-                            .onFailure(ee -> {
-                                logger.error("manager close also failed after cleanup failure", ee);
-                                testContext.failNow(e);
-                            });
+                .onFailure(closeFailure -> {
+                    if (cleanupFailure == null) {
+                        logger.error("Manager close failed", closeFailure);
+                        testContext.failNow(closeFailure);
                     } else {
-                        testContext.failNow(e);
+                        cleanupFailure.addSuppressed(closeFailure);
+                        logger.error("Test resource cleanup and manager close failed", cleanupFailure);
+                        testContext.failNow(cleanupFailure);
                     }
                 });
-        } else if (manager != null) {
-            manager.closeReactive()
-                .onSuccess(v -> testContext.completeNow())
-                .onFailure(e -> { logger.error("manager close failed", e); testContext.failNow(e); });
-        } else {
-            testContext.completeNow();
-        }
-        testContext.awaitCompletion(30, TimeUnit.SECONDS);
     }
 
     // ========================================================================
@@ -199,36 +202,32 @@ class PartitionedConsumerSafetyIntegrationTest {
                 .compose(v -> {
                     PgNativeConsumerGroup<String> group = new PgNativeConsumerGroup<>(
                             groupName, topic, String.class,
-                            adapter, mapper, null, null, databaseService,
+                            adapter, mapper, null, configuration, databaseService,
                             connectionManager, SERVICE_ID
                     );
                     group.setMessageHandler(msg -> Future.succeededFuture());
 
-                    // start() is fire-and-forget; transitions to STARTING then begins async work
-                    group.start();
+                    Future<Void> startFuture = group.start();
+                    Future<Void> startupAborted = expectStartupAbort(startFuture);
 
-                    // Immediately close should set state to CLOSED before async callback
-                    group.close().onFailure(testContext::failNow);
-
-                    // State must be CLOSED immediately after close()
-                    assertEquals(PgNativeConsumerGroup.State.CLOSED, group.getState(),
-                            "State should be CLOSED immediately after close(), not overwritten by async start");
-
-                    // Wait to ensure the async start callback doesn't resurrect state to ACTIVE
-                    return databaseService.getVertx().timer(3000).mapEmpty()
-                            .map(delayed -> {
+                    // close() races the asynchronous partitioned startup. Both futures are
+                    // observed: close must complete and start must report the controlled abort.
+                    return group.close()
+                            .compose(closed -> {
                                 assertEquals(PgNativeConsumerGroup.State.CLOSED, group.getState(),
-                                        "State should still be CLOSED after async start callback completes");
-                                assertFalse(group.isActive(),
-                                        "Group should not be active after close()");
-                                logger.info("SAFETY 1 PASSED: state remained CLOSED throughout async startup");
+                                        "State should be CLOSED immediately after close(), not overwritten by async start");
+                                return withTimeout(startupAborted, 10_000,
+                                        "Partitioned startup did not report its close-induced abort");
+                            })
+                            .map(aborted -> {
+                                assertEquals(PgNativeConsumerGroup.State.CLOSED, group.getState(),
+                                        "State should remain CLOSED after the async startup callback completes");
+                                assertFalse(group.isActive(), "Group should not be active after close()");
                                 return (Void) null;
                             });
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Test timed out");
     }
 
     // ========================================================================
@@ -255,21 +254,16 @@ class PartitionedConsumerSafetyIntegrationTest {
                 .compose(v -> {
                     PgNativeConsumerGroup<String> group = new PgNativeConsumerGroup<>(
                             groupName, topic, String.class,
-                            adapter, mapper, null, null, databaseService,
+                            adapter, mapper, null, configuration, databaseService,
                             connectionManager, SERVICE_ID
                     );
                     group.setMessageHandler(msg -> Future.succeededFuture());
-                    group.start();
 
-                    // Wait for the group to become ACTIVE (async join + engine start)
-                    // Partitioned startup involves: topic mode query  engine.start()  joinGroup
-                    //  initializeOffsets  startFetchLoop can take 5+ seconds on cold Testcontainers
-                    return databaseService.getVertx().timer(6000).mapEmpty()
-                            .compose(delayed -> {
+                    return group.start()
+                            .compose(started -> {
                                 assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState(),
-                                        "Group should be ACTIVE after startup completes");
+                                        "Group should be ACTIVE when its start future completes");
 
-                                // stopGracefully returns a future verify it completes and state is NEW
                                 return group.stopGracefully();
                             })
                             .map(v2 -> {
@@ -284,8 +278,6 @@ class PartitionedConsumerSafetyIntegrationTest {
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
     }
 
     // ========================================================================
@@ -310,8 +302,9 @@ class PartitionedConsumerSafetyIntegrationTest {
 
         // Track received message IDs use synchronized set to detect duplicates
         Set<String> receivedIds = Collections.synchronizedSet(new HashSet<>());
-        AtomicBoolean duplicateDetected = new AtomicBoolean(false);
+        AtomicInteger duplicateCount = new AtomicInteger(0);
         AtomicInteger totalInvocations = new AtomicInteger(0);
+        Promise<Void> allMessagesHandled = Promise.promise();
 
         // Insert several messages in one partition
         createTopic(topic, "OFFSET_WATERMARK")
@@ -326,7 +319,7 @@ class PartitionedConsumerSafetyIntegrationTest {
 
                     PgNativeConsumerGroup<String> group = new PgNativeConsumerGroup<>(
                             groupName, topic, String.class,
-                            adapter, mapper, null, null, databaseService,
+                            adapter, mapper, null, configuration, databaseService,
                             connectionManager, SERVICE_ID
                     );
 
@@ -336,33 +329,36 @@ class PartitionedConsumerSafetyIntegrationTest {
                     group.setMessageHandler(msg -> {
                         totalInvocations.incrementAndGet();
                         if (!receivedIds.add(msg.getId())) {
-                            duplicateDetected.set(true);
+                            duplicateCount.incrementAndGet();
                             logger.error("DUPLICATE detected: id={}", msg.getId());
                         }
                         Promise<Void> p = Promise.promise();
-                        vtx.setTimer(300, id -> p.complete());
+                        vtx.setTimer(300, id -> {
+                            p.complete();
+                            if (receivedIds.size() == 5) {
+                                allMessagesHandled.tryComplete();
+                            }
+                        });
                         return p.future();
                     });
 
-                    group.start();
-
-                    // Wait for startup (5s on cold Testcontainers) + multiple fetch cycles
-                    // (1st fetch at ~0ms, 2nd at ~1000ms while 1st still processing,
-                    //  guard should skip the 2nd, 3rd fetch at ~2000ms picks up from committed offset)
-                    return vtx.timer(15000).mapEmpty()
-                            .map(delayed -> {
-                                group.stopGracefully().onFailure(testContext::failNow);
-
-                                int total = totalInvocations.get();
+                    return group.start()
+                            .compose(started -> withTimeout(allMessagesHandled.future(), 15_000,
+                                    "All five messages were not handled"))
+                            // Observe later fetch ticks after the slow batch so a duplicate
+                            // delivery caused by an overlapping fetch cannot hide at shutdown.
+                            .compose(handled -> vtx.timer(2_500).mapEmpty())
+                            .compose(observed -> group.stopGracefully())
+                            .map(stopped -> {
+                                int total = totalInvocations.intValue();
                                 logger.info("SAFETY 3: {} handler invocations, {} unique IDs, duplicate={}",
-                                        total, receivedIds.size(), duplicateDetected.get());
+                                        total, receivedIds.size(), duplicateCount.intValue() > 0);
 
-                                assertFalse(duplicateDetected.get(),
+                                assertEquals(0, duplicateCount.intValue(),
                                         "No duplicate message IDs should be delivered; " +
                                         "the fetch overlap guard should prevent concurrent fetches on the same partition");
 
-                                assertTrue(receivedIds.size() > 0,
-                                        "Should have received at least some messages");
+                                assertEquals(5, receivedIds.size(), "All five messages should be handled");
 
                                 // Each message should have been delivered exactly once
                                 assertEquals(total, receivedIds.size(),
@@ -370,12 +366,11 @@ class PartitionedConsumerSafetyIntegrationTest {
 
                                 logger.info("SAFETY 3 PASSED: {} messages processed, zero duplicates", receivedIds.size());
                                 return (Void) null;
-                            });
+                            })
+                            .eventually(group::stopGracefully);
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(45, TimeUnit.SECONDS), "Test timed out");
     }
 
     // ========================================================================
@@ -402,16 +397,13 @@ class PartitionedConsumerSafetyIntegrationTest {
                 .compose(v -> {
                     PgNativeConsumerGroup<String> group = new PgNativeConsumerGroup<>(
                             groupName, topic, String.class,
-                            adapter, mapper, null, null, databaseService,
+                            adapter, mapper, null, configuration, databaseService,
                             connectionManager, SERVICE_ID
                     );
                     group.setMessageHandler(msg -> Future.succeededFuture());
-                    group.start();
 
-                    // Wait long enough for async partitioned startup to complete.
-                    // (topic-mode detection  engine.start()  joinGroup  empty  fetch loop)
-                    return databaseService.getVertx().timer(5000).mapEmpty()
-                            .compose(delayed -> {
+                    return group.start()
+                            .compose(started -> {
                                 // Engine should reach ACTIVE despite zero discovered partitions.
                                 assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState(),
                                         "Group should reach ACTIVE even when topic has no messages");
@@ -433,8 +425,6 @@ class PartitionedConsumerSafetyIntegrationTest {
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Test timed out");
     }
 
     // ========================================================================
@@ -457,6 +447,7 @@ class PartitionedConsumerSafetyIntegrationTest {
         String partition = "fail-part";
 
         AtomicInteger handlerInvocations = new AtomicInteger(0);
+        Promise<Void> redeliveryObserved = Promise.promise();
 
         createTopic(topic, "OFFSET_WATERMARK")
                 .compose(v -> createSubscription(topic, groupName))
@@ -464,27 +455,26 @@ class PartitionedConsumerSafetyIntegrationTest {
                 .compose(v -> {
                     PgNativeConsumerGroup<String> group = new PgNativeConsumerGroup<>(
                             groupName, topic, String.class,
-                            adapter, mapper, null, null, databaseService,
+                            adapter, mapper, null, configuration, databaseService,
                             connectionManager, SERVICE_ID
                     );
                     // Handler always fails offset must never advance.
                     group.setMessageHandler(msg -> {
-                        handlerInvocations.incrementAndGet();
+                        if (handlerInvocations.incrementAndGet() >= 2) {
+                            redeliveryObserved.tryComplete();
+                        }
                         return Future.failedFuture(new RuntimeException("intentional handler failure"));
                     });
-                    group.start();
 
-                    // Wait for startup (~4s on cold Testcontainers) plus several fetch ticks
-                    // (DEFAULT_FETCH_INTERVAL_MS = 1000 ms). Each tick re-delivers the same
-                    // message because the offset was never committed.
-                    return databaseService.getVertx().timer(9000).mapEmpty()
-                            .compose(delayed -> {
-                                group.stopGracefully().onFailure(testContext::failNow);
-
-                                int invocations = handlerInvocations.get();
+                    return group.start()
+                            .compose(started -> withTimeout(redeliveryObserved.future(), 12_000,
+                                    "Failed message was not redelivered"))
+                            .compose(redelivered -> group.stopGracefully())
+                            .compose(stopped -> {
+                                int invocations = handlerInvocations.intValue();
                                 logger.info("SAFETY 5: handler invoked {} times (all failures)", invocations);
-                                assertTrue(invocations >= 1,
-                                        "Handler should have been invoked at least once; got: " + invocations);
+                                assertTrue(invocations >= 2,
+                                        "Handler should be redelivered after failure; got: " + invocations);
 
                                 // committed_offset must still be 0: the commit chain was
                                 // short-circuited by the failed handler Future.
@@ -505,12 +495,11 @@ class PartitionedConsumerSafetyIntegrationTest {
                                             return (Void) null;
                                         })
                                 );
-                            });
+                            })
+                            .eventually(group::stopGracefully);
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
     }
 
     // ========================================================================
@@ -542,10 +531,12 @@ class PartitionedConsumerSafetyIntegrationTest {
 
         // Completed by B's message handler when the late-join partition is processed.
         Promise<Void> messageLatch = Promise.promise();
+        Promise<Void> handlerRelease = Promise.promise();
 
         // groupA is declared here so it is accessible inside both the compose chain
         // (to check its state) and the cleanup compose at the end.
         PgNativeConsumerGroup<String>[] groupAHolder = new PgNativeConsumerGroup[1];
+        PgNativeConsumerGroup<String>[] groupBHolder = new PgNativeConsumerGroup[1];
 
         createTopic(topic, "OFFSET_WATERMARK")
                 .compose(v -> createSubscription(topic, groupName))
@@ -554,17 +545,13 @@ class PartitionedConsumerSafetyIntegrationTest {
                     // isOffsetWatermarkTopic() and joinGroup() can run successfully.
                     PgNativeConsumerGroup<String> groupA = new PgNativeConsumerGroup<>(
                             groupName, topic, String.class,
-                            adapter, mapper, null, null, databaseService,
+                            adapter, mapper, null, configuration, databaseService,
                             connectionManager, SERVICE_ID
                     );
                     groupAHolder[0] = groupA;
                     // A should never receive any messages it will have no assigned partitions.
                     groupA.setMessageHandler(msg -> Future.succeededFuture());
-                    groupA.start();
-
-                    // Wait for async partitioned startup to complete
-                    // (topic-mode detection  engine.start()  joinGroup  empty  fetch loop).
-                    return databaseService.getVertx().timer(5000).mapEmpty();
+                    return groupA.start();
                 })
                 .compose(v -> {
                     assertEquals(PgNativeConsumerGroup.State.ACTIVE, groupAHolder[0].getState(),
@@ -613,29 +600,41 @@ class PartitionedConsumerSafetyIntegrationTest {
                             // B discovers "acct-new", gets it assigned, and processes the message.
                             PgNativeConsumerGroup<String> groupB = new PgNativeConsumerGroup<>(
                                     groupName, topic, String.class,
-                                    adapter, mapper, null, null, databaseService,
+                                    adapter, mapper, null, configuration, databaseService,
                                     connectionManager, SERVICE_ID
                             );
+                            groupBHolder[0] = groupB;
                             groupB.setMessageHandler(msg -> {
                                 logger.info("SAFETY 6: B processed message for partition '{}'", newPartition);
                                 messageLatch.tryComplete();
-                                return Future.succeededFuture();
+                                return handlerRelease.future();
                             });
-                            groupB.start();
-
-                            // Wait for B to process the late-arrival message.
-                            return messageLatch.future()
+                            return groupB.start()
+                                    .compose(started -> withTimeout(messageLatch.future(), 15_000,
+                                            "Rebalance did not deliver the late-arrival partition"))
                                     .compose(done -> {
-                                        logger.info("SAFETY 6 PASSED: late-join partition processed after rebalance");
-                                        groupAHolder[0].close();
-                                        return groupB.stopGracefully();
+                                        Future<Void> stopFuture = groupB.close();
+                                        return databaseService.getVertx().timer(100)
+                                                .map(ignored -> {
+                                                    boolean stoppedBeforeHandlerSettled = stopFuture.isComplete();
+                                                    handlerRelease.tryComplete();
+                                                    assertFalse(stoppedBeforeHandlerSettled,
+                                                            "Consumer-group close must wait for the in-flight handler and offset commit");
+                                                    return stopFuture;
+                                                })
+                                                .compose(pendingStop -> pendingStop)
+                                                .compose(stopped -> groupAHolder[0].stopGracefully())
+                                                .onSuccess(stopped -> logger.info(
+                                                        "SAFETY 6 PASSED: late partition committed before shutdown completed"));
                                     });
                         })
                 )
+                .eventually(() -> {
+                    handlerRelease.tryComplete();
+                    return closeGroups(groupAHolder[0], groupBHolder[0]);
+                })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(45, TimeUnit.SECONDS), "Test timed out");
     }
 
     // ========================================================================
@@ -644,7 +643,7 @@ class PartitionedConsumerSafetyIntegrationTest {
 
     private Future<Void> createTopic(String topic, String completionTrackingMode) {
         testTopics.add(topic);
-        return connectionManager.withConnection(SERVICE_ID, conn ->
+        return connectionManager.withTransaction(SERVICE_ID, conn ->
                 conn.preparedQuery(
                         "INSERT INTO outbox_topics (topic, semantics, completion_tracking_mode) " +
                         "VALUES ($1, 'PUB_SUB', $2) ON CONFLICT (topic) DO NOTHING"
@@ -654,7 +653,7 @@ class PartitionedConsumerSafetyIntegrationTest {
     }
 
     private Future<Void> createSubscription(String topic, String groupName) {
-        return connectionManager.withConnection(SERVICE_ID, conn ->
+        return connectionManager.withTransaction(SERVICE_ID, conn ->
                 conn.preparedQuery(
                         "INSERT INTO outbox_topic_subscriptions (topic, group_name, subscription_status) " +
                         "VALUES ($1, $2, 'ACTIVE') ON CONFLICT (topic, group_name) DO NOTHING"
@@ -665,7 +664,7 @@ class PartitionedConsumerSafetyIntegrationTest {
 
     private Future<Long> insertOutboxMessage(String topic, String messageGroup, String payload) {
         JsonObject payloadJson = new JsonObject().put("value", payload);
-        return connectionManager.withConnection(SERVICE_ID, conn ->
+        return connectionManager.withTransaction(SERVICE_ID, conn ->
                 conn.preparedQuery(
                         "INSERT INTO outbox (topic, payload, status, message_group, created_at) " +
                         "VALUES ($1, $2, 'PENDING', $3, NOW()) RETURNING id"
@@ -679,7 +678,7 @@ class PartitionedConsumerSafetyIntegrationTest {
             return Future.succeededFuture();
         }
         String[] topics = testTopics.toArray(new String[0]);
-        return connectionManager.withConnection(SERVICE_ID, conn ->
+        return connectionManager.withTransaction(SERVICE_ID, conn ->
                 conn.preparedQuery("DELETE FROM outbox_partition_assignments WHERE topic = ANY($1::text[])").execute(Tuple.of(topics))
                         .compose(v -> conn.preparedQuery("DELETE FROM outbox_partition_offsets WHERE topic = ANY($1::text[])").execute(Tuple.of(topics)))
                         .compose(v -> conn.preparedQuery("DELETE FROM outbox_topic_watermarks WHERE topic = ANY($1::text[])").execute(Tuple.of(topics)))
@@ -688,5 +687,47 @@ class PartitionedConsumerSafetyIntegrationTest {
                         .compose(v -> conn.preparedQuery("DELETE FROM outbox_topics WHERE topic = ANY($1::text[])").execute(Tuple.of(topics)))
                         .map(rows -> (Void) null)
         );
+    }
+
+    private Future<Void> expectStartupAbort(Future<Void> startFuture) {
+        Promise<Void> result = Promise.promise();
+        startFuture
+                .onSuccess(v -> result.tryFail(new AssertionError(
+                        "Partitioned startup should fail when close wins the startup race")))
+                .onFailure(error -> {
+                    if (error instanceof IllegalStateException
+                            && error.getMessage() != null
+                            && error.getMessage().contains("closed during startup")) {
+                        result.tryComplete();
+                    } else {
+                        result.tryFail(new AssertionError(
+                                "Expected controlled close-during-startup failure", error));
+                    }
+                });
+        return result.future();
+    }
+
+    private <T> Future<T> withTimeout(Future<T> future, long timeoutMillis, String message) {
+        Promise<T> result = Promise.promise();
+        long timerId = databaseService.getVertx().setTimer(timeoutMillis,
+                ignored -> result.tryFail(new AssertionError(message)));
+        future
+                .onSuccess(value -> {
+                    databaseService.getVertx().cancelTimer(timerId);
+                    result.tryComplete(value);
+                })
+                .onFailure(error -> {
+                    databaseService.getVertx().cancelTimer(timerId);
+                    result.tryFail(error);
+                });
+        return result.future();
+    }
+
+    private Future<Void> closeGroups(
+            PgNativeConsumerGroup<String> groupA,
+            PgNativeConsumerGroup<String> groupB) {
+        Future<Void> closeA = groupA == null ? Future.succeededFuture() : groupA.close();
+        Future<Void> closeB = groupB == null ? Future.succeededFuture() : groupB.stopGracefully();
+        return Future.all(closeA, closeB).mapEmpty();
     }
 }

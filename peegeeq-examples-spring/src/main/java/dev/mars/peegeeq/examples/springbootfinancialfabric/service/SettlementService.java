@@ -64,7 +64,7 @@ public class SettlementService {
      * @param causationId Causation ID linking to the parent event
      * @param validTime The business valid time for the event
      * @param connection Database connection for transactional consistency
-     * @return CompletableFuture containing the created CloudEvent
+     * @return Vert.x Future containing the created CloudEvent
      */
     public Future<CloudEvent> submitSettlementInstruction(
             SettlementInstructionEvent instructionEvent,
@@ -113,7 +113,7 @@ public class SettlementService {
      * @param causationId Causation ID linking to the parent event
      * @param validTime The business valid time for the event
      * @param connection Database connection for transactional consistency
-     * @return CompletableFuture containing the created CloudEvent
+     * @return Vert.x Future containing the created CloudEvent
      */
     public Future<CloudEvent> confirmSettlement(
             String instructionId,
@@ -164,4 +164,3 @@ public class SettlementService {
         }
     }
 }
-

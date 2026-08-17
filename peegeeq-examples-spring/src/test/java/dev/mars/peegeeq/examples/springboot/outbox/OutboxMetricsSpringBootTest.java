@@ -100,37 +100,27 @@ class OutboxMetricsSpringBootTest {
     private final List<MessageConsumer<?>> activeConsumers = new ArrayList<>();
 
     @AfterEach
-    void tearDown(Vertx vertx, VertxTestContext tearDownContext) {
+    void tearDown() {
         logger.info("Cleaning up test resources...");
         
         // Close all active consumers first
         for (MessageConsumer<?> consumer : activeConsumers) {
-            try {
-                consumer.close();
-            } catch (Exception e) {
-                logger.error("Error closing consumer", e);
-            }
+            consumer.close();
         }
         activeConsumers.clear();
         
         // Close all active producers
         for (MessageProducer<?> producer : activeProducers) {
-            try {
-                producer.close();
-            } catch (Exception e) {
-                logger.error("Error closing producer", e);
-            }
+            producer.close();
         }
         activeProducers.clear();
-        
-        // Wait for connections to be released
-        vertx.timer(2000).onComplete(tearDownContext.succeedingThenComplete());
+        logger.info("Cleanup complete");
     }
 
     @Test
     @Order(1)
     @DisplayName("Test 1: Message Count Metrics - Verify sent/received/processed counts")
-    void testMessageCountMetrics(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testMessageCountMetrics(VertxTestContext testContext) throws Exception {
         logger.info("\n=== TEST 1: Message Count Metrics ===");
         
         String topicName = "metrics-count-topic";
@@ -227,21 +217,22 @@ class OutboxMetricsSpringBootTest {
             producer.send("Error test message " + i).onFailure(testContext::failNow);
         }
 
-        // Wait for first errorCount errors, then wait for metrics to update
+        // Wait for the first errorCount errors, then poll the observable metric until it changes.
         errorsComplete.future()
-            .compose(v -> vertx.timer(3000))
-            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
-                PeeGeeQMetrics.MetricsSummary finalMetrics = manager.getMetrics().getSummary();
-                double finalErrors = finalMetrics.getMessagesFailed();
-                
+            .compose(v -> awaitFailedMetricIncrease(vertx, initialErrors, System.nanoTime() + TimeUnit.SECONDS.toNanos(5)))
+            .onSuccess(finalErrors -> testContext.verify(() -> {
                 logger.info("Final error count: {}", finalErrors);
-                
+
                 assertTrue(finalErrors > initialErrors, 
                     "Error count should increase (was " + initialErrors + ", now " + finalErrors + ")");
-                
+
                 logger.info("Error rate metrics verified successfully");
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(error -> {
+                logger.error("Failed while waiting for the error metric to update", error);
+                testContext.failNow(error);
+            });
     }
 
     @Test
@@ -289,5 +280,21 @@ class OutboxMetricsSpringBootTest {
         
         logger.info("Processing time metrics collected successfully");
     }
-}
 
+    private Future<Double> awaitFailedMetricIncrease(Vertx vertx, double initialErrors, long deadlineNanos) {
+        Promise<Double> result = Promise.promise();
+        pollFailedMetric(vertx, initialErrors, deadlineNanos, result);
+        return result.future();
+    }
+
+    private void pollFailedMetric(Vertx vertx, double initialErrors, long deadlineNanos, Promise<Double> result) {
+        double currentErrors = manager.getMetrics().getSummary().getMessagesFailed();
+        if (currentErrors > initialErrors) {
+            result.complete(currentErrors);
+        } else if (System.nanoTime() >= deadlineNanos) {
+            result.fail("Timed out waiting for the failed-message metric to increase from " + initialErrors);
+        } else {
+            vertx.setTimer(50, id -> pollFailedMetric(vertx, initialErrors, deadlineNanos, result));
+        }
+    }
+}

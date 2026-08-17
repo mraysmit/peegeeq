@@ -19,15 +19,13 @@ package dev.mars.peegeeq.examples.springboot2bitemporal;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
+import dev.mars.peegeeq.examples.springboot2bitemporal.config.ReactiveBiTemporalProperties;
+import dev.mars.peegeeq.examples.springboot2bitemporal.events.SettlementEvent;
+import dev.mars.peegeeq.examples.springboot2bitemporal.model.SettlementStatus;
 import dev.mars.peegeeq.examples.springboot2bitemporal.service.SettlementService;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
-import io.vertx.junit5.VertxExtension;
-import io.vertx.junit5.VertxTestContext;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -35,11 +33,20 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import reactor.test.StepVerifier;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
+import java.util.UUID;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -49,10 +56,9 @@ import static org.junit.jupiter.api.Assertions.*;
  * <ul>
  *   <li>Spring Boot WebFlux application context loading</li>
  *   <li>PeeGeeQ bi-temporal event store integration</li>
- *   <li>Reactive adapter pattern (CompletableFuture  Mono/Flux)</li>
+ *   <li>Reactive adapter pattern (Vert.x Future to Mono/Flux)</li>
  *   <li>Bi-temporal event appending</li>
- *   <li>Historical queries and point-in-time reconstruction</li>
- *   <li>Bi-temporal corrections</li>
+ *   <li>Historical query serialization and parsing</li>
  *   <li>Event naming pattern: {entity}.{action}.{state}</li>
  * </ul>
  * 
@@ -73,7 +79,7 @@ import static org.junit.jupiter.api.Assertions.*;
     }
 )
 @Testcontainers
-@ExtendWith(VertxExtension.class)
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class SpringBoot2BitemporalApplicationTest {
     
     private static final Logger logger = LoggerFactory.getLogger(SpringBoot2BitemporalApplicationTest.class);
@@ -85,21 +91,8 @@ class SpringBoot2BitemporalApplicationTest {
     private SettlementService settlementService;
     @Autowired(required = false)
     private PeeGeeQManager peeGeeQManager;
-    private static PeeGeeQManager peeGeeQManagerRef;
-
-    @AfterEach
-    void captureManager() {
-        peeGeeQManagerRef = peeGeeQManager;
-    }
-
-    @AfterAll
-    static void closeManager(VertxTestContext testContext) {
-        if (peeGeeQManagerRef == null) {
-            testContext.completeNow();
-            return;
-        }
-        peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
-    }
+    @Autowired
+    private ReactiveBiTemporalProperties properties;
 
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
@@ -130,6 +123,11 @@ class SpringBoot2BitemporalApplicationTest {
         logger.info("Testing that the application context loads successfully with WebFlux");
         
         assertNotNull(settlementService, "SettlementService should be autowired");
+        assertNotNull(peeGeeQManager, "PeeGeeQManager should be autowired");
+        assertFalse(properties.getDatabase().getPool().isShared(),
+                "Spring should bind the reactive bitemporal test pool as isolated");
+        assertFalse(peeGeeQManager.getConfiguration().getPoolConfig().isShared(),
+            "Spring Boot reactive bitemporal tests must use an isolated Vert.x pool");
         
         logger.info(" Application context loaded successfully");
         logger.info(" PeeGeeQ Manager initialized");
@@ -138,22 +136,34 @@ class SpringBoot2BitemporalApplicationTest {
         logger.info(" All reactive beans created and wired");
         logger.info("=== Test Completed Successfully ===");
     }
-    
-    /**
-     * NOTE: Database operation tests are disabled due to configuration complexity.
-     *
-     * The PgBiTemporalEventStore creates its own database connections using PeeGeeQManager's
-     * configuration, which reads from properties files rather than Spring's @DynamicPropertySource.
-     * This causes it to connect to localhost:5432 instead of the TestContainers database.
-     *
-     * Future enhancement: Update PeeGeeQManager to support Spring-based configuration
-     * or provide a way to override database connection settings programmatically.
-     *
-     * For now, this test suite demonstrates:
-     * - Spring Boot WebFlux context loading
-     * - PeeGeeQ Manager initialization
-     * - Bi-Temporal Event Store bean creation
-     * - Reactive adapter pattern integration
-     */
-}
 
+    @Test
+    void recordsAndQueriesSettlementThroughLiveDatabase() {
+        String instructionId = "INSTRUCTION-" + UUID.randomUUID();
+        Instant eventTime = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        SettlementEvent settlement = new SettlementEvent(
+            instructionId,
+            "TRADE-" + UUID.randomUUID(),
+            "COUNTERPARTY-A",
+            new BigDecimal("125000.50"),
+            "USD",
+            LocalDate.now().plusDays(2),
+            SettlementStatus.SUBMITTED,
+            null,
+            eventTime);
+
+        StepVerifier.create(
+                settlementService.recordSettlement("instruction.settlement.submitted", settlement)
+                    .flatMapMany(recorded -> {
+                        assertEquals("instruction.settlement.submitted", recorded.getEventType());
+                        assertEquals(settlement, recorded.getPayload());
+                        return settlementService.getSettlementHistory(instructionId);
+                    }))
+            .assertNext(stored -> {
+                assertEquals("instruction.settlement.submitted", stored.getEventType());
+                assertEquals(settlement, stored.getPayload());
+                assertEquals(eventTime, stored.getValidTime());
+            })
+            .verifyComplete();
+    }
+}

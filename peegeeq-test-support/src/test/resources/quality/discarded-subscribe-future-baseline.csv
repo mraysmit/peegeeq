@@ -3,9 +3,6 @@
 # This is not a waiver: increases fail, and every remediation makes its row stale until reduced/removed.
 # Rows are removed one file at a time before each focused TDD red phase.
 path,count
-peegeeq-bitemporal/src/test/java/dev/mars/peegeeq/bitemporal/PeeGeeQBiTemporalIntegrationTest.java,3
-peegeeq-bitemporal/src/test/java/dev/mars/peegeeq/bitemporal/PeeGeeQBiTemporalWorkingIntegrationTest.java,3
-peegeeq-examples-spring/src/test/java/dev/mars/peegeeq/examples/springboot/outbox/OutboxDeadLetterQueueSpringBootTest.java,2
 peegeeq-examples-spring/src/test/java/dev/mars/peegeeq/examples/springboot/outbox/OutboxErrorHandlingSpringBootTest.java,3
 peegeeq-examples-spring/src/test/java/dev/mars/peegeeq/examples/springboot/outbox/OutboxMessageOrderingSpringBootTest.java,3
 peegeeq-examples-spring/src/test/java/dev/mars/peegeeq/examples/springboot/outbox/OutboxMetricsSpringBootTest.java,3

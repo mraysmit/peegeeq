@@ -151,32 +151,40 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down working integration test...");
-        
-        // Close synchronous resources first
+
+        Future<Void> closeFuture = Future.succeededFuture();
         if (consumer != null) {
-            consumer.close();
+            closeFuture = closeFuture.compose(ignored -> {
+                consumer.close();
+                return Future.succeededFuture();
+            });
         }
         if (producer != null) {
-            producer.close();
+            closeFuture = closeFuture.compose(ignored -> {
+                producer.close();
+                return Future.succeededFuture();
+            });
         }
         if (queueFactory != null) {
-            queueFactory.close();
+            closeFuture = closeFuture.compose(ignored -> queueFactory.close());
         }
         if (eventStore != null) {
-            eventStore.close();
+            closeFuture = closeFuture.compose(ignored -> eventStore.close());
         }
-        
-        // Close manager reactively
-        Future<Void> closeFuture = (manager != null)
-            ? manager.closeReactive()
-            : Future.succeededFuture();
-        
+
+        if (manager != null) {
+            closeFuture = closeFuture.compose(ignored -> manager.closeReactive());
+        }
+
         closeFuture
             .onSuccess(v -> {
                 logger.info("Working integration test teardown completed");
                 testContext.completeNow();
             })
-            .onFailure(testContext::failNow);
+            .onFailure(error -> {
+                logger.error("Working integration test teardown failed", error);
+                testContext.failNow(error);
+            });
     }
     
     @Test
@@ -214,11 +222,11 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
                 testContext.completeNow();
             });
             return Future.<Void>succeededFuture();
-        });
-        
-        // Send message via PeeGeeQ
-        logger.info("Sending message via PeeGeeQ...");
-        producer.send(orderEvent, headers, correlationId)
+        })
+            .compose(v -> {
+                logger.info("Sending message via PeeGeeQ...");
+                return producer.send(orderEvent, headers, correlationId);
+            })
             .onSuccess(v -> logger.info("Message sent successfully"))
             .onFailure(testContext::failNow);
     }
@@ -273,28 +281,28 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
                     checkpoint.flag();
                     return (Void) null;
                 });
-        });
-        
-        // Send all test orders via PeeGeeQ sequentially
-        logger.info("Sending {} test orders via PeeGeeQ...", expectedEventCount);
-        Future<Void> sendChain = Future.succeededFuture();
-        for (int i = 0; i < testOrders.size(); i++) {
-            final OrderEvent order = testOrders.get(i);
-            final String correlationId = "bitemporal-test-" + (i + 1);
-            final int index = i;
-            final Map<String, String> headers = Map.of(
-                "source", "bitemporal-integration-test",
-                "order-index", String.valueOf(i + 1),
-                "test-batch", "working-integration"
-            );
-            
-            sendChain = sendChain.compose(v -> {
-                logger.info("Sending order {}: {}", index + 1, order.getOrderId());
-                return producer.send(order, headers, correlationId);
-            });
-        }
-        
-        sendChain.onFailure(testContext::failNow);
+        })
+            .compose(v -> {
+                logger.info("Sending {} test orders via PeeGeeQ...", expectedEventCount);
+                Future<Void> sendChain = Future.succeededFuture();
+                for (int i = 0; i < testOrders.size(); i++) {
+                    final OrderEvent order = testOrders.get(i);
+                    final String correlationId = "bitemporal-test-" + (i + 1);
+                    final int index = i;
+                    final Map<String, String> headers = Map.of(
+                        "source", "bitemporal-integration-test",
+                        "order-index", String.valueOf(i + 1),
+                        "test-batch", "working-integration"
+                    );
+
+                    sendChain = sendChain.compose(ignored -> {
+                        logger.info("Sending order {}: {}", index + 1, order.getOrderId());
+                        return producer.send(order, headers, correlationId);
+                    });
+                }
+                return sendChain;
+            })
+            .onFailure(testContext::failNow);
     }
     
     @Test
@@ -350,11 +358,11 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
                     });
                     return (Void) null;
                 });
-        });
-        
-        // Send the test message
-        logger.info("Sending correlation test message...");
-        producer.send(testOrder, headers, correlationId)
+        })
+            .compose(v -> {
+                logger.info("Sending correlation test message...");
+                return producer.send(testOrder, headers, correlationId);
+            })
             .onFailure(testContext::failNow);
     }
 }

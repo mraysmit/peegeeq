@@ -71,7 +71,7 @@ public class OrderController {
      * <p>All three operations are in a SINGLE transaction.
      * 
      * @param request Order creation request
-     * @return CompletableFuture with order ID
+     * @return Vert.x Future with order ID
      */
     @PostMapping("/orders")
     public Future<ResponseEntity<String>> createOrder(@RequestBody CreateOrderRequest request) {
@@ -94,7 +94,7 @@ public class OrderController {
      * Retrieves order history from bi-temporal event store.
      * 
      * @param orderId Order identifier
-     * @return CompletableFuture with order history
+     * @return Vert.x Future with order history
      */
     @GetMapping("/orders/{orderId}/history")
     public Future<ResponseEntity<OrderResponse>> getOrderHistory(@PathVariable String orderId) {
@@ -116,7 +116,7 @@ public class OrderController {
      * Retrieves all orders for a customer.
      * 
      * @param customerId Customer identifier
-     * @return CompletableFuture with list of order events
+     * @return Vert.x Future with list of order events
      */
     @GetMapping("/customers/{customerId}/orders")
     public Future<ResponseEntity<List<BiTemporalEvent<OrderEvent>>>> getCustomerOrders(
@@ -139,7 +139,7 @@ public class OrderController {
      * Queries orders as of a specific point in time.
      * 
      * @param asOf Point in time (ISO-8601 format)
-     * @return CompletableFuture with events as of that time
+     * @return Vert.x Future with events as of that time
      */
     @GetMapping("/orders")
     public Future<ResponseEntity<List<BiTemporalEvent<OrderEvent>>>> getOrdersAsOfTime(

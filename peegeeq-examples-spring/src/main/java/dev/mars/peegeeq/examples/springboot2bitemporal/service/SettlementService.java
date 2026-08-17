@@ -36,11 +36,8 @@ import io.vertx.core.Future;
 /**
  * Service for managing settlement instruction lifecycle using bi-temporal event store.
  * 
- * <p>This service demonstrates TWO approaches for integrating PeeGeeQ with Spring WebFlux:
- * <ol>
- *   <li><b>Approach A:</b> Using current CompletableFuture API</li>
- *   <li><b>Approach B:</b> Using proposed native Vert.x Future API (commented out - requires API enhancement)</li>
- * </ol>
+ * <p>This service integrates PeeGeeQ's native Vert.x Future API with Spring WebFlux
+ * through the reactive adapter.
  * 
  * <p><b>Event Naming Pattern:</b> {entity}.{action}.{state}
  * <ul>
@@ -77,12 +74,8 @@ public class SettlementService {
         this.adapter = adapter;
     }
     
-    // ========== APPROACH A: Using CompletableFuture API (Current) ==========
-    
     /**
-     * Records a settlement event using the current CompletableFuture API.
-     * 
-     * <p>This method uses PeeGeeQ's current public API that returns CompletableFuture.
+     * Records a settlement event through PeeGeeQ's native Vert.x Future API.
      * 
      * @param eventType Event type following {entity}.{action}.{state} pattern
      * @param event Settlement event data
@@ -91,7 +84,6 @@ public class SettlementService {
     public Mono<BiTemporalEvent<SettlementEvent>> recordSettlement(String eventType, SettlementEvent event) {
         logger.info("Recording settlement event: {} for instruction: {}", eventType, event.getInstructionId());
         
-        // Use current CompletableFuture API
         Future<BiTemporalEvent<SettlementEvent>> future = 
             eventStore.append(eventType, event, event.getEventTime());
         
@@ -103,7 +95,7 @@ public class SettlementService {
     }
     
     /**
-     * Retrieves settlement history for an instruction using the current CompletableFuture API.
+     * Retrieves settlement history for an instruction through PeeGeeQ's native Vert.x Future API.
      * 
      * @param instructionId Settlement instruction ID
      * @return Flux of bi-temporal events for the instruction
@@ -111,7 +103,6 @@ public class SettlementService {
     public Flux<BiTemporalEvent<SettlementEvent>> getSettlementHistory(String instructionId) {
         logger.info("Retrieving settlement history for instruction: {}", instructionId);
         
-        // Use current CompletableFuture API
         Future<List<BiTemporalEvent<SettlementEvent>>> future = 
             eventStore.query(EventQuery.all());
         
@@ -183,55 +174,5 @@ public class SettlementService {
                 instructionId, error));
     }
 
-    // ========== APPROACH B: Using Native Vert.x Future API (Proposed - Commented Out) ==========
-    
-    /*
-     * NOTE: The methods below demonstrate how to use a native Vert.x Future API
-     * if PeeGeeQ were to expose it. This approach would be more efficient as it
-     * eliminates the intermediate CompletableFuture conversion.
-     * 
-     * To enable this approach, PeeGeeQ would need to add methods like:
-     * - Future<BiTemporalEvent<T>> appendAsync(String eventType, T payload, Instant validTime)
-     * - Future<List<BiTemporalEvent<T>>> queryAsync(EventQuery query)
-     * 
-     * Benefits:
-     * - Better performance (one less conversion)
-     * - More composable (can use Vert.x operators)
-     * - Clearer intent (shows PeeGeeQ is Vert.x-based)
-     */
-    
-    /*
-    public Mono<BiTemporalEvent<SettlementEvent>> recordSettlementWithVertxFuture(
-            String eventType, SettlementEvent event) {
-        
-        logger.info("Recording settlement event (Vert.x Future): {} for instruction: {}", 
-            eventType, event.getInstructionId());
-        
-        // Use proposed native Vert.x Future API
-        io.vertx.core.Future<BiTemporalEvent<SettlementEvent>> future = 
-            eventStore.appendAsync(eventType, event, event.getEventTime());
-        
-        return adapter.toMonoFromVertxFuture(future)
-            .doOnSuccess(result -> logger.info("Settlement event recorded (Vert.x): {} for instruction: {}", 
-                eventType, event.getInstructionId()))
-            .doOnError(error -> logger.error("Failed to record settlement event (Vert.x): {} for instruction: {}", 
-                eventType, event.getInstructionId(), error));
-    }
-    
-    public Flux<BiTemporalEvent<SettlementEvent>> getSettlementHistoryWithVertxFuture(String instructionId) {
-        logger.info("Retrieving settlement history (Vert.x Future) for instruction: {}", instructionId);
-        
-        // Use proposed native Vert.x Future API
-        io.vertx.core.Future<List<BiTemporalEvent<SettlementEvent>>> future = 
-            eventStore.queryAsync(EventQuery.all());
-        
-        return adapter.toFluxFromVertxFuture(future)
-            .filter(event -> instructionId.equals(event.getPayload().getInstructionId()))
-            .sort(Comparator.comparing(BiTemporalEvent::getValidTime))
-            .doOnComplete(() -> logger.info("Retrieved settlement history (Vert.x) for instruction: {}", instructionId))
-            .doOnError(error -> logger.error("Failed to retrieve settlement history (Vert.x) for instruction: {}", 
-                instructionId, error));
-    }
-    */
 }
 

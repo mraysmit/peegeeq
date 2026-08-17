@@ -87,9 +87,9 @@ public class PeeGeeQConfig {
      * Manages PeeGeeQ Manager lifecycle via Spring's SmartLifecycle contract.
      *
      * <p>start() runs on the Spring refresh thread (not the Vert.x event loop) and blocks
-     * for up to 60 seconds until manager.start() completes  the only acceptable bridge
-     * in a synchronous Spring context. stop(Runnable) closes the manager reactively and
-     * notifies Spring via the callback when teardown is complete.
+     * for up to 60 seconds until manager.start() completes, the only acceptable bridge
+     * in a synchronous Spring context. stop(Runnable) marks the lifecycle stopped;
+     * Spring bean destruction closes dependent resources before the manager.
      */
     @Bean
     public SmartLifecycle peeGeeQManagerLifecycle(PeeGeeQManager manager) {
@@ -121,18 +121,9 @@ public class PeeGeeQConfig {
 
             @Override
             public void stop(Runnable callback) {
-                log.info("Stopping PeeGeeQ Manager via SmartLifecycle...");
-                manager.closeReactive()
-                    .onSuccess(v -> {
-                        log.info("PeeGeeQ Manager stopped successfully");
-                        running = false;
-                        callback.run();
-                    })
-                    .onFailure(e -> {
-                        log.error("Error stopping PeeGeeQ Manager", e);
-                        running = false;
-                        callback.run();
-                    });
+                log.info("Stopping PeeGeeQ Manager lifecycle; bean destruction will close resources");
+                running = false;
+                callback.run();
             }
 
             @Override
@@ -243,6 +234,7 @@ public class PeeGeeQConfig {
         props.setProperty("peegeeq.database.pool.max-size", String.valueOf(properties.getPool().getMaxSize()));
         props.setProperty("peegeeq.database.pool.min-size", String.valueOf(properties.getPool().getMinSize()));
         props.setProperty("peegeeq.database.pool.max-wait-queue-size", String.valueOf(properties.getPool().getMaxWaitQueueSize()));
+        props.setProperty("peegeeq.database.pool.shared", String.valueOf(properties.getPool().isShared()));
         props.setProperty("peegeeq.queue.max-retries", String.valueOf(properties.getQueue().getMaxRetries()));
         props.setProperty("peegeeq.queue.visibility-timeout", properties.getQueue().getVisibilityTimeout().toString());
         props.setProperty("peegeeq.queue.batch-size", String.valueOf(properties.getQueue().getBatchSize()));

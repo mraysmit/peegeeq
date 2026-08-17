@@ -32,6 +32,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -90,6 +91,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @ExtendWith(VertxExtension.class)
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class OutboxDeadLetterQueueSpringBootTest {
     
     private static final Logger logger = LoggerFactory.getLogger(OutboxDeadLetterQueueSpringBootTest.class);
@@ -99,7 +101,6 @@ class OutboxDeadLetterQueueSpringBootTest {
     
     @Autowired
     private PeeGeeQManager manager;
-    private static PeeGeeQManager managerRef;
     @Container
     static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
@@ -120,16 +121,18 @@ class OutboxDeadLetterQueueSpringBootTest {
     }
     
     @AfterEach
-    void tearDown(Vertx vertx, VertxTestContext testContext) {
+    void tearDown() {
         logger.info(" Cleaning up Dead Letter Queue Spring Boot Test");
 
         // Close all active consumers first
+        List<Throwable> closeFailures = new ArrayList<>();
         for (MessageConsumer<?> consumer : activeConsumers) {
             try {
                 consumer.close();
                 logger.info("Closed consumer");
             } catch (Exception e) {
-                logger.error(" Error closing consumer: {}", e.getMessage());
+                logger.error("Error closing consumer", e);
+                closeFailures.add(e);
             }
         }
         activeConsumers.clear();
@@ -140,28 +143,19 @@ class OutboxDeadLetterQueueSpringBootTest {
                 producer.close();
                 logger.info("Closed producer");
             } catch (Exception e) {
-                logger.error(" Error closing producer: {}", e.getMessage());
+                logger.error("Error closing producer", e);
+                closeFailures.add(e);
             }
         }
         activeProducers.clear();
 
-        managerRef = manager;
-
-        // Wait for connections to be fully released before next test
-        logger.info(" Waiting for connections to be released...");
-        vertx.timer(2000).onComplete(testContext.succeeding(v -> {
-            logger.info("Cleanup complete");
-            testContext.completeNow();
-        }));
-    }
-
-    @AfterAll
-    static void closeManager(VertxTestContext testContext) {
-        if (managerRef == null) {
-            testContext.completeNow();
-            return;
+        if (!closeFailures.isEmpty()) {
+            RuntimeException cleanupFailure = new RuntimeException(
+                "Failed to close " + closeFailures.size() + " test resource(s)");
+            closeFailures.forEach(cleanupFailure::addSuppressed);
+            throw cleanupFailure;
         }
-        managerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
+        logger.info("Cleanup complete");
     }
 
     /**
@@ -192,6 +186,7 @@ class OutboxDeadLetterQueueSpringBootTest {
         // Track retry attempts
         AtomicInteger attemptCount = new AtomicInteger(0);
         io.vertx.core.Promise<Void> retriesDone = io.vertx.core.Promise.promise();
+        String poisonMessage = "poison-message-" + UUID.randomUUID();
 
         // Subscribe with handler that always fails; signal when initial + 2 retries are exhausted.
         // max-retries=2 means 3 total attempts (1 initial + 2 retries), not 4.
@@ -204,18 +199,18 @@ class OutboxDeadLetterQueueSpringBootTest {
             }
             return Future.failedFuture(
                 new RuntimeException("Simulated persistent failure - poison message"));
-        });
-
-        // Send poison message
-        logger.info(" Sending poison message that will always fail");
-        String poisonMessage = "poison-message-" + UUID.randomUUID();
-        producer.send(poisonMessage).onFailure(testContext::failNow);
+        })
+            .compose(v -> {
+                logger.info(" Sending poison message that will always fail");
+                return producer.send(poisonMessage);
+            })
+            .onFailure(testContext::failNow);
 
         retriesDone.future()
             .compose(v -> vertx.timer(2000))
             .compose(v -> manager.getDeadLetterQueueManager()
                 .getDeadLetterMessages(topicName, 10, 0))
-            .onComplete(testContext.succeeding(dlqMessages -> testContext.verify(() -> {
+            .onSuccess(dlqMessages -> testContext.verify(() -> {
                 logger.info(" DLQ Results:");
                 logger.info("  Total attempts: {}", attemptCount.get());
                 logger.info("  Messages in DLQ: {}", dlqMessages.size());
@@ -233,7 +228,8 @@ class OutboxDeadLetterQueueSpringBootTest {
                 logger.info("Poison message moved to DLQ after {} attempts", attemptCount.get());
                 logger.info("Error information preserved: {}", dlqMessage.failureReason());
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(testContext::failNow);
     }
     
     /**
@@ -275,19 +271,23 @@ class OutboxDeadLetterQueueSpringBootTest {
             }
             return Future.failedFuture(
                 new RuntimeException("Test failure for: " + message.getPayload()));
-        });
-
-        // Send multiple poison messages
-        logger.info(" Sending {} poison messages", messageCount);
-        for (int i = 1; i <= messageCount; i++) {
-            producer.send("poison-" + i).onFailure(testContext::failNow);
-        }
+        })
+            .compose(v -> {
+                logger.info(" Sending {} poison messages", messageCount);
+                Future<Void> sendChain = Future.succeededFuture();
+                for (int i = 1; i <= messageCount; i++) {
+                    String poisonMessage = "poison-" + i;
+                    sendChain = sendChain.compose(ignored -> producer.send(poisonMessage));
+                }
+                return sendChain;
+            })
+            .onFailure(testContext::failNow);
 
         allAttemptsDone.future()
             .compose(v -> vertx.timer(2000))
             .compose(v -> manager.getDeadLetterQueueManager()
                 .getDeadLetterMessages(topicName, 10, 0))
-            .onComplete(testContext.succeeding(dlqMessages -> testContext.verify(() -> {
+            .onSuccess(dlqMessages -> testContext.verify(() -> {
                 logger.info(" DLQ Inspection Results:");
                 logger.info("  Total processing attempts: {}", processedCount.get());
                 logger.info("  Messages in DLQ: {}", dlqMessages.size());
@@ -311,7 +311,7 @@ class OutboxDeadLetterQueueSpringBootTest {
                 logger.info("All {} poison messages successfully moved to DLQ", messageCount);
                 logger.info("Error information preserved for debugging");
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(testContext::failNow);
     }
 }
-

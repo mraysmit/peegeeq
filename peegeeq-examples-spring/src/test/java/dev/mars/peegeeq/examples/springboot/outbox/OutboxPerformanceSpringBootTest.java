@@ -3,13 +3,11 @@ package dev.mars.peegeeq.examples.springboot.outbox;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
-import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.outbox.OutboxFactory;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -19,12 +17,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import io.vertx.core.Future;
-import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -59,6 +57,7 @@ import static org.junit.jupiter.api.Assertions.*;
 )
 @Testcontainers
 @ExtendWith(VertxExtension.class)
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 public class OutboxPerformanceSpringBootTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxPerformanceSpringBootTest.class);
@@ -73,10 +72,6 @@ public class OutboxPerformanceSpringBootTest {
 
     @Autowired
     private OutboxFactory outboxFactory;
-    @Autowired
-    private PeeGeeQManager peeGeeQManager;
-    private static PeeGeeQManager peeGeeQManagerRef;
-
     private final List<MessageConsumer<?>> activeConsumers = new ArrayList<>();
     private final List<MessageProducer<?>> activeProducers = new ArrayList<>();
 
@@ -93,47 +88,23 @@ public class OutboxPerformanceSpringBootTest {
     }
 
     @AfterEach
-    void tearDown(Vertx vertx, VertxTestContext tearDownContext) {
+    void tearDown() {
         logger.info(" Cleaning up Performance Spring Boot Test");
         
         // Close all active consumers first
         for (MessageConsumer<?> consumer : activeConsumers) {
-            try {
-                consumer.close();
-                logger.info("Closed consumer");
-            } catch (Exception e) {
-                logger.error(" Error closing consumer: {}", e.getMessage());
-            }
+            consumer.close();
+            logger.info("Closed consumer");
         }
         activeConsumers.clear();
         
         // Close all active producers
         for (MessageProducer<?> producer : activeProducers) {
-            try {
-                producer.close();
-                logger.info("Closed producer");
-            } catch (Exception e) {
-                logger.error(" Error closing producer: {}", e.getMessage());
-            }
+            producer.close();
+            logger.info("Closed producer");
         }
         activeProducers.clear();
-        
-        // Wait for connections to be fully released before next test
-        logger.info(" Waiting for connections to be released...");
-        vertx.timer(2000).onComplete(tearDownContext.succeeding(v -> {
-            peeGeeQManagerRef = peeGeeQManager;
-            logger.info("Cleanup complete");
-            tearDownContext.completeNow();
-        }));
-    }
-
-    @AfterAll
-    static void closeManager(VertxTestContext testContext) {
-        if (peeGeeQManagerRef == null) {
-            testContext.completeNow();
-            return;
-        }
-        peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
+        logger.info("Cleanup complete");
     }
 
     /**
@@ -329,7 +300,7 @@ public class OutboxPerformanceSpringBootTest {
      * Tests the efficiency of processing messages in batches.
      */
     @Test
-    void testBatchProcessingEfficiency(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testBatchProcessingEfficiency(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Batch Processing Efficiency ===");
         logger.info("This test measures batch processing performance");
 
@@ -433,4 +404,3 @@ public class OutboxPerformanceSpringBootTest {
         public void setSentAt(long sentAt) { this.sentAt = sentAt; }
     }
 }
-
