@@ -36,6 +36,8 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.AsyncResult;
+import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
 import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.*;
@@ -44,14 +46,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -110,20 +110,13 @@ class LateJoiningConsumerDemoTest {
 
     @BeforeEach
     void setUp(VertxTestContext testContext) throws Exception {
-        logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        // Configure database connection properties
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
 
-        // Initialize database schema
-        logger.info("Initializing database schema for late-joining consumer demo");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
-        logger.info("Database schema initialized successfully");
 
-        // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
-        manager.start().onSuccess(v -> {
-            // Create connection manager and pool
+        manager.start().map(v -> {
             connectionManager = new PgConnectionManager(manager.getVertx(), null);
             PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
                 .host(postgres.getHost())
@@ -136,28 +129,40 @@ class LateJoiningConsumerDemoTest {
 
             PgPoolConfig poolConfig = new PgPoolConfig.Builder()
                 .maxSize(10)
+                .shared(false)
                 .build();
 
             connectionManager.getOrCreateReactivePool("peegeeq-main", connectionConfig, poolConfig);
 
-            // Create service instances
             topicConfigService = new TopicConfigService(connectionManager, "peegeeq-main");
             subscriptionManager = new SubscriptionManager(connectionManager, "peegeeq-main");
             fetcher = new ConsumerGroupFetcher(connectionManager, "peegeeq-main");
 
-            logger.info("Late-joining consumer demo test setup complete");
-            testContext.completeNow();
-        }).onFailure(testContext::failNow);
+            return (Void) null;
+        })
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws InterruptedException {
-        logger.info("Tearing down: closing resources and manager");
-        (connectionManager != null ? connectionManager.close() : io.vertx.core.Future.<Void>succeededFuture())
-            .transform(ar -> manager != null ? manager.closeReactive() : io.vertx.core.Future.succeededFuture())
-            .onSuccess(v -> { logger.info("Test teardown completed"); testContext.completeNow(); })
-            .onFailure(err -> { logger.error("Teardown failed", err); testContext.failNow(err); });
+        Future<Void> connectionManagerClose = connectionManager != null
+            ? connectionManager.close()
+            : Future.succeededFuture();
+        connectionManagerClose
+            .transform(connectionManagerResult -> {
+                Future<Void> managerClose = manager != null
+                    ? manager.closeReactive()
+                    : Future.succeededFuture();
+                return managerClose.transform(managerResult ->
+                    mergeCloseResults(connectionManagerResult, managerResult));
+            })
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(err -> {
+                logger.error("Teardown failed", err);
+                testContext.failNow(err);
+            });
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
@@ -172,8 +177,6 @@ class LateJoiningConsumerDemoTest {
      */
     @Test
     void testFromNowConsumer(VertxTestContext testContext) throws InterruptedException {
-        logger.info("\n=== DEMO 1: FROM_NOW Consumer (Standard Pattern) ===\n");
-
         String topic = "orders.events";
         String emailGroup = "email-service";
 
@@ -186,11 +189,9 @@ class LateJoiningConsumerDemoTest {
         List<Long> historicalMessageIds = new ArrayList<>();
         List<Long> newMessageIds = new ArrayList<>();
 
-        logger.info("Step 1: Creating PUB_SUB topic '{}'", topic);
         topicConfigService.createTopic(topicConfig)
             .compose(v -> {
-                logger.info("Step 2: Publishing 10 historical messages (before subscription)");
-                io.vertx.core.Future<Void> chain = io.vertx.core.Future.succeededFuture();
+                Future<Void> chain = Future.succeededFuture();
                 for (int i = 1; i <= 10; i++) {
                     final int idx = i;
                     chain = chain.compose(unused ->
@@ -203,15 +204,9 @@ class LateJoiningConsumerDemoTest {
                 }
                 return chain;
             })
+            .compose(v -> subscriptionManager.subscribe(topic, emailGroup, SubscriptionOptions.defaults()))
             .compose(v -> {
-                logger.info(" Published {} historical messages", historicalMessageIds.size());
-                logger.info("Step 3: Subscribing '{}' using FROM_NOW (default)", emailGroup);
-                return subscriptionManager.subscribe(topic, emailGroup, SubscriptionOptions.defaults());
-            })
-            .compose(v -> {
-                logger.info(" Subscription created with FROM_NOW");
-                logger.info("Step 4: Publishing 5 new messages (after subscription)");
-                io.vertx.core.Future<Void> chain = io.vertx.core.Future.succeededFuture();
+                Future<Void> chain = Future.succeededFuture();
                 for (int i = 11; i <= 15; i++) {
                     final int idx = i;
                     chain = chain.compose(unused ->
@@ -224,13 +219,8 @@ class LateJoiningConsumerDemoTest {
                 }
                 return chain;
             })
-            .compose(v -> {
-                logger.info(" Published {} new messages", newMessageIds.size());
-                logger.info("Step 5: Fetching messages for '{}'", emailGroup);
-                return fetcher.fetchMessages(topic, emailGroup, 20);
-            })
+            .compose(v -> fetcher.fetchMessages(topic, emailGroup, 20))
             .onSuccess(messages -> testContext.verify(() -> {
-                logger.info(" Fetched {} messages", messages.size());
                 assertEquals(5, messages.size(), "FROM_NOW should only receive messages published after subscription");
                 for (var msg : messages) {
                     assertTrue(newMessageIds.contains(msg.getId()),
@@ -238,10 +228,6 @@ class LateJoiningConsumerDemoTest {
                     assertFalse(historicalMessageIds.contains(msg.getId()),
                         "Message ID " + msg.getId() + " should NOT be from historical messages");
                 }
-                logger.info(" Verified: FROM_NOW consumer only received {} new messages (ignored {} historical)",
-                    messages.size(), historicalMessageIds.size());
-                logger.info("\n=== DEMO 1 COMPLETE: FROM_NOW Pattern ===\n");
-                logger.info("Key Takeaway: FROM_NOW consumers ignore historical messages and only process new ones.");
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
@@ -259,8 +245,6 @@ class LateJoiningConsumerDemoTest {
      */
     @Test
     void testFromBeginningConsumer(VertxTestContext testContext) throws InterruptedException {
-        logger.info("\n=== DEMO 2: FROM_BEGINNING Consumer (Late-Joining with Backfill) ===\n");
-
         String topic = "orders.analytics";
         String emailGroup = "email-service";
         String analyticsGroup = "analytics-service";
@@ -276,15 +260,10 @@ class LateJoiningConsumerDemoTest {
 
         List<Long> allMessageIds = new ArrayList<>();
 
-        logger.info("Step 1: Creating PUB_SUB topic '{}'", topic);
         topicConfigService.createTopic(topicConfig)
+            .compose(v -> subscriptionManager.subscribe(topic, emailGroup, SubscriptionOptions.defaults()))
             .compose(v -> {
-                logger.info("Step 2: Subscribing '{}' using FROM_NOW", emailGroup);
-                return subscriptionManager.subscribe(topic, emailGroup, SubscriptionOptions.defaults());
-            })
-            .compose(v -> {
-                logger.info("Step 3: Publishing 20 messages");
-                io.vertx.core.Future<Void> chain = io.vertx.core.Future.succeededFuture();
+                Future<Void> chain = Future.succeededFuture();
                 for (int i = 1; i <= 20; i++) {
                     final int idx = i;
                     chain = chain.compose(unused ->
@@ -297,17 +276,9 @@ class LateJoiningConsumerDemoTest {
                 }
                 return chain;
             })
-            .compose(v -> {
-                logger.info(" Published {} messages", allMessageIds.size());
-                logger.info("Step 4: Late-joining '{}' subscribes using FROM_BEGINNING", analyticsGroup);
-                return subscriptionManager.subscribe(topic, analyticsGroup, fromBeginningOptions);
-            })
-            .compose(v -> {
-                logger.info("Step 5: Fetching messages for '{}'", analyticsGroup);
-                return fetcher.fetchMessages(topic, analyticsGroup, 25);
-            })
+            .compose(v -> subscriptionManager.subscribe(topic, analyticsGroup, fromBeginningOptions))
+            .compose(v -> fetcher.fetchMessages(topic, analyticsGroup, 25))
             .onSuccess(analyticsMessages -> testContext.verify(() -> {
-                logger.info(" Fetched {} messages for analytics", analyticsMessages.size());
                 assertEquals(20, analyticsMessages.size(),
                     "FROM_BEGINNING should receive ALL messages including historical");
                 for (Long expectedId : allMessageIds) {
@@ -315,10 +286,6 @@ class LateJoiningConsumerDemoTest {
                         .anyMatch(msg -> msg.getId().equals(expectedId));
                     assertTrue(found, "Analytics should have received message ID " + expectedId);
                 }
-                logger.info(" Verified: FROM_BEGINNING consumer received ALL {} historical messages",
-                    analyticsMessages.size());
-                logger.info("\n=== DEMO 2 COMPLETE: FROM_BEGINNING Pattern ===\n");
-                logger.info("Key Takeaway: FROM_BEGINNING consumers backfill ALL historical messages from topic start.");
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
@@ -335,9 +302,7 @@ class LateJoiningConsumerDemoTest {
      * messages from a specific timestamp after a system failure.</p>
      */
     @Test
-    void testFromTimestampConsumer(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
-        logger.info("\n=== DEMO 3: FROM_TIMESTAMP Consumer (Time-Based Replay) ===\n");
-
+    void testFromTimestampConsumer(VertxTestContext testContext) throws InterruptedException {
         String topic = "orders.replay";
         String replayGroup = "disaster-recovery-service";
 
@@ -348,12 +313,11 @@ class LateJoiningConsumerDemoTest {
             .build();
 
         List<Long> pastMessageIds = new ArrayList<>();
+        List<Long> replayMessageIds = new ArrayList<>();
 
-        logger.info("Step 1: Creating PUB_SUB topic '{}'", topic);
         topicConfigService.createTopic(topicConfig)
             .compose(v -> {
-                logger.info("Step 2: Publishing 10 messages (simulating past events)");
-                io.vertx.core.Future<Void> chain = io.vertx.core.Future.succeededFuture();
+                Future<Void> chain = Future.succeededFuture();
                 for (int i = 1; i <= 10; i++) {
                     final int idx = i;
                     chain = chain.compose(unused ->
@@ -366,46 +330,35 @@ class LateJoiningConsumerDemoTest {
                 }
                 return chain;
             })
-            .compose(v -> {
-                logger.info(" Published {} past messages", pastMessageIds.size());
-                Instant replayTimestamp = Instant.now().minus(1, ChronoUnit.HOURS);
-                logger.info("Step 3: Recording replay timestamp: {}", replayTimestamp);
+            .compose(v -> currentDatabaseTime())
+            .compose(replayTimestamp -> {
                 SubscriptionOptions fromTimestampOptions = SubscriptionOptions.builder()
                     .startFromTimestamp(replayTimestamp)
                     .build();
-                logger.info("Step 4: Publishing 10 messages after replay timestamp");
-                return vertx.timer(100)
-                    .compose(unused -> {
-                        io.vertx.core.Future<Void> chain = io.vertx.core.Future.succeededFuture();
-                        for (int i = 11; i <= 20; i++) {
-                            final int idx = i;
-                            chain = chain.compose(unu ->
-                                insertMessage(topic, new JsonObject()
-                                    .put("orderId", "ORDER-" + idx)
-                                    .put("amount", 100.0 + idx)
-                                    .put("status", "CREATED"))
-                                    .mapEmpty());
-                        }
-                        return chain;
-                    })
-                    .compose(unused -> {
-                        logger.info("Step 5: Subscribing '{}' using FROM_TIMESTAMP", replayGroup);
-                        return subscriptionManager.subscribe(topic, replayGroup, fromTimestampOptions);
-                    });
+                Future<Void> chain = Future.succeededFuture();
+                for (int i = 11; i <= 20; i++) {
+                    final int idx = i;
+                    chain = chain.compose(unused ->
+                        insertMessage(topic, new JsonObject()
+                            .put("orderId", "ORDER-" + idx)
+                            .put("amount", 100.0 + idx)
+                            .put("status", "CREATED"))
+                            .onSuccess(replayMessageIds::add)
+                            .mapEmpty());
+                }
+                return chain.compose(unused ->
+                    subscriptionManager.subscribe(topic, replayGroup, fromTimestampOptions));
             })
-            .compose(v -> {
-                logger.info("Step 6: Fetching messages for '{}'", replayGroup);
-                return fetcher.fetchMessages(topic, replayGroup, 25);
-            })
+            .compose(v -> fetcher.fetchMessages(topic, replayGroup, 25))
             .onSuccess(replayMessages -> testContext.verify(() -> {
-                logger.info(" Fetched {} messages for replay", replayMessages.size());
-                logger.info("Step 7: Verifying FROM_TIMESTAMP behavior");
-                assertTrue(replayMessages.size() >= 10,
-                    "FROM_TIMESTAMP should receive messages created at or after the timestamp");
-                logger.info(" Verified: FROM_TIMESTAMP consumer received {} messages from timestamp onwards",
-                    replayMessages.size());
-                logger.info("\n=== DEMO 3 COMPLETE: FROM_TIMESTAMP Pattern ===\n");
-                logger.info("Key Takeaway: FROM_TIMESTAMP consumers replay messages from a specific point in time.");
+                assertEquals(10, replayMessages.size(),
+                    "FROM_TIMESTAMP should receive only messages created at or after the timestamp");
+                for (var message : replayMessages) {
+                    assertTrue(replayMessageIds.contains(message.getId()),
+                        "Replay message ID should be from the post-boundary messages: " + message.getId());
+                    assertFalse(pastMessageIds.contains(message.getId()),
+                        "Replay must exclude pre-boundary message ID: " + message.getId());
+                }
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
@@ -424,7 +377,7 @@ class LateJoiningConsumerDemoTest {
             RETURNING id
             """;
 
-        return connectionManager.withConnection("peegeeq-main", connection ->
+        return connectionManager.withTransaction("peegeeq-main", connection ->
             connection.preparedQuery(sql)
                 .execute(Tuple.of(topic, payload))
                 .map(rows -> {
@@ -435,6 +388,31 @@ class LateJoiningConsumerDemoTest {
                 })
         );
     }
-}
 
+    private Future<Instant> currentDatabaseTime() {
+        return connectionManager.withConnection("peegeeq-main", connection ->
+            connection.query("SELECT clock_timestamp() AS replay_timestamp")
+                .execute()
+                .map(rows -> rows.iterator().next()
+                    .getOffsetDateTime("replay_timestamp")
+                    .toInstant())
+        );
+    }
+
+    private Future<Void> mergeCloseResults(
+            AsyncResult<Void> connectionManagerResult,
+            AsyncResult<Void> managerResult) {
+        if (connectionManagerResult.failed()) {
+            Throwable failure = connectionManagerResult.cause();
+            if (managerResult.failed() && managerResult.cause() != failure) {
+                failure.addSuppressed(managerResult.cause());
+            }
+            return Future.failedFuture(failure);
+        }
+        if (managerResult.failed()) {
+            return Future.failedFuture(managerResult.cause());
+        }
+        return Future.succeededFuture();
+    }
+}
 

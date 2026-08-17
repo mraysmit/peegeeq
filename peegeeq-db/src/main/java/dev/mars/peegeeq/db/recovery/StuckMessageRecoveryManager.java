@@ -129,7 +129,7 @@ public class StuckMessageRecoveryManager {
         Tuple params = Tuple.of(cutoffTime);
 
         return reactivePool.withConnection(connection -> {
-            // Double-check closing flag inside connection callback
+            // Double-check closing after connection acquisition.
             if (closing) {
                 return Future.succeededFuture(0);
             }
@@ -152,63 +152,37 @@ public class StuckMessageRecoveryManager {
             SET status = 'PENDING', processed_at = NULL
             WHERE status = 'PROCESSING'
             AND processed_at < $1
+            RETURNING id, topic, retry_count, error_message
             """;
 
         OffsetDateTime cutoffTime = Instant.now().minus(processingTimeout).atOffset(ZoneOffset.UTC);
         Tuple params = Tuple.of(cutoffTime);
 
-        return reactivePool.withConnection(connection -> {
-            // Double-check closing flag inside connection callback
+        return reactivePool.withTransaction(client -> {
+            // Double-check closing after transaction acquisition.
             if (closing) {
                 return Future.succeededFuture(0);
             }
-            return connection.preparedQuery(resetSql).execute(params)
-                .compose(rowSet -> {
+            return client.preparedQuery(resetSql).execute(params)
+                .map(rowSet -> {
                     int updatedCount = rowSet.rowCount();
-
-                    // Log details of what was recovered if there were updates
-                    if (updatedCount > 0) {
-                        logRecoveredMessages()
-                            .onFailure(t -> logger.warn("Failed to log recovered messages: {}", t.getMessage()));
+                    for (Row row : rowSet) {
+                        logRecoveredMessage(row);
                     }
-                    return Future.succeededFuture(updatedCount);
+                    return updatedCount;
                 });
         });
     }
 
+    private void logRecoveredMessage(Row row) {
+        long messageId = row.getLong("id");
+        String topic = row.getString("topic");
+        int retryCount = row.getInteger("retry_count");
+        String errorMessage = row.getString("error_message");
 
-
-    private Future<Void> logRecoveredMessages() {
-        // Query recently recovered messages (those that were just reset to PENDING)
-        String logSql = """
-            SELECT id, topic, retry_count, created_at, error_message
-            FROM outbox
-            WHERE status = 'PENDING'
-            AND processed_at IS NULL
-            AND created_at < $1
-            ORDER BY created_at ASC
-            LIMIT 10
-            """;
-
-        OffsetDateTime cutoffTime = Instant.now().minusSeconds(1).atOffset(ZoneOffset.UTC);
-        Tuple params = Tuple.of(cutoffTime);
-
-        return reactivePool.withConnection(connection -> {
-            return connection.preparedQuery(logSql).execute(params)
-                .map(rowSet -> {
-                    for (Row row : rowSet) {
-                        long messageId = row.getLong("id");
-                        String topic = row.getString("topic");
-                        int retryCount = row.getInteger("retry_count");
-                        String errorMessage = row.getString("error_message");
-
-                        logger.info("Recovered stuck message: id={}, topic={}, retryCount={}, lastError={}",
-                            messageId, topic, retryCount,
-                            errorMessage != null ? errorMessage.substring(0, Math.min(100, errorMessage.length())) : "none");
-                    }
-                    return (Void) null;
-                });
-        });
+        logger.info("Recovered stuck message: id={}, topic={}, retryCount={}, lastError={}",
+            messageId, topic, retryCount,
+            errorMessage != null ? errorMessage.substring(0, Math.min(100, errorMessage.length())) : "none");
     }
 
     /**

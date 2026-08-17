@@ -25,7 +25,7 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.fail;
 
 /**
- * CI guard test: ratchets the inventory of Vert.x async forbidden patterns in test sources
+ * CI guard test: ratchets the inventory of Vert.x async forbidden patterns in production and test sources
  * against a checked-in baseline. The patterns scanned here are documented as failure-swallowing
  * anti-patterns in {@code peegeeq-db/.../testpatterns/VertxAsyncTestPitfallsDemo.java}:
  *
@@ -33,6 +33,10 @@ import static org.junit.jupiter.api.Assertions.fail;
  *   <li>{@code new VertxTestContext(}                   &mdash; manual context construction (loses VertxExtension lifecycle integration)</li>
  *   <li>{@code .toCompletionStage(}                     &mdash; sync bridge to JDK futures</li>
  *   <li>{@code .toCompletableFuture(}                   &mdash; sync bridge to JDK futures</li>
+ *   <li>{@code CompletableFuture}                       &mdash; prohibited JDK future type</li>
+ *   <li>{@code .recover(}                               &mdash; globally prohibited failure conversion</li>
+ *   <li>{@code .otherwise(}                             &mdash; globally prohibited failure conversion</li>
+ *   <li>{@code Handler&lt;AsyncResult}                    &mdash; prohibited callback-style API</li>
  * </ul>
  *
  * <p>Note: patterns for {@code .join()} and {@code .get(N, TimeUnit)} are intentionally
@@ -60,7 +64,8 @@ import static org.junit.jupiter.api.Assertions.fail;
  *
  * <h2>Scope</h2>
  * <ul>
- *   <li>Scans every {@code peegeeq-*\/src/test/java/**\/*.java} file.</li>
+ *   <li>Scans every {@code peegeeq-*\/src/main/java/**\/*.java} and
+ *       {@code peegeeq-*\/src/test/java/**\/*.java} file.</li>
  *   <li>Excludes {@code .history/} (IntelliJ Local History) and {@code target/}.</li>
  *   <li>Excludes {@code VertxAsyncTestPitfallsDemo.java} &mdash; intentional counter-example fixture.</li>
  *   <li>Masks comments and string literals before matching so example code in Javadoc and
@@ -92,6 +97,10 @@ class VertxAsyncForbiddenPatternsGuardTest {
         FORBIDDEN.put("newVTC", Pattern.compile("new\\s+VertxTestContext\\s*\\("));
         FORBIDDEN.put("toCS",   Pattern.compile("\\.toCompletionStage\\s*\\("));
         FORBIDDEN.put("toCF",   Pattern.compile("\\.toCompletableFuture\\s*\\("));
+        FORBIDDEN.put("cfType", Pattern.compile("\\bCompletableFuture\\b"));
+        FORBIDDEN.put("recover", Pattern.compile("\\.recover\\s*\\("));
+        FORBIDDEN.put("otherwise", Pattern.compile("\\.otherwise\\s*\\("));
+        FORBIDDEN.put("handlerAR", Pattern.compile("Handler\\s*<\\s*AsyncResult"));
     }
 
     @Test
@@ -145,21 +154,24 @@ class VertxAsyncForbiddenPatternsGuardTest {
     // ---------------------------------------------------------------------
 
     /**
-     * Scan every {@code peegeeq-*\/src/test/java/**\/*.java} file in the workspace and
+     * Scan every {@code peegeeq-*\/src/main/java/**\/*.java} and
+     * {@code peegeeq-*\/src/test/java/**\/*.java} file in the workspace and
      * return a map keyed by {@code "<relative-path>|<pattern-key>"} -> non-zero count.
      * Excludes {@code .history/}, {@code target/}, and files listed in {@link #EXCLUDED_FILE_NAMES}.
      */
     private static Map<String, Integer> scanWorkspace(Path workspaceRoot) throws IOException {
         Map<String, Integer> result = new TreeMap<>();
         try (Stream<Path> modules = Files.list(workspaceRoot)) {
-            List<Path> testRoots = modules
+            List<Path> sourceRoots = modules
                     .filter(Files::isDirectory)
                     .filter(p -> p.getFileName().toString().startsWith("peegeeq-"))
-                    .map(p -> p.resolve("src").resolve("test").resolve("java"))
+                    .flatMap(p -> Stream.of(
+                            p.resolve("src").resolve("main").resolve("java"),
+                            p.resolve("src").resolve("test").resolve("java")))
                     .filter(Files::isDirectory)
                     .toList();
-            for (Path testRoot : testRoots) {
-                try (Stream<Path> files = Files.walk(testRoot)) {
+            for (Path sourceRoot : sourceRoots) {
+                try (Stream<Path> files = Files.walk(sourceRoot)) {
                     files.filter(Files::isRegularFile)
                          .filter(p -> p.getFileName().toString().endsWith(".java"))
                          .filter(p -> !EXCLUDED_FILE_NAMES.contains(p.getFileName().toString()))

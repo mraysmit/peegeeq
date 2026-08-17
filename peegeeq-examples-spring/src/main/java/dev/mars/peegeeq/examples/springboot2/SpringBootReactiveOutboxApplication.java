@@ -100,8 +100,7 @@ public class SpringBootReactiveOutboxApplication {
      * Configure async task executor for reactive operations.
      * 
      * While WebFlux uses Netty's event loop for reactive operations,
-     * this executor is still useful for @Async methods and CompletableFuture operations
-     * that may be used in the application.
+     * this executor remains available for application {@code @Async} methods.
      * 
      * @return Configured task executor
      */
@@ -124,4 +123,3 @@ public class SpringBootReactiveOutboxApplication {
         return executor;
     }
 }
-

@@ -50,7 +50,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
 import java.util.Properties;
-import java.util.Properties;
 
 import java.util.concurrent.TimeUnit;
 
@@ -348,9 +347,8 @@ public class ErrorHandlingRollbackExampleTest {
                 logger.error(" INTENTIONAL TEST FAILURE: Order processing failed, all events rolled back: {}", error.getMessage());
                 logger.info("    This error demonstrates proper automatic rollback behavior in PeeGeeQ Outbox pattern");
             })
-            .map(result -> (String) result)
-            .otherwise(error -> { throw new RuntimeException("Order processing failed", error); })
-            .onComplete(promise);
+            .onSuccess(promise::complete)
+            .onFailure(error -> promise.fail(new RuntimeException("Order processing failed", error)));
         });
         return promise.future();
     }
@@ -417,9 +415,8 @@ public class ErrorHandlingRollbackExampleTest {
                 logger.error(" INTENTIONAL TEST FAILURE: Business validation failed, all events rolled back: {}", error.getMessage());
                 logger.info("    This error demonstrates proper validation failure handling and automatic rollback");
             })
-            .map(result -> (String) result)
-            .otherwise(error -> { throw new RuntimeException("Business validation failed", error); })
-            .onComplete(promise);
+            .onSuccess(promise::complete)
+            .onFailure(error -> promise.fail(new RuntimeException("Business validation failed", error)));
         });
         return promise.future();
     }
@@ -463,9 +460,8 @@ public class ErrorHandlingRollbackExampleTest {
                 logger.error(" INTENTIONAL TEST FAILURE: Multi-stage processing failed, all stages rolled back: {}", error.getMessage());
                 logger.info("    This error demonstrates proper multi-stage rollback when any stage fails");
             })
-            .map(result -> (String) result)
-            .otherwise(error -> { throw new RuntimeException("Multi-stage processing failed", error); })
-            .onComplete(promise);
+            .onSuccess(promise::complete)
+            .onFailure(error -> promise.fail(new RuntimeException("Multi-stage processing failed", error)));
         });
         return promise.future();
     }
@@ -621,5 +617,4 @@ public class ErrorHandlingRollbackExampleTest {
         public String getFinalStatus() { return finalStatus; }
     }
 }
-
 

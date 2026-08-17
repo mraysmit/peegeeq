@@ -20,15 +20,12 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.api.EventQuery;
 import dev.mars.peegeeq.api.EventStore;
-import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.springbootbitemporaltx.events.*;
 import dev.mars.peegeeq.examples.springbootbitemporaltx.service.*;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -146,24 +143,6 @@ class MultiEventStoreTransactionTest {
     @Autowired
     private EventStore<AuditEvent> auditEventStore;
 
-    @Autowired(required = false)
-    private PeeGeeQManager peeGeeQManager;
-    private static PeeGeeQManager peeGeeQManagerRef;
-
-    @AfterEach
-    void captureManager() {
-        peeGeeQManagerRef = peeGeeQManager;
-    }
-
-    @AfterAll
-    static void closeManager(VertxTestContext testContext) {
-        if (peeGeeQManagerRef != null) {
-            peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
-        } else {
-            testContext.completeNow();
-        }
-    }
-
     // TestContainers @Container annotation handles lifecycle automatically
     // No manual teardown needed - this was causing race conditions with async operations
 
@@ -183,7 +162,8 @@ class MultiEventStoreTransactionTest {
                 .execute("TRUNCATE TABLE bitemporal_event_log");
             logger.info("Database cleanup completed successfully");
         } catch (Exception e) {
-            logger.warn("Database cleanup failed (table may not exist yet): {}", e.getMessage());
+            logger.error("Database cleanup failed", e);
+            throw e;
         }
     }
 
@@ -356,7 +336,11 @@ class MultiEventStoreTransactionTest {
                             });
                     });
             })
-            .onComplete(testContext.succeeding(v -> testContext.verify(() -> testContext.completeNow())));
+            .onSuccess(v -> testContext.verify(testContext::completeNow))
+            .onFailure(error -> {
+                logger.error("Coordinated multi-store order processing test failed", error);
+                testContext.failNow(error);
+            });
     }
     
     /**
@@ -437,6 +421,10 @@ class MultiEventStoreTransactionTest {
                         )
                     );
             })
-            .onComplete(testContext.succeeding(v -> testContext.verify(() -> testContext.completeNow())));
+            .onSuccess(v -> testContext.verify(testContext::completeNow))
+            .onFailure(error -> {
+                logger.error("Cross-store event correlation test failed", error);
+                testContext.failNow(error);
+            });
     }
 }

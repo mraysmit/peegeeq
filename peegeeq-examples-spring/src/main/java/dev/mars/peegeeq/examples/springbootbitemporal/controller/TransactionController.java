@@ -77,7 +77,7 @@ public class TransactionController {
      * </pre>
      * 
      * @param request Transaction request
-     * @return CompletableFuture with the recorded event
+     * @return a Vert.x Future with the recorded event
      */
     @PostMapping("/transactions")
     public Future<ResponseEntity<BiTemporalEvent<TransactionEvent>>> recordTransaction(
@@ -103,7 +103,7 @@ public class TransactionController {
      * </pre>
      * 
      * @param accountId Account identifier
-     * @return CompletableFuture with account history
+     * @return a Vert.x Future with account history
      */
     @GetMapping("/accounts/{accountId}/history")
     public Future<ResponseEntity<AccountHistoryResponse>> getAccountHistory(
@@ -130,7 +130,7 @@ public class TransactionController {
      * 
      * @param accountId Account identifier
      * @param asOf Point in time (optional, defaults to now)
-     * @return CompletableFuture with the balance
+     * @return a Vert.x Future with the balance
      */
     @GetMapping("/accounts/{accountId}/balance")
     public Future<ResponseEntity<BigDecimal>> getAccountBalance(
@@ -163,7 +163,7 @@ public class TransactionController {
      * 
      * @param transactionId Transaction identifier
      * @param request Correction request
-     * @return CompletableFuture with the correction event
+     * @return a Vert.x Future with the correction event
      */
     @PostMapping("/transactions/{transactionId}/correct")
     public Future<ResponseEntity<BiTemporalEvent<TransactionEvent>>> correctTransaction(
@@ -190,7 +190,7 @@ public class TransactionController {
      * </pre>
      * 
      * @param transactionId Transaction identifier
-     * @return CompletableFuture with all versions
+     * @return a Vert.x Future with all versions
      */
     @GetMapping("/transactions/{transactionId}/versions")
     public Future<ResponseEntity<List<BiTemporalEvent<TransactionEvent>>>> getTransactionVersions(

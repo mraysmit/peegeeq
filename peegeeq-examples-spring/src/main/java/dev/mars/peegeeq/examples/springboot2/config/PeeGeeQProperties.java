@@ -41,6 +41,7 @@ import java.time.Duration;
  *   pool:
  *     max-size: 20
  *     min-size: 5
+ *     shared: true
  *   queue:
  *     max-retries: 3
  *     visibility-timeout: PT30S
@@ -115,6 +116,7 @@ public class PeeGeeQProperties {
     public static class Pool {
         private int maxSize = 20;
         private int minSize = 5;
+        private boolean shared = true;
 
         // Getters and setters
         public int getMaxSize() { return maxSize; }
@@ -122,6 +124,9 @@ public class PeeGeeQProperties {
 
         public int getMinSize() { return minSize; }
         public void setMinSize(int minSize) { this.minSize = minSize; }
+
+        public boolean isShared() { return shared; }
+        public void setShared(boolean shared) { this.shared = shared; }
     }
 
     /**
@@ -147,4 +152,3 @@ public class PeeGeeQProperties {
         public void setPollingInterval(Duration pollingInterval) { this.pollingInterval = pollingInterval; }
     }
 }
-

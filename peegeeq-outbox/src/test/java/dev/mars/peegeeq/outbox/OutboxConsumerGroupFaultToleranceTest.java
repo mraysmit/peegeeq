@@ -122,7 +122,10 @@ class OutboxConsumerGroupFaultToleranceTest {
                 .password(postgres.getPassword())
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(2).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder()
+                .maxSize(2)
+                .shared(false)
+                .build();
         verificationPool = verificationConnectionManager.getOrCreateReactivePool(
                 "verification", connConfig, poolConfig);
 
@@ -319,7 +322,7 @@ class OutboxConsumerGroupFaultToleranceTest {
                     return producer.send("post-stop-message").mapEmpty()
                         .compose(x -> vertx.timer(2000).mapEmpty())
                         .map(x -> {
-                            assertEquals(0, postStopReceived.get(),
+                            assertEquals(0, postStopReceived.intValue(),
                                     "No messages should be processed after stop()");
                             return (Void) null;
                         });
@@ -419,7 +422,7 @@ class OutboxConsumerGroupFaultToleranceTest {
                     .execute(Tuple.of(testTopic))
                     .map(rows -> rows.iterator().next()))
                 .map(row -> {
-                    int totalCalls = handlerCalls.get();
+                    int totalCalls = handlerCalls.intValue();
                     int processingCount = row.getInteger("processing_count");
                     int pendingCount = row.getInteger("pending_count");
                     int terminalCount = row.getInteger("terminal_count");
@@ -489,7 +492,7 @@ class OutboxConsumerGroupFaultToleranceTest {
                     consumerGroup = outboxFactory.createConsumerGroup("retry-group", testTopic, String.class);
                     consumerGroup.addConsumer("c1", message -> {
                         attemptCount.incrementAndGet();
-                        logger.info("Handler attempt {} for message {}", attemptCount.get(), message.getPayload());
+                        logger.info("Handler attempt {} for message {}", attemptCount.intValue(), message.getPayload());
                         return Future.failedFuture(new RuntimeException("Permanent failure: " + message.getPayload()));
                     });
                     return consumerGroup.start();
@@ -504,7 +507,7 @@ class OutboxConsumerGroupFaultToleranceTest {
                         verificationPool.preparedQuery(
                                 "SELECT status, retry_count FROM outbox WHERE topic = $1")
                             .execute(Tuple.of(testTopic))
-                            .onSuccess(rows -> {
+                            .map(rows -> {
                                 if (rows.size() > 0) {
                                     var row = rows.iterator().next();
                                     String status = row.getString("status");
@@ -513,9 +516,14 @@ class OutboxConsumerGroupFaultToleranceTest {
                                     logger.info("Message status={}, retry_count={}", status, retryCount);
                                     if ("FAILED".equals(status) || "DEAD_LETTER".equals(status)) {
                                         vertx.cancelTimer(timerId);
-                                        terminalReached.complete();
+                                        terminalReached.tryComplete();
                                     }
                                 }
+                                return (Void) null;
+                            })
+                            .onFailure(error -> {
+                                vertx.cancelTimer(timerId);
+                                terminalReached.tryFail(error);
                             });
                     });
                     return terminalReached.future();
@@ -536,9 +544,9 @@ class OutboxConsumerGroupFaultToleranceTest {
                                     "Message should be FAILED or DEAD_LETTER, was: " + status);
                             assertTrue(retryCount >= 2,
                                     "Retry count should be >= 2, was: " + retryCount);
-                            assertTrue(attemptCount.get() >= 3,
+                            assertTrue(attemptCount.intValue() >= 3,
                                     "Handler should have been invoked at least 3 times (initial + 2 retries), was: "
-                                            + attemptCount.get());
+                                            + attemptCount.intValue());
                             return (Void) null;
                         });
                 })

@@ -46,6 +46,7 @@ public class PeeGeeQRetryProperties {
         private String username = "postgres";
         private String password = "postgres";
         private String schema;
+        private PoolProperties pool = new PoolProperties();
         
         // Getters and setters
         public String getHost() { return host; }
@@ -70,6 +71,16 @@ public class PeeGeeQRetryProperties {
             return schema;
         }
         public void setSchema(String schema) { this.schema = schema; }
+
+        public PoolProperties getPool() { return pool; }
+        public void setPool(PoolProperties pool) { this.pool = pool; }
+    }
+
+    public static class PoolProperties {
+        private boolean shared = true;
+
+        public boolean isShared() { return shared; }
+        public void setShared(boolean shared) { this.shared = shared; }
     }
     
     // Getters and setters
@@ -109,4 +120,3 @@ public class PeeGeeQRetryProperties {
     public DatabaseProperties getDatabase() { return database; }
     public void setDatabase(DatabaseProperties database) { this.database = database; }
 }
-

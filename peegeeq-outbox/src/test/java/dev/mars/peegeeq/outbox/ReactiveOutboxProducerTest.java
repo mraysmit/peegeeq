@@ -52,7 +52,7 @@ public class ReactiveOutboxProducerTest {
     private io.vertx.core.Vertx testVertx;
 
     @BeforeEach
-    void setUp(VertxTestContext ctx) throws Exception {
+    void setUp(io.vertx.core.Vertx vertx, VertxTestContext ctx) throws Exception {
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
 
@@ -68,7 +68,7 @@ public class ReactiveOutboxProducerTest {
         // Initialize manager
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start()
-            .onSuccess(v -> {
+            .map(v -> {
                 // Create outbox factory and producer
                 PgDatabaseService databaseService = new PgDatabaseService(manager);
                 PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
@@ -77,8 +77,8 @@ public class ReactiveOutboxProducerTest {
                 QueueFactory factory = provider.createFactory("outbox", databaseService);
                 producer = factory.createProducer("reactive-test", String.class);
 
-                // Create test-specific Vert.x instance and connection manager for verification queries
-                testVertx = io.vertx.core.Vertx.vertx();
+                // Use the VertxExtension-owned instance for verification queries.
+                testVertx = vertx;
                 connectionManager = new PgConnectionManager(testVertx);
                 PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
                         .host(postgres.getHost())
@@ -88,26 +88,32 @@ public class ReactiveOutboxProducerTest {
                         .password(postgres.getPassword())
                         .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                         .build();
-                PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).build();
+                PgPoolConfig poolConfig = new PgPoolConfig.Builder()
+                        .maxSize(3)
+                        .shared(false)
+                        .build();
                 testReactivePool = connectionManager.getOrCreateReactivePool("test-verification", connectionConfig, poolConfig);
 
-                ctx.completeNow();
+                return (Void) null;
             })
+            .onSuccess(v -> ctx.completeNow())
             .onFailure(ctx::failNow);
     }
 
     @AfterEach
     void tearDown(VertxTestContext ctx) throws Exception {
+        Future<Void> producerClose = Future.succeededFuture();
         if (producer != null) {
             try {
                 producer.close();
             } catch (Exception e) {
-                logger.warn("Error closing producer: {}", e.getMessage());
+                logger.error("Error closing producer", e);
+                producerClose = Future.failedFuture(e);
             }
         }
-        (manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+        producerClose
             .eventually(() -> connectionManager != null ? connectionManager.close() : Future.<Void>succeededFuture())
-            .eventually(() -> testVertx != null ? testVertx.close() : Future.<Void>succeededFuture())
+            .eventually(() -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
             .onSuccess(v -> ctx.completeNow())
             .onFailure(ctx::failNow);
         assertTrue(ctx.awaitCompletion(15, TimeUnit.SECONDS), "Teardown should complete within 15s");
@@ -252,5 +258,4 @@ public class ReactiveOutboxProducerTest {
         ).map(count -> count != null && count > 0);
     }
 }
-
 

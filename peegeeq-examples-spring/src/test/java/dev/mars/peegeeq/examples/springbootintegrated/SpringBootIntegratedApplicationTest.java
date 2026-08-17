@@ -21,6 +21,7 @@ import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
+import dev.mars.peegeeq.examples.springbootintegrated.config.IntegratedProperties;
 import dev.mars.peegeeq.examples.springbootintegrated.events.OrderEvent;
 import dev.mars.peegeeq.examples.springbootintegrated.model.CreateOrderRequest;
 import dev.mars.peegeeq.examples.springbootintegrated.model.OrderResponse;
@@ -32,8 +33,6 @@ import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Tuple;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -105,21 +104,9 @@ class SpringBootIntegratedApplicationTest {
     private DatabaseService databaseService;
     @Autowired(required = false)
     private PeeGeeQManager peeGeeQManager;
-    private static PeeGeeQManager peeGeeQManagerRef;
 
-    @AfterEach
-    void captureManager() {
-        peeGeeQManagerRef = peeGeeQManager;
-    }
-
-    @AfterAll
-    static void closeManager(VertxTestContext testContext) {
-        if (peeGeeQManagerRef != null) {
-            peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
-        } else {
-            testContext.completeNow();
-        }
-    }
+    @Autowired
+    private IntegratedProperties properties;
 
     @BeforeEach
     void setUp(VertxTestContext testContext) {
@@ -146,10 +133,22 @@ class SpringBootIntegratedApplicationTest {
                         return (Void) null;
                     });
             })
-            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+            .onSuccess(v -> testContext.verify(() -> {
                 logger.info("=== Application-specific schema setup complete ===");
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(error -> {
+                logger.error("Failed to create application-specific schema", error);
+                testContext.failNow(error);
+            });
+    }
+
+    @Test
+    void testUsesIsolatedPoolContract() {
+        assertFalse(properties.getDatabase().getPool().isShared(),
+            "Integrated test configuration must bind database.pool.shared=false");
+        assertFalse(peeGeeQManager.getConfiguration().getPoolConfig().isShared(),
+            "Integrated configuration must bridge database.pool.shared=false to PeeGeeQ");
     }
 
     @Test
@@ -196,10 +195,14 @@ class SpringBootIntegratedApplicationTest {
                         return (Void) null;
                     });
             })
-            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+            .onSuccess(v -> testContext.verify(() -> {
                 logger.info("=== Test Passed: All three operations committed together ===");
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(error -> {
+                logger.error("Integrated transaction test failed", error);
+                testContext.failNow(error);
+            });
     }
     
     @Test
@@ -224,11 +227,15 @@ class SpringBootIntegratedApplicationTest {
                         return history;
                     });
             })
-            .onComplete(testContext.succeeding(history -> testContext.verify(() -> {
+            .onSuccess(history -> testContext.verify(() -> {
                 logger.info("Order history retrieved: {} events", history.getHistory().size());
                 logger.info("=== Test Passed ===");
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(error -> {
+                logger.error("Order history query test failed", error);
+                testContext.failNow(error);
+            });
     }
     
     @Test
@@ -256,13 +263,17 @@ class SpringBootIntegratedApplicationTest {
                     return orderService.getCustomerOrders(customerId);
                 })
             )
-            .onComplete(testContext.succeeding(orders -> testContext.verify(() -> {
+            .onSuccess(orders -> testContext.verify(() -> {
                 assertNotNull(orders);
                 assertTrue(orders.size() >= 2, "Should have at least 2 orders for customer");
                 logger.info("Found {} orders for customer {}", orders.size(), customerId);
                 logger.info("=== Test Passed ===");
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(error -> {
+                logger.error("Customer orders query test failed", error);
+                testContext.failNow(error);
+            });
     }
     
     @Test
@@ -294,10 +305,14 @@ class SpringBootIntegratedApplicationTest {
                         })
                     );
             })
-            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+            .onSuccess(v -> testContext.verify(() -> {
                 logger.info("=== Test Passed ===");
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(error -> {
+                logger.error("Point-in-time query test failed", error);
+                testContext.failNow(error);
+            });
     }
     
     /**
@@ -330,4 +345,3 @@ class SpringBootIntegratedApplicationTest {
         });
     }
 }
-

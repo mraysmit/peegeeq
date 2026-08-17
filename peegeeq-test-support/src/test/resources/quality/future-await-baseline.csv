@@ -4,5 +4,3 @@
 # To FIX a file: remediate it, then update or delete its row here in the same commit.
 # Baseline captured: 2026-05-18. Total allowed violations: 468.
 path,count
-peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/examples/RestApiExampleTest.java,1
-peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/examples/RestApiStreamingExampleTest.java,8

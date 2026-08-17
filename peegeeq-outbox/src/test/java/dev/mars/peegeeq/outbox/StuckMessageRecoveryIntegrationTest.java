@@ -30,7 +30,6 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
-import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Pool;
@@ -48,6 +47,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
@@ -91,7 +91,9 @@ public class StuckMessageRecoveryIntegrationTest {
 
         // Set up database connection
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
-                .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
+                .property("peegeeq.queue.recovery.enabled", "false")
+                .build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().compose(v -> {
@@ -141,7 +143,7 @@ public class StuckMessageRecoveryIntegrationTest {
      * This simulates the exact scenario where a consumer crashes after polling messages.
      */
     @Test
-    void testStuckMessageRecoveryWithRealCrash(Vertx vertx, VertxTestContext testContext) {
+    void testStuckMessageRecoveryWithRealCrash(VertxTestContext testContext) {
         logger.info("=== Testing Stuck Message Recovery with Simulated Consumer Crash ===");
 
         // Create a dedicated recovery manager for testing with a very short timeout
@@ -155,43 +157,30 @@ public class StuckMessageRecoveryIntegrationTest {
             sends.add(producer.send("Test message " + i + " for crash simulation"));
         }
         Future.all(sends)
-                .compose(v -> {
-                    logger.info("Sent {} test messages", messageCount);
-                    return vertx.timer(1000).mapEmpty();
-                })
                 .compose(v -> countMessagesByStatus("PENDING"))
                 .compose(pendingCount -> {
                     logger.info("Found {} messages in PENDING state", pendingCount);
-                    assertTrue(pendingCount >= messageCount,
-                            "Should have at least " + messageCount + " pending messages");
+                    assertEquals(messageCount, pendingCount,
+                            "Every sent message should be persisted as PENDING");
                     logger.info("Simulating consumer crash - forcing messages into PROCESSING state");
                     return forceMessagesIntoProcessingState(messageCount);
                 })
-                .compose(forcedCount -> countMessagesByStatus("PROCESSING")
-                        .map(processingCount -> new int[]{forcedCount, processingCount}))
-                .compose(counts -> {
-                    int forcedCount = counts[0];
-                    int processingCount = counts[1];
+                .compose(forcedCount -> {
+                    assertEquals(messageCount, forcedCount,
+                            "The crash fixture should move every message into PROCESSING");
+                    return countMessagesByStatus("PROCESSING");
+                })
+                .compose(processingCount -> {
                     logger.info("Found {} messages stuck in PROCESSING state after simulated crash", processingCount);
-
-                    if (forcedCount == 0 || processingCount == 0) {
-                        logger.info("No messages were forced into PROCESSING state - this may be due to timing");
-                        logger.info("The recovery mechanism is still functional, as demonstrated by other tests");
-                        return Future.<Void>succeededFuture();
-                    }
-
-                    assertTrue(processingCount > 0,
-                            "Should have messages stuck in PROCESSING state after crash");
-                    return vertx.timer(3000)
-                            .compose(v -> {
-                                logger.info("Running stuck message recovery...");
-                                return testRecoveryManager.recoverStuckMessages();
-                            })
-                            .compose(recoveredCount -> {
-                                assertTrue(recoveredCount > 0,
-                                        "Recovery manager should have recovered stuck messages");
+                    assertEquals(messageCount, processingCount,
+                            "Every fixture message should be stuck in PROCESSING before recovery");
+                    logger.info("Running stuck message recovery...");
+                    return testRecoveryManager.recoverStuckMessages()
+                            .map(recoveredCount -> {
+                                assertEquals(messageCount, recoveredCount,
+                                        "Recovery manager should recover every stuck fixture message");
                                 logger.info("Recovery manager recovered {} stuck messages", recoveredCount);
-                                return vertx.timer(1000);
+                                return (Void) null;
                             })
                             .compose(v -> Future.all(
                                     countMessagesByStatus("PENDING"),
@@ -201,12 +190,18 @@ public class StuckMessageRecoveryIntegrationTest {
                                 int processingAfterRecovery = afterRecovery.resultAt(1);
                                 logger.info("After recovery: {} PENDING, {} PROCESSING",
                                         pendingAfterRecovery, processingAfterRecovery);
-                                assertTrue(processingAfterRecovery < processingCount,
-                                        "Should have fewer PROCESSING messages after recovery");
+                                assertEquals(messageCount, pendingAfterRecovery,
+                                        "Every recovered message should return to PENDING");
+                                assertEquals(0, processingAfterRecovery,
+                                        "No fixture message should remain in PROCESSING after recovery");
                                 return testRecoveryManager.getRecoveryStats();
                             })
                             .map(stats -> {
                                 assertTrue(stats.isEnabled(), "Recovery should be enabled");
+                                assertEquals(0, stats.getStuckMessagesCount(),
+                                        "No stuck messages should remain after recovery");
+                                assertEquals(0, stats.getTotalProcessingCount(),
+                                        "No PROCESSING messages should remain after recovery");
                                 logger.info("Recovery stats: {}", stats);
                                 logger.info("Stuck message recovery test completed successfully!");
                                 logger.info("This test demonstrates that the recovery mechanism can successfully");
@@ -251,56 +246,39 @@ public class StuckMessageRecoveryIntegrationTest {
     }
 
     /**
-     * Test that simulates a consumer process crash using thread interruption.
-     * This creates an even more realistic crash scenario.
+     * Tests recovery of a single message inserted at the post-poll crash boundary.
      */
     @Test
-    void testStuckMessageRecoveryWithThreadCrash(Vertx vertx, VertxTestContext testContext) {
-        logger.info("TEST STARTED: testStuckMessageRecoveryWithThreadCrash");
-        logger.info("=== Testing Stuck Message Recovery with Direct Database Insertion ===");
-
-        // Create recovery manager with short timeout for testing
+    void testDirectlyInsertedStuckMessageIsRecoveredToPending(VertxTestContext testContext) {
         StuckMessageRecoveryManager testRecoveryManager =
-            new StuckMessageRecoveryManager(reactivePool, Duration.ofSeconds(3), true);
+            new StuckMessageRecoveryManager(reactivePool, Duration.ofMinutes(3), true);
 
-        // Instead of complex crash simulation, directly insert a stuck message
-        logger.info("Inserting stuck PROCESSING message directly into database...");
         insertStuckProcessingMessage()
-                .compose(stuckMessageId -> {
-                    logger.info("Inserted stuck message with ID: {}", stuckMessageId);
-                    return countMessagesByStatus("PROCESSING");
-                })
-                .compose(processingCount -> {
-                    logger.info("Messages in PROCESSING state: {}", processingCount);
-                    assertTrue(processingCount > 0, "Should have at least one PROCESSING message");
-                    return vertx.timer(4000)
-                            .compose(v -> {
-                                logger.info("Running stuck message recovery...");
-                                return testRecoveryManager.recoverStuckMessages();
-                            })
-                            .compose(recoveredCount -> {
-                                logger.info("Recovery manager recovered {} stuck messages", recoveredCount);
-                                assertTrue(recoveredCount > 0, "Should have recovered stuck messages");
-                                return Future.all(
-                                        countMessagesByStatus("PROCESSING"),
-                                        countMessagesByStatus("PENDING"));
-                            })
-                            .map(afterRecovery -> {
-                                int processingAfterRecovery = afterRecovery.resultAt(0);
-                                int pendingAfterRecovery = afterRecovery.resultAt(1);
-                                logger.info("After recovery: {} PROCESSING, {} PENDING",
-                                        processingAfterRecovery, pendingAfterRecovery);
-                                logger.info("Comparison: processingCount={}, processingAfterRecovery={}",
-                                        processingCount, processingAfterRecovery);
-
-                                assertTrue(processingAfterRecovery < processingCount,
-                                        String.format("Should have fewer PROCESSING messages after recovery. Before: %d, After: %d",
-                                                processingCount, processingAfterRecovery));
-                                assertTrue(pendingAfterRecovery > 0,
-                                        "Should have PENDING messages after recovery");
-                                logger.info("Stuck message recovery test completed successfully!");
-                                return (Void) null;
-                            });
+                .compose(stuckMessageId -> fetchMessageState(stuckMessageId)
+                        .map(stuckState -> {
+                            assertEquals("PROCESSING", stuckState.status(),
+                                    "The crash-boundary fixture must start in PROCESSING");
+                            assertNotNull(stuckState.processedAt(),
+                                    "The stuck message must retain its processing timestamp before recovery");
+                            assertEquals(0, stuckState.retryCount(),
+                                    "The crash-boundary fixture must start without retries");
+                            return stuckMessageId;
+                        }))
+                .compose(stuckMessageId -> testRecoveryManager.recoverStuckMessages()
+                        .map(recoveredCount -> {
+                            assertEquals(1, recoveredCount,
+                                    "Recovery must reset exactly the inserted stuck message");
+                            return stuckMessageId;
+                        }))
+                .compose(this::fetchMessageState)
+                .map(recoveredState -> {
+                    assertEquals("PENDING", recoveredState.status(),
+                            "The recovered message must return to PENDING");
+                    assertNull(recoveredState.processedAt(),
+                            "Recovery must clear the processing timestamp");
+                    assertEquals(0, recoveredState.retryCount(),
+                            "Recovery must preserve the retry count");
+                    return (Void) null;
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
@@ -324,8 +302,8 @@ public class StuckMessageRecoveryIntegrationTest {
         Instant now = Instant.now();
         Instant stuckTime = now.minus(Duration.ofMinutes(10));
 
-        return reactivePool.withConnection(conn ->
-            conn.preparedQuery(insertSql)
+        return reactivePool.withTransaction(client ->
+            client.preparedQuery(insertSql)
                 .execute(Tuple.of(testTopic, "\"Stuck message for recovery test\"",
                     stuckTime.atOffset(ZoneOffset.UTC), now.atOffset(ZoneOffset.UTC)))
                 .map(rows -> {
@@ -346,37 +324,30 @@ public class StuckMessageRecoveryIntegrationTest {
     private Future<Void> verifyMessageStatus(long messageId, String expectedStatus) {
         logger.info("Looking for message with ID: {}", messageId);
 
-        return reactivePool.withConnection(conn -> {
-            // First, let's see all messages in the database
-            String allSql = "SELECT id, topic, status, processed_at FROM outbox ORDER BY id";
-            return conn.query(allSql).execute()
-                .compose(allRows -> {
-                    logger.info("All messages in database:");
-                    allRows.forEach(row -> {
-                        logger.info("  - ID: {}, Topic: {}, Status: {}, ProcessedAt: {}",
-                            row.getLong("id"), row.getString("topic"),
-                            row.getString("status"), row.getValue("processed_at"));
-                    });
-
-                    String sql = "SELECT status, processed_at, retry_count FROM outbox WHERE id = $1";
-                    return conn.preparedQuery(sql).execute(Tuple.of(messageId));
-                })
-                .map(rows -> {
-                    assertTrue(rows.size() > 0, "Message with ID " + messageId + " should exist in database");
-
-                    var row = rows.iterator().next();
-                    String status = row.getString("status");
-                    Object processedAt = row.getValue("processed_at");
-                    int retryCount = row.getInteger("retry_count");
-
-                    logger.info("Message {} state: status={}, processed_at={}, retry_count={}",
-                        messageId, status, processedAt, retryCount);
-
-                    assertEquals(expectedStatus, status,
-                        "Message " + messageId + " should have status: " + expectedStatus);
+        return fetchMessageState(messageId)
+                .map(state -> {
+                    assertEquals(expectedStatus, state.status(),
+                            "Message " + messageId + " should have status: " + expectedStatus);
                     return (Void) null;
                 });
-        });
+    }
+
+    /**
+     * Reads the exact state of one fixture message.
+     */
+    private Future<MessageState> fetchMessageState(long messageId) {
+        String sql = "SELECT status, processed_at, retry_count FROM outbox WHERE id = $1 AND topic = $2";
+        return reactivePool.withConnection(conn -> conn.preparedQuery(sql)
+                .execute(Tuple.of(messageId, testTopic))
+                .map(rows -> {
+                    assertEquals(1, rows.size(),
+                            "Exactly one fixture message should exist for ID " + messageId);
+                    var row = rows.iterator().next();
+                    return new MessageState(
+                            row.getString("status"),
+                            row.getOffsetDateTime("processed_at"),
+                            row.getInteger("retry_count"));
+                }));
     }
 
     /**
@@ -404,10 +375,10 @@ public class StuckMessageRecoveryIntegrationTest {
      * @return the number of messages that were forced into PROCESSING state
      */
     private Future<Integer> forceMessagesIntoProcessingState(int maxMessages) {
-        return reactivePool.withConnection(conn -> {
+        return reactivePool.withTransaction(client -> {
             // First, let's see what messages exist
             String selectSql = "SELECT id, topic, status, payload::text as payload_text FROM outbox WHERE topic = $1";
-            return conn.preparedQuery(selectSql).execute(Tuple.of(testTopic))
+            return client.preparedQuery(selectSql).execute(Tuple.of(testTopic))
                 .compose(selectRows -> {
                     logger.info("Messages in database for topic {}:", testTopic);
                     selectRows.forEach(row -> {
@@ -431,7 +402,7 @@ public class StuckMessageRecoveryIntegrationTest {
                     Instant stuckTime = Instant.now().minus(Duration.ofMinutes(5));
                     logger.info("Executing update for topic: {}, maxMessages: {}", testTopic, maxMessages);
 
-                    return conn.preparedQuery(updateSql)
+                    return client.preparedQuery(updateSql)
                         .execute(Tuple.of(stuckTime.atOffset(ZoneOffset.UTC), testTopic, maxMessages));
                 })
                 .map(updateRows -> {
@@ -440,6 +411,9 @@ public class StuckMessageRecoveryIntegrationTest {
                     return updated;
                 });
         });
+    }
+
+    private record MessageState(String status, OffsetDateTime processedAt, int retryCount) {
     }
 
 }

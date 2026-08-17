@@ -13,8 +13,6 @@ spring:
   
   # Jackson Configuration
   jackson:
-    serialization:
-      write-dates-as-timestamps: false
     deserialization:
       fail-on-unknown-properties: false
   
@@ -112,4 +110,3 @@ logging:
   level:
     dev.mars.peegeeq: DEBUG
     org.springframework.test: DEBUG
-

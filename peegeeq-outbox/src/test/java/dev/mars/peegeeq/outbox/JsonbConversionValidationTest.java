@@ -89,7 +89,10 @@ class JsonbConversionValidationTest {
                 .password(postgres.getPassword())
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder()
+                .maxSize(3)
+                .shared(false)
+                .build();
         reactivePool = connectionManager.getOrCreateReactivePool("test-verification", connectionConfig, poolConfig);
         manager.start()
                 .map(v -> {

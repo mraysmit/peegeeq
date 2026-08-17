@@ -20,13 +20,14 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
+import dev.mars.peegeeq.db.PeeGeeQManager;
+import dev.mars.peegeeq.examples.springbootconsumer.config.PeeGeeQConsumerProperties;
 import dev.mars.peegeeq.examples.springbootconsumer.events.OrderEvent;
 import dev.mars.peegeeq.examples.springbootconsumer.service.OrderConsumerService;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
-import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -41,6 +42,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.ActiveProfiles;
@@ -57,7 +59,6 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 
 import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.AfterEach;
 
 /**
  * Integration tests for Spring Boot Consumer Example.
@@ -85,9 +86,32 @@ import org.junit.jupiter.api.AfterEach;
 @ActiveProfiles("test")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @ExtendWith(VertxExtension.class)
+@AutoConfigureTestRestTemplate
 public class OrderConsumerServiceTest {
     
     private static final Logger log = LoggerFactory.getLogger(OrderConsumerServiceTest.class);
+    private static final String CREATE_ORDERS_TABLE = """
+        CREATE TABLE IF NOT EXISTS %s.orders (
+            id VARCHAR(255) PRIMARY KEY,
+            customer_id VARCHAR(255) NOT NULL,
+            amount DECIMAL(19, 4) NOT NULL,
+            status VARCHAR(50) NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            processed_at TIMESTAMP,
+            processed_by VARCHAR(255)
+        )
+        """.formatted(PostgreSQLTestConstants.TEST_SCHEMA);
+    private static final String CREATE_CONSUMER_STATUS_TABLE = """
+        CREATE TABLE IF NOT EXISTS %s.consumer_status (
+            consumer_id VARCHAR(255) PRIMARY KEY,
+            status VARCHAR(50) NOT NULL,
+            messages_processed BIGINT NOT NULL DEFAULT 0,
+            started_at TIMESTAMP,
+            last_message_at TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """.formatted(PostgreSQLTestConstants.TEST_SCHEMA);
+
     @Container
     static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
@@ -102,6 +126,17 @@ public class OrderConsumerServiceTest {
         log.info("Initializing database schema for Spring Boot consumer service test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
         log.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
+
+        try (java.sql.Connection connection = java.sql.DriverManager.getConnection(
+                postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+             java.sql.Statement statement = connection.createStatement()) {
+            statement.execute(CREATE_ORDERS_TABLE);
+            statement.execute(CREATE_CONSUMER_STATUS_TABLE);
+            log.info("Application-specific consumer tables created before Spring context startup");
+        } catch (java.sql.SQLException error) {
+            log.error("Failed to create application-specific consumer tables before startup", error);
+            throw new IllegalStateException("Failed to create application-specific consumer tables before startup", error);
+        }
     }
 
     @BeforeEach
@@ -109,43 +144,24 @@ public class OrderConsumerServiceTest {
         log.info("=== Setting up application-specific tables ===");
 
         // Create orders table for this specific test
-        String createOrdersTable = """
-            CREATE TABLE IF NOT EXISTS orders (
-                id VARCHAR(255) PRIMARY KEY,
-                customer_id VARCHAR(255) NOT NULL,
-                amount DECIMAL(19, 4) NOT NULL,
-                status VARCHAR(50) NOT NULL,
-                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                processed_at TIMESTAMP,
-                processed_by VARCHAR(255)
-            )
-            """;
-
-        // Create consumer_status table for this specific test
-        String createConsumerStatusTable = """
-            CREATE TABLE IF NOT EXISTS consumer_status (
-                consumer_id VARCHAR(255) PRIMARY KEY,
-                status VARCHAR(50) NOT NULL,
-                messages_processed BIGINT NOT NULL DEFAULT 0,
-                started_at TIMESTAMP,
-                last_message_at TIMESTAMP,
-                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-            """;
-
         // Execute application-specific schema creation
         databaseService.getConnectionProvider()
             .withTransaction("peegeeq-main", connection -> {
-                return connection.query(createOrdersTable).execute()
-                    .compose(v -> connection.query(createConsumerStatusTable).execute())
+                return connection.query(CREATE_ORDERS_TABLE).execute()
+                    .compose(v -> connection.query(CREATE_CONSUMER_STATUS_TABLE).execute())
                     .map(v -> {
                         log.info("Application-specific schema created successfully");
                         return (Void) null;
                     });
-            }).onComplete(setupContext.succeeding(v -> {
+            })
+            .onSuccess(v -> setupContext.verify(() -> {
                 log.info("=== Application-specific schema setup complete ===");
                 setupContext.completeNow();
-            }));
+            }))
+            .onFailure(error -> {
+                log.error("Failed to create application-specific schema", error);
+                setupContext.failNow(error);
+            });
     }
 
     @Autowired
@@ -156,6 +172,12 @@ public class OrderConsumerServiceTest {
     
     @Autowired
     private DatabaseService databaseService;
+
+    @Autowired
+    private PeeGeeQManager manager;
+
+    @Autowired
+    private PeeGeeQConsumerProperties properties;
     
     @Autowired
     private TestRestTemplate restTemplate;
@@ -174,10 +196,9 @@ public class OrderConsumerServiceTest {
         
         // Send test message
         OrderEvent event = new OrderEvent("ORDER-001", "customer-1", new BigDecimal("100.00"), "PENDING");
-        producer.send(event).onFailure(err -> log.warn("Failed to send event", err));
-
-        // Wait for message to be processed, then verify
-        vertx.timer(2000)
+        producer.send(event)
+            // Wait for message to be processed, then verify
+            .compose(v -> vertx.timer(2000))
             .compose(v -> databaseService.getConnectionProvider()
                 .withTransaction("peegeeq-main", connection -> {
                     return connection.preparedQuery("SELECT COUNT(*) FROM orders WHERE id = $1")
@@ -187,13 +208,20 @@ public class OrderConsumerServiceTest {
                             return row.getLong(0) > 0;
                         });
                 }))
-            .onComplete(testContext.succeeding(orderExists -> testContext.verify(() -> {
-                assertTrue(orderExists, "Order should be stored in database");
-                assertTrue(consumerService.getMessagesProcessed() > 0, "Consumer should have processed messages");
+            .onSuccess(orderExists -> {
                 producer.close();
-                log.info("Basic Message Consumption test passed");
-                testContext.completeNow();
-            })));
+                testContext.verify(() -> {
+                    assertTrue(orderExists, "Order should be stored in database");
+                    assertTrue(consumerService.getMessagesProcessed() > 0, "Consumer should have processed messages");
+                    log.info("Basic Message Consumption test passed");
+                    testContext.completeNow();
+                });
+            })
+            .onFailure(error -> {
+                producer.close();
+                log.error("Failed to verify basic message consumption", error);
+                testContext.failNow(error);
+            });
     }
     
     @Test
@@ -208,22 +236,28 @@ public class OrderConsumerServiceTest {
         
         // Send message with allowed status (should be processed)
         OrderEvent allowedEvent = new OrderEvent("ORDER-002", "customer-2", new BigDecimal("150.00"), "PENDING");
-        producer.send(allowedEvent).onFailure(err -> log.warn("Failed to send allowed event", err));
-
-        // Send message with disallowed status (should be filtered)
         OrderEvent filteredEvent = new OrderEvent("ORDER-003", "customer-3", new BigDecimal("200.00"), "SHIPPED");
-        producer.send(filteredEvent).onFailure(err -> log.warn("Failed to send filtered event", err));
 
-        // Wait for messages to be processed then verify
-        vertx.timer(2000).onComplete(testContext.succeeding(v -> testContext.verify(() -> {
-            long processedDelta = consumerService.getMessagesProcessed() - initialProcessed;
-            long filteredDelta = consumerService.getMessagesFiltered() - initialFiltered;
-            assertTrue(processedDelta >= 1, "At least one message should be processed");
-            assertTrue(filteredDelta >= 1, "At least one message should be filtered");
-            producer.close();
-            log.info("Message Filtering test passed");
-            testContext.completeNow();
-        })));
+        producer.send(allowedEvent)
+            .compose(v -> producer.send(filteredEvent))
+            // Wait for both messages to be processed then verify
+            .compose(v -> vertx.timer(2000))
+            .onSuccess(v -> {
+                producer.close();
+                testContext.verify(() -> {
+                    long processedDelta = consumerService.getMessagesProcessed() - initialProcessed;
+                    long filteredDelta = consumerService.getMessagesFiltered() - initialFiltered;
+                    assertTrue(processedDelta >= 1, "At least one message should be processed");
+                    assertTrue(filteredDelta >= 1, "At least one message should be filtered");
+                    log.info("Message Filtering test passed");
+                    testContext.completeNow();
+                });
+            })
+            .onFailure(error -> {
+                producer.close();
+                log.error("Failed while waiting to verify message filtering", error);
+                testContext.failNow(error);
+            });
     }
     
     @SuppressWarnings("null")
@@ -282,8 +316,11 @@ public class OrderConsumerServiceTest {
         assertNotNull(consumerService, "OrderConsumerService should be injected");
         assertNotNull(queueFactory, "QueueFactory should be injected");
         assertNotNull(databaseService, "DatabaseService should be injected");
+        assertFalse(properties.getDatabase().getPool().isShared(),
+            "Shared test properties must bind the non-shared pool setting");
+        assertFalse(manager.getConfiguration().getPoolConfig().isShared(),
+            "Spring integration tests must create non-shared reactive pools");
         
         log.info("Consumer Service Bean Injection test passed");
     }
 }
-

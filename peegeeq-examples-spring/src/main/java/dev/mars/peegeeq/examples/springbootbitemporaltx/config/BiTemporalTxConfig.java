@@ -24,6 +24,7 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.examples.springbootbitemporaltx.events.*;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.vertx.core.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -103,11 +104,16 @@ public class BiTemporalTxConfig {
      * Manages PeeGeeQ Manager lifecycle via Spring's SmartLifecycle contract.
      *
      * <p>start() runs on the Spring refresh thread and blocks for up to 60 seconds
-     * until manager.start() completes. stop(Runnable) closes the manager reactively
-     * and notifies Spring via the callback when teardown is complete.
+     * until manager.start() completes. stop(Runnable) closes every event store before
+     * Spring bean destruction closes the manager.
      */
     @Bean
-    public SmartLifecycle peeGeeQManagerLifecycle(PeeGeeQManager manager) {
+    public SmartLifecycle peeGeeQManagerLifecycle(
+            PeeGeeQManager manager,
+            EventStore<OrderEvent> orderEventStore,
+            EventStore<InventoryEvent> inventoryEventStore,
+            EventStore<PaymentEvent> paymentEventStore,
+            EventStore<AuditEvent> auditEventStore) {
         return new SmartLifecycle() {
             private volatile boolean running = false;
 
@@ -136,18 +142,37 @@ public class BiTemporalTxConfig {
 
             @Override
             public void stop(Runnable callback) {
-                logger.info("Stopping PeeGeeQ Manager via SmartLifecycle...");
-                manager.closeReactive()
-                    .onSuccess(v -> {
-                        logger.info("PeeGeeQ Manager stopped successfully");
-                        running = false;
-                        callback.run();
-                    })
-                    .onFailure(e -> {
-                        logger.error("Error stopping PeeGeeQ Manager", e);
-                        running = false;
-                        callback.run();
-                    });
+                logger.info("Stopping all bi-temporal event stores before PeeGeeQ Manager destruction");
+                CountDownLatch latch = new CountDownLatch(1);
+                AtomicReference<Throwable> error = new AtomicReference<>();
+                Future.all(
+                        orderEventStore.close(),
+                        inventoryEventStore.close(),
+                        paymentEventStore.close(),
+                        auditEventStore.close())
+                    .onSuccess(v -> latch.countDown())
+                    .onFailure(e -> { error.set(e); latch.countDown(); });
+
+                RuntimeException closeFailure = null;
+                try {
+                    if (!latch.await(60, TimeUnit.SECONDS)) {
+                        closeFailure = new RuntimeException("Bi-temporal event store close timed out after 60 seconds");
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    closeFailure = new RuntimeException("Bi-temporal event store close interrupted", e);
+                }
+                if (error.get() != null) {
+                    closeFailure = new RuntimeException("Bi-temporal event store failed to close", error.get());
+                }
+
+                running = false;
+                callback.run();
+                if (closeFailure != null) {
+                    logger.error("Error closing event stores before manager destruction", closeFailure);
+                    throw closeFailure;
+                }
+                logger.info("All bi-temporal event stores closed before PeeGeeQ Manager destruction");
             }
 
             @Override
@@ -287,9 +312,9 @@ public class BiTemporalTxConfig {
         props.setProperty("peegeeq.database.schema", properties.getDatabase().getSchema());
         props.setProperty("peegeeq.database.pool.max-size", String.valueOf(properties.getPool().getMaxSize()));
         props.setProperty("peegeeq.database.pool.min-size", String.valueOf(properties.getPool().getMinSize()));
+        props.setProperty("peegeeq.database.pool.shared", String.valueOf(properties.getPool().isShared()));
         props.setProperty("peegeeq.transaction.timeout", properties.getTransaction().getTimeout().toString());
         props.setProperty("peegeeq.transaction.retry-attempts", String.valueOf(properties.getTransaction().getRetryAttempts()));
         return props;
     }
 }
-

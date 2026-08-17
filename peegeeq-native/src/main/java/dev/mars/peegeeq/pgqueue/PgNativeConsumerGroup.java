@@ -44,7 +44,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
-import java.util.function.Supplier;
 
 /**
  * Native PostgreSQL implementation of a consumer group.
@@ -93,6 +92,12 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
     private final PgConnectionManager connectionManager;
     private final String connectionServiceId;
     private volatile PartitionedConsumerEngine<T> partitionedEngine;
+    private Future<Void> closeFuture;
+
+    @FunctionalInterface
+    private interface DuplicateExceptionFactory {
+        RuntimeException create();
+    }
 
     private record NativeQueueStartPosition(Long minimumMessageId, OffsetDateTime minimumCreatedAt) {
         private static NativeQueueStartPosition allAvailable() {
@@ -130,7 +135,7 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
     // -- Package-private accessors for testing --
 
     State getState() {
-        return state.get();
+        return state.getAcquire();
     }
     
     @Override
@@ -160,8 +165,8 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
             String consumerId,
             MessageHandler<T> handler,
             Predicate<Message<T>> messageFilter,
-            Supplier<? extends RuntimeException> duplicateException) {
-        if (state.get() == State.CLOSED) {
+            DuplicateExceptionFactory duplicateException) {
+        if (state.getAcquire() == State.CLOSED) {
             throw new IllegalStateException("Consumer group is closed");
         }
         
@@ -171,11 +176,11 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
         
         PgNativeConsumerGroupMember<T> existing = members.putIfAbsent(consumerId, member);
         if (existing != null) {
-            throw duplicateException.get();
+            throw duplicateException.create();
         }
         
         // If the group is already active, start the new member
-        if (state.get() == State.ACTIVE) {
+        if (state.getAcquire() == State.ACTIVE) {
             member.start();
         }
         
@@ -210,7 +215,7 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
     @Override
     public Future<Void> start() {
         if (!state.compareAndSet(State.NEW, State.STARTING)) {
-            State current = state.get();
+            State current = state.getAcquire();
             if (current == State.CLOSED) {
                 return Future.failedFuture(new IllegalStateException("Consumer group is closed"));
             }
@@ -229,6 +234,7 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
                     } else {
                         logger.error("Failed to start consumer group '{}': {}", groupName, msg);
                     }
+                    state.compareAndSet(State.STARTING, State.NEW);
                 });
     }
 
@@ -253,18 +259,21 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
                     // CAS: only transition if still STARTING (close() may have set CLOSED)
                     if (!state.compareAndSet(State.STARTING, State.ACTIVE)) {
                         logger.warn("Consumer group '{}' was closed during startup, aborting", groupName);
+                        IllegalStateException startupAbort =
+                                new IllegalStateException("Consumer group closed during startup");
                         return partitionedEngine.stop()
                                 .onFailure(stopErr ->
                                     logger.warn("Failed to stop engine during startup abort: {}", stopErr.getMessage()))
-                                .transform(ar -> Future.<Void>succeededFuture())
-                                .compose(v2 -> Future.<Void>failedFuture(
-                                        new IllegalStateException("Consumer group closed during startup")));
+                                .compose(v2 -> Future.<Void>failedFuture(startupAbort), stopErr -> {
+                                    startupAbort.addSuppressed(stopErr);
+                                    return Future.<Void>failedFuture(startupAbort);
+                                });
                     }
                     // Start all existing members only after engine is ready
                     members.values().forEach(PgNativeConsumerGroupMember::start);
                     logger.info("Consumer group '{}' started in OFFSET_WATERMARK mode with {} members",
                             groupName, members.size());
-                    return Future.succeededFuture();
+                    return Future.<Void>succeededFuture();
                 })
                 .onFailure(err -> {
                     String msg = err.getMessage();
@@ -289,14 +298,9 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
 
         if (connectionManager != null) {
             return PartitionedConsumerEngine.isOffsetWatermarkTopic(connectionManager, connectionServiceId, topic)
-                    .transform(ar -> {
-                        if (ar.failed()) {
-                            logger.warn("Failed to detect topic mode for '{}', falling back to reference counting: {}",
-                                    topic, ar.cause().getMessage());
-                            return Future.succeededFuture(false);
-                        }
-                        return Future.succeededFuture(ar.result());
-                    })
+                    .onFailure(err -> logger.error(
+                            "Failed to detect completion-tracking mode for topic '{}': {}",
+                            topic, err.getMessage(), err))
                     .compose(isOffsetWatermark -> {
                         if (isOffsetWatermark) {
                             return startPartitioned();
@@ -351,7 +355,7 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
         // Subscribe to messages and distribute them to group members
         return consumer.subscribe(this::distributeMessage)
                 .compose(v -> {
-                    if (state.get() != State.ACTIVE) {
+                    if (state.getAcquire() != State.ACTIVE) {
                         consumer.close();
                         if (underlyingConsumer == consumer) {
                             underlyingConsumer = null;
@@ -366,7 +370,8 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
                     return Future.<Void>succeededFuture();
                 })
                 .onFailure(err -> {
-                    if (state.get() == State.CLOSED || state.get() == State.STOPPING) {
+                    State current = state.getAcquire();
+                    if (current == State.CLOSED || current == State.STOPPING) {
                         logger.debug("Consumer group subscription aborted for group '{}' topic '{}' - consumer closed",
                                 groupName, topic);
                     } else {
@@ -382,7 +387,7 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
             throw new IllegalArgumentException("subscriptionOptions cannot be null");
         }
 
-        State current = state.get();
+        State current = state.getAcquire();
         if (current == State.CLOSED) {
             return Future.failedFuture(
                     new IllegalStateException("Consumer group '" + groupName + "' has been closed"));
@@ -474,11 +479,18 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
                     .onFailure(err ->
                         logger.warn("Failed to cancel subscription for group '{}' on topic '{}': {}",
                                 groupName, topic, err.getMessage()))
-                    .transform(ar -> Future.<Void>succeededFuture())
-                    .compose(v -> stopInternal());
+                    .compose(v -> stopInternal(), this::stopAfterCancellationFailure);
         }
 
         return stopInternal();
+    }
+
+    private Future<Void> stopAfterCancellationFailure(Throwable cancellationFailure) {
+        return stopInternal()
+                .compose(v -> Future.failedFuture(cancellationFailure), stopFailure -> {
+                    cancellationFailure.addSuppressed(stopFailure);
+                    return Future.failedFuture(cancellationFailure);
+                });
     }
 
     /**
@@ -528,7 +540,7 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
     
     @Override
     public boolean isActive() {
-        return state.get() == State.ACTIVE;
+        return state.getAcquire() == State.ACTIVE;
     }
     
     @Override
@@ -566,7 +578,7 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
         
         return new ConsumerGroupStats(
             groupName, topic, getActiveConsumerCount(), members.size(),
-            totalProcessed, totalFailed, totalMessagesFiltered.get(),
+            totalProcessed, totalFailed, totalMessagesFiltered.getAcquire(),
             avgProcessingTime, messagesPerSecond, createdAt, lastActiveAt, memberStats
         );
     }
@@ -598,7 +610,11 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
     }
     
     @Override
-    public Future<Void> close() {
+    public synchronized Future<Void> close() {
+        if (closeFuture != null) {
+            return closeFuture;
+        }
+
         State prev = state.getAndSet(State.CLOSED);
         if (prev == State.CLOSED) {
             return Future.succeededFuture(); // already closed
@@ -606,16 +622,19 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
 
         logger.info("Closing consumer group '{}' for topic '{}'", groupName, topic);
 
+        Future<Void> engineStop = Future.succeededFuture();
+
         // If we were active, stop first
         if (prev == State.ACTIVE) {
             // Stop the underlying consumer directly (no state transition since we're going to CLOSED)
             members.values().forEach(PgNativeConsumerGroupMember::stop);
 
             if (partitionedEngine != null) {
-                partitionedEngine.stop()
+                PartitionedConsumerEngine<T> engineToStop = partitionedEngine;
+                partitionedEngine = null;
+                engineStop = engineToStop.stop()
                         .onFailure(err -> logger.warn("Error stopping partitioned engine for group '{}': {}",
                                 groupName, err.getMessage()));
-                partitionedEngine = null;
             }
 
             if (underlyingConsumer != null) {
@@ -625,12 +644,13 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
             }
         }
 
-        // Close all members
-        members.values().forEach(PgNativeConsumerGroupMember::close);
-        members.clear();
-
-        logger.info("Consumer group '{}' closed", groupName);
-        return Future.succeededFuture();
+        closeFuture = engineStop.eventually(() -> {
+            members.values().forEach(PgNativeConsumerGroupMember::close);
+            members.clear();
+            logger.info("Consumer group '{}' closed", groupName);
+            return Future.succeededFuture();
+        });
+        return closeFuture;
     }
     
     /**

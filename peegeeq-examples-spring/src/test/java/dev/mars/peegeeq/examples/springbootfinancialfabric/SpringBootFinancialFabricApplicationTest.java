@@ -27,10 +27,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.vertx.junit5.VertxExtension;
-import io.vertx.junit5.VertxTestContext;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -134,26 +131,14 @@ public class SpringBootFinancialFabricApplicationTest {
 
     @Autowired(required = false)
     private PeeGeeQManager peeGeeQManager;
-    private static PeeGeeQManager peeGeeQManagerRef;
-
-    @AfterEach
-    void captureManager() {
-        peeGeeQManagerRef = peeGeeQManager;
-    }
-
-    @AfterAll
-    static void tearDown(VertxTestContext testContext) {
-        log.info(" Cleaning up Financial Fabric Test resources");
-        if (peeGeeQManagerRef == null) {
-            testContext.completeNow();
-            return;
-        }
-        peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
-    }
     
     @Test
     public void testApplicationContextLoads() {
         log.info("=== Testing Application Context Loads ===");
+        assertFalse(properties.getDatabase().getPool().isShared(),
+            "Spring should bind the Financial Fabric test pool as isolated");
+        assertFalse(peeGeeQManager.getConfiguration().getPoolConfig().isShared(),
+            "Financial Fabric tests must use an isolated Vert.x pool");
         
         assertNotNull(tradingEventStore, "Trading event store should be created");
         assertNotNull(settlementEventStore, "Settlement event store should be created");
@@ -209,4 +194,3 @@ public class SpringBootFinancialFabricApplicationTest {
         log.info("Routing Configuration test passed");
     }
 }
-

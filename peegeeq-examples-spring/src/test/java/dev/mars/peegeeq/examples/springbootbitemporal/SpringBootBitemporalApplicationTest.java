@@ -17,9 +17,9 @@ package dev.mars.peegeeq.examples.springbootbitemporal;
  */
 
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
-import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
+import dev.mars.peegeeq.examples.springbootbitemporal.config.BitemporalProperties;
 import dev.mars.peegeeq.examples.springbootbitemporal.events.TransactionEvent;
 import dev.mars.peegeeq.examples.springbootbitemporal.events.TransactionEvent.TransactionType;
 import dev.mars.peegeeq.examples.springbootbitemporal.model.AccountHistoryResponse;
@@ -29,8 +29,6 @@ import dev.mars.peegeeq.examples.springbootbitemporal.service.TransactionService
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -45,15 +43,12 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import io.vertx.core.Future;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.List;
-
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -94,21 +89,8 @@ class SpringBootBitemporalApplicationTest {
     private TransactionService transactionService;
     @Autowired(required = false)
     private PeeGeeQManager peeGeeQManager;
-    private static PeeGeeQManager peeGeeQManagerRef;
-
-    @AfterEach
-    void captureManager() {
-        peeGeeQManagerRef = peeGeeQManager;
-    }
-
-    @AfterAll
-    static void closeManager(VertxTestContext testContext) {
-        if (peeGeeQManagerRef == null) {
-            testContext.completeNow();
-            return;
-        }
-        peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
-    }
+    @Autowired
+    private BitemporalProperties properties;
 
     @BeforeAll
     static void initializeSchema() throws Exception {
@@ -120,6 +102,10 @@ class SpringBootBitemporalApplicationTest {
     @Test
     void testRecordAndQueryTransaction(VertxTestContext testContext) {
         logger.info("=== Testing Record and Query Transaction ===");
+        assertFalse(properties.getDatabase().getPool().isShared(),
+            "Spring should bind the bitemporal test pool as isolated");
+        assertFalse(peeGeeQManager.getConfiguration().getPoolConfig().isShared(),
+            "Spring Boot bitemporal tests must use an isolated Vert.x pool");
         
         // Record a transaction
         TransactionRequest request = new TransactionRequest();
@@ -136,13 +122,14 @@ class SpringBootBitemporalApplicationTest {
                 logger.info("Transaction recorded: {}", recorded.getPayload().getTransactionId());
                 return transactionService.getAccountHistory("ACC-TEST-001");
             })
-            .onComplete(testContext.succeeding(history -> testContext.verify(() -> {
+            .onSuccess(history -> testContext.verify(() -> {
                 assertNotNull(history);
                 assertTrue(history.getTotalCount() >= 1);
                 logger.info("Found {} transactions for account", history.getTotalCount());
                 logger.info("=== Test Passed ===");
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(testContext::failNow);
     }
     
     @Test
@@ -166,12 +153,13 @@ class SpringBootBitemporalApplicationTest {
         transactionService.recordTransaction(credit)
             .compose(v -> transactionService.recordTransaction(debit))
             .compose(v -> transactionService.getAccountBalance(accountId, Instant.now()))
-            .onComplete(testContext.succeeding(balance -> testContext.verify(() -> {
+            .onSuccess(balance -> testContext.verify(() -> {
                 assertEquals(0, new BigDecimal("700.00").compareTo(balance));
                 logger.info("Balance for account {}: {}", accountId, balance);
                 logger.info("=== Test Passed ===");
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(testContext::failNow);
     }
     
     @Test
@@ -201,14 +189,15 @@ class SpringBootBitemporalApplicationTest {
                         return transactionService.getTransactionVersions(transactionId);
                     });
             })
-            .onComplete(testContext.succeeding(versions -> testContext.verify(() -> {
+            .onSuccess(versions -> testContext.verify(() -> {
                 assertEquals(2, versions.size());
                 assertEquals(versions.get(0).getValidTime(), versions.get(1).getValidTime());
                 assertNotEquals(versions.get(0).getTransactionTime(), versions.get(1).getTransactionTime());
                 logger.info("Found {} versions of transaction", versions.size());
                 logger.info("=== Test Passed ===");
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
@@ -266,7 +255,7 @@ class SpringBootBitemporalApplicationTest {
                 logger.info(" queryCorrectedTransactions: Found {} corrected transactions", correctedOnly.size());
                 return transactionService.queryTransactionsByAccountAndType(accountId, "TransactionRecorded");
             })
-            .onComplete(testContext.succeeding(recordedDirect -> testContext.verify(() -> {
+            .onSuccess(recordedDirect -> testContext.verify(() -> {
                 assertEquals(3, recordedDirect.size(), "Direct query should match convenience method");
                 logger.info(" queryTransactionsByAccountAndType: Found {} transactions", recordedDirect.size());
                 logger.info("=== Domain-Specific Query Methods Test Passed ===");
@@ -277,7 +266,7 @@ class SpringBootBitemporalApplicationTest {
                 logger.info("  4. queryCorrectedTransactions(accountId) - domain-specific convenience method [async]");
                 logger.info("  NOTE: All methods MUST return Future to avoid blocking the event loop");
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(testContext::failNow);
     }
 }
-

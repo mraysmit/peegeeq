@@ -101,7 +101,7 @@ public class OrderService {
      * ALL rollback. If all succeed, ALL commit together.
      * 
      * @param request Order creation request
-     * @return CompletableFuture with the order ID
+     * @return Vert.x Future with the order ID
      */
     public Future<String> createOrder(CreateOrderRequest request) {
         String orderId = UUID.randomUUID().toString();
@@ -169,7 +169,7 @@ public class OrderService {
      * Retrieves order history from bi-temporal event store.
      * 
      * @param orderId Order identifier
-     * @return CompletableFuture with order history
+     * @return Vert.x Future with order history
      */
     public Future<OrderResponse> getOrderHistory(String orderId) {
         logger.info("Retrieving order history: {}", orderId);
@@ -189,7 +189,7 @@ public class OrderService {
      * Retrieves all orders for a customer from bi-temporal event store.
      * 
      * @param customerId Customer identifier
-     * @return CompletableFuture with list of order events
+     * @return Vert.x Future with list of order events
      */
     public Future<List<BiTemporalEvent<OrderEvent>>> getCustomerOrders(String customerId) {
         logger.info("Retrieving orders for customer: {}", customerId);
@@ -209,7 +209,7 @@ public class OrderService {
      * Queries orders as of a specific point in time.
      * 
      * @param validTime Point in time to query
-     * @return CompletableFuture with events as of that time
+     * @return Vert.x Future with events as of that time
      */
     public Future<List<BiTemporalEvent<OrderEvent>>> getOrdersAsOfTime(Instant validTime) {
         logger.info("Querying orders as of time: {}", validTime);
@@ -220,4 +220,3 @@ public class OrderService {
     }
 
 }
-
