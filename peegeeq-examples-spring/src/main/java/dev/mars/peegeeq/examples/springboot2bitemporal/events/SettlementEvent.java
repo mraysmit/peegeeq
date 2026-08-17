@@ -122,7 +122,7 @@ public class SettlementEvent {
         return Objects.equals(instructionId, that.instructionId) &&
                Objects.equals(tradeId, that.tradeId) &&
                Objects.equals(counterparty, that.counterparty) &&
-               Objects.equals(amount, that.amount) &&
+               amountsEqual(amount, that.amount) &&
                Objects.equals(currency, that.currency) &&
                Objects.equals(settlementDate, that.settlementDate) &&
                status == that.status &&
@@ -132,8 +132,16 @@ public class SettlementEvent {
     
     @Override
     public int hashCode() {
-        return Objects.hash(instructionId, tradeId, counterparty, amount, currency, 
+        BigDecimal normalizedAmount = amount == null ? null : amount.stripTrailingZeros();
+        return Objects.hash(instructionId, tradeId, counterparty, normalizedAmount, currency,
                           settlementDate, status, failureReason, eventTime);
+    }
+
+    private static boolean amountsEqual(BigDecimal left, BigDecimal right) {
+        if (left == right) {
+            return true;
+        }
+        return left != null && right != null && left.compareTo(right) == 0;
     }
     
     @Override
@@ -151,4 +159,3 @@ public class SettlementEvent {
                '}';
     }
 }
-

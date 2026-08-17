@@ -153,32 +153,39 @@ class PeeGeeQBiTemporalIntegrationTest {
         logger.info("Tearing down integration test...");
 
         // Close resources in reverse order
+        Future<Void> cleanup = Future.succeededFuture();
         if (consumer != null) {
-            try { consumer.close(); } catch (Exception e) { logger.warn("Consumer close: {}", e.getMessage()); }
+            cleanup = cleanup.compose(ignored -> {
+                consumer.close();
+                return Future.succeededFuture();
+            });
         }
         if (producer != null) {
-            try { producer.close(); } catch (Exception e) { logger.warn("Producer close: {}", e.getMessage()); }
+            cleanup = cleanup.compose(ignored -> {
+                producer.close();
+                return Future.succeededFuture();
+            });
         }
         if (queueFactory != null) {
-            try { queueFactory.close(); } catch (Exception e) { logger.warn("QueueFactory close: {}", e.getMessage()); }
+            cleanup = cleanup.compose(ignored -> queueFactory.close());
         }
         if (eventStore != null) {
-            try { eventStore.close(); } catch (Exception e) { logger.warn("EventStore close: {}", e.getMessage()); }
+            cleanup = cleanup.compose(ignored -> eventStore.close());
         }
 
         if (manager != null) {
-            manager.closeReactive()
-                .onSuccess(v -> {
-                    logger.info("Integration test teardown completed");
-                    testContext.completeNow();
-                })
-                .onFailure(e -> {
-                    logger.error("Manager close failed", e);
-                    testContext.failNow(e);
-                });
-        } else {
-            testContext.completeNow();
+            cleanup = cleanup.compose(ignored -> manager.closeReactive());
         }
+
+        cleanup
+            .onSuccess(v -> {
+                logger.info("Integration test teardown completed");
+                testContext.completeNow();
+            })
+            .onFailure(e -> {
+                logger.error("Integration test teardown failed", e);
+                testContext.failNow(e);
+            });
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "tearDown timed out");
     }
@@ -212,11 +219,11 @@ class PeeGeeQBiTemporalIntegrationTest {
             });
             messageReceived.flag();
             return Future.succeededFuture();
-        });
-
-        // Send message via PeeGeeQ
-        logger.info("Sending message via PeeGeeQ...");
-        producer.send(orderEvent, headers, correlationId)
+        })
+            .compose(v -> {
+                logger.info("Sending message via PeeGeeQ...");
+                return producer.send(orderEvent, headers, correlationId);
+            })
             .onSuccess(v -> logger.info("Message sent successfully"))
             .onFailure(ctx::failNow);
 
@@ -321,10 +328,8 @@ class PeeGeeQBiTemporalIntegrationTest {
                     }
                     return Future.succeededFuture();
                 });
-        });
-
-        // Send messages with delay between them using Vertx.setTimer
-        producer.send(orderEvent1, headers, correlationId1)
+        })
+            .compose(v -> producer.send(orderEvent1, headers, correlationId1))
             .compose(v -> {
                 logger.info("Sent first message: {}", orderEvent1.getOrderId());
                 Promise<Void> delay = Promise.promise();
@@ -437,7 +442,7 @@ class PeeGeeQBiTemporalIntegrationTest {
         })
         .compose(v -> {
             // Set up PeeGeeQ consumer that persists to bi-temporal store
-            consumer.subscribe(message -> {
+            return consumer.subscribe(message -> {
                 logger.info("PeeGeeQ consumer received message: {}", message.getPayload().getOrderId());
                 IntegrationTestUtils.logMessage(message, "END_TO_END_PEEGEEQ");
                 peeGeeQMessages.add(message);
@@ -469,25 +474,25 @@ class PeeGeeQBiTemporalIntegrationTest {
                         }
                         return Future.succeededFuture();
                     });
-            });
-
-            // Send all test orders via PeeGeeQ using compose chain
-            logger.info("Sending {} test orders via PeeGeeQ...", expectedEventCount);
-            Future<Void> sendChain = Future.succeededFuture();
-            for (int i = 0; i < testOrders.size(); i++) {
-                final int idx = i;
-                sendChain = sendChain.compose(v2 -> {
-                    OrderEvent order = testOrders.get(idx);
-                    String correlationId = "end-to-end-" + (idx + 1);
-                    Map<String, String> headers = Map.of(
-                        "source", "end-to-end-test",
-                        "order-index", String.valueOf(idx + 1)
-                    );
-                    return producer.send(order, headers, correlationId)
-                        .onSuccess(v3 -> logger.info("Sent order {}: {}", idx + 1, order.getOrderId()));
+            }).compose(v2 -> {
+                // Send all test orders via PeeGeeQ using compose chain
+                logger.info("Sending {} test orders via PeeGeeQ...", expectedEventCount);
+                Future<Void> sendChain = Future.succeededFuture();
+                for (int i = 0; i < testOrders.size(); i++) {
+                    final int idx = i;
+                    sendChain = sendChain.compose(v3 -> {
+                        OrderEvent order = testOrders.get(idx);
+                        String correlationId = "end-to-end-" + (idx + 1);
+                        Map<String, String> headers = Map.of(
+                            "source", "end-to-end-test",
+                            "order-index", String.valueOf(idx + 1)
+                        );
+                        return producer.send(order, headers, correlationId)
+                            .onSuccess(v4 -> logger.info("Sent order {}: {}", idx + 1, order.getOrderId()));
+                    });
+                }
+                return sendChain;
                 });
-            }
-            return sendChain;
         })
         .onFailure(ctx::failNow);
 

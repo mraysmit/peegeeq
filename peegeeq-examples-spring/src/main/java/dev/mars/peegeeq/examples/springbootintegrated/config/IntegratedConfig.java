@@ -36,8 +36,6 @@ import org.springframework.context.SmartLifecycle;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-import jakarta.annotation.PreDestroy;
-
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -67,9 +65,6 @@ public class IntegratedConfig {
 
     private static final Logger logger = LoggerFactory.getLogger(IntegratedConfig.class);
 
-    private PeeGeeQManager manager;
-    private EventStore<OrderEvent> eventStore;
-
     /**
      * Creates and configures the PeeGeeQManager.
      *
@@ -93,8 +88,9 @@ public class IntegratedConfig {
      * Manages PeeGeeQ Manager lifecycle via Spring's SmartLifecycle contract.
      *
      * <p>start() runs on the Spring refresh thread and blocks for up to 60 seconds
-     * until manager.start() completes. stop(Runnable) closes the manager reactively
-     * and notifies Spring via the callback when teardown is complete.
+     * until manager.start() completes. stop(Runnable) ends lifecycle participation;
+     * Spring's dependency-aware bean destruction then closes producers and the event
+     * store before closing their manager dependency.
      */
     @Bean
     public SmartLifecycle peeGeeQManagerLifecycle(PeeGeeQManager manager) {
@@ -126,18 +122,9 @@ public class IntegratedConfig {
 
             @Override
             public void stop(Runnable callback) {
-                logger.info("Stopping PeeGeeQ Manager via SmartLifecycle...");
-                manager.closeReactive()
-                    .onSuccess(v -> {
-                        logger.info("PeeGeeQ Manager stopped successfully");
-                        running = false;
-                        callback.run();
-                    })
-                    .onFailure(e -> {
-                        logger.error("Error stopping PeeGeeQ Manager", e);
-                        running = false;
-                        callback.run();
-                    });
+                logger.info("Stopping PeeGeeQ Manager lifecycle; bean destruction will close resources");
+                running = false;
+                callback.run();
             }
 
             @Override
@@ -229,23 +216,9 @@ public class IntegratedConfig {
     @Bean
     public EventStore<OrderEvent> orderEventStore(BiTemporalEventStoreFactory factory) {
         logger.info("Creating OrderEvent event store");
-        eventStore = factory.createEventStore(OrderEvent.class, "bitemporal_event_log");
+        EventStore<OrderEvent> eventStore = factory.createEventStore(OrderEvent.class, "bitemporal_event_log");
         logger.info("OrderEvent event store created successfully");
         return eventStore;
-    }
-    
-    /**
-     * Cleanup resources on application shutdown.
-     */
-    @PreDestroy
-    public void cleanup() {
-        logger.info("Shutting down integrated resources");
-        
-        if (eventStore != null) {
-            eventStore.close()
-                    .onSuccess(v -> logger.info("Event store closed successfully"))
-                    .onFailure(e -> logger.error("Error closing event store", e));
-        }
     }
 
     /**
@@ -267,8 +240,8 @@ public class IntegratedConfig {
         props.setProperty("peegeeq.database.username", properties.getDatabase().getUsername());
         props.setProperty("peegeeq.database.password", properties.getDatabase().getPassword());
         props.setProperty("peegeeq.database.schema", properties.getDatabase().getSchema());
+        props.setProperty("peegeeq.database.pool.shared",
+            String.valueOf(properties.getDatabase().getPool().isShared()));
         return props;
     }
 }
-
-

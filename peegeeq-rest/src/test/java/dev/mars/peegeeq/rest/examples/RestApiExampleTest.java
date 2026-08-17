@@ -23,11 +23,14 @@ import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.postgresql.Driver;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -53,6 +56,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests demonstrate comprehensive REST API integration and management patterns.
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 public class RestApiExampleTest {
     
@@ -86,28 +90,30 @@ public class RestApiExampleTest {
     }
     
     @AfterEach
-    void tearDown() {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down REST API Example Test");
         
         if (client != null) {
-            try {
-                client.close();
-                logger.info("WebClient closed");
-            } catch (Exception e) {
-                logger.warn(" Error closing WebClient", e);
-            }
+            client.close();
+            logger.info("WebClient closed");
         }
-        
-        if (vertx != null) {
-            try {
-                vertx.close().await();
+
+        if (vertx == null) {
+            logger.info("REST API Example Test teardown completed");
+            testContext.completeNow();
+            return;
+        }
+
+        vertx.close()
+            .onSuccess(ignored -> {
                 logger.info("Vert.x closed successfully");
-            } catch (Exception e) {
-                logger.warn(" Error during Vert.x cleanup", e);
-            }
-        }
-        
-        logger.info(" REST API Example Test teardown completed");
+                logger.info("REST API Example Test teardown completed");
+                testContext.completeNow();
+            })
+            .onFailure(error -> {
+                logger.error("Error during Vert.x cleanup", error);
+                testContext.failNow(error);
+            });
     }
 
     /**

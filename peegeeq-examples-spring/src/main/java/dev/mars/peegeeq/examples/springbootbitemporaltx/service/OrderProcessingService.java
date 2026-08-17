@@ -126,7 +126,7 @@ public class OrderProcessingService {
      * coordination using Vert.x 5.x reactive patterns and PostgreSQL ACID transactions.
      * 
      * @param orderRequest Order processing request
-     * @return CompletableFuture that completes with the processing result
+     * @return a Vert.x Future that completes with the processing result
      */
     public Future<OrderProcessingResult> processCompleteOrder(OrderProcessingRequest orderRequest) {
         logger.info("Starting complete order processing for order: {}", orderRequest.getOrderId());

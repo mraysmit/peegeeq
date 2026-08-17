@@ -20,6 +20,7 @@ import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.api.messaging.SimpleMessage;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.sqlclient.Tuple;
@@ -51,6 +52,7 @@ public class PartitionedConsumerEngine<T> {
 
     private static final Logger logger = LoggerFactory.getLogger(PartitionedConsumerEngine.class);
     private static final long DEFAULT_FETCH_INTERVAL_MS = 1000L;
+    static final long ASSIGNMENT_REFRESH_INTERVAL_MS = 5_000L;
     private static final int DEFAULT_BATCH_SIZE = 100;
 
     private final Vertx vertx;
@@ -76,8 +78,19 @@ public class PartitionedConsumerEngine<T> {
     /** Per-partition guard: prevents overlapping fetch+process+commit cycles */
     private final ConcurrentHashMap<String, AtomicBoolean> fetchInProgress = new ConcurrentHashMap<>();
 
+    /** Coordinates shutdown with fetch cycles that already passed the running-state check. */
+    private final Object fetchLifecycleLock = new Object();
+    private int activeFetchCount;
+    private Promise<Void> fetchesDrained;
+
+    /** Prevents overlapping heartbeat and assignment-reconciliation cycles. */
+    private final AtomicBoolean assignmentRefreshInProgress = new AtomicBoolean(false);
+    private final Object assignmentRefreshLifecycleLock = new Object();
+    private Promise<Void> assignmentRefreshDrained;
+
     private volatile WatermarkJob watermarkJob;
     private volatile long fetchTimerId = -1;
+    private volatile long assignmentRefreshTimerId = -1;
     private volatile MessageHandler<T> messageHandler;
 
     public PartitionedConsumerEngine(Vertx vertx,
@@ -115,7 +128,7 @@ public class PartitionedConsumerEngine<T> {
      */
     public Future<Void> start(MessageHandler<T> handler) {
         Objects.requireNonNull(handler, "handler");
-        if (closed.get()) {
+        if (closed.getAcquire()) {
             return Future.failedFuture(new IllegalStateException("Engine is closed"));
         }
         if (!running.compareAndSet(false, true)) {
@@ -124,7 +137,7 @@ public class PartitionedConsumerEngine<T> {
 
         this.messageHandler = handler;
 
-        return assignmentService.joinGroup(topic, groupName, instanceId)
+        Future<Void> startup = assignmentService.joinGroup(topic, groupName, instanceId)
                 .compose(assignments -> {
                     logger.info("Joined partitioned group: topic={}, group={}, instance={}, partitions={}",
                             topic, groupName, instanceId, assignments.size());
@@ -144,6 +157,7 @@ public class PartitionedConsumerEngine<T> {
                 .compose(v -> {
                     // Start periodic fetch loop
                     startFetchLoop();
+                    startAssignmentRefreshLoop();
 
                     // Start watermark job
                     watermarkJob = new WatermarkJob(vertx, watermarkCalculator, topic);
@@ -151,21 +165,24 @@ public class PartitionedConsumerEngine<T> {
 
                     logger.info("PartitionedConsumerEngine started: topic={}, group={}, partitions={}",
                             topic, groupName, assignedPartitions.size());
-                        return Future.<Void>succeededFuture();
-                })
-                .transform(ar -> {
-                    if (ar.failed()) {
-                        return resetAfterFailedStart(ar.cause());
-                    }
                     return Future.succeededFuture();
                 });
+
+        Promise<Void> result = Promise.promise();
+        startup.onSuccess(result::complete)
+                .onFailure(startFailure -> resetAfterFailedStart()
+                        .onSuccess(ignored -> result.fail(startFailure))
+                        .onFailure(cleanupFailure -> {
+                            startFailure.addSuppressed(cleanupFailure);
+                            result.fail(startFailure);
+                        }));
+        return result.future();
     }
 
-    private Future<Void> resetAfterFailedStart(Throwable err) {
+    private Future<Void> resetAfterFailedStart() {
         running.set(false);
         messageHandler = null;
-        return teardown()
-                .compose(v -> Future.failedFuture(err));
+        return teardown();
     }
 
     /**
@@ -185,20 +202,30 @@ public class PartitionedConsumerEngine<T> {
             vertx.cancelTimer(fetchTimerId);
             fetchTimerId = -1;
         }
-
-        if (watermarkJob != null) {
-            watermarkJob.stop();
-            watermarkJob = null;
+        if (assignmentRefreshTimerId >= 0) {
+            vertx.cancelTimer(assignmentRefreshTimerId);
+            assignmentRefreshTimerId = -1;
         }
 
-        assignedPartitions.clear();
-        fetchInProgress.clear();
+        WatermarkJob jobToStop = watermarkJob;
+        watermarkJob = null;
+        Future<Void> watermarkStop = jobToStop == null
+                ? Future.succeededFuture()
+                : jobToStop.stopAsync();
+        Future<Void> leaveGroup = Future.all(awaitInFlightFetches(), awaitAssignmentRefresh())
+                .compose(ignored -> assignmentService.leaveGroup(topic, groupName, instanceId))
+                .onFailure(err -> logger.warn(
+                        "Failed to leave group during teardown: topic={}, group={}, err={}",
+                        topic, groupName, err.getMessage()));
 
-        return assignmentService.leaveGroup(topic, groupName, instanceId)
-                .onFailure(err ->
-                    logger.warn("Failed to leave group during teardown: topic={}, group={}, err={}",
-                            topic, groupName, err.getMessage()))
-                .transform(ar -> Future.<Void>succeededFuture());
+        Future<Void> teardown = Future.all(watermarkStop, leaveGroup)
+                .map(ignored -> (Void) null);
+        return teardown
+                .eventually(() -> {
+                    assignedPartitions.clear();
+                    fetchInProgress.clear();
+                    return Future.<Void>succeededFuture();
+                });
     }
 
     /**
@@ -210,7 +237,7 @@ public class PartitionedConsumerEngine<T> {
     }
 
     public boolean isRunning() {
-        return running.get();
+        return running.getAcquire();
     }
 
     public Map<String, Integer> getAssignedPartitions() {
@@ -227,8 +254,94 @@ public class PartitionedConsumerEngine<T> {
         fetchAllPartitions();
     }
 
+    private void startAssignmentRefreshLoop() {
+        assignmentRefreshTimerId = vertx.setPeriodic(
+                ASSIGNMENT_REFRESH_INTERVAL_MS, id -> refreshAssignments());
+    }
+
+    private void refreshAssignments() {
+        if (!beginAssignmentRefresh()) {
+            return;
+        }
+
+        assignmentService.heartbeat(topic, groupName, instanceId)
+                .compose(ignored -> assignmentService.getAssignments(topic, groupName, instanceId))
+                .compose(this::initializeRefreshedAssignments)
+                .onSuccess(assignments -> {
+                    replaceAssignments(assignments);
+                    finishAssignmentRefresh();
+                })
+                .onFailure(err -> {
+                    if (running.getAcquire()) {
+                        logger.warn(
+                                "Assignment heartbeat or reconciliation failed: topic={}, group={}, instance={}, err={}",
+                                topic, groupName, instanceId, err.getMessage());
+                    } else {
+                        logger.warn(
+                                "In-flight assignment reconciliation failed during shutdown: topic={}, group={}, instance={}, err={}",
+                                topic, groupName, instanceId, err.getMessage());
+                    }
+                    finishAssignmentRefresh();
+                });
+    }
+
+    private boolean beginAssignmentRefresh() {
+        synchronized (assignmentRefreshLifecycleLock) {
+            if (!running.getAcquire()
+                    || !assignmentRefreshInProgress.compareAndSet(false, true)) {
+                return false;
+            }
+            return true;
+        }
+    }
+
+    private Future<List<PartitionAssignment>> initializeRefreshedAssignments(
+            List<PartitionAssignment> assignments) {
+        Future<Void> initialized = Future.succeededFuture();
+        for (PartitionAssignment assignment : assignments) {
+            initialized = initialized.compose(ignored -> offsetManager.initializeOffset(
+                            topic,
+                            groupName,
+                            assignment.partitionKey(),
+                            assignment.generation())
+                    .map(offset -> (Void) null));
+        }
+        return initialized.map(assignments);
+    }
+
+    private void replaceAssignments(List<PartitionAssignment> assignments) {
+        Map<String, Integer> refreshed = new HashMap<>();
+        for (PartitionAssignment assignment : assignments) {
+            refreshed.put(assignment.partitionKey(), assignment.generation());
+        }
+        assignedPartitions.keySet().retainAll(refreshed.keySet());
+        assignedPartitions.putAll(refreshed);
+    }
+
+    private void finishAssignmentRefresh() {
+        synchronized (assignmentRefreshLifecycleLock) {
+            assignmentRefreshInProgress.set(false);
+            if (assignmentRefreshDrained != null) {
+                assignmentRefreshDrained.tryComplete();
+                assignmentRefreshDrained = null;
+            }
+        }
+    }
+
+    private Future<Void> awaitAssignmentRefresh() {
+        synchronized (assignmentRefreshLifecycleLock) {
+            if (!assignmentRefreshInProgress.getAcquire()) {
+                return Future.succeededFuture();
+            }
+            if (assignmentRefreshDrained == null) {
+                assignmentRefreshDrained = Promise.promise();
+            }
+            return assignmentRefreshDrained.future();
+        }
+    }
+
     private void fetchAllPartitions() {
-        if (!running.get()) return;
+        if (!running.getAcquire()) return;
 
         for (var entry : assignedPartitions.entrySet()) {
             String partitionKey = entry.getKey();
@@ -243,18 +356,56 @@ public class PartitionedConsumerEngine<T> {
             // Previous fetch+process+commit still running skip this tick
             return;
         }
+        if (!beginFetch(inProgress)) {
+            return;
+        }
 
         fetcher.fetch(topic, groupName, partitionKey, DEFAULT_BATCH_SIZE, generation)
                 .compose(messages -> processAndCommit(messages, partitionKey, generation))
-                .eventually(() -> {
-                    inProgress.set(false);
-                    return Future.<Void>succeededFuture();
-                })
+                .onSuccess(ignored -> finishFetch(inProgress))
                 .onFailure(err -> {
-                    if (running.get()) {
+                    if (running.getAcquire()) {
                         logger.warn("Fetch failed for partition {}: {}", partitionKey, err.getMessage());
+                    } else {
+                        logger.warn("In-flight fetch failed during shutdown for partition {}: {}",
+                                partitionKey, err.getMessage());
                     }
+                    finishFetch(inProgress);
                 });
+    }
+
+    private boolean beginFetch(AtomicBoolean inProgress) {
+        synchronized (fetchLifecycleLock) {
+            if (!running.getAcquire()) {
+                inProgress.set(false);
+                return false;
+            }
+            activeFetchCount++;
+            return true;
+        }
+    }
+
+    private void finishFetch(AtomicBoolean inProgress) {
+        synchronized (fetchLifecycleLock) {
+            inProgress.set(false);
+            activeFetchCount--;
+            if (activeFetchCount == 0 && fetchesDrained != null) {
+                fetchesDrained.tryComplete();
+                fetchesDrained = null;
+            }
+        }
+    }
+
+    private Future<Void> awaitInFlightFetches() {
+        synchronized (fetchLifecycleLock) {
+            if (activeFetchCount == 0) {
+                return Future.succeededFuture();
+            }
+            if (fetchesDrained == null) {
+                fetchesDrained = Promise.promise();
+            }
+            return fetchesDrained.future();
+        }
     }
 
     private Future<Void> processAndCommit(List<OutboxMessage> messages, String partitionKey, int generation) {

@@ -76,7 +76,8 @@ class SetupBindingPersistenceIntegrationTest extends BaseIntegrationTest {
                 .password(getPostgres().getPassword())
                 .schema(registrySchema)
                 .build();
-        verifyMgr.getOrCreateReactivePool(poolId, connConfig, new PgPoolConfig.Builder().maxSize(1).build());
+        verifyMgr.getOrCreateReactivePool(poolId, connConfig,
+                new PgPoolConfig.Builder().maxSize(1).shared(false).build());
         return verifyMgr.withConnection(poolId, conn ->
                 conn.preparedQuery("SELECT setup_id, host, port, database_name, schema_name, username, "
                                 + "ssl_enabled, credential_ref FROM " + registrySchema

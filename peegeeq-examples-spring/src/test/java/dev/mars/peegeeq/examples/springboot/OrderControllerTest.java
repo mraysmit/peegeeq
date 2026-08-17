@@ -18,7 +18,6 @@ package dev.mars.peegeeq.examples.springboot;
 
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.database.DatabaseService;
-import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.springboot.model.CreateOrderRequest;
 import dev.mars.peegeeq.examples.springboot.model.CreateOrderResponse;
 import dev.mars.peegeeq.examples.springboot.model.OrderItem;
@@ -28,8 +27,6 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -38,6 +35,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -45,6 +43,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -87,6 +86,8 @@ import static org.junit.jupiter.api.Assertions.*;
         "test.context.unique=OrderControllerTest"
     }
 )
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@AutoConfigureTestRestTemplate
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 class OrderControllerTest {
@@ -101,23 +102,6 @@ class OrderControllerTest {
 
     @Autowired
     private DatabaseService databaseService;
-    @Autowired(required = false)
-    private PeeGeeQManager peeGeeQManager;
-    private static PeeGeeQManager peeGeeQManagerRef;
-
-    @AfterEach
-    void captureManager() {
-        peeGeeQManagerRef = peeGeeQManager;
-    }
-
-    @AfterAll
-    static void closeManager(VertxTestContext testContext) {
-        if (peeGeeQManagerRef == null) {
-            testContext.completeNow();
-            return;
-        }
-        peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
-    }
 
     @Container
     static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
@@ -171,7 +155,11 @@ class OrderControllerTest {
                         logger.info("Application-specific schema created successfully");
                         return (Void) null;
                     }))
-            .onComplete(setupContext.succeedingThenComplete());
+            .onSuccess(v -> setupContext.completeNow())
+            .onFailure(error -> {
+                logger.error("Failed to create order controller test schema", error);
+                setupContext.failNow(error);
+            });
     }
 
     /**

@@ -38,7 +38,7 @@ import io.vertx.core.Future;
  * 
  * Key Features:
  * - RESTful API design
- * - Reactive operations with CompletableFuture
+ * - Reactive operations with native Vert.x Future values
  * - Comprehensive error handling
  * - Proper HTTP status codes
  * - Request/response logging
@@ -71,7 +71,7 @@ public class OrderController {
      * 3. Returns a reactive response with proper error handling
      * 
      * @param request The order creation request
-     * @return CompletableFuture containing the response entity
+     * @return an asynchronously completed response holder
      */
     @PostMapping
     public DeferredResult<ResponseEntity<CreateOrderResponse>> createOrder(
@@ -130,7 +130,7 @@ public class OrderController {
      * - Otherwise: Order and events are committed together
      *
      * @param request The order creation request
-     * @return CompletableFuture containing the response entity
+     * @return an asynchronously completed response holder
      */
     @PostMapping("/with-validation")
     public DeferredResult<ResponseEntity<CreateOrderResponse>> createOrderWithValidation(
@@ -175,7 +175,7 @@ public class OrderController {
      * - Otherwise: Order and events are committed together
      *
      * @param request The order creation request
-     * @return CompletableFuture containing the response entity
+     * @return an asynchronously completed response holder
      */
     @PostMapping("/with-constraints")
     public DeferredResult<ResponseEntity<CreateOrderResponse>> createOrderWithConstraints(
@@ -216,7 +216,7 @@ public class OrderController {
      * - All operations commit together or all roll back together
      *
      * @param request The order creation request
-     * @return CompletableFuture containing the response entity
+     * @return an asynchronously completed response holder
      */
     @PostMapping("/with-multiple-events")
     public DeferredResult<ResponseEntity<CreateOrderResponse>> createOrderWithMultipleEvents(

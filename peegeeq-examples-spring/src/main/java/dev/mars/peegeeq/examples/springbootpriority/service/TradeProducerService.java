@@ -73,7 +73,7 @@ public class TradeProducerService {
      * 5. Track metrics
      *
      * @param event Trade settlement event to send
-     * @return CompletableFuture that completes when message is sent
+     * @return a Vert.x Future that completes when the message is sent
      */
     public Future<Void> sendTradeEvent(TradeSettlementEvent event) {
         // Create headers with priority and metadata
@@ -115,7 +115,7 @@ public class TradeProducerService {
      * @param currency Currency
      * @param settlementDate Settlement date
      * @param failureReason Reason for settlement failure
-     * @return CompletableFuture that completes when message is sent
+     * @return a Vert.x Future that completes when the message is sent
      */
     public Future<Void> sendSettlementFail(String tradeId, String counterparty,
             java.math.BigDecimal amount, String currency, java.time.LocalDate settlementDate,
@@ -145,7 +145,7 @@ public class TradeProducerService {
      * @param amount Amount
      * @param currency Currency
      * @param settlementDate Settlement date
-     * @return CompletableFuture that completes when message is sent
+     * @return a Vert.x Future that completes when the message is sent
      */
     public Future<Void> sendAmendment(String tradeId, String counterparty,
             java.math.BigDecimal amount, String currency, java.time.LocalDate settlementDate) {
@@ -174,7 +174,7 @@ public class TradeProducerService {
      * @param amount Amount
      * @param currency Currency
      * @param settlementDate Settlement date
-     * @return CompletableFuture that completes when message is sent
+     * @return a Vert.x Future that completes when the message is sent
      */
     public Future<Void> sendConfirmation(String tradeId, String counterparty,
             java.math.BigDecimal amount, String currency, java.time.LocalDate settlementDate) {

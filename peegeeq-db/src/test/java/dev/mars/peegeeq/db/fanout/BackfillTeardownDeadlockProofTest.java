@@ -37,8 +37,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.OffsetDateTime;
@@ -56,25 +54,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <h3>What this test proves</h3>
  * <p>Three test methods run in parallel (JUnit parallelism=4, mode=concurrent).
  * Each creates its own UUID-suffixed topic under the shared prefix
- * {@code "deadlock-probe-"}. The {@code @AfterEach tearDown()} deliberately uses
- * the <strong>broken broad LIKE pattern</strong>:</p>
+ * {@code "deadlock-probe-"}. The {@code @AfterEach tearDown()} scopes deletion
+ * to the exact topic owned by that test instance:</p>
  * <pre>{@code
- *   DELETE FROM outbox WHERE topic LIKE 'deadlock-probe-%'
+ *   DELETE FROM outbox WHERE topic = $1
  * }</pre>
- * <p>When test A's teardown fires while tests B and C are mid-backfill, the
- * DELETE acquires row locks on outbox rows belonging to B and C. The backfill
- * transactions for B and C hold {@code FOR UPDATE} locks on
- * {@code outbox_topic_subscriptions} and try to {@code UPDATE outbox} / {@code
- * INSERT INTO outbox_consumer_groups} for those same rows. This creates a
- * deadlock cycle that PostgreSQL resolves by raising {@code 40P01}.</p>
+ * <p>This is the regression proof for the former broad-prefix teardown race:
+ * one test's cleanup must never lock or delete another concurrent test's rows.</p>
  *
  * <h3>Expected outcomes</h3>
  * <ul>
- *   <li><strong>With the BROKEN teardown (this class as-is):</strong> intermittent
- *       {@code 40P01 deadlock detected} failures on one or more test methods.</li>
- *   <li><strong>With the FIXED teardown (scoped delete per topic list):</strong> all
- *       three methods complete cleanly. See
- *       {@link BackfillScopePerformanceTest#tearDown} for the fixed pattern.</li>
+ *   <li>All three methods complete cleanly with no {@code 40P01} deadlock.</li>
+ *   <li>Each teardown removes only the rows for its exact topic.</li>
  * </ul>
  *
  * <h3>Dataset size</h3>
@@ -90,9 +81,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @Tag(TestCategories.INTEGRATION)
 public class BackfillTeardownDeadlockProofTest extends BaseIntegrationTest {
 
-    private static final Logger logger = LoggerFactory.getLogger(BackfillTeardownDeadlockProofTest.class);
-
-    /** Shared prefix for all topics in this class - the broken LIKE predicate covers all of them. */
+    /** Shared prefix retained to exercise concurrent topics with similar names. */
     private static final String TOPIC_PREFIX = "deadlock-probe-";
 
     private static final int MESSAGE_COUNT = 500;
@@ -120,6 +109,7 @@ public class BackfillTeardownDeadlockProofTest extends BaseIntegrationTest {
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
                 .maxSize(20)
+                .shared(false)
                 .build();
 
         connectionManager.getOrCreateReactivePool("peegeeq-main", connectionConfig, poolConfig);
@@ -129,21 +119,11 @@ public class BackfillTeardownDeadlockProofTest extends BaseIntegrationTest {
         backfillService = new BackfillService(connectionManager, "peegeeq-main");
         instanceTopic = TOPIC_PREFIX + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
 
-        logger.info("BackfillTeardownDeadlockProofTest setup complete");
     }
 
     /**
-     * DELIBERATELY BROKEN teardown  uses a broad LIKE predicate that covers ALL
-     * concurrent tests' topics.
-     *
-     * <p>When multiple test methods run in parallel and one finishes first, this
-     * teardown will DELETE rows that belong to still-running tests, racing with
-     * their in-flight backfill transactions and triggering a PostgreSQL deadlock.</p>
-     *
-     * <p>To fix: replace the LIKE predicate with a scoped
-     * {@code WHERE topic = ANY($1::text[])} parameterised on only the topics this
-     * test instance created. See {@link BackfillScopePerformanceTest#tearDown} for
-     * the corrected pattern.</p>
+     * Deletes only the exact topic owned by this test instance, then closes the
+     * isolated connection manager even if cleanup fails.
      */
     @AfterEach
     void tearDown(VertxTestContext testContext) {
@@ -153,7 +133,7 @@ public class BackfillTeardownDeadlockProofTest extends BaseIntegrationTest {
                             "DELETE FROM outbox WHERE topic = $1")
                             .execute(Tuple.of(instanceTopic))
                             .mapEmpty())
-                    .compose(v -> connectionManager.close())
+                    .eventually(() -> connectionManager.close())
                     .onSuccess(v -> testContext.completeNow())
                     .onFailure(testContext::failNow);
         } else {
@@ -171,18 +151,16 @@ public class BackfillTeardownDeadlockProofTest extends BaseIntegrationTest {
         String topic = instanceTopic;
         String groupName = "probe-grp-alpha";
 
-        logger.info("=== PROOF TEST alpha: topic={} ===", topic);
-
         setupTopicAndMessages(topic, MESSAGE_COUNT)
                 .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
                 .compose(v -> backfillService.startBackfill(topic, groupName, BATCH_SIZE, 0, BackfillScope.PENDING_ONLY))
-                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                .onSuccess(result -> testContext.verify(() -> {
                     assertEquals(BackfillResult.Status.COMPLETED, result.status());
                     assertTrue(result.processedMessages() >= MESSAGE_COUNT - BATCH_SIZE,
                             "expected >= " + (MESSAGE_COUNT - BATCH_SIZE) + " but was " + result.processedMessages());
-                    logger.info("alpha backfill complete: {} msgs", result.processedMessages());
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -191,18 +169,16 @@ public class BackfillTeardownDeadlockProofTest extends BaseIntegrationTest {
         String topic = instanceTopic;
         String groupName = "probe-grp-beta";
 
-        logger.info("=== PROOF TEST beta: topic={} ===", topic);
-
         setupTopicAndMessages(topic, MESSAGE_COUNT)
                 .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
                 .compose(v -> backfillService.startBackfill(topic, groupName, BATCH_SIZE, 0, BackfillScope.PENDING_ONLY))
-                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                .onSuccess(result -> testContext.verify(() -> {
                     assertEquals(BackfillResult.Status.COMPLETED, result.status());
                     assertTrue(result.processedMessages() >= MESSAGE_COUNT - BATCH_SIZE,
                             "expected >= " + (MESSAGE_COUNT - BATCH_SIZE) + " but was " + result.processedMessages());
-                    logger.info("beta backfill complete: {} msgs", result.processedMessages());
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -211,18 +187,16 @@ public class BackfillTeardownDeadlockProofTest extends BaseIntegrationTest {
         String topic = instanceTopic;
         String groupName = "probe-grp-gamma";
 
-        logger.info("=== PROOF TEST gamma: topic={} ===", topic);
-
         setupTopicAndMessages(topic, MESSAGE_COUNT)
                 .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
                 .compose(v -> backfillService.startBackfill(topic, groupName, BATCH_SIZE, 0, BackfillScope.PENDING_ONLY))
-                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                .onSuccess(result -> testContext.verify(() -> {
                     assertEquals(BackfillResult.Status.COMPLETED, result.status());
                     assertTrue(result.processedMessages() >= MESSAGE_COUNT - BATCH_SIZE,
                             "expected >= " + (MESSAGE_COUNT - BATCH_SIZE) + " but was " + result.processedMessages());
-                    logger.info("gamma backfill complete: {} msgs", result.processedMessages());
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -238,7 +212,7 @@ public class BackfillTeardownDeadlockProofTest extends BaseIntegrationTest {
                 .compose(v -> subscriptionManager.subscribe(topic,
                         "initial-group-" + UUID.randomUUID().toString().substring(0, 4),
                         SubscriptionOptions.defaults()))
-                .compose(v -> connectionManager.withConnection("peegeeq-main", connection -> {
+                .compose(v -> connectionManager.withTransaction("peegeeq-main", connection -> {
                     String sql = """
                         INSERT INTO outbox (topic, payload, created_at, status)
                         SELECT $1, ('{"index": ' || generate_series || '}')::jsonb, $2, 'PENDING'

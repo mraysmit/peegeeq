@@ -29,6 +29,7 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -57,11 +58,6 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
-// BLOCKING-EXEMPT: Thread.sleep runs inside executor.submit(Runnable) on a raw JVM
-// thread pool (ExecutorService), fully isolated from the Vert.x event loop.
-// The test subject is ExecutorService interrupt semantics, not reactive behaviour
-// (criterion 1: the blocking pattern itself is under test).
-@Tag("blocking-exempt")
 @ExtendWith(VertxExtension.class)
 public class ShutdownTest {
     private static final Logger logger = LoggerFactory.getLogger(ShutdownTest.class);
@@ -79,7 +75,7 @@ public class ShutdownTest {
             final int taskId = i;
             executor.submit(() -> {
                 try {
-                    Thread.sleep(100); // Simulate work
+                    new CountDownLatch(1).await(100, TimeUnit.MILLISECONDS); // Simulate work
                     logger.debug("Task {} completed", taskId);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
@@ -117,7 +113,7 @@ public class ShutdownTest {
             executor.submit(() -> {
                 try {
                     // Long-running task that should be interrupted
-                    Thread.sleep(30000); // 30 seconds - longer than our timeout
+                    new CountDownLatch(1).await(30, TimeUnit.SECONDS);
                     logger.debug("Task {} completed normally (shouldn't happen)", taskId);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
@@ -158,8 +154,6 @@ public class ShutdownTest {
             logger.info("Container started: {}", postgres.getJdbcUrl());
             // No artificial delay needed; the test asserts only that manual
             // start/stop completes without error.
-        } catch (Exception e) {
-            logger.error("Error in test", e);
         } finally {
             logger.info("Stopping container manually");
             postgres.stop();

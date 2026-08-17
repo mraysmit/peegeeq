@@ -379,7 +379,8 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
                 .password(dbConfig.getPassword())
                 .schema(dbConfig.getSchema())
                 .build();
-        verifyMgr.getOrCreateReactivePool("verify-tables", connConfig, new PgPoolConfig.Builder().maxSize(1).build());
+        verifyMgr.getOrCreateReactivePool("verify-tables", connConfig,
+                new PgPoolConfig.Builder().maxSize(1).shared(false).build());
 
         Future<Void> chain = Future.succeededFuture();
         for (EventStoreConfig eventStore : eventStores) {
@@ -404,7 +405,8 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
                 .password(dbConfig.getPassword())
                 .schema(dbConfig.getSchema())
                 .build();
-        verifyMgr.getOrCreateReactivePool("verify-funcs", connConfig, new PgPoolConfig.Builder().maxSize(1).build());
+        verifyMgr.getOrCreateReactivePool("verify-funcs", connConfig,
+                new PgPoolConfig.Builder().maxSize(1).shared(false).build());
 
         String functionName = "notify_" + eventStore.getTableName() + "_events";
         String triggerName = "trigger_" + eventStore.getTableName() + "_notify";
@@ -802,7 +804,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
                             .schema(dbConfig.getSchema())
                             .build();
                     verifyMgr.getOrCreateReactivePool("verify-summary", connConfig,
-                            new PgPoolConfig.Builder().maxSize(1).build());
+                            new PgPoolConfig.Builder().maxSize(1).shared(false).build());
 
                     // The summary table must exist when aggregateSummaryEnabled=true
                     return verifyMgr.withConnection("verify-summary", conn ->
@@ -910,7 +912,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
                             .schema(dbConfig.getSchema())
                             .build();
                     verifyMgr.getOrCreateReactivePool("verify-registry", connConfig,
-                            new PgPoolConfig.Builder().maxSize(1).build());
+                            new PgPoolConfig.Builder().maxSize(1).shared(false).build());
 
                     return verifyMgr.withConnection("verify-registry", conn ->
                             // 1. Exactly one self-identifying metadata row for this setup.

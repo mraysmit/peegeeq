@@ -24,6 +24,7 @@ import dev.mars.peegeeq.db.PeeGeeQDefaults;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnection;
@@ -366,15 +367,14 @@ public class PgConnectionManager {
             return Future.succeededFuture(false);
         }
 
-        return withConnection(resolvedId, conn ->
-            conn.query("SELECT 1").execute().map(rs -> true)
-        ).transform(ar -> {
-            if (ar.failed()) {
-                logger.warn("Health check failed for {}: {}", resolvedId, ar.cause().getMessage());
-                return Future.succeededFuture(false);
-            }
-            return Future.succeededFuture(ar.result());
-        });
+        Promise<Boolean> health = Promise.promise();
+        withConnection(resolvedId, conn -> conn.query("SELECT 1").execute())
+                .onSuccess(rows -> health.complete(true))
+                .onFailure(err -> {
+                    logger.warn("Health check failed for {}: {}", resolvedId, err.getMessage());
+                    health.complete(false);
+                });
+        return health.future();
     }
 
     /**

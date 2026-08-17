@@ -36,7 +36,7 @@ import reactor.core.publisher.Mono;
  * Key patterns:
  * - Use withConnection() for single operations (auto-commits)
  * - Use withTransaction() for multi-step operations
- * - Convert CompletableFuture to Mono/Flux for reactive APIs
+ * - Convert native Vert.x Future values to Mono/Flux for reactive APIs
  * - No R2DBC needed - everything works with Vert.x SQL Client
  * 
  * @author Mark Andrew Ray-Smith Cityline Ltd

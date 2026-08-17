@@ -7,10 +7,6 @@ import dev.mars.peegeeq.examples.springboot.SpringBootOutboxApplication;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
-import io.vertx.junit5.VertxExtension;
-import io.vertx.junit5.VertxTestContext;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -18,20 +14,22 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 /**
- * Zombie repro test A.
+ * Zombie-shutdown regression test A.
  * Two classes (A and B) with identical @SpringBootTest properties but each with its own
  * @DynamicPropertySource method. Spring creates a separate ApplicationContext per class
  * because the context cache key includes the @DynamicPropertySource method reference.
- * Each context starts its own PeeGeeQManager (Vert.x). When context A closes after its
- * tests, PeeGeeQManager's depth-cache refresh timer keeps firing against the now-dead
- * DB port -> "Connection refused" zombie errors visible while B's tests run.
+ * Each context starts its own PeeGeeQManager (Vert.x), and Spring must close each manager
+ * after its dependent beans without leaving background timers running into the next context.
  */
 @Tag(TestCategories.INTEGRATION)
 @SpringBootTest(
@@ -44,7 +42,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
     }
 )
 @Testcontainers
-@ExtendWith(VertxExtension.class)
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class ZombieReproA {
 
     private static final Logger logger = LoggerFactory.getLogger(ZombieReproA.class);
@@ -65,13 +63,9 @@ class ZombieReproA {
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
     }
 
-    @AfterEach
-    void closeManager(VertxTestContext testContext) {
-        peeGeeQManager.closeReactive().onComplete(testContext.succeedingThenComplete());
-    }
-
     @Test
-    void trivialTestA() {
-        logger.info("ZombieReproA: trivial test - manager will be closed explicitly in @AfterEach");
+    void managerStartsInFirstIsolatedContext() {
+        assertTrue(peeGeeQManager.isStarted(), "First isolated context should start its manager");
+        logger.info("ZombieReproA: manager is started; Spring will own context shutdown");
     }
 }

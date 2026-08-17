@@ -33,6 +33,7 @@ public class PartitionAssignmentService {
 
     private static final Logger logger = LoggerFactory.getLogger(PartitionAssignmentService.class);
     private static final int VIRTUAL_NODES = 150;
+    static final long MEMBER_TIMEOUT_MS = 30_000L;
 
     private final PgConnectionManager connectionManager;
     private final String serviceId;
@@ -73,7 +74,10 @@ public class PartitionAssignmentService {
                         .compose(newGen -> discoverPartitionsInternal(conn, topic)
                                 .compose(partitions -> {
                                     if (partitions.isEmpty()) {
-                                        return Future.succeededFuture(List.<PartitionAssignment>of());
+                                        return deleteOldAssignments(conn, topic, groupName)
+                                                .compose(v -> bumpOffsetGenerations(
+                                                        conn, topic, groupName, newGen))
+                                                .map(v -> List.<PartitionAssignment>of());
                                     }
                                     return getCurrentInstances(conn, topic, groupName)
                                             .compose(currentInstances -> {
@@ -158,7 +162,7 @@ public class PartitionAssignmentService {
      * @return Future completing when heartbeat is updated
      */
     public Future<Void> heartbeat(String topic, String groupName, String instanceId) {
-        return connectionManager.withConnection(serviceId, conn ->
+        return connectionManager.withTransaction(serviceId, conn ->
                 conn.preparedQuery(
                         "UPDATE outbox_partition_assignments " +
                         "SET last_heartbeat_at = clock_timestamp() " +
@@ -224,10 +228,11 @@ public class PartitionAssignmentService {
             SELECT DISTINCT assigned_instance_id
             FROM outbox_partition_assignments
             WHERE topic = $1 AND group_name = $2
+              AND last_heartbeat_at >= clock_timestamp() - ($3 * INTERVAL '1 millisecond')
             ORDER BY assigned_instance_id
             """;
         return conn.preparedQuery(sql)
-                .execute(Tuple.of(topic, groupName))
+                .execute(Tuple.of(topic, groupName, MEMBER_TIMEOUT_MS))
                 .map(rows -> {
                     List<String> instances = new ArrayList<>();
                     for (Row row : rows) {

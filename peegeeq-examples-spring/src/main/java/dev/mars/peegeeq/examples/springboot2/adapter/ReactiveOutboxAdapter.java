@@ -22,8 +22,8 @@ import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import io.vertx.core.Future;
 
 
@@ -38,25 +38,15 @@ import io.vertx.core.Future;
  * {@code Future}, so a small, well-defined adapter is required at the boundary between
  * the two reactive worlds. This class is that boundary.
  *
- * <p><b>How the bridge works.</b> Vert.x {@code Future} exposes
- * {@link io.vertx.core.Future#toCompletionStage()}, which returns a standard
- * {@link java.util.concurrent.CompletionStage}. Reactor's {@link Mono#fromCompletionStage}
- * subscribes to that stage and emits the result (or error) into the reactive stream.
- * No thread is parked and no value is ever blocked on with {@code .join()} or {@code .get()};
- * the conversion is purely a non-blocking signal hand-off.
- *
- * <p><b>Legitimate use of {@code CompletableFuture}.</b> A few combinator methods on this
- * class ({@link #allOf}, {@link #anyOf}) convert to {@code CompletableFuture} internally
- * solely to leverage the JDK's built-in {@code allOf} / {@code anyOf} combinators, then
- * immediately wrap the result back into a {@code Mono}. This is the only place the JDK
- * {@code CompletableFuture} type appears, and it is never blocked on. Everywhere else in
- * PeeGeeQ code the rule is reactive-only Vert.x {@code Future} composition.
+ * <p><b>How the bridge works.</b> The adapter observes the Vert.x success and failure
+ * signals directly and forwards them to a Reactor sink. Reactor operators then provide
+ * aggregation and fallback behavior without introducing a second future abstraction.
  *
  * <p><b>Teaching intent.</b> The {@code springboot2} example is designed to show developers
  * how a non-Vert.x consumer (in this case Spring WebFlux / Reactor) integrates with the
  * Vert.x-based PeeGeeQ outbox without violating the reactive contract on either side.
- * The pattern shown here  {@code Future  CompletionStage  Mono} at the boundary, and
- * Reactor everywhere else inside the Spring layer  is the recommended approach.
+ * The pattern shown here keeps Vert.x futures at the PeeGeeQ boundary and Reactor types
+ * everywhere else inside the Spring layer.
  *
  * <p><b>Usage example.</b>
  * <pre>{@code
@@ -81,16 +71,15 @@ public class ReactiveOutboxAdapter {
     /**
      * Converts a Vert.x {@link Future} to a Reactor {@link Mono} without blocking.
      *
-     * <p>The bridge goes through {@link Future#toCompletionStage()} and
-     * {@link Mono#fromCompletionStage}; no thread is ever parked. Errors propagate
-     * through the reactive stream as an {@code onError} signal.
+     * <p>The future's success and failure handlers feed a Reactor sink directly.
+     * Errors propagate through the reactive stream as an {@code onError} signal.
      *
      * @param future the Vert.x Future to bridge into a Mono
      * @param <T> the type of the result
      * @return a Mono that emits the future's result or its failure
      */
     public <T> Mono<T> toMono(Future<T> future) {
-        return Mono.fromCompletionStage(future.toCompletionStage())
+        return bridge(future)
             .doOnError(error -> log.error("Error in reactive adapter while converting Future to Mono", error))
             .doOnSuccess(result -> log.trace("Successfully converted Future to Mono with result: {}", result));
     }
@@ -106,7 +95,7 @@ public class ReactiveOutboxAdapter {
      * @return a {@code Mono<Void>} that completes when the future completes
      */
     public Mono<Void> toMonoVoid(Future<Void> future) {
-        return Mono.fromCompletionStage(future.toCompletionStage())
+        return bridge(future)
             .then()
             .doOnError(error -> log.error("Error in reactive adapter while converting Future<Void> to Mono<Void>", error))
             .doOnSuccess(v -> log.trace("Successfully converted Future<Void> to Mono<Void>"));
@@ -133,21 +122,17 @@ public class ReactiveOutboxAdapter {
      * Returns a {@code Mono<Void>} that completes when <em>all</em> of the supplied
      * Vert.x {@link Future}s complete successfully, or errors as soon as any of them fail.
      *
-     * <p>Implementation note: this method reuses the JDK's
-     * {@link CompletableFuture#allOf(CompletableFuture[])} combinator. Each Vert.x Future
-     * is converted to a {@link CompletableFuture} purely so the JDK combinator can be
-     * applied; the resulting future is then wrapped back into a Mono. No blocking call
-     * ({@code .join()} / {@code .get()}) is made on any future.
+     * <p>All futures are observed directly and their signals are combined by Reactor.
+     * Failure is delayed until every supplied future has terminated, matching the
+     * wait-for-all contract and ensuring every failure is observed.
      *
      * @param futures the Vert.x Futures to await
      * @return a {@code Mono<Void>} that completes when all futures complete
      */
     public Mono<Void> allOf(Future<?>... futures) {
-        CompletableFuture<?>[] cfs = new CompletableFuture[futures.length];
-        for (int i = 0; i < futures.length; i++) {
-            cfs[i] = futures[i].toCompletionStage().toCompletableFuture();
-        }
-        return Mono.fromFuture(CompletableFuture.allOf(cfs))
+        int concurrency = Math.max(1, futures.length);
+        return Flux.fromArray(futures)
+            .flatMapDelayError(future -> bridge(future), concurrency, 1)
             .then()
             .doOnError(error -> log.error("Error in reactive adapter while waiting for all Futures", error))
             .doOnSuccess(v -> log.trace("All {} Futures completed successfully", futures.length));
@@ -157,9 +142,8 @@ public class ReactiveOutboxAdapter {
      * Returns a {@link Mono} that completes with the result of whichever supplied
      * Vert.x {@link Future} completes first (success or failure).
      *
-     * <p>Implementation note: as with {@link #allOf(Future...)}, this method reuses the
-     * JDK's {@link CompletableFuture#anyOf(CompletableFuture[])} combinator. The conversion
-     * to {@code CompletableFuture} is internal and non-blocking.
+     * <p>Each future is bridged directly and Reactor selects the first success or failure
+     * signal. An empty input produces an empty Mono.
      *
      * @param futures the Vert.x Futures to race
      * @param <T> the type of the result
@@ -167,14 +151,11 @@ public class ReactiveOutboxAdapter {
      */
     @SafeVarargs
     public final <T> Mono<T> anyOf(Future<T>... futures) {
-        CompletableFuture<?>[] cfs = new CompletableFuture[futures.length];
-        for (int i = 0; i < futures.length; i++) {
-            cfs[i] = futures[i].toCompletionStage().toCompletableFuture();
-        }
-        @SuppressWarnings("unchecked")
-        CompletableFuture<T> anyFuture = (CompletableFuture<T>) CompletableFuture.anyOf(cfs);
-        
-        return Mono.fromFuture(anyFuture)
+        List<Mono<T>> candidates = Arrays.stream(futures)
+            .map(this::bridge)
+            .toList();
+
+        return Mono.firstWithSignal(candidates)
             .doOnError(error -> log.error("Error in reactive adapter while racing Futures", error))
             .doOnSuccess(result -> log.trace("First Future completed with result: {}", result));
     }
@@ -193,7 +174,7 @@ public class ReactiveOutboxAdapter {
      * @return a Mono that emits either the future's result or the fallback value
      */
     public <T> Mono<T> toMonoWithFallback(Future<T> future, java.util.function.Function<Throwable, T> errorHandler) {
-        return Mono.fromCompletionStage(future.toCompletionStage())
+        return bridge(future)
             .onErrorResume(error -> {
                 log.warn("Error in Future, applying fallback handler", error);
                 try {
@@ -205,5 +186,10 @@ public class ReactiveOutboxAdapter {
                 }
             });
     }
-}
 
+    private <T> Mono<T> bridge(Future<T> future) {
+        return Mono.create(sink -> future
+            .onSuccess(sink::success)
+            .onFailure(sink::error));
+    }
+}

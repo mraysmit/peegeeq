@@ -19,6 +19,8 @@ package dev.mars.peegeeq.examples.springbootdlq;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
+import dev.mars.peegeeq.db.PeeGeeQManager;
+import dev.mars.peegeeq.examples.springbootdlq.config.PeeGeeQDlqProperties;
 import dev.mars.peegeeq.examples.springbootdlq.events.PaymentEvent;
 import dev.mars.peegeeq.examples.springbootdlq.service.DlqManagementService;
 import dev.mars.peegeeq.examples.springbootdlq.service.PaymentProcessorService;
@@ -41,6 +43,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -70,6 +73,7 @@ import static org.junit.jupiter.api.Assertions.*;
     }
 )
 @Testcontainers
+@AutoConfigureTestRestTemplate
 @ActiveProfiles("test")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @ExtendWith(VertxExtension.class)
@@ -119,7 +123,11 @@ public class PaymentProcessorServiceTest {
                         log.info("Application-specific schema created successfully");
                         return (Void) null;
                     }))
-            .onComplete(setupContext.succeedingThenComplete());
+            .onSuccess(v -> setupContext.completeNow())
+            .onFailure(error -> {
+                log.error("Application-specific schema setup failed", error);
+                setupContext.failNow(error);
+            });
     }
 
     @Autowired
@@ -136,6 +144,12 @@ public class PaymentProcessorServiceTest {
     
     @Autowired
     private TestRestTemplate restTemplate;
+
+    @Autowired
+    private PeeGeeQManager manager;
+
+    @Autowired
+    private PeeGeeQDlqProperties dlqProperties;
 
     @Test
     @Timeout(60)
@@ -157,12 +171,16 @@ public class PaymentProcessorServiceTest {
                             Row row = rows.iterator().next();
                             return row.getLong(0) > 0;
                         })))
-            .onComplete(testContext.succeeding(paymentExists -> testContext.verify(() -> {
+            .onSuccess(paymentExists -> testContext.verify(() -> {
                 assertTrue(paymentExists, "Payment should be stored in database");
                 assertTrue(processorService.getPaymentsProcessed() > 0, "Payments processed count should increase");
                 log.info("Successful Payment Processing test passed");
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(error -> {
+                log.error("Successful payment processing test failed", error);
+                testContext.failNow(error);
+            });
     }
     
     @Test
@@ -172,6 +190,10 @@ public class PaymentProcessorServiceTest {
         assertNotNull(processorService, "PaymentProcessorService should be injected");
         assertNotNull(dlqService, "DlqManagementService should be injected");
         assertNotNull(producer, "MessageProducer should be injected");
+        assertFalse(dlqProperties.getDatabase().getPool().isShared(),
+            "The DLQ Spring properties must bind the isolated-pool test setting");
+        assertFalse(manager.getConfiguration().getPoolConfig().isShared(),
+            "Spring Boot DLQ tests must use an isolated Vert.x pool");
         
         log.info("Payment Processor Service Bean Injection test passed");
     }
@@ -234,4 +256,3 @@ public class PaymentProcessorServiceTest {
         log.info("DLQ Messages Endpoint test passed");
     }
 }
-

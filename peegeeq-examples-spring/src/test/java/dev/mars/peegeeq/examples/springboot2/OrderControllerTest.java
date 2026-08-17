@@ -18,7 +18,6 @@ package dev.mars.peegeeq.examples.springboot2;
 
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.database.DatabaseService;
-import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.springboot.model.CreateOrderRequest;
 import dev.mars.peegeeq.examples.springboot.model.CreateOrderResponse;
 import dev.mars.peegeeq.examples.springboot.model.OrderItem;
@@ -27,8 +26,6 @@ import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -38,7 +35,9 @@ import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.MediaType;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
@@ -83,34 +82,20 @@ import static org.junit.jupiter.api.Assertions.*;
         "logging.level.org.springframework.data.r2dbc=DEBUG"
     }
 )
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 class OrderControllerTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OrderControllerTest.class);
 
-    @Autowired
     private WebTestClient webTestClient;
+
+    @LocalServerPort
+    private int serverPort;
 
     @Autowired
     private DatabaseService databaseService;
-    @Autowired(required = false)
-    private PeeGeeQManager peeGeeQManager;
-    private static PeeGeeQManager peeGeeQManagerRef;
-
-    @AfterEach
-    void captureManager() {
-        peeGeeQManagerRef = peeGeeQManager;
-    }
-
-    @AfterAll
-    static void closeManager(VertxTestContext testContext) {
-        if (peeGeeQManagerRef == null) {
-            testContext.completeNow();
-            return;
-        }
-        peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
-    }
 
     @Container
     static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
@@ -131,6 +116,9 @@ class OrderControllerTest {
     @BeforeEach
     void setUp(VertxTestContext setupContext) {
         logger.info("=== Setting up application-specific tables for reactive test ===");
+        webTestClient = WebTestClient.bindToServer()
+            .baseUrl("http://localhost:" + serverPort)
+            .build();
 
         // Create orders table for this specific test
         String createOrdersTable = """
@@ -167,7 +155,11 @@ class OrderControllerTest {
                         logger.info("Application-specific schema created successfully");
                         return (Void) null;
                     }))
-            .onComplete(setupContext.succeedingThenComplete());
+            .onSuccess(v -> setupContext.completeNow())
+            .onFailure(error -> {
+                logger.error("Failed to create reactive order controller test schema", error);
+                setupContext.failNow(error);
+            });
     }
 
     /**
@@ -378,4 +370,3 @@ class OrderControllerTest {
         logger.info("=== Test Completed Successfully ===");
     }
 }
-

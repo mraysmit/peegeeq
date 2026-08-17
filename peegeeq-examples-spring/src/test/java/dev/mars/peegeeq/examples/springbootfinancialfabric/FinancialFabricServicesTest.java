@@ -27,8 +27,6 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.vertx.core.Future;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -125,21 +123,6 @@ public class FinancialFabricServicesTest {
     
     @Autowired
     private PeeGeeQManager peeGeeQManager;
-    private static PeeGeeQManager peeGeeQManagerRef;
-
-    @AfterEach
-    void captureManager() {
-        peeGeeQManagerRef = peeGeeQManager;
-    }
-
-    @AfterAll
-    static void closeManager(VertxTestContext testContext) {
-        if (peeGeeQManagerRef == null) {
-            testContext.completeNow();
-            return;
-        }
-        peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
-    }
 
     /**
      * Test complete trade lifecycle across all domain services.
@@ -298,10 +281,11 @@ public class FinancialFabricServicesTest {
                 return (Void) null;
             });
         });
-        workflowFuture.onComplete(testContext.succeeding(v -> {
-            log.info("Complete Trade Lifecycle test passed");
-            testContext.completeNow();
-        }));
+        workflowFuture
+            .onSuccess(v -> {
+                log.info("Complete Trade Lifecycle test passed");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 }
-

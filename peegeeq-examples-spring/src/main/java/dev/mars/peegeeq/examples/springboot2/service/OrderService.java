@@ -46,7 +46,7 @@ import java.math.BigDecimal;
  * - Uses sendInExistingTransaction() to include outbox events in the same transaction
  * - All database operations (orders, order_items, outbox) share the same connection
  * - Rollback affects ALL operations together
- * - Wraps CompletableFuture results in Mono for reactive Spring Boot compatibility
+ * - Bridges Vert.x Future signals into Mono for reactive Spring Boot compatibility
  *
  * Key Features:
  * - True transactional consistency with PeeGeeQ's API
@@ -97,7 +97,7 @@ public class OrderService {
      * 4. Save order to database using the same connection
      * 5. Save order items to database using the same connection
      * 6. All operations commit/rollback together
-     * 7. Wrap CompletableFuture in Mono for reactive Spring Boot
+     * 7. Bridge the resulting Vert.x Future into Mono for reactive Spring Boot
      *
      * @param request The order creation request
      * @return Mono containing the created order ID
@@ -334,7 +334,7 @@ public class OrderService {
     public Mono<Order> findById(String orderId) {
         log.info("Finding order by ID: {}", orderId);
 
-        return Mono.fromCompletionStage(
+        return adapter.toMono(
             databaseService.getConnectionProvider().withConnection("peegeeq-main", connection -> {
                 return orderRepository.findById(orderId, connection)
                     .map(optional -> optional.orElse(null))
@@ -346,7 +346,7 @@ public class OrderService {
                         }
                     })
                     .onFailure(error -> log.error("Error finding order {}: {}", orderId, error.getMessage()));
-            }).toCompletionStage()
+            })
         );
     }
 
@@ -359,7 +359,7 @@ public class OrderService {
     public Mono<Order> findByCustomerId(String customerId) {
         log.info("Finding order by customer ID: {}", customerId);
 
-        return Mono.fromCompletionStage(
+        return adapter.toMono(
             databaseService.getConnectionProvider().withConnection("peegeeq-main", connection -> {
                 return orderRepository.findByCustomerId(customerId, connection)
                     .map(optional -> optional.orElse(null))
@@ -371,7 +371,7 @@ public class OrderService {
                         }
                     })
                     .onFailure(error -> log.error("Error finding order for customer {}: {}", customerId, error.getMessage()));
-            }).toCompletionStage()
+            })
         );
     }
 
@@ -384,7 +384,7 @@ public class OrderService {
     public Mono<Void> validateOrder(String orderId) {
         log.info("Validating order: {}", orderId);
 
-        return Mono.fromCompletionStage(
+        return adapter.toMonoVoid(
             databaseService.getConnectionProvider().withConnection("peegeeq-main", connection -> {
                 return orderRepository.findById(orderId, connection)
                     .compose(optional -> {
@@ -395,9 +395,8 @@ public class OrderService {
                         log.info("Order {} validated successfully", orderId);
                         return Future.succeededFuture();
                     });
-            }).toCompletionStage()
-        ).then();
+            })
+        );
     }
 
 }
-

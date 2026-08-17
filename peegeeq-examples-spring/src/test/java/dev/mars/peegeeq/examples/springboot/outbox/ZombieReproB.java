@@ -7,10 +7,6 @@ import dev.mars.peegeeq.examples.springboot.SpringBootOutboxApplication;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
-import io.vertx.junit5.VertxExtension;
-import io.vertx.junit5.VertxTestContext;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -18,17 +14,20 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 /**
- * Zombie repro test B.
+ * Zombie-shutdown regression test B.
  * See ZombieReproA for full explanation.
- * When run together (A then B), zombie Connection refused errors from A's
- * PeeGeeQManager timer should appear in the log while B's test runs.
+ * Running both classes verifies through the test log that shutting down either isolated
+ * Spring context does not leave a PeeGeeQManager timer active in the other context.
  */
 @Tag(TestCategories.INTEGRATION)
 @SpringBootTest(
@@ -41,7 +40,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
     }
 )
 @Testcontainers
-@ExtendWith(VertxExtension.class)
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class ZombieReproB {
 
     private static final Logger logger = LoggerFactory.getLogger(ZombieReproB.class);
@@ -62,13 +61,9 @@ class ZombieReproB {
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
     }
 
-    @AfterEach
-    void closeManager(VertxTestContext testContext) {
-        peeGeeQManager.closeReactive().onComplete(testContext.succeedingThenComplete());
-    }
-
     @Test
-    void trivialTestB() {
-        logger.info("ZombieReproB: trivial test - no zombie should appear now - manager closed explicitly");
+    void managerStartsInSecondIsolatedContext() {
+        assertTrue(peeGeeQManager.isStarted(), "Second isolated context should start its manager");
+        logger.info("ZombieReproB: manager is started; Spring will own context shutdown");
     }
 }

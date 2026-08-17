@@ -154,7 +154,7 @@ class SetupBindingRegistryIntegrationTest extends BaseIntegrationTest {
                             .schema(schema)
                             .build();
                     verifyMgr.getOrCreateReactivePool("verify-bindings", connConfig,
-                            new PgPoolConfig.Builder().maxSize(1).build());
+                            new PgPoolConfig.Builder().maxSize(1).shared(false).build());
 
                     return verifyMgr.withConnection("verify-bindings", conn ->
                             conn.preparedQuery("SELECT column_name FROM information_schema.columns "

@@ -3,7 +3,6 @@ package dev.mars.peegeeq.examples.springboot.outbox;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
-import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springboot.SpringBootOutboxApplication;
 import dev.mars.peegeeq.outbox.OutboxFactory;
@@ -15,12 +14,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import io.vertx.core.Future;
-import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -62,6 +61,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @ExtendWith(VertxExtension.class)
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class OutboxErrorHandlingSpringBootTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxErrorHandlingSpringBootTest.class);
@@ -83,51 +83,25 @@ class OutboxErrorHandlingSpringBootTest {
 
     @Autowired
     private OutboxFactory outboxFactory;
-    @Autowired
-    private PeeGeeQManager peeGeeQManager;
-    private static PeeGeeQManager peeGeeQManagerRef;
-
     private final List<MessageProducer<?>> activeProducers = new ArrayList<>();
     private final List<MessageConsumer<?>> activeConsumers = new ArrayList<>();
 
     @AfterEach
-    void tearDown(Vertx vertx, VertxTestContext tearDownContext) {
+    void tearDown() {
         logger.info("Cleaning up test resources...");
         
         // Close all active consumers first
         for (MessageConsumer<?> consumer : activeConsumers) {
-            try {
-                consumer.close();
-            } catch (Exception e) {
-                logger.error("Error closing consumer", e);
-            }
+            consumer.close();
         }
         activeConsumers.clear();
         
         // Close all active producers
         for (MessageProducer<?> producer : activeProducers) {
-            try {
-                producer.close();
-            } catch (Exception e) {
-                logger.error("Error closing producer", e);
-            }
+            producer.close();
         }
         activeProducers.clear();
-        
-        // Wait for connections to be released
-        vertx.timer(2000).onComplete(tearDownContext.succeeding(v -> {
-            peeGeeQManagerRef = peeGeeQManager;
-            tearDownContext.completeNow();
-        }));
-    }
-
-    @AfterAll
-    static void closeManager(VertxTestContext testContext) {
-        if (peeGeeQManagerRef == null) {
-            testContext.completeNow();
-            return;
-        }
-        peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
+        logger.info("Cleanup complete");
     }
 
     @Test
@@ -184,7 +158,7 @@ class OutboxErrorHandlingSpringBootTest {
     @Test
     @Order(2)
     @DisplayName("Test 2: Permanent Error Handling - Fails after max retries")
-    void testPermanentErrorHandling(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testPermanentErrorHandling(VertxTestContext testContext) throws Exception {
         logger.info("\n=== TEST 2: Permanent Error Handling ===");
         
         String topicName = "error-permanent-topic";
@@ -288,4 +262,3 @@ class OutboxErrorHandlingSpringBootTest {
             transientAttempts.get(), permanentAttempts.get());
     }
 }
-
