@@ -46,7 +46,9 @@ import java.util.Properties;
  *
  * <p>The schema is REQUIRED: PeeGeeQ has no default schema anywhere in the system, and
  * ambient channels (system properties, environment variables) are not configuration.
- * {@link Builder#build()} throws if {@link Builder#schema(String)} was never called.</p>
+ * {@link Builder#build()} throws if {@link Builder#schema(String)} was never called.
+ * The builder also supplies small, non-shared pool defaults so closing a test manager
+ * deterministically releases its database connections.</p>
  *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2026-05-06
@@ -150,6 +152,15 @@ public final class PeeGeeQTestConfig {
             props.setProperty("peegeeq.database.password", password);
             props.setProperty("peegeeq.database.schema",   validatedSchema);
             props.setProperty("peegeeq.database.ssl.enabled", "false");
+
+            // Safe test pool defaults: small pools preserve parallel execution headroom,
+            // short timeouts fail and tear down quickly, and shared=false makes close()
+            // deterministically release the underlying database connections.
+            props.setProperty("peegeeq.database.pool.min-size", "1");
+            props.setProperty("peegeeq.database.pool.max-size", "3");
+            props.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
+            props.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
+            props.setProperty("peegeeq.database.pool.shared", "false");
 
             // Safe test defaults: disable background jobs that poll shared database state.
             // Tests specifically testing these jobs (e.g. ConsumerGroupRetryJobLifecycleTest)

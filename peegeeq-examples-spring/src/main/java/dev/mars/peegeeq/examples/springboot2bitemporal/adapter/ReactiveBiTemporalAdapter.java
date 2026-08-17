@@ -28,27 +28,12 @@ import java.util.List;
 
 
 /**
- * Adapter for converting PeeGeeQ's reactive API to Project Reactor's Mono/Flux.
- * 
- * <p>This adapter demonstrates TWO approaches for integrating PeeGeeQ with Spring WebFlux:
- * <ol>
- *   <li><b>CompletableFuture API</b> - Current PeeGeeQ public API (broad compatibility)</li>
- *   <li><b>Native Vert.x Future API</b> - Proposed enhancement (better performance)</li>
- * </ol>
- * 
- * <p><b>Important Context:</b>
- * PeeGeeQ internally uses Vert.x 5.x {@link Future} for reactive operations, but currently
- * exposes {@link CompletableFuture} in the public API for broader compatibility. Internally,
- * PeeGeeQ converts via {@code .toCompletionStage().toCompletableFuture()}.
- * 
- * <p><b>Benefits of Native Vert.x Future API:</b>
- * <ul>
- *   <li>Better performance - eliminates conversion overhead</li>
- *   <li>More composable - can use Vert.x operators before converting</li>
- *   <li>Clearer intent - shows PeeGeeQ is Vert.x-based</li>
- * </ul>
- * 
- * <p>This adapter supports both approaches to demonstrate the trade-offs.
+ * Boundary adapter that converts PeeGeeQ's Vert.x {@link Future} API to Project
+ * Reactor's {@link Mono} and {@link Flux} types.
+ *
+ * <p>The adapter observes Vert.x success and failure signals directly and forwards
+ * them to a Reactor sink. It therefore keeps one asynchronous abstraction on each
+ * side of the application boundary and introduces no blocking or future bridge.
  * 
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-10-07
@@ -58,90 +43,70 @@ import java.util.List;
 public class ReactiveBiTemporalAdapter {
     private static final Logger log = LoggerFactory.getLogger(ReactiveBiTemporalAdapter.class);
 
-    // ========== APPROACH 1: CompletableFuture API (Current) ==========
-    
     /**
-     * Converts a CompletableFuture to a Mono (current PeeGeeQ public API).
-     * 
-     * <p>This method works with the current PeeGeeQ API that returns CompletableFuture.
-     * 
-     * @param future The CompletableFuture from PeeGeeQ public API
+     * Converts a Vert.x future containing one event to a Mono.
+     *
+     * @param future The future returned by the PeeGeeQ public API
      * @param <T> The type of the event payload
      * @return A Mono that completes with the bi-temporal event
      */
     public <T> Mono<BiTemporalEvent<T>> toMono(Future<BiTemporalEvent<T>> future) {
-        return Mono.fromCompletionStage(future.toCompletionStage())
-            .doOnError(error -> log.error("Error converting CompletableFuture to Mono", error))
-            .doOnSuccess(result -> log.trace("Successfully converted CompletableFuture to Mono"));
-    }
-    
-    /**
-     * Converts a CompletableFuture of a list to a Flux (current PeeGeeQ public API).
-     * 
-     * <p>This method works with the current PeeGeeQ API that returns CompletableFuture.
-     * 
-     * @param future The Future<List<T>> from PeeGeeQ public API
-     * @param <T> The type of the event payload
-     * @return A Flux that emits each bi-temporal event
-     */
-    public <T> Flux<BiTemporalEvent<T>> toFlux(Future<List<BiTemporalEvent<T>>> future) {
-        return Mono.fromCompletionStage(future.toCompletionStage())
-            .flatMapMany(Flux::fromIterable)
-            .doOnError(error -> log.error("Error converting Future<List> to Flux", error))
-            .doOnComplete(() -> log.trace("Successfully converted Future<List> to Flux"));
-    }
-
-    // ========== APPROACH 2: Native Vert.x Future API (Proposed) ==========
-    
-    /**
-     * Converts a Vert.x Future to a Mono (proposed native API - more efficient).
-     * 
-     * <p>This method demonstrates how to use a native Vert.x Future API if PeeGeeQ
-     * were to expose it. This approach is more efficient as it eliminates the
-     * intermediate CompletableFuture conversion.
-     * 
-     * <p><b>Performance Benefit:</b> Eliminates {@code .toCompletionStage().toCompletableFuture()}
-     * conversion overhead that happens internally in the current API.
-     * 
-     * @param future The Vert.x Future from proposed native API
-     * @param <T> The type of the event payload
-     * @return A Mono that completes with the bi-temporal event
-     */
-    public <T> Mono<BiTemporalEvent<T>> toMonoFromVertxFuture(Future<BiTemporalEvent<T>> future) {
-        return Mono.fromCompletionStage(future.toCompletionStage())
+        return bridge(future)
             .doOnError(error -> log.error("Error converting Vert.x Future to Mono", error))
             .doOnSuccess(result -> log.trace("Successfully converted Vert.x Future to Mono"));
     }
     
     /**
-     * Converts a Vert.x Future of a list to a Flux (proposed native API - more efficient).
-     * 
-     * <p>This method demonstrates how to use a native Vert.x Future API if PeeGeeQ
-     * were to expose it. This approach is more efficient as it eliminates the
-     * intermediate CompletableFuture conversion.
-     * 
-     * @param future The Vert.x Future<List<T>> from proposed native API
+     * Converts a Vert.x future containing a list of events to a Flux.
+     *
+     * @param future The Future<List<T>> from PeeGeeQ public API
+     * @param <T> The type of the event payload
+     * @return A Flux that emits each bi-temporal event
+     */
+    public <T> Flux<BiTemporalEvent<T>> toFlux(Future<List<BiTemporalEvent<T>>> future) {
+        return bridge(future)
+            .flatMapMany(Flux::fromIterable)
+            .doOnError(error -> log.error("Error converting Future<List> to Flux", error))
+            .doOnComplete(() -> log.trace("Successfully converted Future<List> to Flux"));
+    }
+
+    /**
+     * Converts a Vert.x future to a Mono. This explicitly named form is retained
+     * for the example service API and has the same signaling contract as {@link #toMono(Future)}.
+     *
+     * @param future The Vert.x future to convert
+     * @param <T> The type of the event payload
+     * @return A Mono that completes with the bi-temporal event
+     */
+    public <T> Mono<BiTemporalEvent<T>> toMonoFromVertxFuture(Future<BiTemporalEvent<T>> future) {
+        return bridge(future)
+            .doOnError(error -> log.error("Error converting Vert.x Future to Mono", error))
+            .doOnSuccess(result -> log.trace("Successfully converted Vert.x Future to Mono"));
+    }
+    
+    /**
+     * Converts a Vert.x future containing a list to a Flux. This explicitly named
+     * form is retained for the example service API.
+     *
+     * @param future The Vert.x future containing the events
      * @param <T> The type of the event payload
      * @return A Flux that emits each bi-temporal event
      */
     public <T> Flux<BiTemporalEvent<T>> toFluxFromVertxFuture(Future<List<BiTemporalEvent<T>>> future) {
-        return Mono.fromCompletionStage(future.toCompletionStage())
+        return bridge(future)
             .flatMapMany(Flux::fromIterable)
             .doOnError(error -> log.error("Error converting Vert.x Future<List> to Flux", error))
             .doOnComplete(() -> log.trace("Successfully converted Vert.x Future<List> to Flux"));
     }
     
-    // ========== COMPOSABILITY EXAMPLE (Vert.x Future API) ==========
-    
     /**
      * Example of composing Vert.x Future operations before converting to Mono.
      * 
-     * <p>This demonstrates the composability benefit of the native Vert.x Future API.
-     * With the native API, you can use Vert.x operators like {@code .compose()},
+     * <p>This demonstrates that Vert.x operators such as {@code .compose()},
      * {@code .map()}, {@code .transform()}, {@code .eventually()},
      * {@code .onSuccess()}, and {@code .onFailure()} before converting to Mono/Flux.
      * 
-     * @param future The Vert.x Future from proposed native API
+     * @param future The Vert.x future to compose and convert
      * @param <T> The type of the event payload
      * @return A Mono that completes with the transformed event
      */
@@ -153,7 +118,12 @@ public class ReactiveBiTemporalAdapter {
             .onSuccess(event -> log.debug("Event appended: {}", event.getEventId()))
             .onFailure(error -> log.error("Failed to append event", error));
         
-        return Mono.fromCompletionStage(composedFuture.toCompletionStage());
+        return bridge(composedFuture);
+    }
+
+    private <T> Mono<T> bridge(Future<T> future) {
+        return Mono.create(sink -> future
+            .onSuccess(sink::success)
+            .onFailure(sink::error));
     }
 }
-

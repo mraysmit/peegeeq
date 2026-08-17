@@ -93,7 +93,7 @@ public class OrderService {
      * 6. All operations commit/rollback together
      *
      * @param request The order creation request
-     * @return CompletableFuture containing the created order ID
+     * @return a Vert.x Future containing the created order ID
      */
     public Future<String> createOrder(CreateOrderRequest request) {
         log.info("Creating order for customer: {}", request.getCustomerId());
@@ -144,7 +144,7 @@ public class OrderService {
      * This demonstrates publishing a single event without transaction coordination.
      * 
      * @param event The order event to publish
-     * @return CompletableFuture for the publish operation
+     * @return a Vert.x Future for the publish operation
      */
     public Future<Void> publishOrderEvent(OrderEvent event) {
         log.info("Publishing order event: {}", event.getClass().getSimpleName());
@@ -160,7 +160,7 @@ public class OrderService {
      * the entire transaction (including the outbox event) will be rolled back.
      *
      * @param request The order creation request
-     * @return CompletableFuture containing the created order ID
+     * @return a Vert.x Future containing the created order ID
      */
     public Future<String> createOrderWithBusinessValidation(CreateOrderRequest request) {
         log.info("Creating order with business validation for customer: {}", request.getCustomerId());
@@ -217,7 +217,7 @@ public class OrderService {
      * This method shows that database-level failures also trigger complete rollback.
      *
      * @param request The order creation request
-     * @return CompletableFuture containing the created order ID
+     * @return a Vert.x Future containing the created order ID
      */
     public Future<String> createOrderWithDatabaseConstraints(CreateOrderRequest request) {
         log.info("Creating order with database constraints for customer: {}", request.getCustomerId());
@@ -263,7 +263,7 @@ public class OrderService {
      * This method shows that when everything succeeds, all operations are committed together.
      *
      * @param request The order creation request
-     * @return CompletableFuture containing the created order ID
+     * @return a Vert.x Future containing the created order ID
      */
     public Future<String> createOrderWithMultipleEvents(CreateOrderRequest request) {
         log.info("Creating order with multiple events for customer: {}", request.getCustomerId());
@@ -287,4 +287,3 @@ public class OrderService {
         });
     }
 }
-

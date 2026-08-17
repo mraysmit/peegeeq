@@ -19,7 +19,6 @@ package dev.mars.peegeeq.examples.springboot.outbox;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
-import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springboot.SpringBootOutboxApplication;
 import dev.mars.peegeeq.outbox.OutboxFactory;
@@ -31,6 +30,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -88,16 +88,13 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @ExtendWith(VertxExtension.class)
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class OutboxRetrySpringBootTest {
     
     private static final Logger logger = LoggerFactory.getLogger(OutboxRetrySpringBootTest.class);
     
     @Autowired
     private OutboxFactory outboxFactory;
-
-    @Autowired
-    private PeeGeeQManager peeGeeQManager;
-    private static PeeGeeQManager peeGeeQManagerRef;
 
     @Container
     static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
@@ -119,48 +116,23 @@ class OutboxRetrySpringBootTest {
     }
     
     @AfterEach
-    void tearDown(Vertx vertx, VertxTestContext testContext) {
+    void tearDown() {
         logger.info(" Cleaning up Retry Spring Boot Test");
 
         // Close all active consumers first
         for (MessageConsumer<?> consumer : activeConsumers) {
-            try {
-                consumer.close();
-                logger.info("Closed consumer");
-            } catch (Exception e) {
-                logger.error(" Error closing consumer: {}", e.getMessage());
-            }
+            consumer.close();
+            logger.info("Closed consumer");
         }
         activeConsumers.clear();
 
         // Close all active producers
         for (MessageProducer<?> producer : activeProducers) {
-            try {
-                producer.close();
-                logger.info("Closed producer");
-            } catch (Exception e) {
-                logger.error(" Error closing producer: {}", e.getMessage());
-            }
+            producer.close();
+            logger.info("Closed producer");
         }
         activeProducers.clear();
-
-        peeGeeQManagerRef = peeGeeQManager;
-
-        // Wait for connections to be fully released before next test
-        logger.info(" Waiting for connections to be released...");
-        vertx.timer(2000).onComplete(testContext.succeeding(v -> {
-            logger.info("Cleanup complete");
-            testContext.completeNow();
-        }));
-    }
-
-    @AfterAll
-    static void closeManager(VertxTestContext testContext) {
-        if (peeGeeQManagerRef == null) {
-            testContext.completeNow();
-            return;
-        }
-        peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
+        logger.info("Cleanup complete");
     }
     
     /**
@@ -275,7 +247,7 @@ class OutboxRetrySpringBootTest {
         // Wait for retries to settle, then a small grace period to ensure no extra retries fire.
         retriesDone.future()
             .compose(v -> vertx.timer(2000))
-            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+            .onSuccess(v -> testContext.verify(() -> {
                 logger.info(" Max Retry Results:");
                 logger.info("  Total attempts: {}", attemptCount.get());
 
@@ -285,7 +257,10 @@ class OutboxRetrySpringBootTest {
                 logger.info("Max Retry Limit test passed");
                 logger.info("Retry limit enforced: stopped after {} attempts", attemptCount.get());
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(error -> {
+                logger.error("Failed while verifying the maximum retry limit", error);
+                testContext.failNow(error);
+            });
     }
 }
-

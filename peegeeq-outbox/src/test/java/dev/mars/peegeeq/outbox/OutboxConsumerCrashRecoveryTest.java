@@ -29,6 +29,7 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
+import dev.mars.peegeeq.db.recovery.StuckMessageRecoveryManager;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
@@ -46,10 +47,14 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.sqlclient.Pool;
+import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.extension.ExtendWith;
 
+import java.time.Duration;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -75,7 +80,7 @@ public class OutboxConsumerCrashRecoveryTest {
     private MessageProducer<String> producer;
     private MessageConsumer<String> consumer;
     private String testTopic;
-    private io.vertx.sqlclient.Pool testReactivePool;
+    private Pool testReactivePool;
     private PgConnectionManager connectionManager;
 
     @BeforeEach
@@ -83,7 +88,9 @@ public class OutboxConsumerCrashRecoveryTest {
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
         testTopic = "crash-recovery-test-" + UUID.randomUUID().toString().substring(0, 8);
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
-                .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
+                .property("peegeeq.queue.recovery.enabled", "false")
+                .build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         connectionManager = new PgConnectionManager(vertx);
@@ -95,7 +102,10 @@ public class OutboxConsumerCrashRecoveryTest {
                 .password(postgres.getPassword())
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder()
+                .maxSize(3)
+                .shared(false)
+                .build();
         testReactivePool = connectionManager.getOrCreateReactivePool("test-verification", connectionConfig, poolConfig);
         manager.start()
                 .onSuccess(v -> {
@@ -109,43 +119,85 @@ public class OutboxConsumerCrashRecoveryTest {
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws Exception {
-        try { if (consumer != null) consumer.close(); } catch (Exception e) { logger.warn("Error closing consumer", e); }
-        try { if (producer != null) producer.close(); } catch (Exception e) { logger.warn("Error closing producer", e); }
-        try { if (outboxFactory != null) outboxFactory.close(); } catch (Exception e) { logger.warn("Error closing outboxFactory", e); }
-        Future.<Void>succeededFuture()
-                .eventually(() -> manager != null ? manager.closeReactive() : Future.succeededFuture())
-                .eventually(() -> connectionManager != null ? connectionManager.close() : Future.<Void>succeededFuture())
+    void tearDown(VertxTestContext testContext) {
+        Future<Void> factoryClose = outboxFactory != null
+                ? outboxFactory.close()
+                : Future.succeededFuture();
+        factoryClose.transform(factoryResult -> {
+            Future<Void> managerClose = manager != null
+                    ? manager.closeReactive()
+                    : Future.succeededFuture();
+            return managerClose.transform(managerResult -> {
+                Future<Void> connectionClose = connectionManager != null
+                        ? connectionManager.close()
+                        : Future.succeededFuture();
+                return connectionClose.transform(connectionResult -> {
+                    if (factoryResult.failed()) {
+                        return Future.<Void>failedFuture(factoryResult.cause());
+                    }
+                    if (managerResult.failed()) {
+                        return Future.<Void>failedFuture(managerResult.cause());
+                    }
+                    if (connectionResult.failed()) {
+                        return Future.<Void>failedFuture(connectionResult.cause());
+                    }
+                    return Future.<Void>succeededFuture();
+                });
+            });
+        })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
      * Test the critical crash scenario: Consumer crashes after polling messages
      * but before marking them as completed, leaving them in PROCESSING state.
      *
-     * This test demonstrates that the stuck message recovery mechanism automatically
+     * This test demonstrates that the stuck message recovery mechanism
      * recovers messages that get stuck in PROCESSING state due to consumer crashes.
      */
     @Test
-    void testConsumerCrashLeavesMessagesInProcessingState(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testConsumerCrashMessageIsRecoveredToPending(VertxTestContext testContext) {
         String testMessage = "Message that will be left in PROCESSING state";
+        StuckMessageRecoveryManager recoveryManager =
+                new StuckMessageRecoveryManager(testReactivePool, Duration.ofMinutes(5), true);
 
         producer.send(testMessage)
-                .compose(v -> vertx.timer(1000))
-                .compose(v -> verifyMessageExists(testMessage, "PENDING"))
+                .compose(v -> fetchMessageState(testMessage))
+                .map(initialState -> {
+                    assertEquals("PENDING", initialState.status(),
+                            "A newly sent message must start PENDING");
+                    assertNull(initialState.processedAt());
+                    assertEquals(0, initialState.retryCount());
+                    return (Void) null;
+                })
                 .compose(v -> createStuckProcessingMessage(testMessage))
-                .compose(v -> vertx.timer(2000))
-                .compose(v -> getCurrentMessageStatus(testMessage))
-                .onSuccess(currentStatus -> testContext.verify(() -> {
-                    assertTrue(currentStatus.equals("PROCESSING") || currentStatus.equals("PENDING"),
-                        "Message should be either PROCESSING (before recovery) or PENDING (after recovery), but was: " + currentStatus);
-                    testContext.completeNow();
-                }))
+                .compose(v -> fetchMessageState(testMessage))
+                .map(crashedState -> {
+                    assertEquals("PROCESSING", crashedState.status(),
+                            "The crash boundary must leave the message PROCESSING");
+                    assertNotNull(crashedState.processedAt());
+                    assertEquals(0, crashedState.retryCount());
+                    return (Void) null;
+                })
+                .compose(v -> recoveryManager.recoverStuckMessages())
+                .map(recoveredCount -> {
+                    assertEquals(1, recoveredCount,
+                            "Recovery must reset exactly the crashed message");
+                    return (Void) null;
+                })
+                .compose(v -> fetchMessageState(testMessage))
+                .map(recoveredState -> {
+                    assertEquals("PENDING", recoveredState.status(),
+                            "The recovered message must return to PENDING");
+                    assertNull(recoveredState.processedAt(),
+                            "Recovery must clear the processing timestamp");
+                    assertEquals(0, recoveredState.retryCount(),
+                            "Recovery must preserve the retry count");
+                    return (Void) null;
+                })
+                .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -159,56 +211,40 @@ public class OutboxConsumerCrashRecoveryTest {
             SET status = 'PROCESSING', processed_at = $1
             WHERE payload::text LIKE $2 AND topic = $3 AND status = 'PENDING'
             """;
-        return testReactivePool.withConnection(connection -> connection.preparedQuery(updateSql)
-                .execute(io.vertx.sqlclient.Tuple.of(
-                        java.time.OffsetDateTime.now(),
+        OffsetDateTime crashedAt = OffsetDateTime.now(ZoneOffset.UTC).minus(Duration.ofMinutes(10));
+        return testReactivePool.withTransaction(client -> client.preparedQuery(updateSql)
+                .execute(Tuple.of(
+                        crashedAt,
                         "%" + messagePayload + "%",
                         testTopic
                 ))
                 .map(rowSet -> {
-                    assertTrue(rowSet.rowCount() > 0, "Should have updated at least one message to PROCESSING state");
+                    assertEquals(1, rowSet.rowCount(),
+                            "The crash fixture must move exactly one message to PROCESSING");
                     return (Void) null;
                 }));
     }
 
-
-
     /**
-     * Gets the current status of a message in the database.
+     * Reads the exact state of the test message.
      */
-    private Future<String> getCurrentMessageStatus(String expectedPayload) {
-        return testReactivePool.withConnection(connection -> {
-            String sql = "SELECT status FROM outbox WHERE payload::text LIKE $1 AND topic = $2";
-            return connection.preparedQuery(sql)
-                    .execute(io.vertx.sqlclient.Tuple.of("%" + expectedPayload + "%", testTopic))
-                    .map(rowSet -> {
-                        if (rowSet.size() > 0) {
-                            return rowSet.iterator().next().getString("status");
-                        } else {
-                            throw new AssertionError("No message found with payload: " + expectedPayload);
-                        }
-                    });
-        });
-    }
-
-    /**
-     * Helper method to verify that a message exists in the database with the expected status.
-     */
-    private Future<Void> verifyMessageExists(String expectedPayload, String expectedStatus) {
+    private Future<MessageState> fetchMessageState(String expectedPayload) {
         return testReactivePool.withConnection(connection -> {
             String sql = "SELECT id, status, processed_at, retry_count FROM outbox WHERE payload::text LIKE $1 AND topic = $2";
             return connection.preparedQuery(sql)
-                    .execute(io.vertx.sqlclient.Tuple.of("%" + expectedPayload + "%", testTopic))
+                    .execute(Tuple.of("%" + expectedPayload + "%", testTopic))
                     .map(rowSet -> {
-                        assertTrue(rowSet.size() > 0, "Message should exist in database");
-                        io.vertx.sqlclient.Row row = rowSet.iterator().next();
-                        String status = row.getString("status");
-                        assertEquals(expectedStatus, status,
-                                "Message should have status: " + expectedStatus);
-                        return (Void) null;
+                        assertEquals(1, rowSet.size(),
+                                "Exactly one test message should exist in the database");
+                        var row = rowSet.iterator().next();
+                        return new MessageState(
+                                row.getString("status"),
+                                row.getOffsetDateTime("processed_at"),
+                                row.getInteger("retry_count"));
                     });
         });
     }
+
+    private record MessageState(String status, OffsetDateTime processedAt, int retryCount) {
+    }
 }
-
-

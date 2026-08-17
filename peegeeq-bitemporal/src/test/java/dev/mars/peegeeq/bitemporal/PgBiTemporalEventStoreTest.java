@@ -29,6 +29,7 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -131,16 +132,22 @@ class PgBiTemporalEventStoreTest {
 
         Pool cleanupPool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
 
-        return cleanupPool.withConnection(conn ->
-            conn.query("DELETE FROM bitemporal_event_log").execute()
-                .recover(throwable -> {
-                    if (!throwable.getMessage().contains("does not exist")) {
-                        logger.warn("Cleanup operation warning: {}", throwable.getMessage());
-                    }
-                    return Future.succeededFuture();
-                })
-                .mapEmpty()
-        ).compose(v -> cleanupPool.close());
+        Promise<Void> cleanup = Promise.promise();
+        cleanupPool.withTransaction(conn ->
+                conn.query("DELETE FROM bitemporal_event_log").execute().mapEmpty())
+            .onSuccess(v -> cleanupPool.close()
+                .onSuccess(cleanup::complete)
+                .onFailure(cleanup::fail))
+            .onFailure(deleteFailure -> {
+                logger.error("Database cleanup failed", deleteFailure);
+                cleanupPool.close()
+                    .onSuccess(v -> cleanup.fail(deleteFailure))
+                    .onFailure(closeFailure -> {
+                        deleteFailure.addSuppressed(closeFailure);
+                        cleanup.fail(deleteFailure);
+                    });
+            });
+        return cleanup.future();
     }
 
     @BeforeEach
@@ -174,24 +181,44 @@ class PgBiTemporalEventStoreTest {
     @AfterEach
     void tearDown(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Tearing down");
+        Throwable eventStoreCloseFailure = null;
         if (eventStore != null) {
-            try { eventStore.close(); } catch (Exception e) { logger.warn("Event store cleanup: {}", e.getMessage()); }
-            eventStore = null;
+            try {
+                eventStore.close();
+            } catch (Exception e) {
+                logger.error("Event store cleanup failed", e);
+                eventStoreCloseFailure = e;
+            } finally {
+                eventStore = null;
+            }
         }
 
+        Throwable priorFailure = eventStoreCloseFailure;
+        Future<Void> shutdown;
         if (manager != null) {
             PeeGeeQManager m = manager;
             manager = null;
-            m.closeReactive()
-                .compose(v -> cleanupDatabase(vertx))
-                .onSuccess(v -> testContext.completeNow())
-                .onFailure(e -> {
-                    logger.error("Teardown failed", e);
-                    testContext.failNow(e);
-                });
+            shutdown = m.closeReactive().compose(v -> cleanupDatabase(vertx));
         } else {
-            testContext.completeNow();
+            shutdown = cleanupDatabase(vertx);
         }
+        shutdown
+            .onSuccess(v -> {
+                if (priorFailure == null) {
+                    testContext.completeNow();
+                } else {
+                    testContext.failNow(priorFailure);
+                }
+            })
+            .onFailure(shutdownFailure -> {
+                logger.error("Teardown failed", shutdownFailure);
+                if (priorFailure != null) {
+                    priorFailure.addSuppressed(shutdownFailure);
+                    testContext.failNow(priorFailure);
+                } else {
+                    testContext.failNow(shutdownFailure);
+                }
+            });
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "tearDown timed out");
     }
@@ -207,7 +234,7 @@ class PgBiTemporalEventStoreTest {
             .payload(payload)
             .validTime(validTime)
             .execute()
-            .onComplete(testContext.succeeding(event -> testContext.verify(() -> {
+            .onSuccess(event -> testContext.verify(() -> {
                 logger.info("Appended event id={}, version={}, eventType={}", event.getEventId(), event.getVersion(), event.getEventType());
                 assertNotNull(event);
                 assertNotNull(event.getEventId());
@@ -220,7 +247,8 @@ class PgBiTemporalEventStoreTest {
                 assertFalse(event.isCorrection());
                 assertNull(event.getCorrectionReason());
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
@@ -240,7 +268,7 @@ class PgBiTemporalEventStoreTest {
             .correlationId(correlationId)
             .aggregateId(aggregateId)
             .execute()
-            .onComplete(testContext.succeeding(event -> testContext.verify(() -> {
+            .onSuccess(event -> testContext.verify(() -> {
                 assertNotNull(event);
                 assertEquals("TestEvent", event.getEventType());
                 assertEquals(payload, event.getPayload());
@@ -249,7 +277,8 @@ class PgBiTemporalEventStoreTest {
                 assertEquals(aggregateId, event.getAggregateId());
                 logger.info("Metadata verified: headers={}, correlationId={}, aggregateId={}", headers, correlationId, aggregateId);
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
@@ -269,7 +298,7 @@ class PgBiTemporalEventStoreTest {
                     originalEvent.getEventId(), "TestEvent", correctedPayload, validTime, "Data correction"
                 ).map(correctionEvent -> Map.entry(originalEvent, correctionEvent));
             })
-            .onComplete(testContext.succeeding(pair -> testContext.verify(() -> {
+            .onSuccess(pair -> testContext.verify(() -> {
                 BiTemporalEvent<TestEvent> originalEvent = pair.getKey();
                 BiTemporalEvent<TestEvent> correctionEvent = pair.getValue();
                 assertNotNull(correctionEvent);
@@ -281,7 +310,8 @@ class PgBiTemporalEventStoreTest {
                 assertEquals("Data correction", correctionEvent.getCorrectionReason());
                 logger.info("Correction verified: original={} -> correction={}", originalEvent.getEventId(), correctionEvent.getEventId());
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
@@ -311,7 +341,7 @@ class PgBiTemporalEventStoreTest {
                         .map(rows -> rows.iterator().next().getOffsetDateTime("transaction_time").toInstant())
                 ).compose(dbTransactionTime -> pool.close().map(v -> Map.entry(event, dbTransactionTime)));
             })
-            .onComplete(testContext.succeeding(pair -> testContext.verify(() -> {
+            .onSuccess(pair -> testContext.verify(() -> {
                 BiTemporalEvent<TestEvent> event = pair.getKey();
                 Instant dbTransactionTime = pair.getValue();
                 logger.info("Comparing API transaction_time={} with DB transaction_time={}", event.getTransactionTime(), dbTransactionTime);
@@ -323,7 +353,8 @@ class PgBiTemporalEventStoreTest {
                 assertTrue(secondsDiff < 30, "DB transaction_time should be within 30s of now (was off by " + secondsDiff + "s)");
                 logger.info("Transaction time verified: DB clock used (within {}s of now)", secondsDiff);
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
@@ -338,11 +369,12 @@ class PgBiTemporalEventStoreTest {
         eventStore.appendBuilder().eventType(uniqueEventType).payload(event1).validTime(validTime1).execute()
             .compose(v -> eventStore.appendBuilder().eventType(uniqueEventType).payload(event2).validTime(validTime2).execute())
             .compose(v -> eventStore.query(EventQuery.forEventType(uniqueEventType)))
-            .onComplete(testContext.succeeding(events -> testContext.verify(() -> {
+            .onSuccess(events -> testContext.verify(() -> {
                 assertEquals(2, events.size());
                 logger.info("Query returned {} events for type '{}'", events.size(), uniqueEventType);
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
@@ -357,13 +389,14 @@ class PgBiTemporalEventStoreTest {
         eventStore.appendBuilder().eventType(type1).payload(event1).validTime(validTime).execute()
             .compose(v -> eventStore.appendBuilder().eventType(type2).payload(event2).validTime(validTime).execute())
             .compose(v -> eventStore.query(EventQuery.forEventType(type1)))
-            .onComplete(testContext.succeeding(events -> testContext.verify(() -> {
+            .onSuccess(events -> testContext.verify(() -> {
                 assertEquals(1, events.size());
                 assertEquals(type1, events.get(0).getEventType());
                 assertEquals(event1, events.get(0).getPayload());
                 logger.info("Query by type '{}' returned 1 event", type1);
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
@@ -378,13 +411,14 @@ class PgBiTemporalEventStoreTest {
             .compose(v -> eventStore.appendBuilder().eventType("TestEvent").payload(event2).validTime(validTime)
                 .headers(Map.of()).correlationId("corr-2").aggregateId("agg-2").execute())
             .compose(v -> eventStore.query(EventQuery.forAggregate("agg-1")))
-            .onComplete(testContext.succeeding(events -> testContext.verify(() -> {
+            .onSuccess(events -> testContext.verify(() -> {
                 assertEquals(1, events.size());
                 assertEquals("agg-1", events.get(0).getAggregateId());
                 assertEquals(event1, events.get(0).getPayload());
                 logger.info("Query by aggregate 'agg-1' returned 1 event");
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
@@ -399,14 +433,15 @@ class PgBiTemporalEventStoreTest {
             .compose(v -> eventStore.appendBuilder().eventType("TypeB").payload(event2).validTime(validTime).headers(Map.of()).correlationId("corr-2").aggregateId("agg-1").execute())
             .compose(v -> eventStore.appendBuilder().eventType("TypeA").payload(event3).validTime(validTime).headers(Map.of()).correlationId("corr-3").aggregateId("agg-2").execute())
             .compose(v -> eventStore.query(EventQuery.builder().aggregateId("agg-1").eventType("TypeA").build()))
-            .onComplete(testContext.succeeding(events -> testContext.verify(() -> {
+            .onSuccess(events -> testContext.verify(() -> {
                 assertEquals(1, events.size());
                 assertEquals("agg-1", events.get(0).getAggregateId());
                 assertEquals("TypeA", events.get(0).getEventType());
                 assertEquals(event1, events.get(0).getPayload());
                 logger.info("Compound query (agg-1 + TypeA) returned 1 event");
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
@@ -421,14 +456,15 @@ class PgBiTemporalEventStoreTest {
             .compose(v -> eventStore.appendBuilder().eventType("OrderUpdated").payload(event2).validTime(validTime).headers(Map.of()).correlationId("corr-2").aggregateId("order-123").execute())
             .compose(v -> eventStore.appendBuilder().eventType("OrderCreated").payload(event3).validTime(validTime).headers(Map.of()).correlationId("corr-3").aggregateId("order-456").execute())
             .compose(v -> eventStore.query(EventQuery.forAggregateAndType("order-123", "OrderCreated")))
-            .onComplete(testContext.succeeding(events -> testContext.verify(() -> {
+            .onSuccess(events -> testContext.verify(() -> {
                 assertEquals(1, events.size());
                 assertEquals("order-123", events.get(0).getAggregateId());
                 assertEquals("OrderCreated", events.get(0).getEventType());
                 assertEquals(event1, events.get(0).getPayload());
                 logger.info("Convenience method forAggregateAndType correctly filtered to 1 matching event");
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
@@ -440,13 +476,14 @@ class PgBiTemporalEventStoreTest {
         eventStore.appendBuilder().eventType("TestEvent").payload(payload).validTime(validTime).execute()
             .compose(originalEvent -> eventStore.getById(originalEvent.getEventId())
                 .map(retrievedEvent -> Map.entry(originalEvent, retrievedEvent)))
-            .onComplete(testContext.succeeding(pair -> testContext.verify(() -> {
+            .onSuccess(pair -> testContext.verify(() -> {
                 assertNotNull(pair.getValue());
                 assertEquals(pair.getKey().getEventId(), pair.getValue().getEventId());
                 assertEquals(pair.getKey().getPayload(), pair.getValue().getPayload());
                 logger.info("getById returned matching event with id={}", pair.getValue().getEventId());
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
@@ -461,7 +498,7 @@ class PgBiTemporalEventStoreTest {
                 return eventStore.appendCorrection(originalEvent.getEventId(), "TestEvent", correctedPayload, validTime, "Correction")
                     .compose(v -> eventStore.getAllVersions(originalEvent.getEventId()));
             })
-            .onComplete(testContext.succeeding(versions -> testContext.verify(() -> {
+            .onSuccess(versions -> testContext.verify(() -> {
                 assertEquals(2, versions.size());
                 assertEquals(1L, versions.get(0).getVersion());
                 assertEquals(2L, versions.get(1).getVersion());
@@ -469,7 +506,8 @@ class PgBiTemporalEventStoreTest {
                 assertTrue(versions.get(1).isCorrection());
                 logger.info("getAllVersions returned {} versions", versions.size());
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
@@ -484,7 +522,7 @@ class PgBiTemporalEventStoreTest {
                 eventStore.appendBuilder().eventType("OtherEvent").payload(event2).validTime(validTime).execute()
                     .compose(v -> eventStore.appendCorrection(originalEvent.getEventId(), "TestEvent", event1, validTime, "Test correction")))
             .compose(v -> eventStore.getStats())
-            .onComplete(testContext.succeeding(stats -> testContext.verify(() -> {
+            .onSuccess(stats -> testContext.verify(() -> {
                 assertEquals(3, stats.getTotalEvents());
                 assertEquals(1, stats.getTotalCorrections());
                 assertTrue(stats.getEventCountsByType().containsKey("TestEvent"));
@@ -496,7 +534,8 @@ class PgBiTemporalEventStoreTest {
                 assertTrue(stats.getStorageSizeBytes() > 0);
                 logger.info("Stats verified: totalEvents={}, corrections={}", stats.getTotalEvents(), stats.getTotalCorrections());
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test

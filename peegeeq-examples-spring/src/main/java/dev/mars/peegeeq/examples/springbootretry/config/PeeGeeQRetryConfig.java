@@ -59,7 +59,6 @@ public class PeeGeeQRetryConfig {
 
     
     private final PeeGeeQRetryProperties properties;
-    private PeeGeeQManager manager;
     private DatabaseService databaseServiceInstance;
     
     public PeeGeeQRetryConfig(PeeGeeQRetryProperties properties) {
@@ -82,6 +81,7 @@ public class PeeGeeQRetryConfig {
         props.setProperty("peegeeq.database.username", properties.getDatabase().getUsername());
         props.setProperty("peegeeq.database.password", properties.getDatabase().getPassword());
         props.setProperty("peegeeq.database.schema", properties.getDatabase().getSchema());
+        props.setProperty("peegeeq.database.pool.shared", String.valueOf(properties.getDatabase().getPool().isShared()));
         
         // Configure retry settings
         props.setProperty("peegeeq.queue.max-retries", String.valueOf(properties.getMaxRetries()));
@@ -142,8 +142,8 @@ public class PeeGeeQRetryConfig {
      * Manages PeeGeeQ Manager lifecycle via Spring's SmartLifecycle contract.
      *
      * <p>start() runs on the Spring refresh thread and blocks for up to 60 seconds
-     * until manager.start() completes. stop(Runnable) closes the manager reactively
-     * and notifies Spring via the callback when teardown is complete.
+     * until manager.start() completes. stop(Runnable) marks this lifecycle stopped;
+     * Spring bean destruction then closes dependent resources before the manager.
      */
     @Bean
     public SmartLifecycle peeGeeQManagerLifecycle(PeeGeeQManager manager) {
@@ -175,18 +175,9 @@ public class PeeGeeQRetryConfig {
 
             @Override
             public void stop(Runnable callback) {
-                log.info("Stopping PeeGeeQ Manager via SmartLifecycle...");
-                manager.closeReactive()
-                    .onSuccess(v -> {
-                        log.info("PeeGeeQ Manager stopped successfully");
-                        running = false;
-                        callback.run();
-                    })
-                    .onFailure(e -> {
-                        log.error("Error stopping PeeGeeQ Manager", e);
-                        running = false;
-                        callback.run();
-                    });
+                log.info("Stopping PeeGeeQ Manager lifecycle; bean destruction will close resources");
+                running = false;
+                callback.run();
             }
 
             @Override
@@ -211,4 +202,3 @@ public class PeeGeeQRetryConfig {
         };
     }
 }
-

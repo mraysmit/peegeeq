@@ -134,12 +134,13 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                     });
                     return countMessagesWithRequiredGroups(topic, 2);
                 })
-                .onComplete(testContext.succeeding(incrementedCount -> testContext.verify(() -> {
+                .onSuccess(incrementedCount -> testContext.verify(() -> {
                     assertTrue(incrementedCount > 0,
                             "At least some messages should have required_consumer_groups incremented to 2");
                     logger.info("Small batch backfill verified: {} messages processed", messageCount);
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
 
     /**
@@ -160,13 +161,14 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                 .compose(v -> insertMessages(topic, messageCount))
                 .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
                 .compose(v -> backfillService.startBackfill(topic, groupName, 10, 0))
-                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                .onSuccess(result -> testContext.verify(() -> {
                     assertEquals(BackfillResult.Status.COMPLETED, result.status());
                     assertEquals(messageCount, result.processedMessages(),
                             "Should process all messages across multiple batches");
                     logger.info("Multi-batch backfill verified: {} messages in batches of 10", result.processedMessages());
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
 
     /**
@@ -186,13 +188,14 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                 .compose(v -> insertMessages(topic, 20))
                 .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
                 .compose(v -> backfillService.startBackfill(topic, groupName, 5, 10))
-                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                .onSuccess(result -> testContext.verify(() -> {
                     assertEquals(BackfillResult.Status.COMPLETED, result.status());
                     assertEquals(10, result.processedMessages(),
                             "Should stop after processing maxMessages (10)");
                     logger.info("Max-limited backfill verified: processed {} of 20", result.processedMessages());
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
 
     /**
@@ -213,12 +216,13 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                 .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
                 .compose(v -> backfillService.startBackfill(topic, groupName))
                 .compose(firstResult -> backfillService.startBackfill(topic, groupName))
-                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                .onSuccess(result -> testContext.verify(() -> {
                     assertEquals(BackfillResult.Status.ALREADY_COMPLETED, result.status(),
                             "Second backfill should return ALREADY_COMPLETED");
                     logger.info("Idempotent backfill verified");
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
 
     /**
@@ -236,12 +240,13 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                         .build())
                 .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
                 .compose(v -> backfillService.startBackfill(topic, groupName))
-                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                .onSuccess(result -> testContext.verify(() -> {
                     assertEquals(BackfillResult.Status.COMPLETED, result.status());
                     assertEquals(0, result.processedMessages(), "Should process 0 messages");
                     logger.info("Empty backfill verified");
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
 
     /**
@@ -260,7 +265,7 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                 .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults()))
                 .compose(v -> insertMessages(topic, 10))
                 .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
-                .compose(v -> connectionManager.withConnection("peegeeq-main", connection -> {
+                .compose(v -> connectionManager.withTransaction("peegeeq-main", connection -> {
                     String sql = """
                         UPDATE outbox_topic_subscriptions
                         SET backfill_status = 'IN_PROGRESS'
@@ -272,13 +277,14 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                 }))
                 .compose(v -> backfillService.cancelBackfill(topic, groupName))
                 .compose(v -> backfillService.getBackfillProgress(topic, groupName))
-                .onComplete(testContext.succeeding(optProgress -> testContext.verify(() -> {
+                .onSuccess(optProgress -> testContext.verify(() -> {
                     BackfillProgress progress = optProgress.orElseThrow();
                     assertEquals("CANCELLED", progress.status(),
                             "Backfill should be cancelled");
                     logger.info("Backfill cancellation verified");
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
 
     /**
@@ -297,12 +303,14 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                 .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
                 .compose(v -> subscriptionManager.pause(topic, groupName))
                 .compose(v -> backfillService.startBackfill(topic, groupName))
-                .onComplete(testContext.failing(err -> testContext.verify(() -> {
+                .onFailure(err -> testContext.verify(() -> {
                     assertTrue(err.getMessage().contains("ACTIVE"),
                             "Error should mention ACTIVE requirement");
                     logger.info("Backfill validation for non-ACTIVE subscription verified");
                     testContext.completeNow();
-                })));
+                }))
+                .onSuccess(result -> testContext.failNow(
+                        new AssertionError("Expected backfill to fail for a non-ACTIVE subscription")));
     }
 
     /**
@@ -311,12 +319,14 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
     @Test
     void testBackfillFailsForMissingSubscription(VertxTestContext testContext) {
         backfillService.startBackfill("nonexistent-topic", "nonexistent-group")
-                .onComplete(testContext.failing(err -> testContext.verify(() -> {
+                .onFailure(err -> testContext.verify(() -> {
                     assertTrue(err.getMessage().contains("not found"),
                             "Error should mention subscription not found");
                     logger.info("Backfill validation for missing subscription verified");
                     testContext.completeNow();
-                })));
+                }))
+                .onSuccess(result -> testContext.failNow(
+                        new AssertionError("Expected backfill to fail for a missing subscription")));
     }
 
     /**
@@ -342,7 +352,7 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                     return backfillService.startBackfill(topic, groupName, 5, 0);
                 })
                 .compose(result -> backfillService.getBackfillProgress(topic, groupName))
-                .onComplete(testContext.succeeding(afterOpt -> testContext.verify(() -> {
+                .onSuccess(afterOpt -> testContext.verify(() -> {
                     BackfillProgress after = afterOpt.orElseThrow();
                     assertEquals("COMPLETED", after.status());
                     assertEquals(15, after.processedMessages());
@@ -351,7 +361,8 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                     assertEquals(100.0, after.percentComplete(), 0.1);
                     logger.info("Backfill progress tracking verified");
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
 
     /**
@@ -388,7 +399,7 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                     return backfillService.startBackfill(topic, allRetainedGroup, 100, 0, BackfillScope.ALL_RETAINED)
                             .map(allRetainedResult -> new BackfillResult[]{pendingOnlyResult, allRetainedResult});
                 })
-                .onComplete(testContext.succeeding(results -> testContext.verify(() -> {
+                .onSuccess(results -> testContext.verify(() -> {
                     BackfillResult pendingOnlyResult = results[0];
                     BackfillResult allRetainedResult = results[1];
                     assertEquals(BackfillResult.Status.COMPLETED, allRetainedResult.status());
@@ -399,7 +410,8 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                     logger.info("Backfill scope verified: PENDING_ONLY={}, ALL_RETAINED={}",
                             pendingOnlyResult.processedMessages(), allRetainedResult.processedMessages());
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
 
     /**
@@ -447,16 +459,17 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                     // Diagnostic: verify message statuses after backfill to understand any truncation
                     return queryMessageStatusCounts(topic);
                 })
-                .onComplete(testContext.succeeding(statusMap -> testContext.verify(() -> {
+                .onSuccess(statusMap -> testContext.verify(() -> {
                     logger.info("Message status distribution after backfill: {}", statusMap);
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
 
     // Helper methods
 
     private Future<Void> insertMessagesBulk(String topic, int count) {
-        return connectionManager.withConnection("peegeeq-main", connection -> {
+        return connectionManager.withTransaction("peegeeq-main", connection -> {
             String sql = """
                 INSERT INTO outbox (topic, payload, created_at, status)
                 SELECT $1, ('{"index": ' || generate_series || '}')::jsonb, $2, 'PENDING'
@@ -499,7 +512,7 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
     }
 
     private Future<Long> insertMessage(String topic, JsonObject payload) {
-        return connectionManager.withConnection("peegeeq-main", connection -> {
+        return connectionManager.withTransaction("peegeeq-main", connection -> {
             String sql = """
                 INSERT INTO outbox (topic, payload, created_at, status)
                 VALUES ($1, $2::jsonb, $3, 'PENDING')
@@ -527,7 +540,7 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
     }
 
         private Future<Void> markOldestMessagesCompleted(String topic, int limit) {
-                return connectionManager.withConnection("peegeeq-main", connection -> {
+                return connectionManager.withTransaction("peegeeq-main", connection -> {
                         String sql = """
                                 WITH to_complete AS (
                                         SELECT id

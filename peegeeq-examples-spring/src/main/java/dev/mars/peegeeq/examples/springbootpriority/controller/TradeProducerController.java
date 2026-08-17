@@ -19,17 +19,18 @@ package dev.mars.peegeeq.examples.springbootpriority.controller;
 import dev.mars.peegeeq.examples.springbootpriority.events.TradeSettlementEvent;
 import dev.mars.peegeeq.examples.springbootpriority.model.Priority;
 import dev.mars.peegeeq.examples.springbootpriority.service.TradeProducerService;
+import io.vertx.core.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * Trade Producer Controller.
@@ -60,7 +61,7 @@ public class TradeProducerController {
      * @return Response with event ID
      */
     @PostMapping("/settlement-fail")
-    public CompletableFuture<ResponseEntity<Map<String, String>>> sendSettlementFail(@RequestBody TradeRequest request) {
+    public Mono<ResponseEntity<Map<String, String>>> sendSettlementFail(@RequestBody TradeRequest request) {
         log.info("Received settlement fail request: tradeId={}", request.tradeId);
         
         String eventId = UUID.randomUUID().toString();
@@ -77,15 +78,14 @@ public class TradeProducerController {
             Instant.now()
         );
         
-        return producerService.sendTradeEvent(event)
+        return toMono(producerService.sendTradeEvent(event)
             .map(v -> ResponseEntity.ok(Map.of(
                 "eventId", eventId,
                 "tradeId", request.tradeId,
                 "priority", Priority.CRITICAL.getLevel(),
                 "status", "FAIL",
                 "message", "Settlement fail event sent successfully"
-            )))
-            .toCompletionStage().toCompletableFuture();
+            ))));
     }
     
     /**
@@ -95,7 +95,7 @@ public class TradeProducerController {
      * @return Response with event ID
      */
     @PostMapping("/amendment")
-    public CompletableFuture<ResponseEntity<Map<String, String>>> sendAmendment(@RequestBody TradeRequest request) {
+    public Mono<ResponseEntity<Map<String, String>>> sendAmendment(@RequestBody TradeRequest request) {
         log.info("Received amendment request: tradeId={}", request.tradeId);
         
         String eventId = UUID.randomUUID().toString();
@@ -112,15 +112,14 @@ public class TradeProducerController {
             Instant.now()
         );
         
-        return producerService.sendTradeEvent(event)
+        return toMono(producerService.sendTradeEvent(event)
             .map(v -> ResponseEntity.ok(Map.of(
                 "eventId", eventId,
                 "tradeId", request.tradeId,
                 "priority", Priority.HIGH.getLevel(),
                 "status", "AMEND",
                 "message", "Amendment event sent successfully"
-            )))
-            .toCompletionStage().toCompletableFuture();
+            ))));
     }
     
     /**
@@ -130,7 +129,7 @@ public class TradeProducerController {
      * @return Response with event ID
      */
     @PostMapping("/confirmation")
-    public CompletableFuture<ResponseEntity<Map<String, String>>> sendConfirmation(@RequestBody TradeRequest request) {
+    public Mono<ResponseEntity<Map<String, String>>> sendConfirmation(@RequestBody TradeRequest request) {
         log.info("Received confirmation request: tradeId={}", request.tradeId);
         
         String eventId = UUID.randomUUID().toString();
@@ -147,15 +146,14 @@ public class TradeProducerController {
             Instant.now()
         );
         
-        return producerService.sendTradeEvent(event)
+        return toMono(producerService.sendTradeEvent(event)
             .map(v -> ResponseEntity.ok(Map.of(
                 "eventId", eventId,
                 "tradeId", request.tradeId,
                 "priority", Priority.NORMAL.getLevel(),
                 "status", "NEW",
                 "message", "Confirmation event sent successfully"
-            )))
-            .toCompletionStage().toCompletableFuture();
+            ))));
     }
     
     /**
@@ -172,6 +170,12 @@ public class TradeProducerController {
             "normalSent", producerService.getNormalSent()
         ));
     }
+
+    private <T> Mono<T> toMono(Future<T> future) {
+        return Mono.create(sink -> future
+            .onSuccess(sink::success)
+            .onFailure(sink::error));
+    }
     
     /**
      * Trade request DTO.
@@ -185,4 +189,3 @@ public class TradeProducerController {
         public String failureReason;  // For settlement fails
     }
 }
-

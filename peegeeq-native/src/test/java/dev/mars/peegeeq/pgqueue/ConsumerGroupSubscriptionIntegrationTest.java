@@ -49,7 +49,6 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
-import java.util.concurrent.TimeUnit;
 
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent.ALL;
@@ -125,7 +124,10 @@ class ConsumerGroupSubscriptionIntegrationTest {
                     .password(postgres.getPassword())
                     .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                     .build();
-            PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+            PgPoolConfig poolConfig = new PgPoolConfig.Builder()
+                    .maxSize(10)
+                    .shared(false)
+                    .build();
             connectionManager.getOrCreateReactivePool(SERVICE_ID, connConfig, poolConfig);
             testContext.completeNow();
         })
@@ -133,28 +135,46 @@ class ConsumerGroupSubscriptionIntegrationTest {
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws Exception {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
+
+        Future<Void> teardown = Future.succeededFuture();
         if (connectionManager != null) {
-            cleanupTestData().transform(ar -> Future.<Void>succeededFuture())
-                    .onComplete(ar -> {
-                        connectionManager.close().onFailure(testContext::failNow);
-                        if (manager != null) {
-                            manager.closeReactive()
-                                    .onSuccess(v -> testContext.completeNow())
-                                    .onFailure(testContext::failNow);
-                        } else {
-                            testContext.completeNow();
-                        }
-                    });
-        } else if (manager != null) {
-            manager.closeReactive()
-                    .onSuccess(v -> testContext.completeNow())
-                    .onFailure(testContext::failNow);
-        } else {
-            testContext.completeNow();
+            teardown = cleanupTestData()
+                    .onFailure(err -> logger.error("Failed to clean subscription test data", err))
+                    .eventually(connectionManager::close);
         }
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        teardown
+                .onSuccess(v -> finishManagerClose(testContext, null))
+                .onFailure(err -> finishManagerClose(testContext, err));
+    }
+
+    private void finishManagerClose(VertxTestContext testContext, Throwable teardownFailure) {
+        if (manager == null) {
+            if (teardownFailure == null) {
+                testContext.completeNow();
+            } else {
+                testContext.failNow(teardownFailure);
+            }
+            return;
+        }
+
+        manager.closeReactive()
+                .onSuccess(v -> {
+                    if (teardownFailure == null) {
+                        testContext.completeNow();
+                    } else {
+                        testContext.failNow(teardownFailure);
+                    }
+                })
+                .onFailure(closeFailure -> {
+                    if (teardownFailure == null) {
+                        testContext.failNow(closeFailure);
+                    } else {
+                        teardownFailure.addSuppressed(closeFailure);
+                        testContext.failNow(teardownFailure);
+                    }
+                });
     }
 
     // ========================================================================
@@ -163,7 +183,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
 
     @Test
     @DisplayName("start(SubscriptionOptions) creates subscription and starts group")
-    void startWithSubscriptionOptions(VertxTestContext testContext) throws Exception {
+    void startWithSubscriptionOptions(VertxTestContext testContext) {
         logger.info("Test: start with subscription options");
         String topic = "test-sub-start-" + System.nanoTime();
         String groupName = "sub-1";
@@ -178,18 +198,21 @@ class ConsumerGroupSubscriptionIntegrationTest {
                     group.setMessageHandler(msg -> Future.succeededFuture());
 
                     return group.start(SubscriptionOptions.defaults())
-                            .map(started -> {
+                            .compose(started -> {
                                 assertTrue(group.isActive(),
                                         "Group should be ACTIVE after start(SubscriptionOptions)");
                                 assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState());
+                                return querySubscriptionStatus(topic, groupName);
+                            })
+                            .map(status -> {
+                                assertEquals("ACTIVE", status,
+                                        "Subscription should be persisted as ACTIVE after startup");
                                 return (Void) null;
                             })
                             .eventually(() -> group.close());
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Test timed out");
     }
 
     // ========================================================================
@@ -198,7 +221,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
 
     @Test
     @DisplayName("stopGracefully cancels subscription after start(SubscriptionOptions)")
-    void stopGracefullyCancelsSubscription(VertxTestContext testContext) throws Exception {
+    void stopGracefullyCancelsSubscription(VertxTestContext testContext) {
         logger.info("Test: stop gracefully cancels subscription");
         String topic = "test-sub-stop-" + System.nanoTime();
         String groupName = "sub-2";
@@ -222,14 +245,18 @@ class ConsumerGroupSubscriptionIntegrationTest {
                                         "Group should not be active after stopGracefully");
                                 assertEquals(PgNativeConsumerGroup.State.NEW, group.getState(),
                                         "Group should be NEW after stop");
+                                return stopped;
+                            })
+                            .compose(stopped -> querySubscriptionStatus(topic, groupName))
+                            .map(status -> {
+                                assertEquals("CANCELLED", status,
+                                        "stopGracefully should persist the cancelled subscription state");
                                 return (Void) null;
                             })
                             .eventually(() -> group.close());
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Test timed out");
     }
 
     // ========================================================================
@@ -238,7 +265,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
 
     @Test
     @DisplayName("start() falls back to reference counting for unknown topic")
-    void startFallsBackForUnknownTopic(VertxTestContext testContext) throws Exception {
+    void startFallsBackForUnknownTopic(VertxTestContext testContext) {
         logger.info("Test: start falls back for unknown topic");
         String topic = "test-sub-unknown-" + System.nanoTime();
         String groupName = "sub-3";
@@ -250,9 +277,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
         );
         group.setMessageHandler(msg -> Future.succeededFuture());
 
-        group.start();
-
-        databaseService.getVertx().timer(3000).mapEmpty()
+        group.start()
                 .map(v -> {
                     assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState(),
                             "Group should be ACTIVE via reference counting fallback");
@@ -261,8 +286,6 @@ class ConsumerGroupSubscriptionIntegrationTest {
                 .eventually(() -> group.close())
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Test timed out");
     }
 
     // ========================================================================
@@ -271,7 +294,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
 
     @Test
     @DisplayName("start() uses reference counting for PUB_SUB topic")
-    void startUsesReferenceCountingForPubSubTopic(VertxTestContext testContext) throws Exception {
+    void startUsesReferenceCountingForPubSubTopic(VertxTestContext testContext) {
         logger.info("Test: start uses reference counting for pub sub topic");
         String topic = "test-sub-pubsub-" + System.nanoTime();
         String groupName = "sub-4";
@@ -285,10 +308,8 @@ class ConsumerGroupSubscriptionIntegrationTest {
                     );
                     group.setMessageHandler(msg -> Future.succeededFuture());
 
-                    group.start();
-
-                    return databaseService.getVertx().timer(3000).mapEmpty()
-                            .map(delayed -> {
+                    return group.start()
+                            .map(started -> {
                                 assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState(),
                                         "Group should be ACTIVE in reference counting mode for PUB_SUB topic");
                                 return (Void) null;
@@ -297,20 +318,19 @@ class ConsumerGroupSubscriptionIntegrationTest {
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Test timed out");
     }
 
     // ========================================================================
-    // start(SubscriptionOptions) recover path subscription creation fails
+    // Unknown topic metadata defaults to reference counting while durable subscription persists
     // ========================================================================
 
     @Test
-    @DisplayName("start(SubscriptionOptions) recovers when topic does not exist in outbox_topics")
-    void startWithSubscriptionRecoverOnMissingTopic(VertxTestContext testContext) throws Exception {
-        logger.info("Test: start with subscription recover on missing topic");
+    @DisplayName("start(SubscriptionOptions) persists an unknown-topic subscription and uses reference counting")
+    void startWithSubscriptionOnMissingTopicUsesReferenceCounting(VertxTestContext testContext) {
+        logger.info("Test: start with subscription on missing topic metadata");
         String topic = "test-sub-recover-" + System.nanoTime();
         String groupName = "sub-5";
+        testTopics.add(topic);
 
         PgNativeConsumerGroup<String> group = new PgNativeConsumerGroup<>(
                 groupName, topic, String.class,
@@ -320,21 +340,23 @@ class ConsumerGroupSubscriptionIntegrationTest {
         group.setMessageHandler(msg -> Future.succeededFuture());
 
         group.start(SubscriptionOptions.defaults())
-                .transform(ar -> {
-                    if (ar.failed()) {
-                        assertEquals(PgNativeConsumerGroup.State.NEW, group.getState(),
-                                "State should reset to NEW after subscription failure");
-                    } else {
-                        assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState(),
-                                "If subscription succeeds, group should be ACTIVE");
-                    }
-                    return Future.<Void>succeededFuture();
+                .compose(started -> {
+                    assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState(),
+                            "Unknown topic metadata should default to reference counting");
+                    return Future.all(
+                            querySubscriptionStatus(topic, groupName),
+                            queryTopicCount(topic));
+                })
+                .map(results -> {
+                    assertEquals("ACTIVE", results.resultAt(0),
+                            "The durable subscription should be persisted");
+                    assertEquals(0L, results.<Long>resultAt(1),
+                            "The test must exercise absent topic metadata");
+                    return (Void) null;
                 })
                 .eventually(() -> group.close())
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Test timed out");
     }
 
     // ========================================================================
@@ -343,7 +365,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
 
     private Future<Void> createTopic(String topic, String completionTrackingMode) {
         testTopics.add(topic);
-        return connectionManager.withConnection(SERVICE_ID, conn ->
+        return connectionManager.withTransaction(SERVICE_ID, conn ->
                 conn.preparedQuery(
                         "INSERT INTO outbox_topics (topic, semantics, completion_tracking_mode) " +
                                 "VALUES ($1, 'PUB_SUB', $2) ON CONFLICT (topic) DO NOTHING"
@@ -352,12 +374,28 @@ class ConsumerGroupSubscriptionIntegrationTest {
         );
     }
 
+    private Future<String> querySubscriptionStatus(String topic, String groupName) {
+        return connectionManager.withConnection(SERVICE_ID, conn ->
+                conn.preparedQuery(
+                        "SELECT subscription_status FROM outbox_topic_subscriptions " +
+                                "WHERE topic = $1 AND group_name = $2")
+                        .execute(Tuple.of(topic, groupName))
+                        .map(rows -> rows.iterator().next().getString("subscription_status")));
+    }
+
+    private Future<Long> queryTopicCount(String topic) {
+        return connectionManager.withConnection(SERVICE_ID, conn ->
+                conn.preparedQuery("SELECT COUNT(*) AS count FROM outbox_topics WHERE topic = $1")
+                        .execute(Tuple.of(topic))
+                        .map(rows -> rows.iterator().next().getLong("count")));
+    }
+
     private Future<Void> cleanupTestData() {
         if (testTopics.isEmpty()) {
             return Future.succeededFuture();
         }
         String[] topics = testTopics.toArray(new String[0]);
-        return connectionManager.withConnection(SERVICE_ID, conn ->
+        return connectionManager.withTransaction(SERVICE_ID, conn ->
                 conn.preparedQuery("DELETE FROM outbox_partition_assignments WHERE topic = ANY($1::text[])").execute(Tuple.of(topics))
                         .compose(v -> conn.preparedQuery("DELETE FROM outbox_partition_offsets WHERE topic = ANY($1::text[])").execute(Tuple.of(topics)))
                         .compose(v -> conn.preparedQuery("DELETE FROM outbox_topic_watermarks WHERE topic = ANY($1::text[])").execute(Tuple.of(topics)))

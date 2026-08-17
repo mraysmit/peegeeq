@@ -18,7 +18,6 @@ package dev.mars.peegeeq.examples.springboot.outbox;
 
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
-import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springboot.config.PeeGeeQProperties;
 import dev.mars.peegeeq.outbox.OutboxFactory;
@@ -28,7 +27,6 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent
 import io.vertx.core.Future;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
@@ -38,6 +36,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.junit.jupiter.Container;
@@ -50,6 +49,7 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Characterization test that empirically determines the outbox producer's connection pool
@@ -79,6 +79,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 )
 @Testcontainers
 @ExtendWith(VertxExtension.class)
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 public class OutboxProducerPoolThresholdTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxProducerPoolThresholdTest.class);
@@ -109,11 +110,6 @@ public class OutboxProducerPoolThresholdTest {
     @Autowired
     private PeeGeeQProperties properties;
 
-    @Autowired
-    private PeeGeeQManager peeGeeQManager;
-
-    private static PeeGeeQManager peeGeeQManagerRef;
-
     private final List<MessageProducer<?>> activeProducers = new ArrayList<>();
 
     @BeforeAll
@@ -122,28 +118,11 @@ public class OutboxProducerPoolThresholdTest {
     }
 
     @AfterEach
-    void tearDown(VertxTestContext tearDownContext) {
+    void tearDown() {
         for (MessageProducer<?> producer : activeProducers) {
-            try {
-                producer.close();
-            } catch (Exception e) {
-                logger.warn("Error closing producer: {}", e.getMessage());
-            }
+            producer.close();
         }
         activeProducers.clear();
-        peeGeeQManagerRef = peeGeeQManager;
-        tearDownContext.completeNow();
-    }
-
-    @AfterAll
-    static void closeManager(VertxTestContext testContext) {
-        if (peeGeeQManagerRef == null) {
-            testContext.completeNow();
-            return;
-        }
-        peeGeeQManagerRef.closeReactive()
-            .onSuccess(v -> testContext.completeNow())
-            .onFailure(testContext::failNow);
     }
 
     /**
@@ -201,24 +180,30 @@ public class OutboxProducerPoolThresholdTest {
             });
         }
 
-        chain.onComplete(testContext.succeeding(ignored -> testContext.verify(() -> {
-            logger.info("=== POOL DEGRADATION THRESHOLD REPORT ===");
-            logger.info("  Pool config   : maxSize={}, maxWaitQueueSize={}", maxSize, maxWaitQueueSize);
-            logger.info("  Formula       : maxSize({}) + maxWaitQueueSize({}) + 1 = {}",
-                maxSize, maxWaitQueueSize, formulaThreshold);
-            logger.info("  Empirical     : {} concurrent sends", empiricalThreshold[0]);
-            if (empiricalThreshold[0] == formulaThreshold) {
-                logger.info("  Verdict       : EMPIRICAL MATCHES FORMULA ");
-            } else {
-                logger.warn("  Verdict       : MISMATCH  empirical={}, formula={}",
-                    empiricalThreshold[0], formulaThreshold);
-            }
-            assertEquals(formulaThreshold, empiricalThreshold[0],
-                "Empirical degradation threshold should equal maxSize + maxWaitQueueSize + 1");
-            testContext.completeNow();
-        })));
+        chain
+            .onSuccess(ignored -> testContext.verify(() -> {
+                logger.info("=== POOL DEGRADATION THRESHOLD REPORT ===");
+                logger.info("  Pool config   : maxSize={}, maxWaitQueueSize={}", maxSize, maxWaitQueueSize);
+                logger.info("  Formula       : maxSize({}) + maxWaitQueueSize({}) + 1 = {}",
+                    maxSize, maxWaitQueueSize, formulaThreshold);
+                logger.info("  Empirical     : {} concurrent sends", empiricalThreshold[0]);
+                if (empiricalThreshold[0] == formulaThreshold) {
+                    logger.info("  Verdict       : EMPIRICAL MATCHES FORMULA ");
+                } else {
+                    logger.warn("  Verdict       : MISMATCH  empirical={}, formula={}",
+                        empiricalThreshold[0], formulaThreshold);
+                }
+                assertEquals(formulaThreshold, empiricalThreshold[0],
+                    "Empirical degradation threshold should equal maxSize + maxWaitQueueSize + 1");
+                testContext.completeNow();
+            }))
+            .onFailure(error -> {
+                logger.error("Pool degradation threshold ramp failed", error);
+                testContext.failNow(error);
+            });
 
-        testContext.awaitCompletion(60, TimeUnit.SECONDS);
+        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS),
+            "Pool degradation threshold ramp should complete within 60 seconds");
     }
 
     /**
@@ -227,8 +212,8 @@ public class OutboxProducerPoolThresholdTest {
      * composite future. Returns the count of sends that failed with a pool-too-busy
      * exception.
      *
-     * <p>{@code Future.join()} is used (not {@code Future.all()}) so all N futures
-     * settle before the count is returned, regardless of individual failures.
+     * <p>Each send is converted to a successful future containing either its failure
+     * or {@code null}, so the aggregate completes only after all sends settle.
      */
     private Future<Long> fireNConcurrentSends(MessageProducer<ThresholdPayload> producer, int n) {
         List<Future<Throwable>> futures = new ArrayList<>(n);
@@ -239,7 +224,7 @@ public class OutboxProducerPoolThresholdTest {
                     .transform(ar -> Future.succeededFuture(ar.failed() ? ar.cause() : null))
             );
         }
-        return Future.join(futures)
+        return Future.all(futures)
             .map(composite -> {
                 long count = 0;
                 for (int i = 0; i < n; i++) {

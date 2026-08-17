@@ -66,7 +66,7 @@ public class TransactionService {
      * Records a new transaction in the event store.
      *
      * @param request Transaction request
-     * @return CompletableFuture with the recorded event
+     * @return a Vert.x Future with the recorded event
      */
     public Future<BiTemporalEvent<TransactionEvent>> recordTransaction(TransactionRequest request) {
         String transactionId = UUID.randomUUID().toString();
@@ -101,7 +101,7 @@ public class TransactionService {
      * Retrieves all transactions for an account.
      *
      * @param accountId Account identifier
-     * @return CompletableFuture with account history
+     * @return a Vert.x Future with account history
      */
     public Future<AccountHistoryResponse> getAccountHistory(String accountId) {
         logger.info("Retrieving transaction history for account: {}", accountId);
@@ -116,10 +116,10 @@ public class TransactionService {
     /**
      * Domain-specific query method: Get all transactions for a specific account.
      * This wraps the event store query API with domain language.
-     * Returns CompletableFuture to maintain async/non-blocking behavior.
+     * Returns a Vert.x Future to maintain async/non-blocking behavior.
      *
      * @param accountId Account identifier
-     * @return CompletableFuture with list of bi-temporal transaction events for the account
+     * @return a Vert.x Future with the account's bi-temporal transaction events
      */
     public Future<List<BiTemporalEvent<TransactionEvent>>> queryTransactionsByAccount(String accountId) {
         return eventStore.query(EventQuery.forAggregate(accountId));
@@ -128,11 +128,11 @@ public class TransactionService {
     /**
      * Domain-specific query method: Get all transactions of a specific type for an account.
      * This demonstrates the new EventQuery.forAggregateAndType() convenience method.
-     * Returns CompletableFuture to maintain async/non-blocking behavior.
+     * Returns a Vert.x Future to maintain async/non-blocking behavior.
      *
      * @param accountId Account identifier
      * @param eventType Event type (e.g., "TransactionRecorded", "TransactionCorrected")
-     * @return CompletableFuture with list of bi-temporal transaction events matching both criteria
+     * @return a Vert.x Future with events matching both criteria
      */
     public Future<List<BiTemporalEvent<TransactionEvent>>> queryTransactionsByAccountAndType(String accountId, String eventType) {
         return eventStore.query(EventQuery.forAggregateAndType(accountId, eventType));
@@ -141,10 +141,10 @@ public class TransactionService {
     /**
      * Domain-specific query method: Get all recorded transactions for an account.
      * This is a convenience method that uses the aggregate+type query pattern.
-     * Returns CompletableFuture to maintain async/non-blocking behavior.
+     * Returns a Vert.x Future to maintain async/non-blocking behavior.
      *
      * @param accountId Account identifier
-     * @return CompletableFuture with list of recorded (non-corrected) transactions
+     * @return a Vert.x Future with recorded (non-corrected) transactions
      */
     public Future<List<BiTemporalEvent<TransactionEvent>>> queryRecordedTransactions(String accountId) {
         return queryTransactionsByAccountAndType(accountId, "TransactionRecorded");
@@ -153,10 +153,10 @@ public class TransactionService {
     /**
      * Domain-specific query method: Get all corrected transactions for an account.
      * This is a convenience method that uses the aggregate+type query pattern.
-     * Returns CompletableFuture to maintain async/non-blocking behavior.
+     * Returns a Vert.x Future to maintain async/non-blocking behavior.
      *
      * @param accountId Account identifier
-     * @return CompletableFuture with list of transaction corrections
+     * @return a Vert.x Future with transaction corrections
      */
     public Future<List<BiTemporalEvent<TransactionEvent>>> queryCorrectedTransactions(String accountId) {
         return queryTransactionsByAccountAndType(accountId, "TransactionCorrected");
@@ -167,7 +167,7 @@ public class TransactionService {
      *
      * @param accountId Account identifier
      * @param asOf Point in time for balance calculation
-     * @return CompletableFuture with the balance
+     * @return a Vert.x Future with the balance
      */
     public Future<BigDecimal> getAccountBalance(String accountId, Instant asOf) {
         logger.info("Calculating balance for account: {} as of: {}", accountId, asOf);
@@ -198,7 +198,7 @@ public class TransactionService {
      * 
      * @param transactionId Original transaction ID
      * @param request Correction request
-     * @return CompletableFuture with the correction event
+     * @return a Vert.x Future with the correction event
      */
     public Future<BiTemporalEvent<TransactionEvent>> correctTransaction(
             String transactionId, TransactionCorrectionRequest request) {
@@ -241,7 +241,7 @@ public class TransactionService {
      * Retrieves all versions of a transaction (original + corrections).
      *
      * @param transactionId Transaction identifier
-     * @return CompletableFuture with all versions
+     * @return a Vert.x Future with all versions
      */
     public Future<List<BiTemporalEvent<TransactionEvent>>> getTransactionVersions(String transactionId) {
         logger.info("Retrieving all versions of transaction: {}", transactionId);

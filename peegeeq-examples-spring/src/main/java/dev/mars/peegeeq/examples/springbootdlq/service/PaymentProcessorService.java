@@ -96,7 +96,7 @@ public class PaymentProcessorService {
      * 1. Extract event from message
      * 2. Process in transaction
      * 3. Throw exception on failure (PeeGeeQ will retry)
-     * 4. Return CompletableFuture for acknowledgment
+     * 4. Return a Vert.x Future for acknowledgment
      */
     private Future<Void> processPayment(Message<PaymentEvent> message) {
         PaymentEvent event = message.getPayload();
@@ -178,4 +178,3 @@ public class PaymentProcessorService {
         return paymentsRetried.get();
     }
 }
-

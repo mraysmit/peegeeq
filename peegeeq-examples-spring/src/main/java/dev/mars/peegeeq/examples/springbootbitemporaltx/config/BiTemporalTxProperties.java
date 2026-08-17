@@ -215,6 +215,7 @@ public class BiTemporalTxProperties {
     public static class PoolProperties {
         private int maxSize = 20;
         private int minSize = 5;
+        private boolean shared = true;
         private Duration connectionTimeout = Duration.ofSeconds(30);
         private Duration idleTimeout = Duration.ofMinutes(10);
         private Duration maxLifetime = Duration.ofMinutes(30);
@@ -235,6 +236,14 @@ public class BiTemporalTxProperties {
         
         public void setMinSize(int minSize) {
             this.minSize = minSize;
+        }
+
+        public boolean isShared() {
+            return shared;
+        }
+
+        public void setShared(boolean shared) {
+            this.shared = shared;
         }
         
         public Duration getConnectionTimeout() {

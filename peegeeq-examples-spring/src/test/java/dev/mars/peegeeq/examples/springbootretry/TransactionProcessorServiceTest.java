@@ -20,6 +20,7 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.db.PeeGeeQManager;
+import dev.mars.peegeeq.examples.springbootretry.config.PeeGeeQRetryProperties;
 import dev.mars.peegeeq.examples.springbootretry.events.TransactionEvent;
 import dev.mars.peegeeq.examples.springbootretry.service.CircuitBreakerService;
 import dev.mars.peegeeq.examples.springbootretry.service.TransactionProcessorService;
@@ -41,6 +42,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -53,8 +55,6 @@ import java.math.BigDecimal;
 import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.AfterEach;
 
 /**
  * Integration tests for Transaction Processor Service with Retry.
@@ -71,6 +71,7 @@ import org.junit.jupiter.api.AfterEach;
     }
 )
 @Testcontainers
+@AutoConfigureTestRestTemplate
 @ActiveProfiles("test")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @ExtendWith(VertxExtension.class)
@@ -119,10 +120,15 @@ public class TransactionProcessorServiceTest {
                         log.info("Application-specific schema created successfully");
                         return (Void) null;
                     });
-            }).onComplete(setupContext.succeeding(v -> {
+            })
+            .onSuccess(v -> {
                 log.info("=== Application-specific schema setup complete ===");
                 setupContext.completeNow();
-            }));
+            })
+            .onFailure(error -> {
+                log.error("Application-specific schema setup failed", error);
+                setupContext.failNow(error);
+            });
     }
 
     @Autowired
@@ -142,26 +148,9 @@ public class TransactionProcessorServiceTest {
 
     @Autowired(required = false)
     private PeeGeeQManager peeGeeQManager;
-    private static PeeGeeQManager peeGeeQManagerRef;
 
-    @AfterEach
-    void captureManager() {
-        peeGeeQManagerRef = peeGeeQManager;
-    }
-
-    @AfterAll
-    static void tearDown(VertxTestContext testContext) {
-        log.info("\uD83E\uDDF9 Cleaning up Transaction Processor Service Test resources");
-        if (peeGeeQManagerRef == null) {
-            log.info("Transaction Processor Service Test cleanup complete");
-            testContext.completeNow();
-            return;
-        }
-        peeGeeQManagerRef.closeReactive().onComplete(testContext.succeeding(v -> {
-            log.info("Transaction Processor Service Test cleanup complete");
-            testContext.completeNow();
-        }));
-    }
+    @Autowired
+    private PeeGeeQRetryProperties retryProperties;
 
     @Test
     public void testSuccessfulTransactionProcessing(Vertx vertx, VertxTestContext testContext) {
@@ -182,12 +171,16 @@ public class TransactionProcessorServiceTest {
                             return row.getLong(0) > 0;
                         });
                 }))
-            .onComplete(testContext.succeeding(transactionExists -> testContext.verify(() -> {
+            .onSuccess(transactionExists -> testContext.verify(() -> {
                 assertTrue(transactionExists, "Transaction should be stored in database");
                 assertTrue(processorService.getTransactionsProcessed() > 0, "Transactions processed count should increase");
                 log.info("Successful Transaction Processing test passed");
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(error -> {
+                log.error("Successful transaction processing test failed", error);
+                testContext.failNow(error);
+            });
     }
     
     @Test
@@ -197,6 +190,11 @@ public class TransactionProcessorServiceTest {
         assertNotNull(processorService, "TransactionProcessorService should be injected");
         assertNotNull(circuitBreaker, "CircuitBreakerService should be injected");
         assertNotNull(producer, "MessageProducer should be injected");
+        assertNotNull(peeGeeQManager, "PeeGeeQManager should be injected");
+        assertFalse(retryProperties.getDatabase().getPool().isShared(),
+            "The retry Spring properties must bind the isolated-pool test setting");
+        assertFalse(peeGeeQManager.getConfiguration().getPoolConfig().isShared(),
+            "Spring Boot retry tests must use an isolated Vert.x pool");
         
         log.info("Transaction Processor Service Bean Injection test passed");
     }
@@ -264,4 +262,3 @@ public class TransactionProcessorServiceTest {
         log.info("Retry Health Endpoint test passed");
     }
 }
-

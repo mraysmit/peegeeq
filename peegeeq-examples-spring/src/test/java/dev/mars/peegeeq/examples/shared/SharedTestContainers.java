@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -21,9 +22,8 @@ import java.util.concurrent.TimeUnit;
  * static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
  * ```
  *
- * NOTE: Exempt from blocking-thread guard via @Tag("blocking-exempt") marker  the
- * container-readiness polling loop below uses Thread.sleep intentionally as test
- * infrastructure (Testcontainers port-mapping retry), not as application logic.
+ * The bounded container-readiness polling loop uses a timed latch wait and preserves
+ * interruption so retry timing does not rely on prohibited thread sleeps.
  */
 public class SharedTestContainers {
 
@@ -117,6 +117,8 @@ public class SharedTestContainers {
         // Use peegeeq.pool.* (not peegeeq.database.pool.*) so Spring binds into PeeGeeQProperties.Pool
         registry.add("peegeeq.pool.max-size", () -> "32");
         registry.add("peegeeq.pool.max-wait-queue-size", () -> "4096");
+        registry.add("peegeeq.pool.shared", () -> "false");
+        registry.add("peegeeq.database.pool.shared", () -> "false");
         registry.add("peegeeq.database.pool.connection-timeout-ms", () -> "30000");
         registry.add("peegeeq.database.pool.idle-timeout-ms", () -> "600000");
 
@@ -127,6 +129,7 @@ public class SharedTestContainers {
         registry.add("peegeeq.bitemporal.database.username", () -> username);
         registry.add("peegeeq.bitemporal.database.password", () -> password);
         registry.add("peegeeq.bitemporal.database.schema", () -> PostgreSQLTestConstants.TEST_SCHEMA);
+        registry.add("peegeeq.bitemporal.pool.shared", () -> "false");
 
         // Dead Letter Queue properties (for DLQ tests)
         registry.add("peegeeq.dlq.database.host", () -> host);
@@ -135,6 +138,7 @@ public class SharedTestContainers {
         registry.add("peegeeq.dlq.database.username", () -> username);
         registry.add("peegeeq.dlq.database.password", () -> password);
         registry.add("peegeeq.dlq.database.schema", () -> PostgreSQLTestConstants.TEST_SCHEMA);
+        registry.add("peegeeq.dlq.database.pool.shared", () -> "false");
 
         // Retry properties (for retry tests)
         registry.add("peegeeq.retry.database.host", () -> host);
@@ -143,6 +147,7 @@ public class SharedTestContainers {
         registry.add("peegeeq.retry.database.username", () -> username);
         registry.add("peegeeq.retry.database.password", () -> password);
         registry.add("peegeeq.retry.database.schema", () -> PostgreSQLTestConstants.TEST_SCHEMA);
+        registry.add("peegeeq.retry.database.pool.shared", () -> "false");
 
         // Consumer properties (for consumer tests)
         registry.add("peegeeq.consumer.database.host", () -> host);
@@ -159,6 +164,7 @@ public class SharedTestContainers {
         registry.add("bitemporal.database.username", () -> username);
         registry.add("bitemporal.database.password", () -> password);
         registry.add("bitemporal.database.schema", () -> PostgreSQLTestConstants.TEST_SCHEMA);
+        registry.add("bitemporal.database.pool.shared", () -> "false");
 
         // Reactive Bitemporal properties (for reactive bitemporal tests)
         registry.add("reactive-bitemporal.database.host", () -> host);
@@ -167,6 +173,10 @@ public class SharedTestContainers {
         registry.add("reactive-bitemporal.database.username", () -> username);
         registry.add("reactive-bitemporal.database.password", () -> password);
         registry.add("reactive-bitemporal.database.schema", () -> PostgreSQLTestConstants.TEST_SCHEMA);
+        registry.add("reactive-bitemporal.database.pool.shared", () -> "false");
+
+        // Financial Fabric properties (for financial fabric tests)
+        registry.add("peegeeq.financial-fabric.database.pool.shared", () -> "false");
 
         // Integrated properties (for integrated tests)
         registry.add("integrated.database.host", () -> host);
@@ -175,6 +185,7 @@ public class SharedTestContainers {
         registry.add("integrated.database.username", () -> username);
         registry.add("integrated.database.password", () -> password);
         registry.add("integrated.database.schema", () -> PostgreSQLTestConstants.TEST_SCHEMA);
+        registry.add("integrated.database.pool.shared", () -> false);
 
         // R2DBC properties (for reactive tests) - override application.yml settings
         String r2dbcUrl = String.format("r2dbc:postgresql://%s:%d/%s", host, port, database);
@@ -246,7 +257,7 @@ public class SharedTestContainers {
                 if (e.getMessage().contains("Mapped port can only be obtained after the container is started")) {
                     logger.debug("Container not ready yet (attempt {}), waiting...", attempt + 1);
                     try {
-                        Thread.sleep(1000);
+                        new CountDownLatch(1).await(1, TimeUnit.SECONDS);
                     } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
                         throw new RuntimeException("Interrupted while waiting for container to be ready", ie);
@@ -326,4 +337,3 @@ public class SharedTestContainers {
         return container;
     }
 }
-

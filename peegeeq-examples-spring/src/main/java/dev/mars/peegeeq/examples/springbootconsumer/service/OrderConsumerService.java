@@ -120,7 +120,7 @@ public class OrderConsumerService {
      * 2. Use ConnectionProvider.withTransaction() for transactional processing
      * 3. Store order in database
      * 4. Update consumer metrics
-     * 5. Return CompletableFuture for acknowledgment
+     * 5. Return a Vert.x Future for acknowledgment
      */
     private Future<Void> processMessage(Message<OrderEvent> message) {
         OrderEvent event = message.getPayload();
@@ -270,4 +270,3 @@ public class OrderConsumerService {
         return consumerInstanceId;
     }
 }
-

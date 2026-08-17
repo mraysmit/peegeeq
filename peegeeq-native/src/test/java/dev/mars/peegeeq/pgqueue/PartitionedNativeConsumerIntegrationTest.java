@@ -20,6 +20,7 @@ import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
@@ -38,7 +39,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent.*;
 import static org.junit.jupiter.api.Assertions.*;
@@ -71,6 +71,7 @@ class PartitionedNativeConsumerIntegrationTest {
     private PgDatabaseService databaseService;
     private VertxPoolAdapter adapter;
     private ObjectMapper mapper;
+    private PeeGeeQConfiguration configuration;
     private PgConnectionManager connectionManager;
     private final List<String> testTopics = new ArrayList<>();
 
@@ -80,15 +81,15 @@ class PartitionedNativeConsumerIntegrationTest {
     }
 
     @BeforeEach
-    void setUp(io.vertx.junit5.VertxTestContext testContext) throws Exception {
+    void setUp(io.vertx.junit5.VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
-        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
+        configuration = new PeeGeeQConfiguration("default", testProps);
+        manager = new PeeGeeQManager(configuration, new SimpleMeterRegistry());
         manager.start().onSuccess(v -> {
             databaseService = new PgDatabaseService(manager);
             adapter = new VertxPoolAdapter(
@@ -110,51 +111,54 @@ class PartitionedNativeConsumerIntegrationTest {
                     .password(postgres.getPassword())
                     .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                     .build();
-            PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+            PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).shared(false).build();
             connectionManager.getOrCreateReactivePool(SERVICE_ID, connConfig, poolConfig);
             testContext.completeNow();
         }).onFailure(testContext::failNow);
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws InterruptedException {
         logger.info("Tearing down: closing resources and manager");
-        if (connectionManager != null) {
-            cleanupTestData()
-                .compose(v -> connectionManager.close())
+        Future<Void> cleanup = connectionManager == null
+                ? Future.succeededFuture()
+                : cleanupTestData().eventually(() -> connectionManager.close());
+        cleanup
+                .onSuccess(v -> finishManagerClose(testContext, null))
+                .onFailure(e -> finishManagerClose(testContext, e));
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test resource cleanup timed out");
+    }
+
+    private void finishManagerClose(VertxTestContext testContext, Throwable cleanupFailure) {
+        if (manager == null) {
+            if (cleanupFailure == null) {
+                testContext.completeNow();
+            } else {
+                logger.error("Test resource cleanup failed", cleanupFailure);
+                testContext.failNow(cleanupFailure);
+            }
+            return;
+        }
+
+        manager.closeReactive()
                 .onSuccess(v -> {
-                    if (manager != null) {
-                        manager.closeReactive()
-                            .onSuccess(vv -> testContext.completeNow())
-                            .onFailure(e -> { logger.error("manager close failed", e); testContext.failNow(e); });
-                    } else {
+                    if (cleanupFailure == null) {
                         testContext.completeNow();
+                    } else {
+                        logger.error("Test resource cleanup failed", cleanupFailure);
+                        testContext.failNow(cleanupFailure);
                     }
                 })
-                .onFailure(e -> {
-                    logger.error("Cleanup failed", e);
-                    // Still close the manager so the pool is released, but fail with the
-                    // original cleanup cause rather than the close outcome.
-                    if (manager != null) {
-                        manager.closeReactive()
-                            .onSuccess(vv -> testContext.failNow(e))
-                            .onFailure(ee -> {
-                                logger.error("manager close also failed after cleanup failure", ee);
-                                testContext.failNow(e);
-                            });
+                .onFailure(closeFailure -> {
+                    if (cleanupFailure == null) {
+                        logger.error("Manager close failed", closeFailure);
+                        testContext.failNow(closeFailure);
                     } else {
-                        testContext.failNow(e);
+                        cleanupFailure.addSuppressed(closeFailure);
+                        logger.error("Test resource cleanup and manager close failed", cleanupFailure);
+                        testContext.failNow(cleanupFailure);
                     }
                 });
-        } else if (manager != null) {
-            manager.closeReactive()
-                .onSuccess(v -> testContext.completeNow())
-                .onFailure(e -> { logger.error("manager close failed", e); testContext.failNow(e); });
-        } else {
-            testContext.completeNow();
-        }
-        testContext.awaitCompletion(30, TimeUnit.SECONDS);
     }
 
     // ========================================================================
@@ -170,7 +174,6 @@ class PartitionedNativeConsumerIntegrationTest {
         String topic = "test-p6-autojoin-" + System.nanoTime();
         String groupName = "group-6-1";
         String instanceId = groupName + "-instance-1";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         // Arrange: create OFFSET_WATERMARK topic, subscription, and messages with partitions
         createTopic(topic, "OFFSET_WATERMARK")
@@ -183,7 +186,7 @@ class PartitionedNativeConsumerIntegrationTest {
                     // The consumer group should auto-detect OFFSET_WATERMARK and join
                     PgNativeConsumerGroup<String> group = new PgNativeConsumerGroup<>(
                             groupName, topic, String.class,
-                            adapter, mapper, null, null, databaseService,
+                            adapter, mapper, null, configuration, databaseService,
                             connectionManager, SERVICE_ID
                     );
 
@@ -191,10 +194,9 @@ class PartitionedNativeConsumerIntegrationTest {
                     group.setMessageHandler(msg -> Future.succeededFuture());
 
                     // Start the group this should trigger auto-join for OFFSET_WATERMARK topics
-                    group.start();
-
-                    // Give a short delay for async join to complete
-                    return databaseService.getVertx().timer(2000).mapEmpty()
+                    // Give a short delay after the observed start for async join to settle.
+                    return group.start()
+                            .compose(started -> databaseService.getVertx().timer(2000).mapEmpty())
                             .compose(delayed -> {
                                 // Assert: verify partition assignments exist in the database
                                 return connectionManager.withConnection(SERVICE_ID, conn ->
@@ -212,15 +214,7 @@ class PartitionedNativeConsumerIntegrationTest {
                             });
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test 6.1 failed", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -235,7 +229,6 @@ class PartitionedNativeConsumerIntegrationTest {
 
         String topic = "test-p6-autoleave-" + System.nanoTime();
         String groupName = "group-6-2";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic, "OFFSET_WATERMARK")
                 .compose(v -> createSubscription(topic, groupName))
@@ -244,14 +237,13 @@ class PartitionedNativeConsumerIntegrationTest {
                 .compose(v -> {
                     PgNativeConsumerGroup<String> group = new PgNativeConsumerGroup<>(
                             groupName, topic, String.class,
-                            adapter, mapper, null, null, databaseService,
+                            adapter, mapper, null, configuration, databaseService,
                             connectionManager, SERVICE_ID
                     );
                     group.setMessageHandler(msg -> Future.succeededFuture());
-                    group.start();
-
-                    // Wait for join to complete
-                    return databaseService.getVertx().timer(2000).mapEmpty()
+                    // Wait for join to complete after the observed start.
+                    return group.start()
+                            .compose(started -> databaseService.getVertx().timer(2000).mapEmpty())
                             .compose(delayed -> {
                                 // Verify assignments exist before close
                                 return countPartitionAssignments(topic, groupName)
@@ -260,12 +252,9 @@ class PartitionedNativeConsumerIntegrationTest {
                                                     "Should have partition assignments after start, got: " + countBefore);
                                             logger.info("TEST 6.2: {} assignments before close", countBefore);
 
-                                            // Close the group should call leaveGroup
-                                            group.stopGracefully().onFailure(testContext::failNow);
-
-                                            // Wait for leave to complete
-                                            return databaseService.getVertx().timer(2000).mapEmpty()
-                                                    .compose(delayed2 -> countPartitionAssignments(topic, groupName))
+                                            // Close completes only after leaveGroup, so verify immediately afterward.
+                                            return group.stopGracefully()
+                                                    .compose(ignored -> countPartitionAssignments(topic, groupName))
                                                     .map(countAfter -> {
                                                         assertEquals(0, countAfter,
                                                                 "Should have 0 partition assignments after close (last instance left)");
@@ -276,15 +265,7 @@ class PartitionedNativeConsumerIntegrationTest {
                             });
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test 6.2 failed", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -299,7 +280,6 @@ class PartitionedNativeConsumerIntegrationTest {
 
         String topic = "test-p6-order-" + System.nanoTime();
         String groupName = "group-6-3";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         // Track received message ids per partition
         List<String> receivedIds = Collections.synchronizedList(new ArrayList<>());
@@ -316,20 +296,18 @@ class PartitionedNativeConsumerIntegrationTest {
                 .compose(v -> {
                     PgNativeConsumerGroup<String> group = new PgNativeConsumerGroup<>(
                             groupName, topic, String.class,
-                            adapter, mapper, null, null, databaseService,
+                            adapter, mapper, null, configuration, databaseService,
                             connectionManager, SERVICE_ID
                     );
                     group.setMessageHandler(msg -> {
                         receivedIds.add(msg.getId());
                         return Future.succeededFuture();
                     });
-                    group.start();
-
-                    // Wait long enough for fetch loop to process the messages
-                    return databaseService.getVertx().timer(4000).mapEmpty()
-                            .map(delayed -> {
-                                group.stopGracefully().onFailure(testContext::failNow);
-
+                    // Wait long enough for fetch loop to process the messages after startup.
+                    return group.start()
+                            .compose(started -> databaseService.getVertx().timer(4000).mapEmpty())
+                            .compose(delayed -> group.stopGracefully())
+                            .map(ignored -> {
                                 // Verify messages were received
                                 assertFalse(receivedIds.isEmpty(),
                                         "Should have received at least some messages");
@@ -348,15 +326,7 @@ class PartitionedNativeConsumerIntegrationTest {
                             });
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test 6.3 failed", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -371,7 +341,6 @@ class PartitionedNativeConsumerIntegrationTest {
         String topic = "test-p6-commit-" + System.nanoTime();
         String groupName = "group-6-4";
         String partitionKey = "commit-partition";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic, "OFFSET_WATERMARK")
                 .compose(v -> createSubscription(topic, groupName))
@@ -381,18 +350,15 @@ class PartitionedNativeConsumerIntegrationTest {
                 .compose(v -> {
                     PgNativeConsumerGroup<String> group = new PgNativeConsumerGroup<>(
                             groupName, topic, String.class,
-                            adapter, mapper, null, null, databaseService,
+                            adapter, mapper, null, configuration, databaseService,
                             connectionManager, SERVICE_ID
                     );
                     group.setMessageHandler(msg -> Future.succeededFuture());
-                    group.start();
-
-                    // Wait for processing and auto-commit
-                    return databaseService.getVertx().timer(4000).mapEmpty()
-                            .compose(delayed -> {
-                                group.stopGracefully().onFailure(testContext::failNow);
-                                // Verify offset was committed in the database
-                                return connectionManager.withConnection(SERVICE_ID, conn ->
+                    // Wait for processing and auto-commit after startup.
+                    return group.start()
+                            .compose(started -> databaseService.getVertx().timer(4000).mapEmpty())
+                            .compose(delayed -> group.stopGracefully())
+                            .compose(ignored -> connectionManager.withConnection(SERVICE_ID, conn ->
                                         conn.preparedQuery(
                                                 "SELECT committed_offset FROM outbox_partition_offsets " +
                                                 "WHERE topic = $1 AND group_name = $2 AND partition_key = $3"
@@ -407,19 +373,10 @@ class PartitionedNativeConsumerIntegrationTest {
                                                     committedOffset, partitionKey);
                                             return (Void) null;
                                         })
-                                );
-                            });
+                                ));
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test 6.4 failed", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -434,7 +391,6 @@ class PartitionedNativeConsumerIntegrationTest {
 
         String topic = "test-p6-rebalance-" + System.nanoTime();
         String groupName = "group-6-5";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic, "OFFSET_WATERMARK")
                 .compose(v -> createSubscription(topic, groupName))
@@ -444,13 +400,12 @@ class PartitionedNativeConsumerIntegrationTest {
                     // Start first consumer it gets all partitions
                     PgNativeConsumerGroup<String> group1 = new PgNativeConsumerGroup<>(
                             groupName, topic, String.class,
-                            adapter, mapper, null, null, databaseService,
+                            adapter, mapper, null, configuration, databaseService,
                             connectionManager, SERVICE_ID
                     );
                     group1.setMessageHandler(msg -> Future.succeededFuture());
-                    group1.start();
-
-                    return databaseService.getVertx().timer(2000).mapEmpty()
+                    return group1.start()
+                            .compose(started -> databaseService.getVertx().timer(2000).mapEmpty())
                             .compose(delayed -> countPartitionAssignments(topic, groupName))
                             .compose(countBefore -> {
                                 assertTrue(countBefore >= 2, "Should have at least 2 assignments, got: " + countBefore);
@@ -487,15 +442,7 @@ class PartitionedNativeConsumerIntegrationTest {
                             .eventually(group1::stopGracefully);
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test 6.5 failed", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -509,7 +456,6 @@ class PartitionedNativeConsumerIntegrationTest {
 
         String topic = "test-p6-parallel-" + System.nanoTime();
         String groupName = "group-6-6";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         // Create messages across many partitions to ensure fair distribution
         createTopic(topic, "OFFSET_WATERMARK")
@@ -563,15 +509,7 @@ class PartitionedNativeConsumerIntegrationTest {
                             });
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test 6.6 failed", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -585,33 +523,44 @@ class PartitionedNativeConsumerIntegrationTest {
 
         String topic = "test-p6-refcount-" + System.nanoTime();
         String groupName = "group-6-7";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         List<String> receivedIds = Collections.synchronizedList(new ArrayList<>());
 
         // Create a REFERENCE_COUNTING topic (the default/existing mode)
         createTopic(topic, "REFERENCE_COUNTING")
                 .compose(v -> createSubscription(topic, groupName))
-                .compose(v -> insertOutboxMessage(topic, "any-group", "refcount-msg-1"))
-                .compose(v -> insertOutboxMessage(topic, "any-group", "refcount-msg-2"))
                 .compose(v -> {
+                    Promise<Void> allMessagesReceived = Promise.promise();
                     PgNativeConsumerGroup<String> group = new PgNativeConsumerGroup<>(
                             groupName, topic, String.class,
-                            adapter, mapper, null, null, databaseService,
+                            adapter, mapper, null, configuration, databaseService,
                             connectionManager, SERVICE_ID
                     );
+                    PgNativeQueueProducer<String> producer = new PgNativeQueueProducer<>(
+                            adapter, mapper, topic, String.class, null, configuration);
                     group.setMessageHandler(msg -> {
                         receivedIds.add(msg.getId());
+                        if (receivedIds.size() == 2) {
+                            allMessagesReceived.tryComplete();
+                        }
                         return Future.succeededFuture();
                     });
-                    group.start();
 
-                    return databaseService.getVertx().timer(4000).mapEmpty()
-                            .map(delayed -> {
-                                group.stopGracefully().onFailure(testContext::failNow);
-
+                    return group.start()
+                            .compose(started -> producer.send("refcount-msg-1"))
+                            .compose(sent -> producer.send("refcount-msg-2"))
+                            .compose(sent -> allMessagesReceived.future())
+                            .compose(received -> waitForNativeQueueDrain(topic, 100))
+                            .map(drained -> {
+                                assertEquals(2, receivedIds.size(),
+                                        "REFERENCE_COUNTING consumer should process both published messages");
                                 // Verify: no partition assignments exist (REFERENCE_COUNTING doesn't use them)
                                 logger.info("TEST 6.7: received {} messages via REFERENCE_COUNTING", receivedIds.size());
                                 return (Void) null;
+                            })
+                            .eventually(group::stopGracefully)
+                            .eventually(() -> {
+                                producer.close();
+                                return Future.succeededFuture();
                             })
                             .compose(v2 -> countPartitionAssignments(topic, groupName))
                             .map(count -> {
@@ -622,15 +571,7 @@ class PartitionedNativeConsumerIntegrationTest {
                             });
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test 6.7 failed", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -645,7 +586,6 @@ class PartitionedNativeConsumerIntegrationTest {
 
         String topic = "test-p6-sweep-" + System.nanoTime();
         String groupName = "group-6-8";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic, "OFFSET_WATERMARK")
                 .compose(v -> createSubscription(topic, groupName))
@@ -655,14 +595,13 @@ class PartitionedNativeConsumerIntegrationTest {
                 .compose(v -> {
                     PgNativeConsumerGroup<String> group = new PgNativeConsumerGroup<>(
                             groupName, topic, String.class,
-                            adapter, mapper, null, null, databaseService,
+                            adapter, mapper, null, configuration, databaseService,
                             connectionManager, SERVICE_ID
                     );
                     group.setMessageHandler(msg -> Future.succeededFuture());
-                    group.start();
-
-                    // Wait for messages to be processed and offset committed
-                    return databaseService.getVertx().timer(4000).mapEmpty()
+                    // Wait for messages to be processed and offset committed after startup.
+                    return group.start()
+                            .compose(started -> databaseService.getVertx().timer(4000).mapEmpty())
                             .compose(delayed -> {
                                 // Manually run watermark sweep
                                 WatermarkCalculator calculator = new WatermarkCalculator(connectionManager, SERVICE_ID);
@@ -688,15 +627,7 @@ class PartitionedNativeConsumerIntegrationTest {
                             .eventually(group::stopGracefully);
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test 6.8 failed", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -715,7 +646,6 @@ class PartitionedNativeConsumerIntegrationTest {
 
         String topic = "test-p6-isolation-" + System.nanoTime();
         String groupName = "group-6-9";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         PartitionAssignmentService assignmentService = new PartitionAssignmentService(connectionManager, SERVICE_ID);
         PartitionedFetcher fetcher = new PartitionedFetcher(connectionManager, SERVICE_ID);
@@ -795,15 +725,7 @@ class PartitionedNativeConsumerIntegrationTest {
                             });
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test 6.9 failed", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -818,7 +740,6 @@ class PartitionedNativeConsumerIntegrationTest {
 
         String topic = "test-p6-crash-" + System.nanoTime();
         String groupName = "group-6-10";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         PartitionAssignmentService assignmentService = new PartitionAssignmentService(connectionManager, SERVICE_ID);
         PartitionedFetcher fetcher = new PartitionedFetcher(connectionManager, SERVICE_ID);
@@ -903,15 +824,7 @@ class PartitionedNativeConsumerIntegrationTest {
                             });
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test 6.10 failed", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -926,7 +839,6 @@ class PartitionedNativeConsumerIntegrationTest {
 
         String topic = "test-p6-load-" + System.nanoTime();
         String groupName = "group-6-11";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         // Insert messages across 4 partitions
         createTopic(topic, "OFFSET_WATERMARK")
@@ -946,35 +858,35 @@ class PartitionedNativeConsumerIntegrationTest {
                     // Start 2 consumer groups processing messages
                     PgNativeConsumerGroup<String> group1 = new PgNativeConsumerGroup<>(
                             groupName, topic, String.class,
-                            adapter, mapper, null, null, databaseService,
+                            adapter, mapper, null, configuration, databaseService,
                             connectionManager, SERVICE_ID
                     );
                     group1.setMessageHandler(msg -> Future.succeededFuture());
-                    group1.start();
 
-                    return databaseService.getVertx().timer(2000).mapEmpty()
+                    return group1.start()
+                            .compose(started1 -> databaseService.getVertx().timer(2000).mapEmpty())
                             .compose(d1 -> {
                                 PgNativeConsumerGroup<String> group2 = new PgNativeConsumerGroup<>(
                                         groupName, topic, String.class,
-                                        adapter, mapper, null, null, databaseService,
+                                        adapter, mapper, null, configuration, databaseService,
                                         connectionManager, SERVICE_ID
                                 );
                                 group2.setMessageHandler(msg -> Future.succeededFuture());
-                                group2.start();
 
                                 // Wait a bit, then add a third consumer (rebalance under load)
-                                return databaseService.getVertx().timer(2000).mapEmpty()
+                                return group2.start()
+                                        .compose(started2 -> databaseService.getVertx().timer(2000).mapEmpty())
                                         .compose(d2 -> {
                                             PgNativeConsumerGroup<String> group3 = new PgNativeConsumerGroup<>(
                                                     groupName, topic, String.class,
-                                                    adapter, mapper, null, null, databaseService,
+                                                    adapter, mapper, null, configuration, databaseService,
                                                     connectionManager, SERVICE_ID
                                             );
                                             group3.setMessageHandler(msg -> Future.succeededFuture());
-                                            group3.start();
 
                                             // Wait for processing to complete
-                                            return databaseService.getVertx().timer(5000).mapEmpty()
+                                            return group3.start()
+                                                    .compose(started3 -> databaseService.getVertx().timer(5000).mapEmpty())
                                                     .compose(d3 -> {
                                                         // Run watermark sweep
                                                         WatermarkCalculator calc = new WatermarkCalculator(connectionManager, SERVICE_ID);
@@ -1004,15 +916,7 @@ class PartitionedNativeConsumerIntegrationTest {
                             .eventually(group1::stopGracefully);
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test 6.11 failed", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -1027,7 +931,6 @@ class PartitionedNativeConsumerIntegrationTest {
 
         String topic = "test-p6-txn-" + System.nanoTime();
         String groupName = "group-6-12";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         PartitionAssignmentService assignmentService = new PartitionAssignmentService(connectionManager, SERVICE_ID);
 
@@ -1092,15 +995,7 @@ class PartitionedNativeConsumerIntegrationTest {
                             });
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test 6.12 failed", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -1115,7 +1010,6 @@ class PartitionedNativeConsumerIntegrationTest {
 
         String topic = "test-p6-zombie-" + System.nanoTime();
         String groupName = "group-6-13";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         PartitionAssignmentService assignmentService = new PartitionAssignmentService(connectionManager, SERVICE_ID);
         PartitionedFetcher fetcher = new PartitionedFetcher(connectionManager, SERVICE_ID);
@@ -1175,15 +1069,7 @@ class PartitionedNativeConsumerIntegrationTest {
                             });
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test 6.13 failed", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -1192,7 +1078,7 @@ class PartitionedNativeConsumerIntegrationTest {
 
     private Future<Void> createTopic(String topic, String completionTrackingMode) {
         testTopics.add(topic);
-        return connectionManager.withConnection(SERVICE_ID, conn ->
+        return connectionManager.withTransaction(SERVICE_ID, conn ->
                 conn.preparedQuery(
                         "INSERT INTO outbox_topics (topic, semantics, completion_tracking_mode) " +
                         "VALUES ($1, 'PUB_SUB', $2) ON CONFLICT (topic) DO NOTHING"
@@ -1202,7 +1088,7 @@ class PartitionedNativeConsumerIntegrationTest {
     }
 
     private Future<Void> createSubscription(String topic, String groupName) {
-        return connectionManager.withConnection(SERVICE_ID, conn ->
+        return connectionManager.withTransaction(SERVICE_ID, conn ->
                 conn.preparedQuery(
                         "INSERT INTO outbox_topic_subscriptions (topic, group_name, subscription_status) " +
                         "VALUES ($1, $2, 'ACTIVE') ON CONFLICT (topic, group_name) DO NOTHING"
@@ -1216,7 +1102,7 @@ class PartitionedNativeConsumerIntegrationTest {
         // OutboxProducer (and unwrapped by both consumers and PartitionedConsumerEngine):
         // simple/scalar payloads are wrapped as {"value": <scalar>}.
         JsonObject payloadJson = new JsonObject().put("value", payload);
-        return connectionManager.withConnection(SERVICE_ID, conn ->
+        return connectionManager.withTransaction(SERVICE_ID, conn ->
                 conn.preparedQuery(
                         "INSERT INTO outbox (topic, payload, status, message_group, created_at) " +
                         "VALUES ($1, $2, 'PENDING', $3, NOW()) RETURNING id"
@@ -1225,17 +1111,36 @@ class PartitionedNativeConsumerIntegrationTest {
         );
     }
 
+    private Future<Void> waitForNativeQueueDrain(String topic, int attemptsRemaining) {
+        return connectionManager.withConnection(SERVICE_ID, conn ->
+                conn.preparedQuery("SELECT COUNT(*) AS cnt FROM queue_messages WHERE topic = $1")
+                        .execute(Tuple.of(topic))
+                        .map(rows -> rows.iterator().next().getInteger("cnt"))
+        ).compose(count -> {
+            if (count == 0) {
+                return Future.succeededFuture();
+            }
+            if (attemptsRemaining == 0) {
+                return Future.failedFuture(new AssertionError(
+                        "Native queue did not drain after both handlers completed; remaining rows: " + count));
+            }
+            return databaseService.getVertx().timer(50).mapEmpty()
+                    .compose(ignored -> waitForNativeQueueDrain(topic, attemptsRemaining - 1));
+        });
+    }
+
     private Future<Void> cleanupTestData() {
         if (testTopics.isEmpty()) {
             return Future.succeededFuture();
         }
         String[] topics = testTopics.toArray(new String[0]);
-        return connectionManager.withConnection(SERVICE_ID, conn ->
+        return connectionManager.withTransaction(SERVICE_ID, conn ->
                 conn.preparedQuery("DELETE FROM outbox_partition_assignments WHERE topic = ANY($1::text[])").execute(Tuple.of(topics))
                         .compose(v -> conn.preparedQuery("DELETE FROM outbox_partition_offsets WHERE topic = ANY($1::text[])").execute(Tuple.of(topics)))
                         .compose(v -> conn.preparedQuery("DELETE FROM outbox_topic_watermarks WHERE topic = ANY($1::text[])").execute(Tuple.of(topics)))
                         .compose(v -> conn.preparedQuery("DELETE FROM outbox_topic_subscriptions WHERE topic = ANY($1::text[])").execute(Tuple.of(topics)))
                         .compose(v -> conn.preparedQuery("DELETE FROM outbox WHERE topic = ANY($1::text[])").execute(Tuple.of(topics)))
+                        .compose(v -> conn.preparedQuery("DELETE FROM queue_messages WHERE topic = ANY($1::text[])").execute(Tuple.of(topics)))
                         .compose(v -> conn.preparedQuery("DELETE FROM outbox_topics WHERE topic = ANY($1::text[])").execute(Tuple.of(topics)))
                         .map(rows -> (Void) null)
         );

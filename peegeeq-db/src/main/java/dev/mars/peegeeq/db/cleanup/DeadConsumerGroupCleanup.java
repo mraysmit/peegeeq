@@ -163,7 +163,9 @@ public class DeadConsumerGroupCleanup {
      *
      * <p>This method queries {@code outbox_topic_subscriptions} for all DEAD subscriptions,
      * then runs {@link #cleanupDeadGroup} for each one. Each group is cleaned in its own
-     * transaction so that a failure for one group does not block cleanup of others.</p>
+     * transaction. If a group cleanup fails, the returned Future fails with the original
+     * cause and remaining groups are left for a subsequent cleanup run. Transactions for
+     * groups cleaned earlier in the sequence remain committed.</p>
      *
      * @return Future containing a list of cleanup results, one per dead group
      */
@@ -210,20 +212,15 @@ public class DeadConsumerGroupCleanup {
             for (TopicGroup tg : deadGroups) {
                 chain = chain.compose(results ->
                         cleanupDeadGroup(tg.topic(), tg.groupName())
+                                .onFailure(error -> {
+                                    try (var scope = TraceContextUtil.mdcScope(trace)) {
+                                        logger.error("Cleanup failed for group='{}' on topic='{}': {}",
+                                                tg.groupName(), tg.topic(), error.getMessage(), error);
+                                    }
+                                })
                                 .map(result -> {
                                     results.add(result);
                                     return results;
-                                })
-                                .transform(ar -> {
-                                    if (ar.failed()) {
-                                        // Log but don't fail the whole batch; skip fabricated result
-                                        try (var scope = TraceContextUtil.mdcScope(trace)) {
-                                            logger.error("Cleanup failed for group='{}' on topic='{}': {}",
-                                                    tg.groupName(), tg.topic(), ar.cause().getMessage(), ar.cause());
-                                        }
-                                        return Future.succeededFuture(results);
-                                    }
-                                    return Future.succeededFuture(ar.result());
                                 })
                 );
             }

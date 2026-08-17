@@ -22,7 +22,6 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.examples.springbootbitemporal.events.TransactionEvent;
 import io.micrometer.core.instrument.MeterRegistry;
-import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.SmartLifecycle;
@@ -53,9 +52,6 @@ public class BitemporalConfig {
     
     private static final Logger logger = LoggerFactory.getLogger(BitemporalConfig.class);
     
-    private PeeGeeQManager manager;
-    private EventStore<TransactionEvent> eventStore;
-    
     /**
      * Creates and configures the PeeGeeQManager.
      * 
@@ -75,11 +71,13 @@ public class BitemporalConfig {
      * Manages PeeGeeQ Manager lifecycle via Spring's SmartLifecycle contract.
      *
      * <p>start() runs on the Spring refresh thread and blocks for up to 60 seconds
-     * until manager.start() completes. stop(Runnable) closes the manager reactively
-     * and notifies Spring via the callback when teardown is complete.
+     * until manager.start() completes. stop(Runnable) closes the event store before
+     * Spring bean destruction closes the manager.
      */
     @Bean
-    public SmartLifecycle peeGeeQManagerLifecycle(PeeGeeQManager manager) {
+    public SmartLifecycle peeGeeQManagerLifecycle(
+            PeeGeeQManager manager,
+            EventStore<TransactionEvent> eventStore) {
         return new SmartLifecycle() {
             private volatile boolean running = false;
 
@@ -108,18 +106,33 @@ public class BitemporalConfig {
 
             @Override
             public void stop(Runnable callback) {
-                logger.info("Stopping PeeGeeQ Manager via SmartLifecycle...");
-                manager.closeReactive()
-                    .onSuccess(v -> {
-                        logger.info("PeeGeeQ Manager stopped successfully");
-                        running = false;
-                        callback.run();
-                    })
-                    .onFailure(e -> {
-                        logger.error("Error stopping PeeGeeQ Manager", e);
-                        running = false;
-                        callback.run();
-                    });
+                logger.info("Stopping bi-temporal event store before PeeGeeQ Manager destruction");
+                CountDownLatch latch = new CountDownLatch(1);
+                AtomicReference<Throwable> error = new AtomicReference<>();
+                eventStore.close()
+                    .onSuccess(v -> latch.countDown())
+                    .onFailure(e -> { error.set(e); latch.countDown(); });
+
+                RuntimeException closeFailure = null;
+                try {
+                    if (!latch.await(60, TimeUnit.SECONDS)) {
+                        closeFailure = new RuntimeException("Event store close timed out after 60 seconds");
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    closeFailure = new RuntimeException("Event store close interrupted", e);
+                }
+                if (error.get() != null) {
+                    closeFailure = new RuntimeException("Event store failed to close", error.get());
+                }
+
+                running = false;
+                callback.run();
+                if (closeFailure != null) {
+                    logger.error("Error closing event store before manager destruction", closeFailure);
+                    throw closeFailure;
+                }
+                logger.info("Event store closed before PeeGeeQ Manager destruction");
             }
 
             @Override
@@ -165,23 +178,10 @@ public class BitemporalConfig {
     @Bean
     public EventStore<TransactionEvent> transactionEventStore(BiTemporalEventStoreFactory factory) {
         logger.info("Creating TransactionEvent event store");
-        eventStore = factory.createEventStore(TransactionEvent.class, "bitemporal_event_log");
+        EventStore<TransactionEvent> eventStore = factory.createEventStore(
+            TransactionEvent.class, "bitemporal_event_log");
         logger.info("TransactionEvent event store created successfully");
         return eventStore;
-    }
-    
-    /**
-     * Cleanup resources on application shutdown.
-     */
-    @PreDestroy
-    public void cleanup() {
-        logger.info("Shutting down bi-temporal event store resources");
-        
-        if (eventStore != null) {
-            eventStore.close()
-                    .onSuccess(v -> logger.info("Event store closed successfully"))
-                    .onFailure(e -> logger.error("Error closing event store", e));
-        }
     }
 
     /**
@@ -203,8 +203,7 @@ public class BitemporalConfig {
         props.setProperty("peegeeq.database.username", properties.getDatabase().getUsername());
         props.setProperty("peegeeq.database.password", properties.getDatabase().getPassword());
         props.setProperty("peegeeq.database.schema", properties.getDatabase().getSchema());
+        props.setProperty("peegeeq.database.pool.shared", String.valueOf(properties.getDatabase().getPool().isShared()));
         return props;
     }
 }
-
-

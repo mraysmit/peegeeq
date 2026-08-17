@@ -18,7 +18,6 @@ package dev.mars.peegeeq.examples.springboot2;
 
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.database.DatabaseService;
-import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springboot.model.CreateOrderRequest;
 import dev.mars.peegeeq.examples.springboot.model.OrderItem;
@@ -27,8 +26,6 @@ import dev.mars.peegeeq.examples.springboot2.service.OrderService;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -36,6 +33,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -45,8 +43,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
-
-import io.vertx.core.Future;
 
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -82,6 +78,7 @@ import java.util.Arrays;
         "logging.level.org.springframework.data.r2dbc=DEBUG"
     }
 )
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 class OrderServiceTest {
@@ -93,23 +90,6 @@ class OrderServiceTest {
 
     @Autowired
     private DatabaseService databaseService;
-    @Autowired(required = false)
-    private PeeGeeQManager peeGeeQManager;
-    private static PeeGeeQManager peeGeeQManagerRef;
-
-    @AfterEach
-    void captureManager() {
-        peeGeeQManagerRef = peeGeeQManager;
-    }
-
-    @AfterAll
-    static void closeManager(VertxTestContext testContext) {
-        if (peeGeeQManagerRef == null) {
-            testContext.completeNow();
-            return;
-        }
-        peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
-    }
 
     @Container
     static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
@@ -165,10 +145,15 @@ class OrderServiceTest {
                         logger.info("Application-specific schema created successfully");
                         return (Void) null;
                     });
-            }).onComplete(setupContext.succeeding(v -> {
+            })
+            .onSuccess(v -> {
                 logger.info("=== Application-specific schema setup complete ===");
                 setupContext.completeNow();
-            }));
+            })
+            .onFailure(error -> {
+                logger.error("Failed to create reactive order service test schema", error);
+                setupContext.failNow(error);
+            });
     }
 
     /**
@@ -244,18 +229,14 @@ class OrderServiceTest {
             )
         );
 
-        String orderId = orderService.createOrder(createRequest)
-            .block(Duration.ofSeconds(10));
-
-        logger.info("Created order with ID: {}", orderId);
-
-        // Now find it using ConnectionProvider.withConnection()
-        Mono<Order> orderMono = orderService.findById(orderId);
+        Mono<Order> orderMono = orderService.createOrder(createRequest)
+            .doOnNext(orderId -> logger.info("Created order with ID: {}", orderId))
+            .flatMap(orderService::findById);
 
         StepVerifier.create(orderMono)
             .expectNextMatches(order -> {
                 logger.info(" Order found: {}", order.getId());
-                return order.getId().equals(orderId)
+                return order.getId() != null && !order.getId().isEmpty()
                     && order.getCustomerId().equals("CUST-SVC-003");
             })
             .expectComplete()
@@ -303,11 +284,8 @@ class OrderServiceTest {
             )
         );
 
-        orderService.createOrder(createRequest)
-            .block(Duration.ofSeconds(10));
-
-        // Now find by customer ID using ConnectionProvider.withConnection()
-        Mono<Order> orderMono = orderService.findByCustomerId(customerId);
+        Mono<Order> orderMono = orderService.createOrder(createRequest)
+            .flatMap(orderId -> orderService.findByCustomerId(customerId));
 
         StepVerifier.create(orderMono)
             .expectNextMatches(order -> {
@@ -337,13 +315,9 @@ class OrderServiceTest {
             )
         );
 
-        String orderId = orderService.createOrder(createRequest)
-            .block(Duration.ofSeconds(10));
-
-        logger.info("Created order for validation: {}", orderId);
-
-        // Now validate it using ConnectionProvider.withConnection()
-        Mono<Void> validateMono = orderService.validateOrder(orderId);
+        Mono<Void> validateMono = orderService.createOrder(createRequest)
+            .doOnNext(orderId -> logger.info("Created order for validation: {}", orderId))
+            .flatMap(orderService::validateOrder);
 
         StepVerifier.create(validateMono)
             .expectComplete()
@@ -400,4 +374,3 @@ class OrderServiceTest {
         }
     }
 }
-

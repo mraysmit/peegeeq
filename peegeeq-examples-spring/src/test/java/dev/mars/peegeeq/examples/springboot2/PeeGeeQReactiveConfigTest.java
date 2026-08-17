@@ -27,16 +27,12 @@ import dev.mars.peegeeq.outbox.OutboxProducer;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
-import io.vertx.junit5.VertxExtension;
-import io.vertx.junit5.VertxTestContext;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
@@ -84,28 +80,13 @@ import static org.junit.jupiter.api.Assertions.*;
     "spring.r2dbc.password=${DB_PASSWORD:peegeeq_test}"
 })
 @Testcontainers
-@ExtendWith(VertxExtension.class)
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class PeeGeeQReactiveConfigTest {
 
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQReactiveConfigTest.class);
 
     @Autowired
     private PeeGeeQManager manager;
-    private static PeeGeeQManager managerRef;
-
-    @AfterEach
-    void captureManager() {
-        managerRef = manager;
-    }
-
-    @AfterAll
-    static void closeManager(VertxTestContext testContext) {
-        if (managerRef == null) {
-            testContext.completeNow();
-            return;
-        }
-        managerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
-    }
 
     @Autowired
     private OutboxProducer<OrderEvent> orderEventProducer;
@@ -166,6 +147,10 @@ class PeeGeeQReactiveConfigTest {
         logger.info("=== Test: PeeGeeQManager Configuration ===");
 
         assertNotNull(manager, "PeeGeeQManager should be autowired");
+        assertFalse(properties.getPool().isShared(),
+            "Shared test properties must bind the non-shared pool setting");
+        assertFalse(manager.getConfiguration().getPoolConfig().isShared(),
+            "Spring integration tests must create non-shared reactive pools");
         logger.info(" PeeGeeQManager is properly configured");
         logger.info(" PeeGeeQ lifecycle management is working");
 
@@ -198,7 +183,7 @@ class PeeGeeQReactiveConfigTest {
 
         assertNotNull(reactiveAdapter, "ReactiveOutboxAdapter should be autowired");
         logger.info(" ReactiveOutboxAdapter is configured");
-        logger.info(" CompletableFuture to Mono/Flux conversion is available");
+        logger.info(" Vert.x Future to Mono/Flux conversion is available");
 
         logger.info("=== Test Completed Successfully ===");
     }
@@ -273,4 +258,3 @@ class PeeGeeQReactiveConfigTest {
         logger.info("=== Test Completed Successfully ===");
     }
 }
-

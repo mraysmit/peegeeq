@@ -38,8 +38,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.OffsetDateTime;
@@ -73,8 +71,6 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.INTEGRATION)
 public class BackfillScopePerformanceTest extends BaseIntegrationTest {
 
-    private static final Logger logger = LoggerFactory.getLogger(BackfillScopePerformanceTest.class);
-
     private final List<String> testTopics = new ArrayList<>();
 
     private PgConnectionManager connectionManager;
@@ -98,6 +94,7 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
                 .maxSize(20)
+                .shared(false)
                 .build();
 
         connectionManager.getOrCreateReactivePool("peegeeq-main", connectionConfig, poolConfig);
@@ -106,7 +103,6 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
         subscriptionManager = new SubscriptionManager(connectionManager, "peegeeq-main");
         backfillService = new BackfillService(connectionManager, "peegeeq-main");
 
-        logger.info("BackfillScope performance test setup complete");
     }
 
     @AfterEach
@@ -114,13 +110,13 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
         if (connectionManager != null) {
             Future<Void> deleteFuture = testTopics.isEmpty()
                     ? Future.succeededFuture()
-                    : connectionManager.withConnection("peegeeq-main", connection ->
+                    : connectionManager.withTransaction("peegeeq-main", connection ->
                             connection.preparedQuery(
                                 "DELETE FROM outbox WHERE topic = ANY($1::text[])")
                                 .execute(Tuple.of(testTopics.toArray(new String[0])))
                                 .mapEmpty());
             deleteFuture
-                    .compose(v -> connectionManager.close())
+                    .eventually(() -> connectionManager.close())
                     .onSuccess(v -> testContext.completeNow())
                     .onFailure(testContext::failNow);
         } else {
@@ -144,8 +140,6 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
         int messageCount = 50_000;
         int batchSize = 10_000;
 
-        logger.info("=== PENDING_ONLY scope performance: {} messages, batch {} ===", messageCount, batchSize);
-
         final long[] startMs = {0};
         setupTopicAndMessages(topic, messageCount)
                 .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
@@ -161,15 +155,14 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
                         assertEquals(messageCount, result.processedMessages());
                         assertTrue(throughput >= 1000,
                                 "PENDING_ONLY throughput should be >= 1000 msgs/s, got " + String.format("%.1f", throughput));
-                        logger.info("PENDING_ONLY result: {} msgs in {} ms ({} msgs/s)",
-                                result.processedMessages(), elapsedMs, String.format("%.1f", throughput));
                     });
                     return countTrackingRows(topic, groupName);
                 })
-                .onComplete(testContext.succeeding(trackingRows -> testContext.verify(() -> {
+                .onSuccess(trackingRows -> testContext.verify(() -> {
                     assertEquals(messageCount, trackingRows.longValue(), "Should have one tracking row per message");
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -189,9 +182,6 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
         int completedCount = 20_000;
         int batchSize = 10_000;
 
-        logger.info("=== ALL_RETAINED scope performance: {} total, {} completed, batch {} ===",
-                messageCount, completedCount, batchSize);
-
         final long[] startMs = {0};
         setupTopicAndMessages(topic, messageCount)
                 .compose(v -> markOldestMessagesCompleted(topic, completedCount))
@@ -209,16 +199,15 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
                                 "ALL_RETAINED should process ALL messages including COMPLETED");
                         assertTrue(throughput >= 1000,
                                 "ALL_RETAINED throughput should be >= 1000 msgs/s, got " + String.format("%.1f", throughput));
-                        logger.info("ALL_RETAINED result: {} msgs in {} ms ({} msgs/s)",
-                                result.processedMessages(), elapsedMs, String.format("%.1f", throughput));
                     });
                     return countTrackingRows(topic, groupName);
                 })
-                .onComplete(testContext.succeeding(trackingRows -> testContext.verify(() -> {
+                .onSuccess(trackingRows -> testContext.verify(() -> {
                     assertEquals(messageCount, trackingRows.longValue(),
                             "Should have one tracking row per message for ALL_RETAINED");
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -239,9 +228,6 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
         String groupName = "incr-completed-grp";
         int totalMessages = 100;
         int completedMessages = 40;
-
-        logger.info("=== ALL_RETAINED incrementSql regression test: {} total, {} completed ===",
-                totalMessages, completedMessages);
 
         setupTopicAndMessages(topic, totalMessages)
                 .compose(v -> markOldestMessagesCompleted(topic, completedMessages))
@@ -266,13 +252,12 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
                                     "ALL_RETAINED should increment required_consumer_groups on COMPLETED messages too"));
                     return countPendingMessagesWithRequiredGroups(topic, 2);
                 })
-                .onComplete(testContext.succeeding(pendingIncremented -> testContext.verify(() -> {
+                .onSuccess(pendingIncremented -> testContext.verify(() -> {
                     assertEquals(totalMessages - completedMessages, pendingIncremented.longValue(),
                             "PENDING messages should also have required_consumer_groups incremented");
-                    logger.info("ALL_RETAINED correctly incremented required_consumer_groups on {} COMPLETED + {} PENDING messages",
-                            completedMessages, pendingIncremented);
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -290,8 +275,6 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
         int messageCount = 20_000;
         int completedCount = 8_000;
         int batchSize = 5_000;
-
-        logger.info("=== Scope comparison: {} total, {} completed ===", messageCount, completedCount);
 
         String pendingTopic = baseTopic + "-pending";
         String pendingGroup = "compare-pending-grp";
@@ -334,7 +317,7 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
                                 return result;
                             });
                 })
-                .onComplete(testContext.succeeding(retainedResult -> testContext.verify(() -> {
+                .onSuccess(retainedResult -> testContext.verify(() -> {
                     assertEquals(BackfillResult.Status.COMPLETED, retainedResult.status());
                     assertEquals(messageCount, retainedResult.processedMessages());
 
@@ -342,19 +325,11 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
                     double retainedThroughput = retainedResult.processedMessages() * 1000.0 / retainedElapsed[0];
                     double ratio = retainedThroughput / pendingThroughput;
 
-                    logger.info("=== SCOPE COMPARISON RESULTS ===");
-                    logger.info("PENDING_ONLY : {} msgs in {} ms ({} msgs/s)",
-                            pendingProcessed[0], pendingElapsed[0], String.format("%.1f", pendingThroughput));
-                    logger.info("ALL_RETAINED : {} msgs in {} ms ({} msgs/s)",
-                            retainedResult.processedMessages(), retainedElapsed[0], String.format("%.1f", retainedThroughput));
-                    logger.info("Throughput ratio (ALL_RETAINED / PENDING_ONLY): {}", String.format("%.2f", ratio));
-
                     assertTrue(ratio >= 0.5,
                             "ALL_RETAINED throughput should be at least 50% of PENDING_ONLY, ratio was " + String.format("%.2f", ratio));
-                    logger.info("Scope throughput parity verified: ratio={}", String.format("%.2f", ratio));
-
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -375,7 +350,7 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
     }
 
     private Future<Void> insertMessagesBulk(String topic, int count) {
-        return connectionManager.withConnection("peegeeq-main", connection -> {
+        return connectionManager.withTransaction("peegeeq-main", connection -> {
             String sql = """
                 INSERT INTO outbox (topic, payload, created_at, status)
                 SELECT $1, ('{"index": ' || generate_series || '}')::jsonb, $2, 'PENDING'
@@ -389,7 +364,7 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
     }
 
     private Future<Void> markOldestMessagesCompleted(String topic, int limit) {
-        return connectionManager.withConnection("peegeeq-main", connection -> {
+        return connectionManager.withTransaction("peegeeq-main", connection -> {
             String sql = """
                 WITH to_complete AS (
                     SELECT id

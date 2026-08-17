@@ -27,16 +27,12 @@ import dev.mars.peegeeq.outbox.OutboxProducer;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
-import io.vertx.junit5.VertxExtension;
-import io.vertx.junit5.VertxTestContext;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -74,28 +70,13 @@ import static org.junit.jupiter.api.Assertions.*;
     }
 )
 @Testcontainers
-@ExtendWith(VertxExtension.class)
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class PeeGeeQConfigTest {
     
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQConfigTest.class);
     
     @Autowired
     private PeeGeeQManager peeGeeQManager;
-    private static PeeGeeQManager peeGeeQManagerRef;
-
-    @AfterEach
-    void captureManager() {
-        peeGeeQManagerRef = peeGeeQManager;
-    }
-
-    @AfterAll
-    static void closeManager(VertxTestContext testContext) {
-        if (peeGeeQManagerRef == null) {
-            testContext.completeNow();
-            return;
-        }
-        peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
-    }
 
     @Autowired
     private QueueFactory outboxFactory;
@@ -201,6 +182,10 @@ class PeeGeeQConfigTest {
         assertEquals(postgres.getDatabaseName(), peeGeeQProperties.getDatabase().getName());
         assertEquals(postgres.getUsername(), peeGeeQProperties.getDatabase().getUsername());
         assertEquals(postgres.getPassword(), peeGeeQProperties.getDatabase().getPassword());
+        assertFalse(peeGeeQProperties.getPool().isShared(),
+            "Shared test properties must bind the non-shared pool setting");
+        assertFalse(peeGeeQManager.getConfiguration().getPoolConfig().isShared(),
+            "Spring integration tests must create non-shared reactive pools");
         
         logger.info("PeeGeeQ Properties bound correctly");
         logger.info("Properties binding test passed");
