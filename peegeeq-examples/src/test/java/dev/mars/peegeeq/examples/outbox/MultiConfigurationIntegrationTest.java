@@ -6,6 +6,7 @@ import dev.mars.peegeeq.api.messaging.*;
 import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.db.config.MultiConfigurationManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.examples.shared.CleanupResultSupport;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import java.util.Properties;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
@@ -105,23 +106,34 @@ class MultiConfigurationIntegrationTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) {
+        Throwable factoryCloseFailure = null;
         for (QueueFactory f : openFactories) {
             try {
                 f.close();
             } catch (Exception e) {
-                logger.warn("Error closing queue factory: {}", e.getMessage());
+                logger.error("Error closing queue factory", e);
+                if (factoryCloseFailure == null) {
+                    factoryCloseFailure = e;
+                } else {
+                    factoryCloseFailure.addSuppressed(e);
+                }
             }
         }
         openFactories.clear();
 
-        if (configManager == null) {
-            testContext.completeNow();
-            return;
-        }
-        configManager.close()
-            .onFailure(err -> logger.warn("Error during configManager cleanup: {}", err.getMessage()))
+        Future<Void> factoryClose = factoryCloseFailure == null
+            ? Future.succeededFuture()
+            : Future.failedFuture(factoryCloseFailure);
+        Future<Void> managerClose = configManager == null
+            ? Future.succeededFuture()
+            : configManager.close();
+
+        CleanupResultSupport.merge(factoryClose, managerClose)
             .onSuccess(v -> testContext.completeNow())
-            .onFailure(err -> testContext.completeNow());
+            .onFailure(err -> {
+                logger.error("Error during MultiConfigurationIntegrationTest cleanup", err);
+                testContext.failNow(err);
+            });
     }
 
     @Test
