@@ -105,25 +105,24 @@ class DeadLetterQueueManagerTest {
         // Clean up any existing data from previous tests to ensure test isolation
         cleanupTestData()
             .onSuccess(v -> testContext.completeNow())
-            .onFailure(v -> testContext.completeNow());
+            .onFailure(testContext::failNow);
     }
 
     @AfterEach
     void tearDown(VertxTestContext testContext) {
         Future<Void> cleanup = (reactivePool != null)
-            ? cleanupTestData().onFailure(e -> {
-                logger.warn("Failed to cleanup test data in tearDown: {}", e.getMessage());
-            }).transform(ar -> Future.<Void>succeededFuture())
+            ? cleanupTestData()
             : Future.succeededFuture();
 
-        cleanup.compose(v -> {
-            if (connectionManager != null) {
-                return connectionManager.close();
-            }
-            return Future.succeededFuture();
-        })
-        .onSuccess(v -> testContext.completeNow())
-        .onFailure(testContext::failNow);
+        cleanup
+            .eventually(() -> connectionManager != null
+                ? connectionManager.close()
+                : Future.<Void>succeededFuture())
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(err -> {
+                logger.error("Failed to clean up DeadLetterQueueManagerTest", err);
+                testContext.failNow(err);
+            });
     }
 
     private Future<Void> cleanupTestData() {

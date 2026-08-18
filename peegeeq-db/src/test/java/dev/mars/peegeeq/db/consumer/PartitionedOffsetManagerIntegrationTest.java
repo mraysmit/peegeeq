@@ -84,7 +84,7 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
                     logger.info("PartitionedOffsetManager test setup complete");
                     testContext.completeNow();
                 })
-                .onFailure(t -> testContext.completeNow());
+                .onFailure(testContext::failNow);
     }
 
     @AfterEach
