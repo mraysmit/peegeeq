@@ -27,6 +27,7 @@ import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.ConsumerConfig;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.pgqueue.PgNativeQueueFactory;
+import dev.mars.peegeeq.examples.shared.CleanupResultSupport;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
@@ -102,24 +103,31 @@ public class ServerSideFilteringTest {
     }
 
     @AfterEach
-    void tearDown(Vertx vertx, VertxTestContext ctx) {
+    void tearDown(VertxTestContext ctx) {
         logger.info("Tearing down: closing resources and manager");
         logger.info("=== Tearing down ServerSideFilteringTest ===");
+        Future<Void> factoryClose = Future.succeededFuture();
         if (nativeFactory != null) {
             try {
                 nativeFactory.close();
             } catch (Exception e) {
-                logger.warn("Error closing native factory: {}", e.getMessage());
+                logger.error("Error closing native factory", e);
+                factoryClose = Future.failedFuture(e);
             }
         }
-        if (manager == null) {
-            ctx.completeNow();
-            return;
-        }
-        Future<Void> closeChain = manager.closeReactive()
-            .onFailure(err -> logger.error("Error during manager cleanup", err));
-        closeChain.onSuccess(v -> { logger.info("Server-side filtering test teardown completed"); ctx.completeNow(); });
-        closeChain.onFailure(err -> ctx.completeNow());
+        Future<Void> managerClose = manager == null
+            ? Future.succeededFuture()
+            : manager.closeReactive();
+
+        CleanupResultSupport.merge(factoryClose, managerClose)
+            .onSuccess(v -> {
+                logger.info("Server-side filtering test teardown completed");
+                ctx.completeNow();
+            })
+            .onFailure(err -> {
+                logger.error("Error during server-side filtering test cleanup", err);
+                ctx.failNow(err);
+            });
     }
 
     @Test
@@ -438,6 +446,3 @@ public class ServerSideFilteringTest {
         producer.close();
     }
 }
-
-
-
