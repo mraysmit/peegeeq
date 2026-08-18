@@ -25,6 +25,7 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
+import dev.mars.peegeeq.examples.shared.CleanupResultSupport;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
@@ -102,30 +103,39 @@ public class SimpleNativeQueueTest {
     }
 
     @AfterEach
-    void tearDown(Vertx vertx, VertxTestContext ctx) {
+    void tearDown(VertxTestContext ctx) {
         logger.info("Tearing down: closing resources and manager");
         logger.info("=== Tearing down SimpleNativeQueueTest ===");
 
+        Future<Void> factoryClose = Future.succeededFuture();
         if (nativeFactory != null) {
             try {
                 nativeFactory.close();
                 logger.info("Native factory closed successfully");
             } catch (Exception e) {
-                logger.warn("Error closing native factory: {}", e.getMessage());
+                logger.error("Error closing native factory", e);
+                factoryClose = Future.failedFuture(e);
             }
         }
 
-        if (manager == null) {
-            logger.info("Simple native queue test teardown completed");
-            ctx.completeNow();
-            return;
+        Future<Void> managerClose = Future.succeededFuture();
+        if (manager != null) {
+            logger.info("Closing PeeGeeQ manager...");
+            managerClose = manager.closeReactive();
         }
-        logger.info("Closing PeeGeeQ manager...");
-        Future<Void> closeChain = manager.closeReactive()
-            .onSuccess(v -> logger.info("PeeGeeQ manager closed successfully"))
-            .onFailure(err -> logger.error("Error during manager cleanup", err));
-        closeChain.onSuccess(v -> { logger.info("Simple native queue test teardown completed"); ctx.completeNow(); });
-        closeChain.onFailure(err -> ctx.completeNow());
+
+        CleanupResultSupport.merge(factoryClose, managerClose)
+            .onSuccess(v -> {
+                if (manager != null) {
+                    logger.info("PeeGeeQ manager closed successfully");
+                }
+                logger.info("Simple native queue test teardown completed");
+                ctx.completeNow();
+            })
+            .onFailure(err -> {
+                logger.error("Error during simple native queue test cleanup", err);
+                ctx.failNow(err);
+            });
     }
 
     @Test
@@ -230,5 +240,3 @@ public class SimpleNativeQueueTest {
         logger.info("Concurrent message test passed");
     }
 }
-
-

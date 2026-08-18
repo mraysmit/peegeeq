@@ -465,10 +465,7 @@ class HealthCheckManagerTest {
 
                         stopManagerAsync(localHealthCheckManager)
                             .onSuccess(ignored -> testContext.completeNow())
-                            .onFailure(t -> {
-                                logger.warn("Failed to stop local health check manager (expected after pool close)", t);
-                                testContext.completeNow();
-                            });
+                            .onFailure(testContext::failNow);
                     })));
             })));
     }

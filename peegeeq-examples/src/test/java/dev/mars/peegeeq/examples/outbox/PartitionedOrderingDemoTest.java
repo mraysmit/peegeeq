@@ -30,6 +30,7 @@ import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import java.util.Properties;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
+import dev.mars.peegeeq.examples.shared.CleanupResultSupport;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -160,17 +161,26 @@ class PartitionedOrderingDemoTest {
     }
 
     @AfterEach
-    void tearDown(Vertx vertx, VertxTestContext ctx) {
-        if (manager == null) {
-            ctx.completeNow();
-            return;
+    void tearDown(VertxTestContext ctx) {
+        Future<Void> factoryClose = Future.succeededFuture();
+        if (factory != null) {
+            try {
+                factory.close();
+            } catch (Exception e) {
+                logger.error("Error closing outbox factory", e);
+                factoryClose = Future.failedFuture(e);
+            }
         }
-        // Close manager, then settle 2s so connection pools fully release before the next test.
-        Future<Void> closeChain = manager.closeReactive()
-            .onFailure(err -> logger.warn("Error closing manager: {}", err.getMessage()))
-            .eventually(() -> vertx.timer(2000).<Void>mapEmpty());
-        closeChain.onSuccess(v -> ctx.completeNow());
-        closeChain.onFailure(err -> ctx.completeNow());
+        Future<Void> managerClose = manager == null
+            ? Future.succeededFuture()
+            : manager.closeReactive();
+
+        CleanupResultSupport.merge(factoryClose, managerClose)
+            .onSuccess(v -> ctx.completeNow())
+            .onFailure(err -> {
+                logger.error("Error during partitioned ordering test cleanup", err);
+                ctx.failNow(err);
+            });
     }
 
     // ------------------------------------------------------------------
