@@ -35,11 +35,11 @@ import org.slf4j.LoggerFactory;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * CORE tests for DeadLetterQueueManager using TestContainers.
+ * Focused integration tests for DeadLetterQueueManager using TestContainers.
  *
- * <p>These tests are tagged as CORE because they:
+ * <p>These tests are tagged as INTEGRATION because they use a real PostgreSQL
+ * container through {@link BaseIntegrationTest}. They remain focused because they:
  * <ul>
- *   <li>Run fast (each test completes in <1 second)</li>
  *   <li>Are isolated (each test focuses on a single method)</li>
  *   <li>Test one component at a time (DeadLetterQueueManager only)</li>
  * </ul>
@@ -48,13 +48,13 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-11-27
  * @version 1.0
  */
-@Tag(TestCategories.CORE)
+@Tag(TestCategories.INTEGRATION)
 @ExtendWith(VertxExtension.class)
 @Execution(ExecutionMode.SAME_THREAD)  // Run tests sequentially to avoid data conflicts
 @ResourceLock(value = "dead-letter-queue-database", mode = ResourceAccessMode.READ_WRITE)
-public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
+public class DeadLetterQueueManagerFocusedIntegrationTest extends BaseIntegrationTest {
 
-    private static final Logger logger = LoggerFactory.getLogger(DeadLetterQueueManagerCoreTest.class);
+    private static final Logger logger = LoggerFactory.getLogger(DeadLetterQueueManagerFocusedIntegrationTest.class);
 
     private PgConnectionManager connectionManager;
     private Pool reactivePool;
