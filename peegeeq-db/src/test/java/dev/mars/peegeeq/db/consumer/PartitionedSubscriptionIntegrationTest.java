@@ -92,7 +92,7 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
         // Clean up test data from prior runs
         cleanupTestData()
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(t -> testContext.completeNow());
+                .onFailure(testContext::failNow);
 
         logger.info("PartitionedSubscription test setup complete");
     }

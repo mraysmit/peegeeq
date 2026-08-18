@@ -86,7 +86,7 @@ public class PartitionedFetcherIntegrationTest extends BaseIntegrationTest {
                     logger.info("PartitionedFetcher test setup complete");
                     testContext.completeNow();
                 })
-                .onFailure(t -> testContext.completeNow());
+                .onFailure(testContext::failNow);
     }
 
     @AfterEach

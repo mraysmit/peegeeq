@@ -95,13 +95,13 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         // Clean up any existing data from previous tests
         cleanupDeadLetterQueue()
             .onSuccess(v -> testContext.completeNow())
-            .onFailure(v -> testContext.completeNow());
+            .onFailure(testContext::failNow);
     }
 
     private Future<Void> cleanupDeadLetterQueue() {
         return reactivePool.<Void>withConnection(connection ->
             connection.preparedQuery("DELETE FROM dead_letter_queue").execute().mapEmpty()
-        ).transform(ar -> Future.<Void>succeededFuture());
+        );
     }
 
     @AfterEach
