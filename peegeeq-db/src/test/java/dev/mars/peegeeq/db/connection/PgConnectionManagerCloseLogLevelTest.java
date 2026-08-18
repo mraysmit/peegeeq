@@ -96,7 +96,7 @@ public class PgConnectionManagerCloseLogLevelTest {
         if (connectionManager != null) {
             connectionManager.close()
                     .onSuccess(v -> testContext.completeNow())
-                    .onFailure(e -> testContext.completeNow());
+                    .onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }
