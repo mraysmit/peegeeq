@@ -4,26 +4,42 @@ Companion to `TEST-INTEGRITY-DEFECT-REMEDIATION-PLAN.md`, which is the defect re
 This document covers what happened in this session, what state the working tree is in,
 and what the next person needs to know before touching it.
 
-## 2026-08-19 continuation update
+## 2026-08-19 continuation update (cleanup review completed)
 
 This section supersedes the repository state and open-work statements in the historical
 2026-08-12 snapshot below. The older narrative remains for audit context.
 
-- Branch `master` is at `e58f4a43`; commits since `7ee3148d` include test-contract cleanup,
-  native consumer-group start-position and race fixes, disabled-test enforcement, bounded
-  performance concurrency, substantial async lifecycle hardening, cleanup propagation, and
-  honest DLQ integration classification.
-- The working tree now contains two completed bodies of work: the test-integrity continuation
-  across five Java source/test files, and utilities UI Phase G.1b across eleven TypeScript/TSX
-  source/test files. The defect register, this handover, and the utilities UI plan are also
-  modified. Nothing from either body of work has been committed yet.
+- Branch `master` and `origin/master` are at `5f2da208` (`test: propagate setup and teardown
+  failures`). That pushed commit contains both Java lifecycle work and utilities UI G.1b; its
+  subject does not describe the UI portion. Do not amend or rewrite it. Use a corrective,
+  accurately scoped commit for the working-tree remediation below.
+- The current working tree contains a completed cleanup-review remediation across seven Java
+  source/test files plus this handover. The utilities UI G.1b files are no longer uncommitted;
+  they are part of `5f2da208`.
+- `PeeGeeQTestSchemaInitializer.cleanupTestData` no longer logs and swallows connection or SQL
+  failures. It logs the full cause and throws a contextual `RuntimeException`; a live
+  Testcontainers authentication-failure test proves the exception and cause reach the caller.
+- `OutboxQueueBrowserIntegrationTest`, `HealthCheckManagerCoreTest`, and
+  `OutboxSchemaIsolationCoverageTest` now attempt every owned close even after an earlier close
+  fails. The first failure remains primary and every later failure is retained as a suppressed
+  cause. Contract tests cover the multi-failure behavior. The browser's local integer producer
+  and browser cleanup was fixed at the same time; it previously used an unobserved bare
+  `onComplete` callback.
+- The schema-parameter test now uses `PostgreSQLTestConstants.createStandardContainer()`, a
+  per-test non-shared Vert.x PgClient pool, reactive queries, and transactions. The hand-built
+  container, empty lifecycle methods, and raw JDBC verification were removed. A new workspace
+  guard prevents schema-initializer tests from reintroducing raw JDBC verification or directly
+  constructed PostgreSQL containers.
+- The schema-isolation polling helper's pre-existing `Supplier.get()` rule violation was
+  replaced with a purpose-built asynchronous condition interface.
 - D1, D2, D4/D4-A, D5, D6, D8, D9, and D13 are closed. The tracked Java-source scan for
   pass-on-failure expression handlers returns zero. The six disabled native subscription
   tests are restored; the repository guard permits only the deliberate antipattern fixture.
-- Targeted 2026-08-19 Java verification is green: `OrderConsumerServiceTest` 2/2,
-  `HealthCheckManagerCoreTest#testQueueHealthChecksWithReservedWordSchema` 1/1, and the two
-  async guard classes 8/8 after each implementation phase. Required clean reactor-slice
-  rebuilds also passed.
+- Final cleanup-review verification is green: four behavior classes passed 56/56 in total
+  (`OutboxQueueBrowserIntegrationTest` 14/14, `HealthCheckManagerCoreTest` 17/17,
+  `OutboxSchemaIsolationCoverageTest` 14/14, and the two schema-initializer classes 11/11).
+  The infrastructure guard and two async guards passed 9/9. Every Java phase had its required
+  clean reactor-slice rebuild before targeted testing.
 - Utilities UI G.1b verification is also green against the final worktree: production build
   (`tsc` + Vite, 3,209 modules), focused unit tests 52/52 across five files, real-backend ramp
   Playwright 3/3, and targeted ESLint with 0 errors and 0 warnings. The approximately
@@ -36,10 +52,28 @@ This section supersedes the repository state and open-work statements in the his
   not an unfinished G.1b requirement. The next substantive choice is whether to take T.6 or
   return to P4/P6 and the separate D10/D12 close-settlement investigation.
 
-Exact Java commands and evidence are recorded in `TEST-INTEGRITY-DEFECT-REMEDIATION-PLAN.md`.
+Earlier Java commands and evidence are recorded in `TEST-INTEGRITY-DEFECT-REMEDIATION-PLAN.md`;
+the cleanup-review evidence is recorded below.
 The G.1b implementation and verification record is in
 `peegeeq-utilities-ui/docs/PEEGEEQ_DEVOPS_UTILITIES_IMPLEMENTATION_PLAN.md`. Do not use the
 old resume commands near the end of this file as the current plan.
+
+### Cleanup-review verification evidence
+
+| Verification | Exact scope | Result | Log |
+|---|---|---|---|
+| Schema failure contract | `PeeGeeQTestSchemaInitializerFailureTest` plus migrated schema parameter class | PASS — 11/11 | `final-review-schema-targeted-20260819.txt` |
+| Browser lifecycle | `OutboxQueueBrowserIntegrationTest` | PASS — 14/14 | `outbox-browser-cleanup-targeted-20260819.txt` |
+| Health lifecycle | `HealthCheckManagerCoreTest` | PASS — 17/17 | `final-review-health-targeted-20260819.txt` |
+| Schema-isolation lifecycle | `OutboxSchemaIsolationCoverageTest` | PASS — 14/14 | `final-review-outbox-schema-targeted-20260819.txt` |
+| Static guards | schema-initializer infrastructure plus both async guards | PASS — 9/9 | `final-review-static-guards-20260819.txt` |
+
+The schema failure-contract log contains one intentional ERROR with a full PostgreSQL
+authentication stack trace; the test asserts that exact failure path is propagated. The
+schema-isolation log contains its existing labelled negative-path ERRORs, and the browser
+aggregation contract deliberately logs and asserts its two synthetic close failures. Every
+ERROR was traced to an asserted negative-path contract; no unhandled exception was found. The
+approximately 90-minute `-Pall-tests` release gate was not run.
 
 ### Utilities UI Phase G.1b completion
 
