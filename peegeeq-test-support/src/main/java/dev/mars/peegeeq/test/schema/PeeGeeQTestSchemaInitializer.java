@@ -206,7 +206,9 @@ public class PeeGeeQTestSchemaInitializer {
             logger.debug("Test data cleanup completed for schema '{}' components: {}", schema, componentSet);
 
         } catch (Exception e) {
-            logger.warn("Failed to cleanup test data for schema '{}' (tables may not exist yet)", schema, e);
+            logger.error("Failed to cleanup test data for schema '{}'", schema, e);
+            throw new RuntimeException(
+                "PeeGeeQ test data cleanup failed for schema '" + schema + "'", e);
         }
     }
 
@@ -260,6 +262,7 @@ public class PeeGeeQTestSchemaInitializer {
              Statement stmt = conn.createStatement()) {
             stmt.execute(sql);
         } catch (Exception e) {
+            logger.error("Failed to enforce bitemporal compatibility in schema '{}'", schema, e);
             throw new RuntimeException("Failed to enforce bitemporal compatibility in schema '" + schema + "'", e);
         }
     }

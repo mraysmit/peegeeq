@@ -19,6 +19,8 @@ import org.junit.jupiter.api.Test;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -79,15 +81,45 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) {
-        Future<Void> stopFuture = (reservedSchemaHealthCheckManager != null && reservedSchemaHealthCheckManager.isRunning())
-            ? reservedSchemaHealthCheckManager.stop()
-            : Future.succeededFuture();
-        stopFuture = stopFuture.compose(v -> (healthCheckManager != null && healthCheckManager.isRunning())
-            ? healthCheckManager.stop()
-            : Future.succeededFuture());
-        stopFuture.compose(v -> connectionManager != null ? connectionManager.close() : Future.<Void>succeededFuture())
+        List<Throwable> cleanupFailures = new ArrayList<>();
+
+        captureCleanupFailure(
+                (reservedSchemaHealthCheckManager != null && reservedSchemaHealthCheckManager.isRunning())
+                    ? reservedSchemaHealthCheckManager.stop()
+                    : Future.succeededFuture(),
+                cleanupFailures)
+            .compose(v -> captureCleanupFailure(
+                (healthCheckManager != null && healthCheckManager.isRunning())
+                    ? healthCheckManager.stop()
+                    : Future.succeededFuture(),
+                cleanupFailures))
+            .compose(v -> captureCleanupFailure(
+                connectionManager != null ? connectionManager.close() : Future.succeededFuture(),
+                cleanupFailures))
+            .compose(v -> failIfCleanupFailed(cleanupFailures))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
+    }
+
+    private Future<Void> captureCleanupFailure(
+            Future<Void> cleanup,
+            List<Throwable> cleanupFailures) {
+        return cleanup.transform(result -> {
+            if (result.failed()) {
+                cleanupFailures.add(result.cause());
+            }
+            return Future.succeededFuture();
+        });
+    }
+
+    private Future<Void> failIfCleanupFailed(List<Throwable> cleanupFailures) {
+        if (cleanupFailures.isEmpty()) {
+            return Future.succeededFuture();
+        }
+
+        Throwable primaryFailure = cleanupFailures.getFirst();
+        cleanupFailures.stream().skip(1).forEach(primaryFailure::addSuppressed);
+        return Future.failedFuture(primaryFailure);
     }
 
     @Test
@@ -97,14 +129,31 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
     }
 
     @Test
+    void testCleanupFailureAggregationRetainsAllFailures() {
+        RuntimeException firstFailure = new RuntimeException("reserved manager stop failed");
+        RuntimeException secondFailure = new RuntimeException("primary manager stop failed");
+        AtomicInteger attemptedCleanups = new AtomicInteger();
+        List<Throwable> cleanupFailures = new ArrayList<>();
+
+        Future<Void> cleanup = captureCleanupFailure(
+                Future.<Void>failedFuture(firstFailure), cleanupFailures)
+            .compose(v -> {
+                attemptedCleanups.incrementAndGet();
+                return captureCleanupFailure(Future.<Void>failedFuture(secondFailure), cleanupFailures);
+            })
+            .compose(v -> failIfCleanupFailed(cleanupFailures));
+
+        assertTrue(cleanup.failed());
+        assertEquals(1, attemptedCleanups.get(), "A failed cleanup must not skip later cleanup");
+        assertSame(firstFailure, cleanup.cause());
+        assertArrayEquals(new Throwable[]{secondFailure}, cleanup.cause().getSuppressed());
+    }
+
+    @Test
     void testStartAndStop(VertxTestContext testContext) {
         healthCheckManager.start()
             .compose(v -> {
-                try {
-                    assertTrue(healthCheckManager.isRunning());
-                } catch (Throwable t) {
-                    return Future.failedFuture(t);
-                }
+                assertTrue(healthCheckManager.isRunning());
                 return healthCheckManager.stop();
             })
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
@@ -289,11 +338,7 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
     void testStartWhenAlreadyRunning(VertxTestContext testContext) {
         healthCheckManager.start()
             .compose(v -> {
-                try {
-                    assertTrue(healthCheckManager.isRunning());
-                } catch (Throwable t) {
-                    return Future.failedFuture(t);
-                }
+                assertTrue(healthCheckManager.isRunning());
                 return healthCheckManager.start();
             })
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
@@ -315,19 +360,11 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
     void testRestartAfterStop(VertxTestContext testContext) {
         healthCheckManager.start()
             .compose(v -> {
-                try {
-                    assertTrue(healthCheckManager.isRunning());
-                } catch (Throwable t) {
-                    return Future.failedFuture(t);
-                }
+                assertTrue(healthCheckManager.isRunning());
                 return healthCheckManager.stop();
             })
             .compose(v -> {
-                try {
-                    assertFalse(healthCheckManager.isRunning());
-                } catch (Throwable t) {
-                    return Future.failedFuture(t);
-                }
+                assertFalse(healthCheckManager.isRunning());
                 return healthCheckManager.start();
             })
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
