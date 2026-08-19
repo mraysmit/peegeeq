@@ -46,6 +46,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 /**
  * Integration tests covering schema isolation gaps TC-S1 through TC-S13.
@@ -425,9 +426,21 @@ public class OutboxSchemaIsolationCoverageTest {
         logger.error("THIS IS AN INTENTIONAL TEST ERROR: the next manager-start failure "
                 + "('required tables missing in schema myschema') is the expected fail-fast behavior");
         manager.start()
-                .onSuccess(v -> testContext.failNow(new AssertionError(
-                        "Manager start must fail for the unconfigured 'myschema' placeholder")))
-                .onFailure(err -> testContext.completeNow());
+                .onComplete(testContext.failing(err -> testContext.verify(() -> {
+                    RuntimeException startupFailure = assertInstanceOf(RuntimeException.class, err,
+                            "Manager startup should surface its lifecycle failure");
+                    assertEquals("Failed to start PeeGeeQ Manager", startupFailure.getMessage());
+
+                    IllegalStateException missingTables = assertInstanceOf(
+                            IllegalStateException.class,
+                            startupFailure.getCause(),
+                            "Manager startup should preserve the missing-tables cause");
+                    assertEquals(
+                            "Database required tables missing in schema 'myschema': "
+                                    + "[outbox, queue_messages, dead_letter_queue, outbox_topic_subscriptions]",
+                            missingTables.getMessage());
+                    testContext.completeNow();
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
                 "TC-S6: unconfigured-schema startup should fail fast within 30 seconds");

@@ -67,6 +67,48 @@ interface QueueStatsResponse {
 }
 
 /**
+ * Map the flat REST/SSE queue-stats payload into the UI snapshot shape.
+ * Exported because `/stats` and `/stats/stream` deliberately carry the same
+ * payload; two mappers would let their absence semantics drift apart.
+ */
+export function queueStatsSnapshotOf(value: unknown, source: string): QueueStatsSnapshot {
+  const data = value as QueueStatsResponse
+  if (typeof data?.queueName !== 'string') {
+    throw new Error(`${source} is not a stats payload: ${JSON.stringify(value)}`)
+  }
+  const snapshot: QueueStatsSnapshot = {
+    queueName: data.queueName,
+    setupId: data.setupId,
+    implementationType: data.implementationType,
+    healthy: data.healthy,
+    totalMessages: data.totalMessages,
+    pendingMessages: data.pendingMessages,
+    inFlightMessages: data.inFlightMessages,
+    processedMessages: data.processedMessages,
+    deadLetteredMessages: data.deadLetteredMessages,
+    messagesPerSecond: data.messagesPerSecond,
+    avgProcessingTimeMs: data.avgProcessingTimeMs,
+    successRatePercent: data.successRatePercent,
+    timestamp: data.timestamp,
+  }
+  const processingTime = percentilesOf(
+    data.processingTimeP50Ms,
+    data.processingTimeP95Ms,
+    data.processingTimeP99Ms,
+    data.processingTimeSampleCount
+  )
+  if (processingTime !== undefined) snapshot.processingTime = processingTime
+  const deliveryLatency = percentilesOf(
+    data.deliveryLatencyP50Ms,
+    data.deliveryLatencyP95Ms,
+    data.deliveryLatencyP99Ms,
+    data.deliveryLatencySampleCount
+  )
+  if (deliveryLatency !== undefined) snapshot.deliveryLatency = deliveryLatency
+  return snapshot
+}
+
+/**
  * One distribution, or undefined when the backend did not report it.
  *
  * A PARTIALLY reported block is treated as absent: reporting it would mean
@@ -107,47 +149,7 @@ export async function getQueueStats(
   const res = await axios.get<QueueStatsResponse>(
     getVersionedApiUrl(`queues/${setupId}/${queueName}/stats`)
   )
-  const data = res.data
-  if (typeof data?.queueName !== 'string') {
-    // Fails loudly rather than handing back a half-empty snapshot the caller
-    // cannot distinguish from a quiet queue (the publishService precedent).
-    throw new Error(
-      `Queue stats response for ${setupId}/${queueName} is not a stats payload: ${JSON.stringify(data)}`
-    )
-  }
-  const snapshot: QueueStatsSnapshot = {
-    queueName: data.queueName,
-    setupId: data.setupId,
-    implementationType: data.implementationType,
-    healthy: data.healthy,
-    totalMessages: data.totalMessages,
-    pendingMessages: data.pendingMessages,
-    inFlightMessages: data.inFlightMessages,
-    processedMessages: data.processedMessages,
-    deadLetteredMessages: data.deadLetteredMessages,
-    messagesPerSecond: data.messagesPerSecond,
-    avgProcessingTimeMs: data.avgProcessingTimeMs,
-    successRatePercent: data.successRatePercent,
-    timestamp: data.timestamp,
-  }
-  // Assigned only when reported, so an absent distribution contributes no key
-  // at all rather than a present-and-undefined one — the same shape as the
-  // backend's own putIfNotNull.
-  const processingTime = percentilesOf(
-    data.processingTimeP50Ms,
-    data.processingTimeP95Ms,
-    data.processingTimeP99Ms,
-    data.processingTimeSampleCount
-  )
-  if (processingTime !== undefined) snapshot.processingTime = processingTime
-  const deliveryLatency = percentilesOf(
-    data.deliveryLatencyP50Ms,
-    data.deliveryLatencyP95Ms,
-    data.deliveryLatencyP99Ms,
-    data.deliveryLatencySampleCount
-  )
-  if (deliveryLatency !== undefined) snapshot.deliveryLatency = deliveryLatency
-  return snapshot
+  return queueStatsSnapshotOf(res.data, `Queue stats response for ${setupId}/${queueName}`)
 }
 
 /**

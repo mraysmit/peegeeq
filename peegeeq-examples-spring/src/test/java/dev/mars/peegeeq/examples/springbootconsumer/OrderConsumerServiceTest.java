@@ -28,6 +28,7 @@ import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -208,17 +209,17 @@ public class OrderConsumerServiceTest {
                             return row.getLong(0) > 0;
                         });
                 }))
-            .onSuccess(orderExists -> {
+            .eventually(() -> {
                 producer.close();
-                testContext.verify(() -> {
-                    assertTrue(orderExists, "Order should be stored in database");
-                    assertTrue(consumerService.getMessagesProcessed() > 0, "Consumer should have processed messages");
-                    log.info("Basic Message Consumption test passed");
-                    testContext.completeNow();
-                });
+                return Future.succeededFuture();
             })
+            .onSuccess(orderExists -> testContext.verify(() -> {
+                assertTrue(orderExists, "Order should be stored in database");
+                assertTrue(consumerService.getMessagesProcessed() > 0, "Consumer should have processed messages");
+                log.info("Basic Message Consumption test passed");
+                testContext.completeNow();
+            }))
             .onFailure(error -> {
-                producer.close();
                 log.error("Failed to verify basic message consumption", error);
                 testContext.failNow(error);
             });
@@ -242,19 +243,19 @@ public class OrderConsumerServiceTest {
             .compose(v -> producer.send(filteredEvent))
             // Wait for both messages to be processed then verify
             .compose(v -> vertx.timer(2000))
-            .onSuccess(v -> {
+            .eventually(() -> {
                 producer.close();
-                testContext.verify(() -> {
-                    long processedDelta = consumerService.getMessagesProcessed() - initialProcessed;
-                    long filteredDelta = consumerService.getMessagesFiltered() - initialFiltered;
-                    assertTrue(processedDelta >= 1, "At least one message should be processed");
-                    assertTrue(filteredDelta >= 1, "At least one message should be filtered");
-                    log.info("Message Filtering test passed");
-                    testContext.completeNow();
-                });
+                return Future.succeededFuture();
             })
+            .onSuccess(v -> testContext.verify(() -> {
+                long processedDelta = consumerService.getMessagesProcessed() - initialProcessed;
+                long filteredDelta = consumerService.getMessagesFiltered() - initialFiltered;
+                assertTrue(processedDelta >= 1, "At least one message should be processed");
+                assertTrue(filteredDelta >= 1, "At least one message should be filtered");
+                log.info("Message Filtering test passed");
+                testContext.completeNow();
+            }))
             .onFailure(error -> {
-                producer.close();
                 log.error("Failed while waiting to verify message filtering", error);
                 testContext.failNow(error);
             });

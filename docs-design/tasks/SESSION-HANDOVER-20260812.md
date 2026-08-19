@@ -1,8 +1,89 @@
-# Session Handover — 2026-08-12
+# Session Handover — 2026-08-12 (reconciled 2026-08-19)
 
 Companion to `TEST-INTEGRITY-DEFECT-REMEDIATION-PLAN.md`, which is the defect register.
 This document covers what happened in this session, what state the working tree is in,
 and what the next person needs to know before touching it.
+
+## 2026-08-19 continuation update
+
+This section supersedes the repository state and open-work statements in the historical
+2026-08-12 snapshot below. The older narrative remains for audit context.
+
+- Branch `master` is at `e58f4a43`; commits since `7ee3148d` include test-contract cleanup,
+  native consumer-group start-position and race fixes, disabled-test enforcement, bounded
+  performance concurrency, substantial async lifecycle hardening, cleanup propagation, and
+  honest DLQ integration classification.
+- The working tree now contains two completed bodies of work: the test-integrity continuation
+  across five Java source/test files, and utilities UI Phase G.1b across eleven TypeScript/TSX
+  source/test files. The defect register, this handover, and the utilities UI plan are also
+  modified. Nothing from either body of work has been committed yet.
+- D1, D2, D4/D4-A, D5, D6, D8, D9, and D13 are closed. The tracked Java-source scan for
+  pass-on-failure expression handlers returns zero. The six disabled native subscription
+  tests are restored; the repository guard permits only the deliberate antipattern fixture.
+- Targeted 2026-08-19 Java verification is green: `OrderConsumerServiceTest` 2/2,
+  `HealthCheckManagerCoreTest#testQueueHealthChecksWithReservedWordSchema` 1/1, and the two
+  async guard classes 8/8 after each implementation phase. Required clean reactor-slice
+  rebuilds also passed.
+- Utilities UI G.1b verification is also green against the final worktree: production build
+  (`tsc` + Vite, 3,209 modules), focused unit tests 52/52 across five files, real-backend ramp
+  Playwright 3/3, and targeted ESLint with 0 errors and 0 warnings. The approximately
+  90-minute `-Pall-tests` gate was not run.
+- Remaining original gaps are P4/D3+D7 (reproduce the background-job DDL failure, then add
+  bounded escalation and health), P6/D11 (unexpected ERROR-log enforcement), and the
+  separate D10/D12 close-settlement investigation. These should not be conflated.
+- Utilities UI Phase G is complete: G.1b consumed the T.4/T.5/T.7 telemetry and shipped in
+  the worktree on 2026-08-19. T.6 remains an optional per-run precision/scoping decision,
+  not an unfinished G.1b requirement. The next substantive choice is whether to take T.6 or
+  return to P4/P6 and the separate D10/D12 close-settlement investigation.
+
+Exact Java commands and evidence are recorded in `TEST-INTEGRITY-DEFECT-REMEDIATION-PLAN.md`.
+The G.1b implementation and verification record is in
+`peegeeq-utilities-ui/docs/PEEGEEQ_DEVOPS_UTILITIES_IMPLEMENTATION_PLAN.md`. Do not use the
+old resume commands near the end of this file as the current plan.
+
+### Utilities UI Phase G.1b completion
+
+Ramp mode now collects saturation evidence over the same phase boundaries used by its load
+sequence:
+
+- A T.7 database snapshot is captured before load, and another when the ramp completes,
+  stops, or halts at its knee.
+- The T.5 per-queue stats stream and T.4 system metrics stream are sampled during the run and
+  tagged with the active ramp phase.
+- The report summarizes per-step queue depth and backend rate, event-loop lag, pool
+  acquire-wait, database active/pending sessions, implementation-table churn, and cluster
+  deltas. Missing telemetry remains absent rather than being presented as zero.
+- Findings name observed pressure signals without claiming they caused the knee. Queue and
+  lifetime database statistics remain explicitly non-run-scoped without T.6; a dedicated
+  queue is recommended when isolation matters.
+- Start/finish failures surface in the UI, every stream is closed, and unmount cleanup aborts
+  an in-flight baseline or active telemetry session.
+
+The targeted browser run exposed and pinned one real lifecycle defect before completion.
+React StrictMode's development setup/cleanup/setup rehearsal cleared the page's mounted guard,
+so an asynchronous baseline could finish with controls locked and no ramp started. The effect
+now re-arms that guard during setup. The final real-backend test verifies the completed
+attribution path.
+
+Verification logs are under `logs/`:
+
+| Verification | Exact scope | Result | Log |
+|---|---|---|---|
+| Rebuild | `npm run build` | PASS — `tsc`, Vite 3,209 modules | `utilities-ui-g1b-build-20260819.txt` |
+| Unit | G.1b collector, attribution, panel, shared mapper and generator page | PASS — 52/52 across 5 files | `utilities-ui-g1b-unit-20260819.txt` |
+| Browser | `ramp.spec.ts`, project `11-ramp`, real REST backend + TestContainers PostgreSQL | PASS — 3/3 | `utilities-ui-g1b-ramp-e2e-20260819.txt` |
+| Lint | 11 changed TypeScript/TSX source/test files | PASS — 0 errors, 0 warnings | `utilities-ui-g1b-eslint-20260819.txt` |
+
+The unit count is `rampTelemetryService.test.ts` 3/3, `rampAttribution.test.ts` 4/4,
+`RampAttributionPanel.test.tsx` 3/3, `telemetryService.test.ts` 15/15, and
+`MessageGeneratorPage.test.tsx` 27/27.
+
+No Java or Maven file changed as part of G.1b, so its rebuild was the UI production build.
+The full 90-minute suite remains an owner-run release gate. The Vite large-chunk advisory and
+the Playwright launcher’s Node child-process deprecation warning are non-failing diagnostics,
+not test failures.
+
+---
 
 ### Repository snapshot
 

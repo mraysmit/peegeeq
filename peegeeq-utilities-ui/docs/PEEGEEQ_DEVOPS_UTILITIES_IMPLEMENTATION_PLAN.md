@@ -3,6 +3,7 @@
 **Author**: Mark Andrew Ray-Smith Cityline Ltd  
 **Created**: 2026-07-05  
 **Version**: 1.0  
+**Last reconciled**: 2026-08-19
 
 This plan sequences the **remaining** work for `peegeeq-utilities-ui`. It is derived from two
 documents and should be read alongside them:
@@ -37,6 +38,8 @@ the current baseline and covers only what is left, plus the divergences recorded
 | Scheduled runs (screen, scheduler, history, templates, import) | ✅ done (2026-07-19, SCH.0–SCH.8; hardened SCH.9 2026-07-21) | Phase SCH; design Part III |
 | Overview redesign (per-setup, no global aggregates) | ✅ done (per-setup table + detail card; connect CTA) | feature §6.6, TD §12.2 |
 | Saved scenarios + Tools launcher (`/tools` no longer duplicates Overview) | ✅ done (Phase G.4, 2026-08-01) | design §19.0, §19.4 |
+| Backend telemetry needed by rich ramp attribution | ✅ done (T.4/T.5 remediation, 2026-08-09) | Phase T; telemetry §4A, §5 |
+| Rich breaking-point attribution | ✅ done (G.1b, 2026-08-19) | Phase G.1b |
 
 ---
 
@@ -44,12 +47,13 @@ the current baseline and covers only what is left, plus the divergences recorded
 
 These are mandatory and come from the project standards — not optional style notes.
 
-1. **Mandatory pre-work before writing code** (per `CLAUDE.md`): read
+1. **Mandatory pre-work before writing code** (per repository `AGENTS.md`): read
    `docs-design/dev/pgq-coding-principles.md` and
    `docs-design/testing/PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md` in full; read every file you
    will modify; read the existing tests in the same area and mirror their pattern exactly.
-2. **One phase at a time.** Implement a phase, then stop and report. **Do not run tests** —
-   the user runs tests and verifies before the next phase begins.
+2. **One phase at a time.** Implement a phase, rebuild, run the smallest relevant targeted
+   tests, inspect their per-class counts, then stop and report. The approximately 90-minute
+   `-Pall-tests` suite is an owner-run or explicitly requested release gate.
 3. **No error swallowing.** Every catch surfaces the error (`message.error(...)` /
    `<Alert type="error">` in UI). Silent catches are defects (see TD §10, §12.6).
 4. **No mocking.** No Mockito, no mocked DB, no Playwright `page.route` HTTP stubbing.
@@ -62,9 +66,10 @@ These are mandatory and come from the project standards — not optional style n
 7. **Never assert runtime behaviour from static reading.** Where a phase depends on backend
    behaviour (e.g. the delete-queue endpoint), verify by running, not by asserting.
 
-Per-phase verification is always: banned-pattern grep on touched files → `npm run build`
-(zero TS errors) → targeted Vitest for changed units → targeted Playwright for changed flows.
-Provide the commands; the user runs them.
+For utilities UI changes, per-phase verification is: banned-pattern grep on touched files →
+`npm run build` (zero TS errors) → targeted Vitest for changed units → targeted Playwright for
+changed flows. For Java/Maven changes, first run the mandated clean reactor-slice rebuild through
+`Tee-Object`, then targeted tests through `Tee-Object` using the documented test profile and tags.
 
 ---
 
@@ -86,9 +91,9 @@ Phase F (Integration + E2E + screenshots)  ── ✅ DONE 2026-07-19 (F.1–F.4
 Phase SCH (Scheduled generator runs)       ── ✅ DONE 2026-07-19 (SCH.0–SCH.8; graduated from Part I §3
       │                                        non-goals) + SCH.9 hardening 2026-07-21; design Part III
 Phase G (Generation tool suite, §19)       ── after B; most tools client-only, no backend
-Phase T (Backend telemetry, peegeeq-db/rest) ── T.1/T.2/T.3/T.7 DONE; T.4/T.5/T.6 open
+Phase T (Backend telemetry, peegeeq-db/rest) ── T.1–T.5/T.7 DONE; T.6 decision open
       └─ G.2 (native-vs-outbox) SHIPPED 2026-08-07 on T.1+T.2+T.7
-      └─ G.1b (rich breaking-point) still blocked — needs T.4 (G3) + T.5 (G4)
+      └─ G.1b (rich breaking-point) SHIPPED 2026-08-19 on T.4 (G3) + T.5 (G4) + T.7 (G7)
 
 Cross-track edges & newly-surfaced prerequisites (details in the next section):
   M enables ─► T.7 estate telemetry fan-out · G estate target routing · E/A.2 server-aware setup UI
@@ -435,7 +440,7 @@ tracks that dependency.
 | Step | Tool | Telemetry | Reference |
 |---|---|---|---|
 | G.1a | ✅ **DONE 2026-08-02** — Ramp load test, basic knee (client-detected): planning + knee detection, Ramp mode UI, e2e | **Client-only** — accept rate/latency + `/stats` `pendingMessages` | design §19.1; telemetry §6 |
-| G.1b | Ramp — rich saturation *attribution* | **Needs Phase T:** G3 (resource saturation) + G4 (≥1 Hz stream) + G7 (DB bottleneck signals) | telemetry §4A, §7 |
+| G.1b | ✅ **DONE 2026-08-19** — Ramp rich saturation *attribution*; see the G.1b record below | **Consumed:** G3 resource saturation + G4 fast per-queue stream + G7 DB bottleneck signals | telemetry §4A, §7 |
 | G.2 | ✅ **DONE 2026-08-07** — Native-vs-Outbox comparison run (G.2a runner/plan/telemetry service · G.2b two-target Zone A · G.2c results panel + page wiring · G.2d e2e); see the G.2 record below | **Consumed:** G1 (T.1 percentiles) + G2 (T.2 delivery latency) + G7 (T.7 DB churn profile). **G6 not used** — T.2 measures delivery latency on the DATABASE clock server-side, so a client-side correlation join would be a second, less accurate path to the same number, and reading messages back sits on management-ui's side of the §8 boundary | telemetry §7; design §19.2 |
 | G.3 | ✅ **DONE 2026-08-02** — Traffic-profile / scenario runner (G.3a sequencer · G.3b phases editor · G.3c mode selector + results panel · G.3d profile scenarios + e2e) | **Client-only** — achieved-rate timeline (finer with G4) | design §19.3; telemetry §6 |
 | G.4 | ✅ **DONE 2026-08-01** — saved scenarios (localStorage, templateService-shaped); see the G.4 record below | **None** | design §19.4 |
@@ -445,10 +450,9 @@ tracks that dependency.
 Surface as **modes of the Message Generator** (Flat rate · Ramp · Compare · Profile), or repurpose
 the dead `/tools` route as the suite launcher.
 
-**Build order within Phase G:** ship the client-only tools first (G.1a, G.3, G.4, G.5-send, G.6) —
-they need no backend change. G.1b and G.2 land only after Phase T delivers their telemetry.
-*(G.2 landed 2026-08-07 once T.1/T.2/T.7 were in place. **G.1b is the only Phase G step still
-open**, and it stays blocked until T.4 and T.5 exist.)*
+**Build order within Phase G:** all Phase G tools are shipped. G.1b completed the phase on
+2026-08-19 using the telemetry supplied by T.4, T.5 and T.7. T.6 remains an independent
+precision/scoping decision; it did not block G.1b and is not silently inferred by the UI.
 
 ### G.2 — Native-vs-Outbox comparison, 2026-08-07 — **G.2 COMPLETE**
 
@@ -662,6 +666,36 @@ preview computed independently of the real builder → 3 red.
 
 **Verified 2026-08-02:** unit **41 files, 638 tests**; e2e **82/82 across 12 projects**; lint 0
 errors (4 warnings); `tsc --noEmit` 0 errors.
+
+### G.1b — rich breaking-point saturation attribution, 2026-08-19 — **G.1 COMPLETE**
+
+**Purpose.** Ramp mode now records the backend conditions observed while each load step runs,
+so the basic client-side knee can be reviewed beside queue pressure, resource saturation and
+database churn. This is attribution evidence, not a causal claim.
+
+**Collection boundaries.** The collector takes a T.7 database snapshot before load starts,
+then phase-tags samples from the T.5 target queue stats stream and the T.4 system metrics
+stream. It closes both streams and takes the final database snapshot when the ramp completes,
+is stopped, or halts at its knee. Queue SSE and REST parsing share one mapper, preserving
+missing values as absent rather than manufacturing zeroes. Start and finish failures are
+surfaced in the UI; streams are always observed and closed.
+
+**Report.** The ramp result shows per-step maxima for pending messages, backend message rate,
+event-loop lag, pool acquire wait and database active/pending sessions. The database window
+shows implementation-specific table churn and baseline-to-final cluster deltas. Findings state
+which pressure signals were observed and retain an explicit scope warning: queue and lifetime
+database statistics are not per-run without T.6, so a dedicated queue is recommended when
+isolation matters.
+
+**Lifecycle correction.** The targeted browser test exposed a React StrictMode rehearsal bug:
+the page's mounted guard was cleared by the development-only setup/cleanup/setup cycle and was
+not re-armed, leaving ramp preparation locked after its baseline snapshot. The effect now
+re-arms the guard on every setup; the real-backend ramp test pins the completed report path.
+
+**Targeted verification 2026-08-19:** production build passed (`tsc` + Vite, 3,209 modules);
+focused G.1b/mapper/page unit tests **52/52 across 5 files** after the lifecycle correction; ramp
+Playwright project **3/3** against TestContainers PostgreSQL and the real REST backend. The
+approximately 90-minute all-tests gate was not run.
 
 ### G.3a — traffic-profile sequencer, 2026-08-02
 
@@ -1034,27 +1068,27 @@ regenerated — `45-trace-mode.png` / `46-trace-ids.png` captured, spec 1/1 gree
 ## Phase T — Backend telemetry (peegeeq-db / peegeeq-rest)
 
 **Goal:** close the telemetry gaps the two heavy generation tools depend on. This is a **multi-module
-Java change** (like Phase 1B), so validate with `mvn clean test -Pall-tests`. Read
+Java change** (like Phase 1B), so use the required clean reactor-slice rebuild followed by targeted
+tests. `-Pall-tests` is the owner-run release gate, not the normal edit-test loop. Read
 `docs-design/dev/pgq-coding-principles.md` and the testing-antipatterns doc first; reactive-only, no
 banned patterns; TestContainers integration tests. Full rationale and verified baseline in
 [PEEGEEQ_ADMIN_DEVOPS_TELEMETRY_REQUIREMENTS.md](PEEGEEQ_ADMIN_DEVOPS_TELEMETRY_REQUIREMENTS.md).
 
-*Gates:* G.1b (rich breaking-point) only — **G.2 is no longer gated**: it shipped 2026-08-07 on the
-delivered T.1/T.2/T.7, so the remaining steps T.4 (G3) and T.5 (G4) block G.1b alone.
-**No other phase depends on it** —
-everything in Phases A–G except those two is client-side or uses telemetry that already exists.
+*Gate status:* G.2 shipped on T.1/T.2/T.7. T.4 (G3) and T.5 (G4) were completed on
+2026-08-09; G.1b consumed those signals plus T.7 and shipped on 2026-08-19. T.6 remains an
+optional precision/scoping decision.
 
 | Step | Gap | What to add | Reference |
 |---|---|---|---|
 | T.1 | G1 | ✅ **DONE 2026-08-04** — Latency percentiles (p50/p95/p99 + mean + sampleCount) per queue via the per-topic Micrometer histogram both consumers feed at ack; exposed on `/stats` (`processingTime*Ms` fields, ABSENT when unmeasured); replaces the hardcoded 0.0 `avgProcessingTimeMs` with the histogram mean. App-side scope recorded on `DurationPercentiles`: per-instance, resets on restart (decided over SQL percentiles — native deletes processed rows). Evidence: db 48/48, native 13/13, outbox 6/6 (`logs/t2-*-20260804.txt`) | telemetry §4 G1 |
 | T.2 | G2 | ✅ **DONE 2026-08-04** — Delivery latency (enqueue → claim) computed INSIDE the claim statement on the DATABASE clock (`now() - created_at` in the claim RETURNING, both consumers, all four SQL variants), recorded to `peegeeq.message.delivery.latency.by.topic` tagged by implementation type; `deliveryLatency*Ms` on `/stats`, same absent-when-unmeasured contract. Same evidence runs as T.1 | telemetry §4 G2 |
 | T.3 | G6 | ✅ **DONE 2026-08-05** — enqueue timestamp + client headers on the LIVE SSE message frame (`enqueuedAt`, `headers`); see the T.3 record below. The browse endpoint already satisfied G6 — confirmed against a running backend BEFORE any code was written — so the real gap was the stream. Additive: the pre-existing emit-time `timestamp` is kept and documented, so no SSE consumer breaks | telemetry §4 G6 |
-| T.4 | G3 | Resource-saturation metrics **beyond** the `dbPool` already in `/sse/metrics`: DB write latency, event-loop lag, NOTIFY backlog, pool acquire-wait. **Probed 2026-08-08 — the gap IS where the row says**, unlike T.3: all four are absent from the live payload and from Micrometer entirely (the only latency meters that exist are `peegeeq.message.delivery.latency.by.topic` (T.2, enqueue→claim), `peegeeq.monitoring.collection.duration`, `peegeeq.http.requests.duration`, `peegeeq.notices.handler.duration`). `dbPool` carries `active/idle/pending/total/perSetup` — `pending` is a depth proxy, not acquire-wait latency | telemetry §4 G3 |
-| T.5 | G4 | ~~Raise `/sse/metrics` cadence to **≥ 1 Hz**~~, or add a fast per-run/per-queue stream. **Probed 2026-08-08 — the gap is NOT where the row says.** See the T.5 probe record below | telemetry §5 |
-| T.6 | G5 | **Per-run / correlation scoping** of metrics (or accept dedicated-queue-per-run as the tool-side workaround) | telemetry §4 G5 |
+| T.4 | G3 | ✅ **DONE 2026-08-09** — typed core saturation snapshot: event-loop lag and pool acquire-wait; producer send timing; NOTIFY queue usage in DB telemetry. See the superseding metrics-stack remediation record below | telemetry §4 G3 |
+| T.5 | G4 | ✅ **DONE 2026-08-09** — periodic-stream jitter fixed and fast per-queue stats SSE added (`/stats/stream`, 200–10000 ms) | telemetry §5 |
+| T.6 | G5 | ◇ **DECISION OPEN, NOT A G.1b BLOCKER** — per-run/correlation scoping, or retain dedicated-queue-per-run as the tool-side workaround | telemetry §4 G5 |
 | T.7 | G7 | ✅ **DONE 2026-08-06** (module-verified; the `peegeeq-db` blocker noted here was ~~unresolved~~ **fixed in `ed2e3d00`, the same commit — confirmed 2026-08-08, see the T.7 record below**) — `GET /api/v1/setups/{setupId}/db-telemetry` returns one snapshot: per-table `pg_stat_user_tables` + `pg_statio_user_tables` + size stats for every table in the setup's schema, plus the cluster signals (long-txn/`xmin`, locks, WAL, checkpoints, xid-age, commit/rollback/deadlock). Errors surface as 404/503 — never fabricated zeroes. Evidence: `peegeeq-rest` core 172/172, integration 332/332 (`logs/peegeeq-rest-*-20260806.txt`) | telemetry §4A |
 
-### T.4 — event-loop lag (1 of 4), 2026-08-08
+### T.4 — historical first increment, 2026-08-08
 
 > **Superseded 2026-08-09 by the metrics stack review below.** Both fields shipped under this
 > record are collector-produced, which violates the architecture rule the owner stated on
@@ -1745,7 +1779,7 @@ run red (`cluster block must carry notifyQueueUsage`), then green **4/4**.
 (scrape contents, the fail-forever loop firing) need probes; src/test trees; UI derivation code;
 pom dependency declarations. **No code was changed by this review.**
 
-### T.5 — probe first, 2026-08-08 (no code written yet)
+### T.5 — historical probe, 2026-08-08 (superseded by remediation step 6)
 
 **The cadence knob is already capable of 1 Hz; two other things stop it being delivered.** Probed
 against a live backend (`GET /sse/metrics?interval=1`, 12 s, zero setups — field presence and timing
@@ -1887,8 +1921,10 @@ comparison run and `comparePlan.churnDeltaFor` reports the run-window delta per 
 use G6/T.3: T.2 already measures delivery latency on the database clock, which a client-side
 correlation join could only approximate.)*
 
-**Verification:** banned-pattern grep (Java **and** TS); `mvn clean test -Pall-tests`; confirm each
-new field against the running backend **before** the UI consumes it (verify-by-running, not asserting).
+**Verification:** banned-pattern grep (Java **and** TS); required clean reactor-slice rebuild;
+targeted tests for each changed module; confirm each new field against the running backend
+**before** the UI consumes it (verify-by-running, not asserting). The full suite remains the
+owner-run release gate.
 
 ---
 
@@ -1900,7 +1936,8 @@ the admin tool, not the generator — the generator only *targets* setups, so co
 its only path to a target and S sits on the generator track's critical path. R and M follow S but
 do not block B. Spec:
 [PEEGEEQ_ADMIN_SETUP_LIFECYCLE_AND_MANAGEMENT_DB.md](PEEGEEQ_ADMIN_SETUP_LIFECYCLE_AND_MANAGEMENT_DB.md). All three
-phases are multi-module Java changes → the same pre-work + `mvn clean test -Pall-tests` gate as Phase T.
+phases are multi-module Java changes → the same pre-work, clean reactor-slice rebuild, and targeted
+verification discipline as Phase T. The full `-Pall-tests` suite is the owner-run release gate.
 Ship in order; each is independently useful.
 
 ## Phase S — Setup connect (manual attach)
@@ -2273,9 +2310,9 @@ Test counts are deliberately not recorded here — run the suites for current nu
   *verification* (A.1 delete-queue path, E.2 overview payload) — confirm, and only change docs or
   code once the runtime behaviour is known. Use the Backend service control prerequisite (copied
   from management-ui) to stand up the REST backend for that verification.
-- **Backend-led work is quarantined into named tracks:** Phase T (telemetry) gates *only* two Phase G
-  tools — and since 2026-08-07 only **one**, G.1b, because G.2 shipped on the delivered
-  T.1/T.2/T.7; the **Setup connect / reconnect track (Phases S → R → M)** is a separate backend-led effort
+- **Backend-led work is quarantined into named tracks:** Phase T's required telemetry for G.1b
+  was delivered on 2026-08-09, and rich breaking-point attribution shipped on 2026-08-19. T.6 remains
+  a non-blocking scoping decision. The **Setup connect / reconnect track (Phases S → R → M)** is a separate backend-led effort
   spec'd in the connect and management-DB docs. Everything else — all of Phases A–F and most of G —
   runs on client-side metering plus the telemetry/endpoints PeeGeeQ already exposes, so the utilities-ui
   UI work never blocks on backend changes.
