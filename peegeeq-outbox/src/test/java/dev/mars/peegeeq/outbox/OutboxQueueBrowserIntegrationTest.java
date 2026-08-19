@@ -38,6 +38,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -118,35 +119,17 @@ public class OutboxQueueBrowserIntegrationTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) throws InterruptedException {
         logger.info("Tearing down: closing resources and manager");
-        if (producer != null) {
-            try {
-                producer.close();
-            } catch (Exception e) {
-                logger.warn("Error closing producer: {}", e.getMessage());
-            }
+        closeResources()
+            .onSuccess(v -> {
+                logger.info("OutboxQueueBrowser integration test teardown completed");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
+        try {
+            assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        } finally {
+            MDC.clear();
         }
-        if (browser != null) {
-            try {
-                browser.close();
-            } catch (Exception e) {
-                logger.warn("Error closing browser: {}", e.getMessage());
-            }
-        }
-        if (manager != null) {
-            manager.closeReactive()
-                .onSuccess(v -> {
-                    logger.info("OutboxQueueBrowser integration test teardown completed");
-                    testContext.completeNow();
-                })
-                .onFailure(testContext::failNow);
-        } else {
-            logger.info("OutboxQueueBrowser integration test teardown completed");
-            testContext.completeNow();
-        }
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-
-        // Clear trace context
-        MDC.clear();
     }
 
     @Test
@@ -324,6 +307,25 @@ public class OutboxQueueBrowserIntegrationTest {
     }
 
     @Test
+    void testCleanupFailureAggregationRetainsAllFailures() {
+        List<Throwable> cleanupFailures = new ArrayList<>();
+        IllegalStateException producerFailure = new IllegalStateException("producer close failed");
+        IllegalArgumentException browserFailure = new IllegalArgumentException("browser close failed");
+
+        closeAndCapture("producer", () -> {
+            throw producerFailure;
+        }, cleanupFailures);
+        closeAndCapture("browser", () -> {
+            throw browserFailure;
+        }, cleanupFailures);
+
+        Future<Void> cleanup = failIfCleanupFailed(cleanupFailures);
+        assertTrue(cleanup.failed(), "Cleanup should fail when any resource close fails");
+        assertSame(producerFailure, cleanup.cause());
+        assertArrayEquals(new Throwable[] {browserFailure}, cleanup.cause().getSuppressed());
+    }
+
+    @Test
     void testBrowseWithDifferentPayloadType(VertxTestContext testContext) throws InterruptedException {
         // Given - create browser and producer for Integer type
         String intTopic = "int-topic";
@@ -339,21 +341,22 @@ public class OutboxQueueBrowserIntegrationTest {
             .compose(v -> intProducer.send(100))
             // When - browse messages
             .compose(v -> intBrowser.browse(10, 0))
-            .onComplete(ar -> {
-                intProducer.close();
-                intBrowser.close();
-                if (ar.failed()) {
-                    testContext.failNow(ar.cause());
-                } else {
-                    testContext.verify(() -> {
-                        List<Message<Integer>> messages = ar.result();
-                        assertEquals(2, messages.size());
-                        assertEquals(100, messages.get(0).getPayload());
-                        assertEquals(42, messages.get(1).getPayload());
-                        testContext.completeNow();
-                    });
+            .transform(result -> {
+                List<Throwable> cleanupFailures = new ArrayList<>();
+                closeAndCapture("integer producer", intProducer::close, cleanupFailures);
+                closeAndCapture("integer browser", intBrowser::close, cleanupFailures);
+                if (result.failed()) {
+                    cleanupFailures.forEach(result.cause()::addSuppressed);
+                    return Future.<List<Message<Integer>>>failedFuture(result.cause());
                 }
-            });
+                return failIfCleanupFailed(cleanupFailures).map(result.result());
+            })
+            .onComplete(testContext.succeeding(messages -> testContext.verify(() -> {
+                assertEquals(2, messages.size());
+                assertEquals(100, messages.get(0).getPayload());
+                assertEquals(42, messages.get(1).getPayload());
+                testContext.completeNow();
+            })));
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
@@ -423,5 +426,51 @@ public class OutboxQueueBrowserIntegrationTest {
 
         // Then - should not throw exception
     }
-}
 
+    private Future<Void> closeResources() {
+        List<Throwable> cleanupFailures = new ArrayList<>();
+        if (producer != null) {
+            closeAndCapture("producer", producer::close, cleanupFailures);
+        }
+        if (browser != null) {
+            closeAndCapture("browser", browser::close, cleanupFailures);
+        }
+
+        Future<Void> managerClose = manager != null
+            ? manager.closeReactive()
+            : Future.succeededFuture();
+        return captureCleanupFailure("manager", managerClose, cleanupFailures)
+            .compose(v -> failIfCleanupFailed(cleanupFailures));
+    }
+
+    private void closeAndCapture(
+            String resourceName, Runnable close, List<Throwable> cleanupFailures) {
+        try {
+            close.run();
+        } catch (Exception error) {
+            logger.error("Error closing {}", resourceName, error);
+            cleanupFailures.add(error);
+        }
+    }
+
+    private Future<Void> captureCleanupFailure(
+            String resourceName, Future<Void> cleanup, List<Throwable> cleanupFailures) {
+        return cleanup.transform(result -> {
+            if (result.failed()) {
+                logger.error("Error closing {}", resourceName, result.cause());
+                cleanupFailures.add(result.cause());
+            }
+            return Future.succeededFuture();
+        });
+    }
+
+    private Future<Void> failIfCleanupFailed(List<Throwable> cleanupFailures) {
+        if (cleanupFailures.isEmpty()) {
+            return Future.succeededFuture();
+        }
+
+        Throwable primaryFailure = cleanupFailures.get(0);
+        cleanupFailures.stream().skip(1).forEach(primaryFailure::addSuppressed);
+        return Future.failedFuture(primaryFailure);
+    }
+}

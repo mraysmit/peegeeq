@@ -35,6 +35,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -43,7 +44,6 @@ import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -85,24 +85,21 @@ public class OutboxSchemaIsolationCoverageTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
-        Future<Void> closeFactories = Future.join(
-                        factory != null ? factory.close() : Future.succeededFuture(),
-                        factoryB != null ? factoryB.close() : Future.succeededFuture())
-                .mapEmpty();
-        closeFactories
-                .transform(factoryResult -> Future.join(
-                                manager != null ? manager.closeReactive() : Future.succeededFuture(),
-                                managerB != null ? managerB.closeReactive() : Future.succeededFuture())
-                        .mapEmpty()
-                        .transform(managerResult -> {
-                            if (factoryResult.failed()) {
-                                return Future.failedFuture(factoryResult.cause());
-                            }
-                            if (managerResult.failed()) {
-                                return Future.failedFuture(managerResult.cause());
-                            }
-                            return Future.succeededFuture();
-                        }))
+        List<Throwable> cleanupFailures = new ArrayList<>();
+
+        captureCleanupFailure(
+                factory != null ? factory.close() : Future.succeededFuture(),
+                cleanupFailures)
+            .compose(v -> captureCleanupFailure(
+                factoryB != null ? factoryB.close() : Future.succeededFuture(),
+                cleanupFailures))
+            .compose(v -> captureCleanupFailure(
+                manager != null ? manager.closeReactive() : Future.succeededFuture(),
+                cleanupFailures))
+            .compose(v -> captureCleanupFailure(
+                managerB != null ? managerB.closeReactive() : Future.succeededFuture(),
+                cleanupFailures))
+            .compose(v -> failIfCleanupFailed(cleanupFailures))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
 
@@ -113,6 +110,24 @@ public class OutboxSchemaIsolationCoverageTest {
     // -----------------------------------------------------------------------
     // TC-S1: OutboxFactory.getStats() uses schema-qualified SQL
     // -----------------------------------------------------------------------
+
+    @Test
+    @DisplayName("Teardown retains every factory and manager close failure")
+    void cleanupFailureAggregationRetainsAllFailures() {
+        RuntimeException factoryFailure = new RuntimeException("factory close failed");
+        RuntimeException managerFailure = new RuntimeException("manager close failed");
+        List<Throwable> cleanupFailures = new ArrayList<>();
+
+        Future<Void> cleanup = captureCleanupFailure(
+                Future.<Void>failedFuture(factoryFailure), cleanupFailures)
+            .compose(v -> captureCleanupFailure(
+                Future.<Void>failedFuture(managerFailure), cleanupFailures))
+            .compose(v -> failIfCleanupFailed(cleanupFailures));
+
+        assertTrue(cleanup.failed(), "Cleanup should fail after every close has been attempted");
+        assertEquals(factoryFailure, cleanup.cause());
+        assertEquals(List.of(managerFailure), List.of(cleanup.cause().getSuppressed()));
+    }
 
     @Test
     @DisplayName("TC-S1: getStats returns message counts from the correct schema only")
@@ -477,6 +492,7 @@ public class OutboxSchemaIsolationCoverageTest {
                         factoryViaRegistrar = (OutboxFactory) noConfigProvider
                                 .createFactory("outbox", pgDs, new HashMap<>());
                     } catch (Exception e) {
+                        logger.error("Failed to create outbox factory through registrar fallback", e);
                         return Future.<Void>failedFuture(e);
                     }
                     factory = factoryViaRegistrar;
@@ -884,8 +900,29 @@ public class OutboxSchemaIsolationCoverageTest {
     // Helpers  polling and query utilities
     // -----------------------------------------------------------------------
 
+    private Future<Void> captureCleanupFailure(
+            Future<Void> cleanup,
+            List<Throwable> cleanupFailures) {
+        return cleanup.transform(result -> {
+            if (result.failed()) {
+                cleanupFailures.add(result.cause());
+            }
+            return Future.succeededFuture();
+        });
+    }
+
+    private Future<Void> failIfCleanupFailed(List<Throwable> cleanupFailures) {
+        if (cleanupFailures.isEmpty()) {
+            return Future.succeededFuture();
+        }
+
+        Throwable primaryFailure = cleanupFailures.getFirst();
+        cleanupFailures.stream().skip(1).forEach(primaryFailure::addSuppressed);
+        return Future.failedFuture(primaryFailure);
+    }
+
     private Future<Void> awaitDatabaseCondition(Vertx vertx,
-                                                  Supplier<Future<Boolean>> condition,
+                                                  AsyncCondition condition,
                                                   long timeoutMillis,
                                                   String failureMessage) {
         long deadline = System.currentTimeMillis() + timeoutMillis;
@@ -893,10 +930,10 @@ public class OutboxSchemaIsolationCoverageTest {
     }
 
     private Future<Void> pollCondition(Vertx vertx,
-                                        Supplier<Future<Boolean>> condition,
+                                        AsyncCondition condition,
                                         long deadline,
                                         String failureMessage) {
-        return condition.get()
+        return condition.evaluate()
                 .transform(ar -> {
                     if (ar.succeeded() && Boolean.TRUE.equals(ar.result())) {
                         return Future.succeededFuture();
@@ -910,6 +947,11 @@ public class OutboxSchemaIsolationCoverageTest {
                     return vertx.timer(100)
                             .compose(id -> pollCondition(vertx, condition, deadline, failureMessage));
                 });
+    }
+
+    @FunctionalInterface
+    private interface AsyncCondition {
+        Future<Boolean> evaluate();
     }
 
     private Future<Integer> queryDLQCount(Pool pool, String topic) {
