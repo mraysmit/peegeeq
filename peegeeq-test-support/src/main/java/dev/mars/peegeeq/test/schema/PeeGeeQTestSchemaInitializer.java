@@ -174,7 +174,7 @@ public class PeeGeeQTestSchemaInitializer {
             logger.debug("Cleaning up test data for schema '{}' components: {}", schema, componentSet);
 
             // Set search_path to the target schema
-            stmt.execute("SET search_path TO " + schema);
+            stmt.execute("SET search_path TO " + quoteIdentifier(schema));
 
             // Clean in reverse dependency order to avoid foreign key conflicts
             if (componentSet.contains(SchemaComponent.OUTBOX)) {
@@ -253,7 +253,7 @@ public class PeeGeeQTestSchemaInitializer {
     }
 
     private static void ensureBitemporalCompatibility(String jdbcUrl, String username, String password, String schema) {
-        String sql = "ALTER TABLE IF EXISTS " + schema + ".bitemporal_event_log " +
+        String sql = "ALTER TABLE IF EXISTS " + quoteIdentifier(schema) + ".bitemporal_event_log " +
             "ADD COLUMN IF NOT EXISTS causation_id VARCHAR(255)";
 
         try (Connection conn = DriverManager.getConnection(jdbcUrl, username, password);
@@ -262,6 +262,10 @@ public class PeeGeeQTestSchemaInitializer {
         } catch (Exception e) {
             throw new RuntimeException("Failed to enforce bitemporal compatibility in schema '" + schema + "'", e);
         }
+    }
+
+    private static String quoteIdentifier(String identifier) {
+        return "\"" + identifier.replace("\"", "\"\"") + "\"";
     }
 
     private static void logMigrationPlan(Flyway flyway, String jdbcUrl, String schema) {

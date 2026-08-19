@@ -236,6 +236,7 @@ describe('MessageGeneratorPage', () => {
     // The per-step achieved-vs-requested table is the profile panel reused —
     // a ramp's steps ARE phases.
     expect(screen.getByTestId('profile-results-panel')).toBeTruthy()
+    expect(screen.getByTestId('ramp-attribution-empty')).toBeTruthy()
   })
 
   it('Ramp mode lists the planned steps before anything runs', async () => {

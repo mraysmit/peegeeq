@@ -311,20 +311,16 @@ public class OutboxQueueBrowserIntegrationTest {
     }
 
     @Test
-    void testBrowseAfterClose(VertxTestContext testContext) throws InterruptedException {
+    void testBrowseAfterClose() {
         // Given
         browser.close();
 
         // When/Then - browsing after close should fail
-        try {
-            browser.browse(10, 0)
-                .onFailure(err -> testContext.completeNow())
-                .onSuccess(result -> testContext.failNow("Expected failure after close"));
-        } catch (Exception e) {
-            // browse() threw synchronously after close
-            testContext.completeNow();
-        }
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        Future<List<Message<String>>> result = browser.browse(10, 0);
+        assertTrue(result.failed(), "Browsing after close should return a failed Future");
+        IllegalStateException failure = assertInstanceOf(IllegalStateException.class, result.cause(),
+                "Browsing after close should fail with IllegalStateException");
+        assertEquals("Browser is closed", failure.getMessage());
     }
 
     @Test
@@ -428,5 +424,4 @@ public class OutboxQueueBrowserIntegrationTest {
         // Then - should not throw exception
     }
 }
-
 
