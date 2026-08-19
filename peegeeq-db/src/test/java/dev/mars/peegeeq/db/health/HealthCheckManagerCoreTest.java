@@ -6,6 +6,8 @@ import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.junit5.VertxTestContext;
@@ -41,6 +43,7 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
     private PgConnectionManager connectionManager;
     private Pool reactivePool;
     private HealthCheckManager healthCheckManager;
+    private HealthCheckManager reservedSchemaHealthCheckManager;
 
     @BeforeEach
     void setUp() {
@@ -76,9 +79,12 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) {
-        Future<Void> stopFuture = (healthCheckManager != null && healthCheckManager.isRunning())
-            ? healthCheckManager.stop()
+        Future<Void> stopFuture = (reservedSchemaHealthCheckManager != null && reservedSchemaHealthCheckManager.isRunning())
+            ? reservedSchemaHealthCheckManager.stop()
             : Future.succeededFuture();
+        stopFuture = stopFuture.compose(v -> (healthCheckManager != null && healthCheckManager.isRunning())
+            ? healthCheckManager.stop()
+            : Future.succeededFuture());
         stopFuture.compose(v -> connectionManager != null ? connectionManager.close() : Future.<Void>succeededFuture())
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
@@ -227,6 +233,56 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
             })
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
+    }
+
+    @Test
+    void testQueueHealthChecksWithReservedWordSchema(VertxTestContext testContext) {
+        String reservedSchema = "select";
+        PostgreSQLContainer postgres = getPostgres();
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, reservedSchema, SchemaComponent.QUEUE_ALL);
+        PeeGeeQTestSchemaInitializer.cleanupTestData(postgres, reservedSchema, SchemaComponent.QUEUE_ALL);
+
+        PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
+            .host(postgres.getHost())
+            .port(postgres.getFirstMappedPort())
+            .database(postgres.getDatabaseName())
+            .username(postgres.getUsername())
+            .password(postgres.getPassword())
+            .schema(reservedSchema)
+            .build();
+
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder()
+            .maxSize(3)
+            .shared(false)
+            .idleTimeout(Duration.ofSeconds(2))
+            .connectionTimeout(Duration.ofSeconds(5))
+            .build();
+
+        Pool reservedSchemaPool = connectionManager.getOrCreateReactivePool(
+            "reserved-schema-health", connectionConfig, poolConfig);
+        reservedSchemaHealthCheckManager = new HealthCheckManager(
+            reservedSchemaPool,
+            manager.getVertx(),
+            Duration.ofSeconds(5),
+            Duration.ofSeconds(2),
+            true,
+            reservedSchema
+        );
+
+        reservedSchemaHealthCheckManager.start()
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                HealthStatus outboxHealth = reservedSchemaHealthCheckManager.getHealthStatus("outbox-queue");
+                HealthStatus nativeHealth = reservedSchemaHealthCheckManager.getHealthStatus("native-queue");
+                HealthStatus dlqHealth = reservedSchemaHealthCheckManager.getHealthStatus("dead-letter-queue");
+
+                assertNotNull(outboxHealth);
+                assertNotNull(nativeHealth);
+                assertNotNull(dlqHealth);
+                assertTrue(outboxHealth.isHealthy(), "Outbox queue should be healthy: " + outboxHealth.getMessage());
+                assertTrue(nativeHealth.isHealthy(), "Native queue should be healthy: " + nativeHealth.getMessage());
+                assertTrue(dlqHealth.isHealthy(), "Dead letter queue should be healthy: " + dlqHealth.getMessage());
+                testContext.completeNow();
+            })));
     }
 
     @Test

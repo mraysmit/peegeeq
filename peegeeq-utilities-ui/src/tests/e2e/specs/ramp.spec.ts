@@ -2,11 +2,12 @@ import { test, expect } from '../page-objects'
 import * as fs from 'fs'
 
 /**
- * Ramp (breaking-point) mode E2E — real backend, no mocks (G.1a obligation).
+ * Ramp (breaking-point) mode E2E — real backend, no mocks (G.1a/G.1b obligation).
  *
  * Provisions its own setup + queue, then drives Ramp mode end to end: mode
  * switch → planned steps listed before anything runs → a REAL climbing run
- * publishing to the backend → the knee readout. Also pins the two refusals a
+ * publishing to the backend → the knee readout → pushed saturation attribution.
+ * Also pins the two refusals a
  * ramp carries, which the unit tests cannot prove without a target:
  * Schedule is blocked, and a ramp cannot be saved as a scenario.
  *
@@ -124,6 +125,15 @@ test.describe('Ramp mode', () => {
     // 5×2 + 10×2 + 15×2 = 60 requested across the three steps.
     await expect(page.getByTestId('profile-total-requested')).toContainText('60')
     await expect(page.getByTestId('profile-total-sent')).toContainText('60')
+
+    // G.1b consumes the real queue-stats and system-metrics SSE streams while
+    // the steps run, then takes a real final DB snapshot. It must finish with
+    // per-phase evidence rather than a forever-live or zero-filled panel.
+    await expect(page.getByTestId('ramp-attribution-report')).toBeVisible({ timeout: 30000 })
+    await expect(page.getByTestId('ramp-attribution-phase-0')).toContainText('5 msg/s')
+    await expect(page.getByTestId('ramp-attribution-phase-2')).toContainText('15 msg/s')
+    await expect(page.getByTestId('ramp-attribution-scope')).toContainText(/evidence, not proof/i)
+    await expect(page.getByTestId('ramp-telemetry-errors')).toHaveCount(0)
   })
 
   test('an empty ramp (start above the cap) is surfaced and cannot start', async ({ page }) => {

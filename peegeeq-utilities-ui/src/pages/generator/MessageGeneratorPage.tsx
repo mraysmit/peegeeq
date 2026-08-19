@@ -20,6 +20,7 @@ import RateControls from './RateControls'
 import ProfilePhasesEditor from './ProfilePhasesEditor'
 import ProfileResultsPanel from './ProfileResultsPanel'
 import RampControls from './RampControls'
+import RampAttributionPanel from './RampAttributionPanel'
 import ExerciserControls from './ExerciserControls'
 import {
   blankTemplate,
@@ -50,6 +51,9 @@ import type {
 import { buildRampPhases, rampHaltReason, sustainedRate } from '../../engine/rampPlan'
 import type { ProfilePhase, ProfilePhaseResult } from '../../types/profile'
 import type { RampSettings } from '../../types/ramp'
+import { createRampTelemetryCollector } from '../../services/rampTelemetryService'
+import type { RampTelemetrySession } from '../../services/rampTelemetryService'
+import type { RampTelemetryLive, RampTelemetryReport } from '../../types/rampTelemetry'
 import type { ExerciserSettings } from '../../types/exerciser'
 import type { TraceSettings } from '../../types/trace'
 import TemplateEditor from './TemplateEditor'
@@ -109,6 +113,13 @@ export default function MessageGeneratorPage() {
   const [rampSettings, setRampSettings] = useState<RampSettings>(RAMP_DEFAULTS)
   const [rampHalt, setRampHalt] = useState<string | null>(null)
   const rampPhases = useMemo(() => buildRampPhases(rampSettings), [rampSettings])
+  const [rampTelemetryLive, setRampTelemetryLive] = useState<RampTelemetryLive | null>(null)
+  const [rampTelemetryReport, setRampTelemetryReport] = useState<RampTelemetryReport | null>(null)
+  const [rampTelemetryBusy, setRampTelemetryBusy] = useState(false)
+  const [rampPreparing, setRampPreparing] = useState(false)
+  const rampTelemetryRef = useRef<RampTelemetrySession | null>(null)
+  const rampStartTokenRef = useRef(0)
+  const mountedRef = useRef(true)
 
   // Exerciser mode (G.5). The manifest is DERIVED after the run from these
   // captured inputs — settings, the value-list snapshot the run used, and the
@@ -194,10 +205,14 @@ export default function MessageGeneratorPage() {
   const status = useGeneratorStore((s) => s.runState.status)
   // A comparison never writes the store, so its live state must be folded in
   // here or Zone B/C and the mode selector would stay editable mid-comparison.
-  const running = status === 'running' || comparing
+  const running = status === 'running' || comparing || rampTelemetryBusy
   // What Zone D sees. In Compare mode the store is idle by design, so the
   // buttons would both be armed without this.
-  const actionStatus = mode === 'compare' ? (comparing ? 'running' : 'idle') : status
+  const actionStatus = mode === 'compare'
+    ? (comparing ? 'running' : 'idle')
+    : rampPreparing
+      ? 'running'
+      : status
 
   // Stable identity + reference-preserving update: TargetSelector's
   // notify-effect depends on this callback, so an inline version re-fires the
@@ -227,6 +242,24 @@ export default function MessageGeneratorPage() {
   // sequencer starting later phases with nothing showing them.
   useEffect(() => {
     return () => profileHandleRef.current?.stop()
+  }, [])
+
+  // A boundary DB read can still be in flight when navigation happens. The
+  // token prevents it from starting a profile after unmount; an established
+  // session is closed immediately so neither SSE connection is orphaned.
+  useEffect(() => {
+    const startToken = rampStartTokenRef
+    const telemetrySession = rampTelemetryRef
+    // React StrictMode deliberately runs setup → cleanup → setup once in
+    // development. Re-arm here so that rehearsal cleanup is not mistaken for
+    // a real unmount after the asynchronous baseline read finishes.
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      startToken.current++
+      telemetrySession.current?.abort()
+      telemetrySession.current = null
+    }
   }, [])
 
   // Same for a live comparison: two engines publishing with nothing showing
@@ -296,7 +329,27 @@ export default function MessageGeneratorPage() {
    * phase. Each phase's rate/duration replaces the flat settings; everything
    * else (target, template, guards) is shared.
    */
-  function handleStartProfile() {
+  function finishRampTelemetry(): void {
+    const session = rampTelemetryRef.current
+    if (session === null) return
+    rampTelemetryRef.current = null
+    session.finish()
+      .then((report) => {
+        if (!mountedRef.current) return
+        setRampTelemetryLive(null)
+        setRampTelemetryReport(report)
+        setRampTelemetryBusy(false)
+      })
+      .catch((error) => {
+        if (!mountedRef.current) return
+        setRampTelemetryBusy(false)
+        message.error(
+          `Ramp attribution could not finish: ${error instanceof Error ? error.message : String(error)}`
+        )
+      })
+  }
+
+  async function handleStartProfile() {
     if (!target) return
     const base: RunConfig = {
       setupId: target.setupId,
@@ -312,6 +365,39 @@ export default function MessageGeneratorPage() {
     // sequencer drives both.
     const isRamp = mode === 'ramp'
     const sequence = isRamp ? rampPhases : phases
+    let rampSession: RampTelemetrySession | null = null
+    if (isRamp) {
+      const startToken = ++rampStartTokenRef.current
+      setRampTelemetryLive(null)
+      setRampTelemetryReport(null)
+      setRampTelemetryBusy(true)
+      setRampPreparing(true)
+      try {
+        rampSession = await createRampTelemetryCollector().start(target, {
+          onLive: (live) => {
+            if (mountedRef.current && startToken === rampStartTokenRef.current) {
+              setRampTelemetryLive(live)
+            }
+          },
+        })
+      } catch (error) {
+        if (mountedRef.current && startToken === rampStartTokenRef.current) {
+          setRampTelemetryBusy(false)
+          setRampPreparing(false)
+          message.error(
+            `Ramp attribution could not start: ${error instanceof Error ? error.message : String(error)}`
+          )
+        }
+        return
+      }
+      if (!mountedRef.current || startToken !== rampStartTokenRef.current) {
+        rampSession.abort()
+        return
+      }
+      rampTelemetryRef.current = rampSession
+      setRampPreparing(false)
+    }
+
     profileHandleRef.current = createProfileRunner().start(base, sequence, {
       shouldHaltAfterPhase: isRamp
         ? (result, results) => rampHaltReason(rampSettings, sequence, result, results)
@@ -325,8 +411,12 @@ export default function MessageGeneratorPage() {
             ? `${reason}. No step sustained its requested rate.`
             : `${reason}. Max sustained rate: ${knee} msg/s.`
         )
+        if (isRamp) finishRampTelemetry()
       },
-      onPhaseStart: (index) => setActivePhaseIndex(index),
+      onPhaseStart: (index) => {
+        setActivePhaseIndex(index)
+        if (isRamp) rampTelemetryRef.current?.setPhase(index)
+      },
       onPhaseComplete: (result) => setPhaseResults((prev) => [...prev, result]),
       onProfileComplete: (results) => {
         profileHandleRef.current = null
@@ -340,23 +430,31 @@ export default function MessageGeneratorPage() {
               ? 'Ramp finished without sustaining any step — the target could not keep up even at the start rate.'
               : `Ramp reached the cap without a knee. Max sustained rate: ${knee} msg/s.`
           )
+          finishRampTelemetry()
         }
         message.success(isRamp ? 'Ramp complete.' : 'Profile complete.')
       },
       onProfileStopped: () => {
         profileHandleRef.current = null
         setActivePhaseIndex(null)
+        if (isRamp) finishRampTelemetry()
         message.info(isRamp ? 'Ramp stopped.' : 'Profile stopped.')
       },
       onProfileError: (_results, reason) => {
         profileHandleRef.current = null
         setActivePhaseIndex(null)
+        if (isRamp) finishRampTelemetry()
         // Never silent: an aborted profile leaves later phases unrun, and the
         // reason names the phase that failed.
         message.error(reason)
       },
     })
     if (profileHandleRef.current === null) {
+      if (isRamp && rampTelemetryRef.current === rampSession) {
+        rampTelemetryRef.current?.abort()
+        rampTelemetryRef.current = null
+        setRampTelemetryBusy(false)
+      }
       message.error('Cannot start the profile — check it has at least one phase and no run is active.')
     }
   }
@@ -368,7 +466,13 @@ export default function MessageGeneratorPage() {
     // per-message ordering assignments, so it goes through the flat wiring
     // below with `ordering` on the config.
     if (mode === 'profile' || mode === 'ramp') {
-      handleStartProfile()
+      handleStartProfile().catch((error) => {
+        setRampTelemetryBusy(false)
+        setRampPreparing(false)
+        message.error(
+          `Cannot start the ${mode}: ${error instanceof Error ? error.message : String(error)}`
+        )
+      })
       return
     }
     // Compare is TWO concurrent runs, not a sequence and not one flat run —
@@ -435,6 +539,15 @@ export default function MessageGeneratorPage() {
   }
 
   function handleStop() {
+    if (rampPreparing) {
+      rampStartTokenRef.current++
+      rampTelemetryRef.current?.abort()
+      rampTelemetryRef.current = null
+      setRampPreparing(false)
+      setRampTelemetryBusy(false)
+      message.info('Ramp preparation stopped.')
+      return
+    }
     // A comparison stop must reach BOTH engines. stopActiveRun below reaches
     // only the single store-backed run, which a comparison never uses.
     if (compareHandleRef.current !== null) {
@@ -665,6 +778,16 @@ export default function MessageGeneratorPage() {
             phases={sequencePhases}
             results={phaseResults}
             activeIndex={activePhaseIndex}
+          />
+        </Card>
+      )}
+
+      {mode === 'ramp' && (
+        <Card title="Ramp — saturation attribution" size="small">
+          <RampAttributionPanel
+            live={rampTelemetryLive}
+            report={rampTelemetryReport}
+            phases={rampPhases}
           />
         </Card>
       )}
