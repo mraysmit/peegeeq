@@ -34,6 +34,7 @@ import dev.mars.peegeeq.db.consumer.ConsumerGroupRetryJob;
 import dev.mars.peegeeq.db.consumer.ConsumerGroupRetryService;
 import dev.mars.peegeeq.db.deadletter.DeadLetterQueueManager;
 import dev.mars.peegeeq.db.health.HealthCheckManager;
+import dev.mars.peegeeq.db.health.BackgroundTaskFailureTracker;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
@@ -43,6 +44,7 @@ import io.cloudevents.jackson.JsonFormat;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.WorkerExecutor;
 import io.vertx.core.Context;
@@ -134,7 +136,8 @@ public class PeeGeeQManager {
 
     // Consecutive failure counters for background timers escalate to ERROR after threshold
     private static final long TIMER_FAILURE_ESCALATION_THRESHOLD = 3;
-    private final java.util.concurrent.atomic.AtomicLong depthCacheFailures = new java.util.concurrent.atomic.AtomicLong(0);
+    private final BackgroundTaskFailureTracker depthCacheFailureTracker = new BackgroundTaskFailureTracker(
+        "background-depth-cache", "Queue depth cache refresh", logger);
 
     // Overlap guards prevent a new tick firing while the previous one is still in-flight
     private final java.util.concurrent.atomic.AtomicBoolean depthCacheRunning = new java.util.concurrent.atomic.AtomicBoolean(false);
@@ -247,6 +250,10 @@ public class PeeGeeQManager {
                 configuration.getDatabaseConfig().getSchema(),
                 this.circuitBreakerManager
             );
+            if (configuration.getMetricsConfig().isEnabled()) {
+                healthCheckManager.registerHealthCheck(
+                    depthCacheFailureTracker.component(), depthCacheFailureTracker);
+            }
 
             this.deadLetterQueueManager = new DeadLetterQueueManager(pool, objectMapper);
             this.stuckMessageRecoveryManager = new StuckMessageRecoveryManager(
@@ -310,7 +317,7 @@ public class PeeGeeQManager {
             // On failure ONLY: stop background tasks and health checks to prevent leaks,
             // publish manager.failed, and propagate a wrapped RuntimeException.
             // .transform() lets us inspect the AsyncResult and branch on failure without
-            // using .recover() (which is forbidden per the recover-removal initiative).
+            // using a failure-to-success shortcut (forbidden by the error-handling standard).
             .transform(ar -> {
                 if (ar.succeeded()) {
                     return Future.<Void>succeededFuture();
@@ -403,8 +410,13 @@ public class PeeGeeQManager {
      * Reactive close method - preferred for non-blocking shutdown.
      * Awaits any in-flight start() operation before closing pools to prevent
      * "Pool closed" errors from racing startup futures.
+     *
+     * <p>The returned future settles after managed components have been cleaned up and before
+     * manager-owned Vert.x termination is initiated. The Vert.x termination future is still
+     * observed and any failure is logged. This ordering preserves terminal signals for callers
+     * whose close composition is bound to the manager's Vert.x context.
      */
-    public Future<Void> closeReactive() {
+    public synchronized Future<Void> closeReactive() {
         // Return cached close future if already closing prevents re-running
         // the shutdown chain on a dead event loop.
         Future<Void> existing = closeFuture;
@@ -440,7 +452,7 @@ public class PeeGeeQManager {
         // .eventually() chains ensure ALL cleanup runs regardless of any failure.
         // The original awaitStart outcome flows through to the caller automatically 
         // if start() was in-flight and failed, that failure propagates after cleanup.
-        Future<Void> result = awaitStart
+        Future<Void> cleanup = awaitStart
             // Step 3: Stop reactive components (cancel timers, stop background tasks)
             // After this point, no new timer callbacks will fire
             .eventually(() -> stop()
@@ -485,29 +497,61 @@ public class PeeGeeQManager {
                     }
                 }
                 return Future.succeededFuture();
-            })
-            // 7. Close Vert.x instance (if owned)
-            .eventually(() -> {
-                logger.info("PeeGeeQManager.closeReactive() cleanup completed");
-                if (vertx != null && vertxOwnedByManager) {
-                    logger.info("Closing Vert.x instance (manager-owned)");
-                    return vertx.close()
-                        .onSuccess(v2 -> logger.info("Vert.x instance closed successfully"))
-                        .onFailure(e -> {
-                            if (e instanceof java.util.concurrent.RejectedExecutionException ||
-                                (e.getCause() != null && e.getCause() instanceof java.util.concurrent.RejectedExecutionException)) {
-                                logger.debug("Vert.x event executor terminated during close (expected)");
-                            } else {
-                                logger.warn("Error closing Vert.x instance", e);
-                            }
-                        });
-                } else if (vertx != null) {
-                    logger.info("Skipping Vert.x close (external ownership)");
-                }
-                return Future.succeededFuture();
             });
+
+        // The public close Future must settle while the manager context still exists. A caller
+        // can legitimately compose closeReactive() after another manager-context Future. If we
+        // await manager-owned Vert.x termination here, that upstream composition tries to emit
+        // its terminal signal on an executor that has already stopped and the signal is lost.
+        // Vert.x shutdown is therefore initiated immediately after settling the context-free
+        // public promise; its own Future remains observed for success/failure logging.
+        Promise<Void> closePromise = Promise.promise();
+        Future<Void> result = closePromise.future();
         closeFuture = result;
+
+        cleanup
+            .onSuccess(v -> finishClose(closePromise, null))
+            .onFailure(failure -> finishClose(closePromise, failure));
+
         return result;
+    }
+
+    private void finishClose(Promise<Void> closePromise, Throwable precedingFailure) {
+        logger.info("PeeGeeQManager.closeReactive() cleanup completed");
+
+        try {
+            if (precedingFailure == null) {
+                closePromise.complete();
+            } else {
+                closePromise.fail(precedingFailure);
+            }
+        } finally {
+            closeVertxAfterCallerSettlement();
+        }
+    }
+
+    private void closeVertxAfterCallerSettlement() {
+        if (vertx != null && vertxOwnedByManager) {
+            logger.info("Closing Vert.x instance (manager-owned)");
+            try {
+                vertx.close()
+                    .onSuccess(v -> logger.info("Vert.x instance closed successfully"))
+                    .onFailure(this::logVertxCloseFailure);
+            } catch (RuntimeException failure) {
+                logVertxCloseFailure(failure);
+            }
+        } else if (vertx != null) {
+            logger.info("Skipping Vert.x close (external ownership)");
+        }
+    }
+
+    private void logVertxCloseFailure(Throwable failure) {
+        if (failure instanceof java.util.concurrent.RejectedExecutionException ||
+            failure.getCause() instanceof java.util.concurrent.RejectedExecutionException) {
+            logger.debug("Vert.x event executor terminated during close (expected)");
+        } else {
+            logger.warn("Error closing Vert.x instance", failure);
+        }
     }
 
     /**
@@ -818,19 +862,13 @@ public class PeeGeeQManager {
                 if (!depthCacheRunning.compareAndSet(false, true)) return;
                 metrics.refreshDepthCache()
                     .onSuccess(v -> {
-                        depthCacheFailures.set(0);
+                        depthCacheFailureTracker.recordSuccess();
                         depthCacheRunning.set(false);
                     })
                     .onFailure(e -> {
                         depthCacheRunning.set(false);
                         if (closing) return;
-                        long failures = depthCacheFailures.incrementAndGet();
-                        if (failures >= TIMER_FAILURE_ESCALATION_THRESHOLD) {
-                            logger.error("Failed to refresh depth cache ({} consecutive failures): {}",
-                                failures, e.getMessage(), e);
-                        } else {
-                            logger.warn("Failed to refresh depth cache: {}", e.getMessage(), e);
-                        }
+                        depthCacheFailureTracker.recordFailure(e);
                     });
             });
 
@@ -960,6 +998,8 @@ public class PeeGeeQManager {
                         clientFactory.getConnectionManager(), PeeGeeQDefaults.DEFAULT_POOL_ID);
                 deadConsumerDetectionJob = new DeadConsumerDetectionJob(
                         vertx, detector, cleanup, detectionMs);
+                healthCheckManager.registerHealthCheck(
+                        deadConsumerDetectionJob.getHealthComponentName(), deadConsumerDetectionJob::checkHealth);
                 deadConsumerDetectionJob.start();
                 logger.info("Started dead consumer detection job: interval={}ms", detectionMs);
             } else {
@@ -972,6 +1012,8 @@ public class PeeGeeQManager {
                 ConsumerGroupRetryService retryService = new ConsumerGroupRetryService(
                         clientFactory.getConnectionManager(), deadLetterQueueManager, PeeGeeQDefaults.DEFAULT_POOL_ID);
                 consumerGroupRetryJob = new ConsumerGroupRetryJob(vertx, retryService, retryMs);
+                healthCheckManager.registerHealthCheck(
+                        consumerGroupRetryJob.getHealthComponentName(), consumerGroupRetryJob::checkHealth);
                 consumerGroupRetryJob.start();
                 logger.info("Started consumer group retry job: interval={}ms", retryMs);
             } else {

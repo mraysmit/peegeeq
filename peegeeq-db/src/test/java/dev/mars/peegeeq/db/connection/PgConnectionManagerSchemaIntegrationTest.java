@@ -22,6 +22,7 @@ import dev.mars.peegeeq.db.SharedPostgresTestExtension;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxTestContext;
@@ -363,9 +364,12 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
     }
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.connection.PgConnectionManager",
+            message = "Failed to create pool for test-invalid: Invalid schema config (allowed: letters, digits, underscore, comma, space): schema_a; DROP TABLE test_table; --",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     @DisplayName("Schema name containing SQL injection characters is rejected with IllegalArgumentException before pool creation")
     void testInvalidSchemaFailsFast() {
-        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Failed to create pool for test-invalid') is EXPECTED this test deliberately uses a SQL injection schema name to verify the schema validation guard rejects it");
         logger.info("TEST: Invalid schema fails fast");
 
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();

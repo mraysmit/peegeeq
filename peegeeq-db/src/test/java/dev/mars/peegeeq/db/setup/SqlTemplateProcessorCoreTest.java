@@ -6,6 +6,7 @@ import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.AfterEach;
@@ -17,7 +18,6 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
-import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
@@ -44,8 +44,6 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.CORE)
 @Execution(ExecutionMode.SAME_THREAD)
 public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
-
-    private static final Logger logger = LoggerFactory.getLogger(SqlTemplateProcessorCoreTest.class);
 
     private PgConnectionManager connectionManager;
     private Pool reactivePool;
@@ -160,8 +158,12 @@ public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
      * The test also captures the log output via a {@code ListAppender} to assert the message.
      */
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.setup.SqlTemplateProcessor",
+            message = "Failed to load template: non-existent-template.sql - Error: Template not found as directory or file: non-existent-template.sql",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = java.io.IOException.class)
     void testApplyTemplateWithNonExistentTemplate(VertxTestContext testContext) {
-        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Failed to load template: non-existent-template.sql') is EXPECTED this test deliberately references a missing template file to verify error propagation");
         ch.qos.logback.classic.Logger stpLogger = (ch.qos.logback.classic.Logger)
             LoggerFactory.getLogger(SqlTemplateProcessor.class);
         ListAppender<ILoggingEvent> listAppender = new ListAppender<>();

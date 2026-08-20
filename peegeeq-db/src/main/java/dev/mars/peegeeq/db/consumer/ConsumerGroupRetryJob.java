@@ -2,6 +2,8 @@ package dev.mars.peegeeq.db.consumer;
 
 import dev.mars.peegeeq.api.tracing.TraceCtx;
 import dev.mars.peegeeq.api.tracing.TraceContextUtil;
+import dev.mars.peegeeq.db.health.BackgroundTaskFailureTracker;
+import dev.mars.peegeeq.db.health.HealthStatus;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import org.slf4j.Logger;
@@ -48,7 +50,8 @@ public class ConsumerGroupRetryJob {
     private final AtomicLong totalRunCount = new AtomicLong(0);
     private final AtomicLong totalRetried = new AtomicLong(0);
     private final AtomicLong totalMovedToDlq = new AtomicLong(0);
-    private final AtomicLong totalFailures = new AtomicLong(0);
+    private final BackgroundTaskFailureTracker failureTracker = new BackgroundTaskFailureTracker(
+            "background-consumer-group-retry", "Consumer group retry scan", logger);
 
     /**
      * Creates a new ConsumerGroupRetryJob with the default retry interval.
@@ -119,7 +122,7 @@ public class ConsumerGroupRetryJob {
             logger.info("Stopping ConsumerGroupRetryJob: timerId={}, totalRuns={}, totalRetried={}, " +
                             "totalMovedToDlq={}, totalFailures={}",
                     timerId, totalRunCount.get(), totalRetried.get(),
-                    totalMovedToDlq.get(), totalFailures.get());
+                    totalMovedToDlq.get(), failureTracker.totalFailures());
         }
 
         running = false;
@@ -176,7 +179,15 @@ public class ConsumerGroupRetryJob {
     }
 
     public long getTotalFailures() {
-        return totalFailures.get();
+        return failureTracker.totalFailures();
+    }
+
+    public Future<HealthStatus> checkHealth() {
+        return failureTracker.check();
+    }
+
+    public String getHealthComponentName() {
+        return failureTracker.component();
     }
 
     /**
@@ -203,6 +214,7 @@ public class ConsumerGroupRetryJob {
 
         Future<ConsumerGroupRetryService.RetryResult> processing = retryService.processFailedMessages()
                 .onSuccess(result -> {
+                    failureTracker.recordSuccess();
                     totalRunCount.incrementAndGet();
                     totalRetried.addAndGet(result.retriedCount());
                     totalMovedToDlq.addAndGet(result.dlqCount());
@@ -220,16 +232,11 @@ public class ConsumerGroupRetryJob {
                 })
                 .onFailure(throwable -> {
                     totalRunCount.incrementAndGet();
-                    totalFailures.incrementAndGet();
+                    failureTracker.recordFailure(throwable);
                     try (var scope = TraceContextUtil.mdcScope(trace)) {
                         long durationMs = System.currentTimeMillis() - startMs;
-                        if (running) {
-                            logger.error("Retry scan #{} failed ({}ms)",
-                                    totalRunCount.get(), durationMs, throwable);
-                        } else {
-                            logger.debug("Retry scan #{} failed during shutdown ({}ms): {}",
-                                    totalRunCount.get(), durationMs, throwable.getMessage());
-                        }
+                        logger.debug("Retry scan #{} failure recorded ({}ms, running={}): {}",
+                                totalRunCount.get(), durationMs, running, throwable.getMessage());
                     }
                 });
 

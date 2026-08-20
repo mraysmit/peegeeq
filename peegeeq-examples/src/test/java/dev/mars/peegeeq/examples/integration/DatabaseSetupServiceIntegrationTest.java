@@ -23,6 +23,7 @@ import dev.mars.peegeeq.api.database.EventStoreConfig;
 import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
@@ -302,6 +303,10 @@ public class DatabaseSetupServiceIntegrationTest {
     }
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService",
+            message = "Schema parameter is required and cannot be null or blank",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void testInvalidSetupRequest(VertxTestContext ctx) {
         logger.info("=== Testing Invalid Setup Request Handling ===");
 
@@ -367,4 +372,3 @@ public class DatabaseSetupServiceIntegrationTest {
                 .eventually(() -> pool.close());
     }
 }
-

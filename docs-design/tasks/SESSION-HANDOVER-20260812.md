@@ -1,8 +1,189 @@
-# Session Handover — 2026-08-12 (reconciled 2026-08-19)
+# Session Handover — 2026-08-12 (reconciled 2026-08-20)
 
 Companion to `TEST-INTEGRITY-DEFECT-REMEDIATION-PLAN.md`, which is the defect register.
 This document covers what happened in this session, what state the working tree is in,
 and what the next person needs to know before touching it.
+
+## 2026-08-20 final continuation update (D1-D13 complete)
+
+This section supersedes the status and next-work statements in every older section below.
+The historical sections remain for audit context.
+
+- Branch `master` and `origin/master` remain at `a5625fa5`. The working tree contains the
+  uncommitted P4/D3/D7, P6/D11, and D10/D12 implementation, test, Maven, resource, and
+  documentation changes. No pre-existing user change was discarded.
+- **D10 and D12 are fixed.** The reproducible defect was not slow cleanup: the public
+  `closeReactive()` composition could lose its terminal signal when manager-owned Vert.x was
+  terminated before that signal reached a caller composed on the same context. The method now
+  caches one context-free public close Future, settles it after managed-component cleanup, and
+  only then initiates manager-owned Vert.x termination. The termination Future remains observed
+  and failures remain surfaced in the log.
+- A regression contract failed before the manager fix and passed afterward. The final manager
+  settlement class passes 2/2, the native class containing the original 60-second teardown
+  observation passes 5/5, close log-level contracts pass 4/4, and resource-leak coverage passes
+  1/1. The timeout budget was not increased.
+- The downstream examples scope then exposed the same repeated-close contract defect in
+  `OutboxConsumerGroup`: a second close call returned immediate success while the first close
+  still awaited an in-flight handler. `close()` now caches and returns its actual settlement
+  Future. The focused contract failed 1/1 before the fix and passes 1/1 afterward;
+  `ConsumerGroupResilienceTest` passes 3/3.
+- The manager error-propagation class initially failed as a parallel pair because both methods
+  declared the same active expected-ERROR signature, making ownership correctly ambiguous
+  under D11. The cleanup method now induces an authentication failure while its companion keeps
+  the missing-schema failure, and both declare exact non-overlapping ERROR contracts. Parallel
+  execution remains enabled and the class passes 2/2.
+- The post-change banned-pattern scan is zero for the three close-settlement files changed in
+  the final phases. The repository async integrity guards pass 8/8
+  (`OnSuccessExceptionSwallowingGuardTest` 7/7 and
+  `VertxAsyncForbiddenPatternsGuardTest` 1/1).
+- The defect register audit now records every original item D1 through D13 as `FIXED`. No
+  registered implementation defect remains open. The approximately 90-minute `-Pall-tests`
+  release gate was not run; it remains an owner-run release gate rather than an edit-test-loop
+  requirement.
+- The next independent workstream is `peegeeq-utilities-ui`. Phase G.1b is already complete;
+  T.6 remains an optional precision/scoping enhancement rather than an unfinished defect in
+  this register.
+
+### Commit-ready worktree
+
+The completed remediation is currently one uncommitted, internally coherent change set of
+40 paths: 25 modified and 15 new. It spans:
+
+- root/test-support Maven activation plus the structured expected-ERROR model, capture
+  coordinator, JUnit extension, service registration, and executable gate contracts;
+- database background-task escalation/health policy, manager close settlement, and their
+  focused behavior and integration contracts;
+- outbox migrated-schema coverage, structured ERROR expectations, and repeated-close
+  settlement;
+- examples expected-ERROR migration;
+- this handover and the companion defect register.
+
+The `logs/` evidence files are intentionally not part of the tracked change set. The current
+worktree passes `git diff --check`. Commit all 40 listed source/resource/documentation paths
+together if preserving the register's phase-level audit trail in one commit; do not include
+unrelated files that may appear later. No additional build is required for this
+documentation-only reconciliation. The owner-run `-Pall-tests` release gate remains
+outstanding by design.
+
+### D10/D12 and final-integrity verification evidence
+
+| Verification | Exact scope | Result | Log |
+|---|---|---|---|
+| Manager settlement red proof | first close settlement regression method | EXPECTED FAIL — 1/1 errored | `d10d12-red-close-settlement-20260820.txt` |
+| Manager final rebuild | changed `peegeeq-db` reactor slice | PASS | `d10d12-final-clean-rebuild-20260820.txt` |
+| Manager settlement | `PeeGeeQManagerCloseSettlementTest` | PASS — 2/2 | `d10d12-close-settlement-targeted-20260820.txt` |
+| Original native observation | `PostgreSQLErrorHandlingTest` | PASS — 5/5 | `d10d12-native-error-handling-targeted-20260820.txt` |
+| Close log levels | `PeeGeeQManagerCloseLogLevelTest` | PASS — 4/4 | `d10d12-close-log-level-targeted-20260820.txt` |
+| Resource release | targeted `ResourceLeakDetectionTest` method | PASS — 1/1 | `d10d12-resource-leak-method-20260820.txt` |
+| Outbox settlement red proof | repeated-close regression method | EXPECTED FAIL — 1/1 failed | `outbox-close-settlement-red-targeted-20260820.txt` |
+| Outbox final rebuild | changed `peegeeq-outbox` reactor slice | PASS | `outbox-close-settlement-green-rebuild-20260820.txt` |
+| Outbox settlement | repeated-close regression method | PASS — 1/1 | `outbox-close-settlement-green-targeted-20260820.txt` |
+| Examples close regression | `ConsumerGroupResilienceTest` | PASS — 3/3 | `outbox-close-settlement-examples-regression-20260820.txt` |
+| Parallel ERROR ownership | `PeeGeeQManagerCloseReactiveErrorPropagationTest` | PASS — 2/2 | `d11-parallel-expectation-final-targeted-20260820.txt` |
+| Async integrity guards | two repository guard classes | PASS — 8/8 | `close-phases-static-integrity-guards-20260820.txt` |
+
+## 2026-08-20 continuation update (P4 and P6/D11 complete)
+
+This section supersedes the open-work and repository-state statements in every older
+section below. The historical sections remain for audit context.
+
+- Branch `master` and `origin/master` are at `a5625fa5` (`Refactor cleanup logic in
+  HealthCheckManagerCoreTest and OutboxQueueBrowserIntegrationTest to aggregate failures`).
+- The uncommitted implementation worktree contains the P4 Java source/test work plus the
+  D11 Maven/Java/resource and module-migration changes through D11-D. No previous user change was discarded.
+  The exact file list is in the companion remediation register and in `git status --short`.
+- **P4/D3 is complete.** Applying the real migrations incrementally reproduced SQLSTATE
+  `42703` after V001 for the retry query and after V010 for the detector query. V010 and
+  V015 respectively reconcile those shapes. The green outbox test had been provisioning a
+  hand-written V001-era fixture instead of completing the supported migration chain.
+  `OutboxSchemaQuotingTest` now uses `PeeGeeQTestSchemaInitializer` and directly executes
+  both services against reserved-word schema `table`.
+- **P4/D7 is complete.** `BackgroundTaskFailureTracker` now supplies one policy to the
+  depth-cache timer, retry job, and dead-consumer job: first failure WARN with the full cause,
+  stack-free persistent ERROR summaries at counts 3/6/9 and so on, HEALTHY to DEGRADED to
+  UNHEALTHY transitions, and reset to HEALTHY on the next success. Each task exposes a named
+  health check.
+- Required rebuilds and targeted verification are green: outbox fixture contract 6/6; D7
+  core contracts 8/8; depth-cache integration 5/5; retry/detection lifecycle integration
+  6/6. The approximately 90-minute `-Pall-tests` release gate was not run.
+- **P6/D11-A is complete.** `peegeeq-test-support` now contains the immutable structured
+  expectation model, repeatable method annotation, runtime registration API, concurrent
+  ownership ledger, and an explicitly registered JUnit 5 extension that captures exact
+  ERROR-level Logback events. The owner diagnostic records the JUnit unique ID and display
+  name; root/wildcard logger expectations are rejected.
+- The D11-A EngineTestKit bootstrap proves the integration changes JUnit results:
+  unexpected, missing-expected, teardown, and after-all ERROR cases fail their method or
+  container; exact, runtime-prefix, cause-chain, and parallel unique expectations pass. This
+  selects the JUnit extension callback mechanism for D11.
+- D11-A verification is green: ledger/model contracts 12/12 and bootstrap contracts 8/8,
+  total 20/20. The approximately 90-minute `-Pall-tests` release gate was not run.
+- **P6/D11-B is complete.** The extension is packaged through the JUnit service-provider
+  descriptor and uses a reference-counted process coordinator plus one root-store lease per
+  JUnit engine. Exactly one root Logback appender is shared across concurrent engine runs and
+  removed by identity when the last root closes. Method and class-container ownership remain
+  separate, and ambiguous owners are reported in stable sorted order.
+- D11-B verification is green: ledger/model contracts 14/14, the D11-A explicit bootstrap
+  8/8, and packaged integration contracts 7/7, total 29/29. The packaged proof covers service
+  discovery, explicit-plus-automatic idempotence, removal, parallel classes, method isolation,
+  stable diagnostics, and compatibility with a test-owned appender.
+- **P6/D11-C is complete.** Thirty structured method expectations now own the observed
+  green-path fault-injection ERRORs across DB, outbox, and examples. Test-authored ERROR
+  narration was removed; all 20 retained narration calls are INFO. The packaged extension's
+  cold-start Logback race was fixed by initializing the context during global extension class
+  loading, before parallel test classes acquire the shared appender.
+- D11-C targeted verification is green with auto-detection enabled: test-support 29/29,
+  parallel DB 52/52 plus timer 5/5, outbox schema isolation 14/14 plus null-handler 1/1,
+  examples 8/8, and the CORE narration fixture 6/6. Required clean reactor-slice rebuilds
+  passed. The approximately 90-minute release gate was not run.
+- **P6/D11-D is complete, and D11 is fixed.** Root Surefire configuration enables the
+  packaged extension for the default CORE invocation and the integration, performance,
+  smoke, and all-tests profiles. The real default-profile canary failed 1/1 and failed the
+  Maven build while unclaimed, then passed 1/1 after receiving its exact structured
+  expectation. Source contains 30 migrated application expectations plus 11 test-support
+  infrastructure contracts, 41 annotation declarations in total.
+- Default activation exposed nested EngineTestKit contamination in the previous shared
+  ledger. The coordinator still installs one process-wide appender, but each JUnit engine
+  now owns an isolated ledger and nested thread bindings form a stack. The final gate
+  contracts pass 30/30 under the default Maven profile.
+- Representative profile verification is green without an explicit auto-detection flag:
+  DB integration 9/9, performance 1/1, smoke 1/1, scoped all-tests canary 1/1, outbox
+  schema contracts 20/20, and the final asynchronous expected-ERROR method 1/1. The scoped
+  all-tests command was not the approximately 90-minute release gate.
+- D10/D12 is the next separate open investigation. Utilities UI Phase G.1b remains complete;
+  return to `peegeeq-utilities-ui` after D10/D12 or when the owner changes priority.
+
+### P4 verification evidence
+
+| Verification | Exact scope | Result | Log |
+|---|---|---|---|
+| V001/V010 diagnosis | real migration scripts plus current retry query | PASS — `42703` reproduced before V010; query plans after V010 | `p4a-v001-v010-relation-diagnosis-20260820.txt` |
+| V010/V015 diagnosis | real migration scripts plus current detector query | PASS — `42703` reproduced before V015; query plans after V015 | `p4a-subscription-v001-v010-v015-diagnosis-20260820.txt` |
+| Outbox fixture rebuild | changed outbox reactor slice | PASS | `p4b-outbox-fixture-rebuild-20260820.txt` |
+| Supported-schema contract | `OutboxSchemaQuotingTest` | PASS — 6/6 | `p4b-outbox-schema-quoting-targeted-20260820.txt` |
+| D7 rebuild | changed database reactor slice | PASS | `p4-d7-background-failure-rebuild-20260820.txt` |
+| D7 policy/job core | three targeted classes | PASS — 8/8 | `p4-d7-background-failure-core-targeted-20260820.txt` |
+| Depth-cache health | `PeeGeeQManagerTimerGuardTest` | PASS — 5/5 | `p4-d7-depth-cache-health-integration-targeted-20260820.txt` |
+| Job lifecycle | retry and detector lifecycle classes | PASS — 6/6 | `p4-d7-background-job-lifecycle-targeted-20260820.txt` |
+| D11-A rebuild | `peegeeq-test-support` reactor slice | PASS | `d11a-error-log-contract-rebuild-20260820.txt` |
+| D11-A CORE contracts | ledger/model plus EngineTestKit bootstrap | PASS — 20/20 | `d11a-error-log-contract-core-targeted-20260820.txt` |
+| D11-B rebuild | packaged `peegeeq-test-support` reactor slice | PASS | `d11b-packaged-error-log-integration-rebuild-20260820.txt` |
+| D11-B CORE contracts | ledger/model, explicit bootstrap, packaged integration | PASS — 29/29 | `d11b-packaged-error-log-integration-core-targeted-20260820.txt` |
+| D11-C extension rebuild | `peegeeq-test-support` reactor slice after cold-start fix | PASS | `d11c-logback-bootstrap-race-rebuild-20260820.txt` |
+| D11-C extension contracts | ledger, bootstrap, packaged integration | PASS — 29/29 | `d11c-logback-bootstrap-race-targeted-20260820.txt` |
+| D11-C DB parallel contracts | timer, provider, DLQ, setup | PASS — 52/52 | `d11c-db-parallel-contracts-final-20260820.txt` |
+| D11-C outbox contracts | schema isolation | PASS — 14/14 | `d11c-outbox-contract-correction-targeted-20260820.txt` |
+| D11-C examples contracts | database setup service | PASS — 8/8 | `d11c-examples-migration-targeted-20260820.txt` |
+| D11-C narration fixture | `VertxOnSuccessExceptionSwallowTest` | PASS — 6/6 | `d11c-marker-level-targeted-20260820.txt` |
+| D11-D unclaimed canary | default CORE profile, no auto-detection flag | EXPECTED FAIL — 1/1 failed; Maven build failed | `d11d-default-gate-canary-unexpected-fails-20260820.txt` |
+| D11-D claimed canary | same default CORE canary with exact expectation | PASS — 1/1 | `d11d-default-gate-canary-expected-passes-20260820.txt` |
+| D11-D final rebuild | `peegeeq-test-support` reactor slice | PASS | `d11d-final-clean-rebuild-20260820.txt` |
+| D11-D final gate contracts | ledger, canary, bootstrap, packaged integration | PASS — 30/30 | `d11d-final-clean-targeted-20260820.txt` |
+| D11-D integration profile | `PgConnectionManagerSchemaIntegrationTest` | PASS — 9/9 | `d11d-integration-profile-schema-targeted-20260820.txt` |
+| D11-D performance profile | matrix-generation method | PASS — 1/1 | `d11d-performance-profile-targeted-20260820.txt` |
+| D11-D smoke profile | `MessageTest` | PASS — 1/1 | `d11d-smoke-profile-targeted-20260820.txt` |
+| D11-D all-tests profile | scoped gate canary only | PASS — 1/1 | `d11d-all-tests-profile-canary-targeted-20260820.txt` |
+| D11-D outbox contracts | schema isolation and quoting | PASS — 20/20 | `d11d-outbox-structured-expectations-targeted-20260820.txt` |
+| D11-D final async ERROR | missing-schema expected-ERROR method | PASS — 1/1 | `d11d-outbox-expected-error-final-20260820.txt` |
 
 ## 2026-08-19 continuation update (cleanup review completed)
 

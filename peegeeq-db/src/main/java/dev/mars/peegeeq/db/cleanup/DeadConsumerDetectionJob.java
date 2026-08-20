@@ -7,6 +7,8 @@ import dev.mars.peegeeq.db.cleanup.DeadConsumerDetector.DeadSubscriptionInfo;
 import dev.mars.peegeeq.db.cleanup.DeadConsumerDetector.DetectionResult;
 import dev.mars.peegeeq.db.cleanup.DeadConsumerDetector.SubscriptionSummary;
 import dev.mars.peegeeq.db.cleanup.DeadConsumerGroupCleanup.CleanupResult;
+import dev.mars.peegeeq.db.health.BackgroundTaskFailureTracker;
+import dev.mars.peegeeq.db.health.HealthStatus;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import org.slf4j.Logger;
@@ -68,9 +70,6 @@ public class DeadConsumerDetectionJob {
     /** Default detection interval: 60 seconds */
     public static final long DEFAULT_DETECTION_INTERVAL_MS = 60_000L;
 
-    /** Number of consecutive failures before escalating log severity */
-    private static final long CONSECUTIVE_FAILURE_THRESHOLD = 3;
-
     private final Vertx vertx;
     private final DeadConsumerDetector detector;
     private final DeadConsumerGroupCleanup cleanup;
@@ -88,8 +87,8 @@ public class DeadConsumerDetectionJob {
     private final AtomicLong totalRunCount = new AtomicLong(0);
     private final AtomicLong totalDeadDetected = new AtomicLong(0);
     private final AtomicLong totalRunTimeMs = new AtomicLong(0);
-    private final AtomicLong consecutiveFailures = new AtomicLong(0);
-    private final AtomicLong totalFailures = new AtomicLong(0);
+    private final BackgroundTaskFailureTracker failureTracker = new BackgroundTaskFailureTracker(
+            "background-dead-consumer-detection", "Dead consumer detection", logger);
     private final AtomicLong totalMessagesDecremented = new AtomicLong(0);
     private final AtomicLong totalOrphanRowsRemoved = new AtomicLong(0);
     private final AtomicLong totalMessagesAutoCompleted = new AtomicLong(0);
@@ -176,7 +175,7 @@ public class DeadConsumerDetectionJob {
             logger.info("Stopping DeadConsumerDetectionJob: timerId={}, totalRuns={}, totalDeadDetected={}, " +
                             "totalFailures={}, totalMessagesDecremented={}, totalOrphanRowsRemoved={}, " +
                             "totalMessagesAutoCompleted={}, avgRunTimeMs={}",
-                    timerId, totalRunCount.get(), totalDeadDetected.get(), totalFailures.get(),
+                    timerId, totalRunCount.get(), totalDeadDetected.get(), failureTracker.totalFailures(),
                     totalMessagesDecremented.get(), totalOrphanRowsRemoved.get(),
                     totalMessagesAutoCompleted.get(),
                     totalRunCount.get() > 0 ? totalRunTimeMs.get() / totalRunCount.get() : 0);
@@ -248,7 +247,15 @@ public class DeadConsumerDetectionJob {
      * Returns the total number of failed detection runs.
      */
     public long getTotalFailures() {
-        return totalFailures.get();
+        return failureTracker.totalFailures();
+    }
+
+    public Future<HealthStatus> checkHealth() {
+        return failureTracker.check();
+    }
+
+    public String getHealthComponentName() {
+        return failureTracker.component();
     }
 
     // getTotalRunTimeMs was DELETED 2026-08-09: its only caller was ConsumerGroupMetrics,
@@ -306,8 +313,6 @@ public class DeadConsumerDetectionJob {
         Future<Integer> detection = detector.detectAllDeadSubscriptionsWithDetails()
                 .compose(result -> {
                     long detectionMs = System.currentTimeMillis() - overallStartMs;
-                    consecutiveFailures.set(0);
-
                     if (result.hasDeadSubscriptions()) {
                         totalDeadDetected.addAndGet(result.deadCount());
                         logDeadConsumersDetected(runNumber, result, detectionMs, trace);
@@ -341,6 +346,7 @@ public class DeadConsumerDetectionJob {
                     }
                 })
                 .onSuccess(count -> {
+                    failureTracker.recordSuccess();
                     long elapsed = System.currentTimeMillis() - overallStartMs;
                     totalRunTimeMs.addAndGet(elapsed);
                     detectionInProgress.set(false);
@@ -348,18 +354,12 @@ public class DeadConsumerDetectionJob {
                 .onFailure(error -> {
                     long elapsed = System.currentTimeMillis() - overallStartMs;
                     totalRunTimeMs.addAndGet(elapsed);
-                    long failures = consecutiveFailures.incrementAndGet();
-                    totalFailures.incrementAndGet();
+                    failureTracker.recordFailure(error);
                     detectionInProgress.set(false);
 
                     try (var scope = TraceContextUtil.mdcScope(trace)) {
-                        if (failures >= CONSECUTIVE_FAILURE_THRESHOLD) {
-                            logger.error("Detection run #{} FAILED ({} consecutive failures, {}ms): {}",
-                                    runNumber, failures, elapsed, error.getMessage(), error);
-                        } else {
-                            logger.error("Detection run #{} failed ({}ms): {}",
-                                    runNumber, elapsed, error.getMessage(), error);
-                        }
+                        logger.debug("Detection run #{} failure recorded ({}ms): {}",
+                                runNumber, elapsed, error.getMessage());
                     }
                 });
 

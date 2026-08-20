@@ -34,7 +34,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -61,7 +60,6 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 public class PgConnectionManagerCloseLogLevelTest {
 
-    private static final Logger logger = LoggerFactory.getLogger(PgConnectionManagerCloseLogLevelTest.class);
     private static final String POSTGRES_IMAGE = PgTestImageConstant.POSTGRES_IMAGE;
 
     @SuppressWarnings("resource")
@@ -141,7 +139,6 @@ public class PgConnectionManagerCloseLogLevelTest {
     @Test
     @DisplayName("Positive: close after DB shutdown produces ERROR when pools fail to close")
     void testCloseAfterDbShutdownLogsError(Vertx vertx, VertxTestContext testContext) {
-        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Some pools failed to close cleanly') is EXPECTED this test deliberately stops the DB container to verify error-level pool close failure logging");
         // Create a dedicated container that we can stop
         @SuppressWarnings("resource")
         PostgreSQLContainer ownContainer = new PostgreSQLContainer(POSTGRES_IMAGE)
