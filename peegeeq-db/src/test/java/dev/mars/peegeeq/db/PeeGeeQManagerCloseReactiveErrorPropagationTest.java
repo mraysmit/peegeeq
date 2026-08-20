@@ -20,8 +20,10 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
+import io.vertx.pgclient.PgException;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.DisplayName;
@@ -40,8 +42,8 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests that closeReactive() correctly propagates startup errors instead of
  * silently swallowing them.
  *
- * <p>The old bug: closeReactive() used {@code pendingStart.recover(e -> Future.succeededFuture())}
- * to ensure the cleanup chain runs when start() is in-flight and fails, but that
+ * <p>The old bug converted an in-flight startup failure to success before running
+ * the cleanup chain, so although cleanup ran when startup failed, that conversion
  * converted the failure to success, so the startup error was silently discarded.
  * The caller of closeReactive() saw success and never knew start failed.</p>
  *
@@ -69,6 +71,11 @@ class PeeGeeQManagerCloseReactiveErrorPropagationTest {
     private PeeGeeQManager manager;
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.PeeGeeQManager",
+            message = "Failed to start PeeGeeQ Manager reactively",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = IllegalStateException.class)
     @DisplayName("closeReactive must propagate startup failure when start is in-flight and fails")
     void closeReactive_propagates_startup_failure(VertxTestContext testContext) {
         logger.info("[propagates_startup_failure] Step 1: Building isolated config for empty database (no schema tables)");
@@ -86,8 +93,8 @@ class PeeGeeQManagerCloseReactiveErrorPropagationTest {
         // Fire-and-forget start() replicates the pattern in 95 test setUp methods.
         // start() will fail asynchronously: validateRequiredTables() finds no tables.
         logger.info("[propagates_startup_failure] Step 3: Fire-and-forget start() will fail asynchronously (no schema tables)");
-        logger.warn("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Failed to start PeeGeeQ Manager') is EXPECTED this test deliberately uses an empty database with no schema tables");
-        manager.start();
+        manager.start().onFailure(error -> logger.debug(
+                "Expected startup failure observed before reactive close: {}", error.getMessage()));
 
         // Call closeReactive() while start is still in-flight.
         // closeReactive() sees startFuture != null and awaits it.
@@ -116,13 +123,23 @@ class PeeGeeQManagerCloseReactiveErrorPropagationTest {
     }
 
     @Test
-    @DisplayName("closeReactive runs full cleanup chain even when propagating startup failure")
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.PeeGeeQManager",
+            message = "Database connectivity validation failed: FATAL: password authentication failed for user \"peegeeq_test\" (28P01)",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.PeeGeeQManager",
+            message = "Failed to start PeeGeeQ Manager reactively",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = PgException.class)
+    @DisplayName("closeReactive runs full cleanup chain after an authentication startup failure")
     void closeReactive_runs_cleanup_despite_propagating_failure(VertxTestContext testContext) {
-        logger.info("[cleanup_despite_failure] Step 1: Building isolated config for empty database (no schema tables)");
+        logger.info("[cleanup_despite_failure] Step 1: Building isolated config with invalid database credentials");
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default",
             PeeGeeQTestConfig.builder()
                 .from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
+                .property("peegeeq.database.password", "invalid-cleanup-test-password")
                 .property("peegeeq.migration.enabled", "false")
                 .property("peegeeq.migration.auto-migrate", "false")
                 .build());
@@ -130,10 +147,12 @@ class PeeGeeQManagerCloseReactiveErrorPropagationTest {
         logger.info("[cleanup_despite_failure] Step 2: Creating PeeGeeQManager");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
 
-        // Fire-and-forget start will fail (no tables)
-        logger.info("[cleanup_despite_failure] Step 3: Fire-and-forget start() will fail asynchronously (no schema tables)");
-        logger.warn("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Failed to start PeeGeeQ Manager') is EXPECTED this test deliberately uses an empty database with no schema tables");
-        manager.start();
+        // Fire-and-forget start will fail during database authentication. This
+        // deliberately differs from the missing-table failure in the companion
+        // method so the parallel ERROR-log gate can identify one exact owner.
+        logger.info("[cleanup_despite_failure] Step 3: Fire-and-forget start() will fail asynchronously (invalid credentials)");
+        manager.start().onFailure(error -> logger.debug(
+                "Expected startup failure observed before cleanup verification: {}", error.getMessage()));
 
         // closeReactive must: (1) run all cleanup, (2) propagate the failure.
         // After the fix, even though closeReactive returns a failed future,

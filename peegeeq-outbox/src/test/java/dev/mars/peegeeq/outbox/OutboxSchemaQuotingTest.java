@@ -16,8 +16,11 @@ package dev.mars.peegeeq.outbox;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.db.PeeGeeQDefaults;
 import dev.mars.peegeeq.db.PeeGeeQManager;
+import dev.mars.peegeeq.db.cleanup.DeadConsumerDetector;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.db.consumer.ConsumerGroupRetryService;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -35,34 +38,22 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.junit.jupiter.api.Assertions.*;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
- * TDD tests for M1: schema name interpolated into SQL without identifier quoting.
+ * Regression tests for schema identifier quoting.
  *
- * <p>Current defect: SQL queries in {@link OutboxFactory} use
- * {@code "%s.outbox".formatted(schema)} without quoting the schema identifier.
- * While {@code PgConnectionManager.normalizeSearchPath()} rejects non-alphanumeric
- * characters (hyphens, etc.), SQL reserved words like "order", "select", "table"
- * pass validation they are valid Java identifiers made of letters only 
- * but generate malformed SQL when used unquoted as schema identifiers.</p>
+ * <p>SQL reserved words such as "order", "select", and "table" pass schema-name
+ * validation but must still be quoted when used as PostgreSQL identifiers.</p>
  *
- * <p>For example, schema "order" produces {@code FROM order.outbox} which PostgreSQL
- * parses as an ORDER BY clause start, not a schema-qualified table name. The fix is
- * to always quote: {@code FROM "order".outbox}.</p>
- *
- * <p>Additionally, {@code PeeGeeQTestSchemaInitializer.ensureBitemporalCompatibility()}
- * has the same quoting gap in its own SQL.</p>
+ * <p>Every test uses {@link PeeGeeQTestSchemaInitializer}, ensuring the reserved-word
+ * coverage exercises the supported, fully migrated schema rather than a hand-written
+ * schema snapshot that can drift from production migrations.</p>
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 @DisplayName("M1: Schema names with special characters must be properly quoted")
 class OutboxSchemaQuotingTest {
-    private static final Logger logger = LoggerFactory.getLogger(OutboxSchemaQuotingTest.class);
-
-
     @Container
     private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
@@ -71,7 +62,6 @@ class OutboxSchemaQuotingTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) {
-        logger.info("Tearing down: closing resources and manager");
         Future<Void> factoryClose = factory != null ? factory.close() : Future.succeededFuture();
         factoryClose.transform(factoryResult -> {
                     Future<Void> managerClose = manager != null
@@ -98,108 +88,9 @@ class OutboxSchemaQuotingTest {
                 .build());
     }
 
-    /**
-     * Create schema and outbox table directly via JDBC with quoted DDL,
-     * bypassing the test schema initializer which itself has quoting issues.
-     * Table structure mirrors V001__Create_Base_Tables.sql.
-     */
-    private void createSchemaWithQuotedDDL(String schema) throws Exception {
-        try (var conn = java.sql.DriverManager.getConnection(
-                postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
-            try (var stmt = conn.createStatement()) {
-                String quotedSchema = "\"" + schema.replace("\"", "\"\"") + "\"";
-                stmt.execute("CREATE SCHEMA IF NOT EXISTS " + quotedSchema);
-                stmt.execute("SET search_path TO " + quotedSchema);
-                stmt.execute("""
-                    CREATE TABLE IF NOT EXISTS outbox (
-                        id BIGSERIAL PRIMARY KEY,
-                        topic VARCHAR(255) NOT NULL,
-                        payload JSONB NOT NULL,
-                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                        processed_at TIMESTAMP WITH TIME ZONE,
-                        processing_started_at TIMESTAMP WITH TIME ZONE,
-                        status VARCHAR(50) DEFAULT 'PENDING'
-                            CHECK (status IN ('PENDING','PROCESSING','COMPLETED','FAILED','DEAD_LETTER')),
-                        retry_count INT DEFAULT 0,
-                        max_retries INT DEFAULT 3,
-                        next_retry_at TIMESTAMP WITH TIME ZONE,
-                        version INT DEFAULT 0,
-                        headers JSONB DEFAULT '{}',
-                        error_message TEXT,
-                        correlation_id VARCHAR(255),
-                        message_group VARCHAR(255),
-                        priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10),
-                        idempotency_key VARCHAR(255)
-                    )
-                """);
-                stmt.execute("""
-                    CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_idempotency_key
-                    ON outbox(topic, idempotency_key) WHERE idempotency_key IS NOT NULL
-                """);
-                stmt.execute("""
-                    CREATE TABLE IF NOT EXISTS outbox_consumer_groups (
-                        id BIGSERIAL PRIMARY KEY,
-                        outbox_message_id BIGINT NOT NULL REFERENCES outbox(id) ON DELETE CASCADE,
-                        consumer_group_name VARCHAR(255) NOT NULL,
-                        status VARCHAR(50) DEFAULT 'PENDING'
-                            CHECK (status IN ('PENDING','PROCESSING','COMPLETED','FAILED')),
-                        processed_at TIMESTAMP WITH TIME ZONE,
-                        processing_started_at TIMESTAMP WITH TIME ZONE,
-                        retry_count INT DEFAULT 0,
-                        error_message TEXT,
-                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                        UNIQUE(outbox_message_id, consumer_group_name)
-                    )
-                """);
-                stmt.execute("""
-                    CREATE TABLE IF NOT EXISTS queue_messages (
-                        id BIGSERIAL PRIMARY KEY,
-                        topic VARCHAR(255) NOT NULL,
-                        payload JSONB NOT NULL,
-                        visible_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                        lock_id BIGINT,
-                        lock_until TIMESTAMP WITH TIME ZONE,
-                        retry_count INT DEFAULT 0,
-                        max_retries INT DEFAULT 3,
-                        status VARCHAR(50) DEFAULT 'AVAILABLE'
-                            CHECK (status IN ('AVAILABLE','LOCKED','PROCESSED','FAILED','DEAD_LETTER')),
-                        headers JSONB DEFAULT '{}',
-                        error_message TEXT,
-                        correlation_id VARCHAR(255),
-                        message_group VARCHAR(255),
-                        priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
-                    )
-                """);
-                stmt.execute("""
-                    CREATE TABLE IF NOT EXISTS dead_letter_queue (
-                        id BIGSERIAL PRIMARY KEY,
-                        original_table VARCHAR(50) NOT NULL,
-                        original_id BIGINT NOT NULL,
-                        topic VARCHAR(255) NOT NULL,
-                        payload JSONB NOT NULL,
-                        original_created_at TIMESTAMP WITH TIME ZONE NOT NULL,
-                        failed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                        failure_reason TEXT NOT NULL,
-                        retry_count INT NOT NULL,
-                        headers JSONB DEFAULT '{}',
-                        correlation_id VARCHAR(255),
-                        message_group VARCHAR(255)
-                    )
-                """);
-                stmt.execute("""
-                    CREATE TABLE IF NOT EXISTS outbox_topic_subscriptions (
-                        id BIGSERIAL PRIMARY KEY,
-                        topic VARCHAR(255) NOT NULL,
-                        consumer_group VARCHAR(255) NOT NULL,
-                        subscription_status VARCHAR(50) DEFAULT 'ACTIVE',
-                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                        last_heartbeat_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                        UNIQUE(topic, consumer_group)
-                    )
-                """);
-            }
-        }
+    private void initializeSupportedSchema(String schema) {
+        PeeGeeQTestSchemaInitializer.initializeSchema(
+                postgres, schema, SchemaComponent.QUEUE_ALL);
     }
 
     // ========================================================================
@@ -209,11 +100,9 @@ class OutboxSchemaQuotingTest {
     @Test
     @DisplayName("Schema with simple identifier (underscore) should work for stats queries")
     void simpleSchemaNameShouldWork(VertxTestContext testContext) throws Exception {
-        logger.info("Test: simple schema name should work");
         String schema = "simple_tenant";
 
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, schema,
-                SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
+        initializeSupportedSchema(schema);
 
         PeeGeeQConfiguration config = createTestConfiguration("simple-test", schema);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
@@ -240,12 +129,11 @@ class OutboxSchemaQuotingTest {
     @Test
     @DisplayName("Schema 'order' (reserved word) should work when properly quoted getStatsAsync")
     void reservedWordOrderShouldWorkForStats(VertxTestContext testContext) throws Exception {
-        logger.info("Test: reserved word order should work for stats");
         // "order" passes PgConnectionManager's regex [A-Za-z0-9_,\s]+ but is a SQL reserved word.
         // Unquoted SQL: FROM order.outbox PostgreSQL parses "order" as ORDER BY keyword.
         // Quoted SQL: FROM "order".outbox correct.
         String schema = "order";
-        createSchemaWithQuotedDDL(schema);
+        initializeSupportedSchema(schema);
 
         PeeGeeQConfiguration config = createTestConfiguration("order-stats", schema);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
@@ -271,9 +159,8 @@ class OutboxSchemaQuotingTest {
     @Test
     @DisplayName("Schema 'order' (reserved word) should work when properly quoted countMessagesAsync")
     void reservedWordOrderShouldWorkForCount(VertxTestContext testContext) throws Exception {
-        logger.info("Test: reserved word order should work for count");
         String schema = "order";
-        createSchemaWithQuotedDDL(schema);
+        initializeSupportedSchema(schema);
 
         PeeGeeQConfiguration config = createTestConfiguration("order-count", schema);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
@@ -297,9 +184,8 @@ class OutboxSchemaQuotingTest {
     @Test
     @DisplayName("Schema 'order' (reserved word) should work when properly quoted purgeMessagesAsync")
     void reservedWordOrderShouldWorkForPurge(VertxTestContext testContext) throws Exception {
-        logger.info("Test: reserved word order should work for purge");
         String schema = "order";
-        createSchemaWithQuotedDDL(schema);
+        initializeSupportedSchema(schema);
 
         PeeGeeQConfiguration config = createTestConfiguration("order-purge", schema);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
@@ -323,10 +209,9 @@ class OutboxSchemaQuotingTest {
     @Test
     @DisplayName("Schema 'select' (reserved word) should work when properly quoted")
     void reservedWordSelectShouldWork(VertxTestContext testContext) throws Exception {
-        logger.info("Test: reserved word select should work");
         // "select" is another SQL reserved word that passes the regex validator
         String schema = "select";
-        createSchemaWithQuotedDDL(schema);
+        initializeSupportedSchema(schema);
 
         PeeGeeQConfiguration config = createTestConfiguration("select-test", schema);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
@@ -342,6 +227,41 @@ class OutboxSchemaQuotingTest {
                                         "Unquoted 'FROM select.outbox' is a SQL syntax error.");
                                 return (Void) null;
                             });
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @DisplayName("Reserved-word schema should support retry and dead-consumer service queries")
+    void reservedWordSchemaShouldSupportBackgroundServiceQueries(VertxTestContext testContext) {
+        String schema = "table";
+        initializeSupportedSchema(schema);
+
+        PeeGeeQConfiguration config = createTestConfiguration("table-background-services", schema);
+        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
+        manager.start()
+                .compose(v -> {
+                    var connectionManager = manager.getClientFactory().getConnectionManager();
+                    var retryService = new ConsumerGroupRetryService(
+                            connectionManager,
+                            manager.getDeadLetterQueueManager(),
+                            PeeGeeQDefaults.DEFAULT_POOL_ID);
+                    var detector = new DeadConsumerDetector(
+                            connectionManager,
+                            PeeGeeQDefaults.DEFAULT_POOL_ID);
+
+                    return retryService.processFailedMessages()
+                            .compose(retryResult -> detector.detectAllDeadSubscriptionsWithDetails()
+                                    .map(detectionResult -> {
+                                        assertEquals(0, retryResult.retriedCount(),
+                                                "Fresh reserved-word schema should have no retryable groups");
+                                        assertEquals(0, retryResult.dlqCount(),
+                                                "Fresh reserved-word schema should have no exhausted groups");
+                                        assertEquals(0, detectionResult.deadCount(),
+                                                "Fresh reserved-word schema should have no dead subscriptions");
+                                        return (Void) null;
+                                    }));
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);

@@ -12,6 +12,7 @@ import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.test.TestFactoryRegistration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Tuple;
@@ -460,9 +461,12 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
      * this test deliberately supplies a null schema to verify the validation guard.
      */
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService",
+            message = "Schema parameter is required and cannot be null or blank",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     @Order(6)
     void testSchemaValidation_NullSchema(VertxTestContext ctx) {
-        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Schema parameter is required') is EXPECTED this test deliberately passes a null schema to verify validation rejects it");
         logger.info("=== Testing Schema Validation: Null Schema ===");
 
         DatabaseConfig dbConfig = new DatabaseConfig(
@@ -507,6 +511,10 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
     }
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService",
+            message = "Schema parameter is required and cannot be null or blank",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     /**
      * Verifies that {@code PeeGeeQDatabaseSetupService.createCompleteSetup()} rejects a blank/whitespace
      * schema with an {@link IllegalArgumentException} before any database work is attempted.
@@ -517,7 +525,6 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
      */
     @Order(7)
     void testSchemaValidation_BlankSchema(VertxTestContext ctx) {
-        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Schema parameter is required') is EXPECTED this test deliberately passes a blank schema to verify validation rejects it");
         logger.info("=== Testing Schema Validation: Blank Schema ===");
 
         // Create database configuration with blank schema
@@ -561,9 +568,12 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
     }
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService",
+            message = "Schema validation failed: Invalid Schema name: 'test'; DROP TABLE users; --'. Must start with letter or underscore, followed by alphanumeric characters or underscores only.",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     @Order(8)
     void testSchemaValidation_InvalidSchemaName(VertxTestContext ctx) {
-        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Schema validation failed') is EXPECTED this test deliberately passes a SQL injection schema name to verify validation");
         logger.info("=== Testing Schema Validation: Invalid Schema Name ===");
 
         // Create database configuration with invalid schema name (SQL injection attempt)
@@ -609,6 +619,10 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
     }
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService",
+            message = "Schema validation failed: Reserved Schema name: 'pg_catalog'. Cannot use PostgreSQL system schemas (pg_*, information_schema).",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     /**
      * Verifies that {@code PeeGeeQDatabaseSetupService.createCompleteSetup()} rejects a reserved
      * PostgreSQL system schema name ({@code pg_*} prefix) with an {@link IllegalArgumentException}.
@@ -619,7 +633,6 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
      */
     @Order(9)
     void testSchemaValidation_ReservedSchemaName_PgPrefix(VertxTestContext ctx) {
-        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Schema validation failed: Reserved Schema name') is EXPECTED this test deliberately uses pg_catalog to verify reserved-name rejection");
         logger.info("=== Testing Schema Validation: Reserved Schema Name (pg_ prefix) ===");
 
         // Create database configuration with reserved schema name
@@ -673,9 +686,12 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
      * this test deliberately uses {@code information_schema} to verify the reserved-name guard.
      */
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService",
+            message = "Schema validation failed: Reserved Schema name: 'information_schema'. Cannot use PostgreSQL system schemas (pg_*, information_schema).",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     @Order(10)
     void testSchemaValidation_ReservedSchemaName_InformationSchema(VertxTestContext ctx) {
-        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Schema validation failed: Reserved Schema name') is EXPECTED this test deliberately uses information_schema to verify reserved-name rejection");
         logger.info("=== Testing Schema Validation: Reserved Schema Name (information_schema) ===");
 
         // Create database configuration with reserved schema name

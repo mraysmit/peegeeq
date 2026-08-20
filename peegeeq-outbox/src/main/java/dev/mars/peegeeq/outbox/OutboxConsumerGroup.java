@@ -89,6 +89,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     private volatile Predicate<Message<T>> groupFilter;
     private volatile MessageConsumer<T> underlyingConsumer;
     private volatile boolean startedWithSubscription;
+    private Future<Void> closeFuture;
 
     // Partitioned consumption (OFFSET_WATERMARK mode) mirrors PgNativeConsumerGroup
     private final PgConnectionManager connectionManager;
@@ -723,11 +724,12 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     }
     
     @Override
-    public Future<Void> close() {
-        State prev = state.getAndSet(State.CLOSED);
-        if (prev == State.CLOSED) {
-            return Future.succeededFuture();
+    public synchronized Future<Void> close() {
+        if (closeFuture != null) {
+            return closeFuture;
         }
+
+        State prev = state.getAndSet(State.CLOSED);
 
         logger.info("Closing outbox consumer group '{}' for topic '{}'", groupName, topic);
 
@@ -750,9 +752,10 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
         members.values().forEach(OutboxConsumerGroupMember::close);
         members.clear();
 
-        return consumerClose
+        closeFuture = consumerClose
                 .compose(v -> engineClose)
                 .onSuccess(v -> logger.info("Outbox consumer group '{}' closed", groupName));
+        return closeFuture;
     }
     
     /**

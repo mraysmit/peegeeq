@@ -19,12 +19,16 @@ package dev.mars.peegeeq.db;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.AppenderBase;
+import dev.mars.peegeeq.api.health.ComponentHealthState;
+import dev.mars.peegeeq.api.health.HealthStatusInfo;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
-import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -41,15 +45,13 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -63,11 +65,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *       from reaching the DB after close begins.</li>
  *
  *   <li><b>Consecutive-failure escalation</b> ({@code testTimerFailuresEscalateWarnToError}):
- *       when the DB is stopped while the manager is running, the first 12 timer ticks log at
- *       WARN; from the 3rd consecutive failure onward they escalate to ERROR with an
- *       "(N consecutive failures)" count in the message. Every captured log event must carry
- *       {@link java.net.ConnectException} in its cause chain, proving the DB-stopped scenario
- *       is what produced the failures (not a swallowed exception or an unrelated error).</li>
+ *       when the DB is stopped while the manager is running, the first failure logs at WARN
+ *       with its complete cause chain. Persistent failures produce rate-limited ERROR summaries
+ *       with the consecutive count and surface as an UNHEALTHY depth-cache component.</li>
  *
  *   <li><b>Closing-guard race</b> ({@code testClosingGuardPreventsTimerCallbacksAfterClose}):
  *       with 1 s timer intervals, a tick may fire in the window between {@code closing=true}
@@ -100,16 +100,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 public class PeeGeeQManagerTimerGuardTest {
 
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQManagerTimerGuardTest.class);
-    private static final String POSTGRES_IMAGE = PgTestImageConstant.POSTGRES_IMAGE;
-
     /** Shared container used for tests that need the DB alive throughout. */
-    @SuppressWarnings("resource")
     @Container
-    static PostgreSQLContainer postgres = new PostgreSQLContainer(POSTGRES_IMAGE)
-            .withDatabaseName("peegeeq_test")
-            .withUsername("peegeeq_test")
-            .withPassword("peegeeq_test")
-            .withReuse(false);
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private LogCaptureAppender logCapture;
@@ -189,15 +182,15 @@ public class PeeGeeQManagerTimerGuardTest {
     // 
 
     @Test
-    @DisplayName("Timer failures escalate from WARN to ERROR after consecutive-failure threshold")
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.PeeGeeQManager",
+            message = "Queue depth cache refresh is still failing (3 consecutive failures, 3 total failures):",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    @DisplayName("Timer failures are rate-limited and surfaced through component health")
     void testTimerFailuresEscalateWarnToError(VertxTestContext testContext) {
         // Own container so we can stop it without breaking other tests
-        @SuppressWarnings("resource")
-        PostgreSQLContainer ownContainer = new PostgreSQLContainer(POSTGRES_IMAGE)
-                .withDatabaseName("peegeeq_test")
-                .withUsername("peegeeq_test")
-                .withPassword("peegeeq_test")
-                .withReuse(false);
+        PostgreSQLContainer ownContainer = PostgreSQLTestConstants.createStandardContainer();
         ownContainer.start();
         initializeSchemaFor(ownContainer);
 
@@ -207,27 +200,22 @@ public class PeeGeeQManagerTimerGuardTest {
 
         manager.start()
                 .compose(v -> {
-                    // Kill the DB  all subsequent timer ticks will fail
-                    ownContainer.stop();
                     logCapture.clear();
-                    logger.error("===== INTENTIONAL ERROR TEST BEGIN ===== DB container stopped." +
-                                 " 'Failed to refresh depth cache' WARN/ERROR logs below are EXPECTED" +
-                                 " for the next ~3 seconds. See END marker when they stop.");
-                    // Wait for 3 timer ticks at 1 s interval  3 consecutive failures
-                    // Expected: ticks 12  WARN, tick 3  ERROR (escalation threshold)
-                    return delay(vertx, 3500);
+                    return vertx.executeBlocking(() -> {
+                        ownContainer.stop();
+                        return (Void) null;
+                    });
                 })
-                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
-                    logger.error("===== INTENTIONAL ERROR TEST END ===== Expected 'Failed to refresh" +
-                                 " depth cache' WARN/ERROR sequence is complete. Asserting captured logs.");
+                .compose(v -> {
+                    // The DB is now stopped; all subsequent timer ticks will fail.
+                    return awaitDepthCacheUnhealthy(vertx, System.currentTimeMillis() + 8_000);
+                })
+                .compose(depthHealth -> {
+                    testContext.verify(() -> {
                     List<ILoggingEvent> warns = logCapture.eventsAtLevel(Level.WARN);
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
 
-                    // PRIMARY: every captured event must carry a network-failure exception in the cause chain.
-                    // This proves the DB-stopped scenario is what produced these failures  not an
-                    // NPE, misconfiguration, or any other unrelated error.
-                    // If PeeGeeQManager swallowed the exception (logged only e.getMessage()),
-                    // getThrowableProxy() returns null and this fails immediately.
+                    // The first failure retains the complete network-failure stack.
                     //
                     // On Windows, two distinct paths occur:
                     //   1st tick: java.io.IOException ("An established connection was aborted by the
@@ -237,10 +225,9 @@ public class PeeGeeQManagerTimerGuardTest {
                     //             java.net.ConnectException ("Connection refused")  new connection
                     //             attempts fail because the port is gone.
                     // hasCauseOfAnyType checks for any of the three by exact class name.
-                    assertFalse(warns.isEmpty(),
-                            "Expected WARN events from timer failures after container stop; none captured");
+                    assertFalse(warns.isEmpty(), "Expected the first timer failure at WARN");
                     assertFalse(errors.isEmpty(),
-                            "Expected ERROR events after escalation threshold; none captured");
+                            "Expected a rate-limited ERROR summary after the escalation threshold");
 
                     boolean allWarnsHaveConnectionFailure = warns.stream()
                             .allMatch(e -> hasCauseOfAnyType(e.getThrowableProxy(),
@@ -252,42 +239,24 @@ public class PeeGeeQManagerTimerGuardTest {
                             "in cause chain  proves the DB-stopped scenario produced these failures and the exception " +
                             "was not swallowed. WARN count: " + warns.size());
 
-                    boolean allErrorsHaveConnectionFailure = errors.stream()
-                            .allMatch(e -> hasCauseOfAnyType(e.getThrowableProxy(),
-                                    "java.io.IOException",
-                                    "java.net.SocketException",
-                                    "java.net.ConnectException"));
-                    assertTrue(allErrorsHaveConnectionFailure,
-                            "Every ERROR must carry a network I/O exception (IOException/SocketException/ConnectException) " +
-                            "in cause chain  proves the DB-stopped scenario produced these failures and the exception " +
-                            "was not swallowed. ERROR count: " + errors.size());
-
-                    // SECONDARY: escalation behaviour  first failures at WARN, then ERROR with count
-                    boolean hasEarlyWarn = warns.stream()
-                            .anyMatch(e -> !e.getFormattedMessage().contains("consecutive failures"));
-                    assertTrue(hasEarlyWarn,
-                            "Initial failures must be logged at WARN without '(N consecutive failures)'. " +
-                            "WARN messages: " + warns.stream().map(ILoggingEvent::getFormattedMessage).toList());
-
                     boolean hasEscalatedError = errors.stream()
-                            .anyMatch(e -> e.getFormattedMessage().contains("(3 consecutive") ||
-                                          e.getFormattedMessage().contains("(4 consecutive") ||
-                                          e.getFormattedMessage().contains("(5 consecutive"));
+                            .anyMatch(e -> e.getFormattedMessage().contains("3 consecutive failures"));
                     assertTrue(hasEscalatedError,
-                            "At/beyond threshold (3), failures must be ERROR with '(N consecutive failures)'. " +
+                            "The threshold summary must carry the consecutive-failure count. " +
                             "ERROR messages: " + errors.stream().map(ILoggingEvent::getFormattedMessage).toList());
+                    assertTrue(errors.stream().allMatch(e -> e.getThrowableProxy() == null),
+                            "Persistent summaries must not repeat the complete stack trace");
 
-                    // Close the manager before test completes so tearDown does not try to
-                    // close it against a stopped container (which would cause tearDown to failNow).
-                    // ownContainer is already stopped; closeReactive() cancels timers regardless.
+                    assertEquals(ComponentHealthState.UNHEALTHY, depthHealth.state());
+                    assertTrue(((Number) depthHealth.details().get("consecutiveFailures")).longValue() >= 3,
+                            "Health details must expose the current consecutive-failure count");
+                    });
+
                     PeeGeeQManager closingManager = manager;
-                    manager = null; // prevent tearDown double-close
-                    closingManager.closeReactive()
-                            .eventually(() -> {
-                                testContext.completeNow();
-                                return Future.succeededFuture();
-                            });
-                })));
+                    manager = null;
+                    return closingManager.closeReactive();
+                })
+                .onComplete(testContext.succeeding(v -> testContext.completeNow()));
 
     }
 
@@ -390,7 +359,7 @@ public class PeeGeeQManagerTimerGuardTest {
         props.setProperty("peegeeq.database.pool.min-size", "1");
         props.setProperty("peegeeq.database.pool.max-size", "3");
         props.setProperty("peegeeq.database.pool.shared", "false");
-        props.setProperty("peegeeq.health.check-interval", "PT30S");
+        props.setProperty("peegeeq.health-check.interval", "PT30S");
 
         // VERY fast timer intervals - PT1S is minimum, but we verify close happens quickly
         props.setProperty("peegeeq.metrics.enabled", "true");
@@ -433,14 +402,6 @@ public class PeeGeeQManagerTimerGuardTest {
     // Helpers
     // 
 
-    private boolean hasCauseOfType(ch.qos.logback.classic.spi.IThrowableProxy proxy, String className) {
-        while (proxy != null) {
-            if (className.equals(proxy.getClassName())) return true;
-            proxy = proxy.getCause();
-        }
-        return false;
-    }
-
     /**
      * Returns true if the cause chain contains any of the given class names.
      * Used to handle platform-specific exception wrapping: on Windows, a force-killed
@@ -470,9 +431,20 @@ public class PeeGeeQManagerTimerGuardTest {
     }
 
     private Future<Void> delay(Vertx vertx, long ms) {
-        Promise<Void> p = Promise.promise();
-        vertx.setTimer(ms, id -> p.complete());
-        return p.future();
+        return vertx.timer(ms).mapEmpty();
+    }
+
+    private Future<HealthStatusInfo> awaitDepthCacheUnhealthy(Vertx vertx, long deadlineMs) {
+        HealthStatusInfo status = manager.getHealthCheckManager()
+                .getComponentHealth("background-depth-cache");
+        if (status != null && status.state() == ComponentHealthState.UNHEALTHY) {
+            return Future.succeededFuture(status);
+        }
+        if (System.currentTimeMillis() >= deadlineMs) {
+            return Future.failedFuture(new AssertionError(
+                    "Depth-cache health did not become UNHEALTHY before deadline; last status=" + status));
+        }
+        return vertx.timer(100).compose(ignored -> awaitDepthCacheUnhealthy(vertx, deadlineMs));
     }
 
     private Properties setSystemPropertiesFor(PostgreSQLContainer container) {
@@ -489,7 +461,8 @@ public class PeeGeeQManagerTimerGuardTest {
         props.setProperty("peegeeq.database.pool.shared", "false");
         props.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
         props.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
-        props.setProperty("peegeeq.health.check-interval", "PT30S");
+        props.setProperty("peegeeq.health-check.interval", "PT1S");
+        props.setProperty("peegeeq.health-check.timeout", "PT1S");
 
         // Fast timer intervals minimum allowed by configuration validation
         props.setProperty("peegeeq.metrics.enabled", "true");
@@ -510,100 +483,9 @@ public class PeeGeeQManagerTimerGuardTest {
         // no-op: System properties are no longer written by this test (uses 2-arg constructor)
     }
 
-    @SuppressWarnings("unchecked")
     private static void initializeSchemaFor(PostgreSQLContainer container) {
-        try (Connection conn = DriverManager.getConnection(
-                container.getJdbcUrl(), container.getUsername(), container.getPassword());
-             Statement stmt = conn.createStatement()) {
-            // Place the unqualified DDL below in the resolved schema so custom-schema
-            // runs see the same tables the manager targets (suite-wide convention)
-            String schema = PostgreSQLTestConstants.TEST_SCHEMA;
-            stmt.execute("CREATE SCHEMA IF NOT EXISTS " + schema);
-            stmt.execute("SET search_path TO " + schema);
-            stmt.execute("""
-                CREATE TABLE IF NOT EXISTS outbox (
-                    id BIGSERIAL PRIMARY KEY,
-                    topic VARCHAR(255) NOT NULL,
-                    payload JSONB NOT NULL,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    processed_at TIMESTAMP WITH TIME ZONE,
-                    processing_started_at TIMESTAMP WITH TIME ZONE,
-                    status VARCHAR(50) DEFAULT 'PENDING',
-                    retry_count INT DEFAULT 0,
-                    max_retries INT DEFAULT 3,
-                    next_retry_at TIMESTAMP WITH TIME ZONE,
-                    version INT DEFAULT 0,
-                    headers JSONB DEFAULT '{}',
-                    error_message TEXT,
-                    correlation_id VARCHAR(255),
-                    message_group VARCHAR(255),
-                    priority INT DEFAULT 5,
-                    required_consumer_groups INT DEFAULT 1,
-                    completed_consumer_groups INT DEFAULT 0,
-                    completed_groups_bitmap BIGINT DEFAULT 0
-                )
-                """);
-            stmt.execute("""
-                CREATE TABLE IF NOT EXISTS queue_messages (
-                    id BIGSERIAL PRIMARY KEY,
-                    topic VARCHAR(255) NOT NULL,
-                    payload JSONB NOT NULL,
-                    visible_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    lock_id BIGINT,
-                    lock_until TIMESTAMP WITH TIME ZONE,
-                    retry_count INT DEFAULT 0,
-                    max_retries INT DEFAULT 3,
-                    status VARCHAR(50) DEFAULT 'AVAILABLE',
-                    headers JSONB DEFAULT '{}',
-                    correlation_id VARCHAR(255),
-                    message_group VARCHAR(255),
-                    priority INT DEFAULT 5
-                )
-                """);
-            stmt.execute("""
-                CREATE TABLE IF NOT EXISTS dead_letter_queue (
-                    id BIGSERIAL PRIMARY KEY,
-                    original_table VARCHAR(50) NOT NULL,
-                    original_id BIGINT NOT NULL,
-                    topic VARCHAR(255) NOT NULL,
-                    payload JSONB NOT NULL,
-                    original_created_at TIMESTAMP WITH TIME ZONE NOT NULL,
-                    failed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    failure_reason TEXT NOT NULL,
-                    retry_count INT NOT NULL,
-                    headers JSONB DEFAULT '{}',
-                    correlation_id VARCHAR(255),
-                    message_group VARCHAR(255)
-                )
-                """);
-            stmt.execute("""
-                CREATE TABLE IF NOT EXISTS outbox_topic_subscriptions (
-                    id BIGSERIAL PRIMARY KEY,
-                    topic VARCHAR(255) NOT NULL,
-                    group_name VARCHAR(255) NOT NULL,
-                    subscription_status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
-                    subscribed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    last_active_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    start_from_message_id BIGINT,
-                    start_from_timestamp TIMESTAMP WITH TIME ZONE,
-                    heartbeat_interval_seconds INT NOT NULL DEFAULT 60,
-                    heartbeat_timeout_seconds INT NOT NULL DEFAULT 300,
-                    last_heartbeat_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    backfill_status VARCHAR(20) DEFAULT 'NONE',
-                    backfill_checkpoint_id BIGINT,
-                    backfill_processed_messages BIGINT DEFAULT 0,
-                    backfill_total_messages BIGINT,
-                    backfill_started_at TIMESTAMP WITH TIME ZONE,
-                    backfill_completed_at TIMESTAMP WITH TIME ZONE,
-                    consecutive_misses INTEGER NOT NULL DEFAULT 0,
-                    dead_after_misses INTEGER NOT NULL DEFAULT 3,
-                    UNIQUE (topic, group_name)
-                )
-                """);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to initialize schema", e);
-        }
+        PeeGeeQTestSchemaInitializer.initializeSchema(
+                container, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
     }
 
     // 
