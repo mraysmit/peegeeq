@@ -34,7 +34,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -73,7 +72,6 @@ import static org.junit.jupiter.api.Assertions.*;
 @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
 public class PeeGeeQManagerCloseLogLevelTest {
 
-    private static final Logger logger = LoggerFactory.getLogger(PeeGeeQManagerCloseLogLevelTest.class);
     private static final String POSTGRES_IMAGE = PgTestImageConstant.POSTGRES_IMAGE;
 
     @Container
@@ -164,7 +162,6 @@ public class PeeGeeQManagerCloseLogLevelTest {
     @Timeout(value = 60, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Positive: close after DB shutdown logs ERROR for client factory close failure")
     void testCloseAfterDbShutdownLogsErrorForClientFactoryFailure(VertxTestContext testContext) {
-        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR logs ('Error closing client factory', 'Error closing PeeGeeQManager') are EXPECTED this test deliberately stops the DB container to verify error-level close failure logging");
         // Use a separate container that we can stop
         @SuppressWarnings("resource")
         PostgreSQLContainer ownContainer = new PostgreSQLContainer(POSTGRES_IMAGE)

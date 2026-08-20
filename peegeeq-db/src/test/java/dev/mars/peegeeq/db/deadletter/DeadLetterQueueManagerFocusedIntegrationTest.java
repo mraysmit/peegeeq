@@ -7,6 +7,7 @@ import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.Future;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -345,8 +346,27 @@ public class DeadLetterQueueManagerFocusedIntegrationTest extends BaseIntegratio
      * this test renames the table to simulate table unavailability for the sync wrapper paths.
      */
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.deadletter.DeadLetterQueueManager",
+            message = "Failed to retrieve dead letter messages for topic (reactive): topic",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = io.vertx.pgclient.PgException.class)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.deadletter.DeadLetterQueueManager",
+            message = "Failed to retrieve all dead letter messages (reactive)",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = io.vertx.pgclient.PgException.class)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.deadletter.DeadLetterQueueManager",
+            message = "Failed to retrieve dead letter message with id (reactive): 1",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = io.vertx.pgclient.PgException.class)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.deadletter.DeadLetterQueueManager",
+            message = "Failed to get dead letter queue statistics (reactive)",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = io.vertx.pgclient.PgException.class)
     void testSyncReadApisFailFastWhenDeadLetterTableUnavailable(VertxTestContext testContext) {
-        logger.error("===== INTENTIONAL ERROR TEST ===== The next 4 ERROR logs (dead letter read failures) are EXPECTED this test renames the DLQ table to simulate unavailability and verifies the sync read wrappers fail fast");
         renameDeadLetterTable("dead_letter_queue_tmp")
             .compose(v -> assertFutureFailure(getDeadLetterMessages("topic", 10, 0)))
             .compose(v -> assertFutureFailure(getAllDeadLetterMessages(10, 0)))
@@ -366,8 +386,27 @@ public class DeadLetterQueueManagerFocusedIntegrationTest extends BaseIntegratio
      * this test renames the table to simulate unavailability for the async read API paths.
      */
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.deadletter.DeadLetterQueueManager",
+            message = "Failed to retrieve dead letter messages for topic (reactive): topic",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = io.vertx.pgclient.PgException.class)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.deadletter.DeadLetterQueueManager",
+            message = "Failed to retrieve all dead letter messages (reactive)",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = io.vertx.pgclient.PgException.class)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.deadletter.DeadLetterQueueManager",
+            message = "Failed to retrieve dead letter message with id (reactive): 1",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = io.vertx.pgclient.PgException.class)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.deadletter.DeadLetterQueueManager",
+            message = "Failed to get dead letter queue statistics (reactive)",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = io.vertx.pgclient.PgException.class)
     void testAsyncReadApisCompleteExceptionallyWhenDeadLetterTableUnavailable(VertxTestContext testContext) {
-        logger.error("===== INTENTIONAL ERROR TEST ===== The next 4 ERROR logs (dead letter read failures) are EXPECTED this test renames the DLQ table to simulate unavailability and verifies the async read APIs complete exceptionally");
         renameDeadLetterTable("dead_letter_queue_tmp")
             .compose(v -> assertFutureFailure(deadLetterQueueManager.getDeadLetterMessages("topic", 10, 0)))
             .compose(v -> assertFutureFailure(deadLetterQueueManager.getAllDeadLetterMessages(10, 0)))
@@ -387,8 +426,22 @@ public class DeadLetterQueueManagerFocusedIntegrationTest extends BaseIntegratio
      * this test renames the table to simulate unavailability for the async write API paths.
      */
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.deadletter.DeadLetterQueueManager",
+            message = "Failed to reprocess dead letter message (reactive): 1",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = io.vertx.pgclient.PgException.class)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.deadletter.DeadLetterQueueManager",
+            message = "Failed to delete dead letter message (reactive): 1",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = io.vertx.pgclient.PgException.class)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.deadletter.DeadLetterQueueManager",
+            message = "Failed to cleanup old dead letter messages (reactive)",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = io.vertx.pgclient.PgException.class)
     void testAsyncWriteApisCompleteExceptionallyWhenDeadLetterTableUnavailable(VertxTestContext testContext) {
-        logger.error("===== INTENTIONAL ERROR TEST ===== The next 3 ERROR logs (dead letter write failures) are EXPECTED this test renames the DLQ table to simulate unavailability and verifies the async write APIs complete exceptionally");
         renameDeadLetterTable("dead_letter_queue_tmp")
             .compose(v -> assertFutureFailure(deadLetterQueueManager.reprocessDeadLetterMessage(1L, "reason")))
             .compose(v -> assertFutureFailure(deadLetterQueueManager.deleteDeadLetterMessage(1L, "reason")))
@@ -407,8 +460,22 @@ public class DeadLetterQueueManagerFocusedIntegrationTest extends BaseIntegratio
      * this test renames the table to simulate unavailability for the sync write wrapper paths.
      */
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.deadletter.DeadLetterQueueManager",
+            message = "Failed to reprocess dead letter message (reactive): 1",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = io.vertx.pgclient.PgException.class)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.deadletter.DeadLetterQueueManager",
+            message = "Failed to delete dead letter message (reactive): 1",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = io.vertx.pgclient.PgException.class)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.deadletter.DeadLetterQueueManager",
+            message = "Failed to cleanup old dead letter messages (reactive)",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = io.vertx.pgclient.PgException.class)
     void testSyncWriteInternalApisFailFastWhenDeadLetterTableUnavailable(VertxTestContext testContext) {
-        logger.error("===== INTENTIONAL ERROR TEST ===== The next 3 ERROR logs (dead letter write failures) are EXPECTED this test renames the DLQ table to simulate unavailability and verifies the sync write wrapper APIs fail fast");
         renameDeadLetterTable("dead_letter_queue_tmp")
             .compose(v -> assertFutureFailure(reprocessDeadLetterMessage(1L, "reason")))
             .compose(v -> assertFutureFailure(deleteDeadLetterMessage(1L, "reason")))

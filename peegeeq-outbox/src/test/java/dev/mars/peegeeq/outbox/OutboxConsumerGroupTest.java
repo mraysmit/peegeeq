@@ -266,6 +266,35 @@ class OutboxConsumerGroupTest {
     }
 
     @Test
+    void repeatedCloseCallsShareInProgressSettlement(VertxTestContext testContext) {
+        Promise<Void> handlerStarted = Promise.promise();
+        Promise<Void> releaseHandler = Promise.promise();
+
+        consumerGroup.addConsumer("close-settlement-consumer", message -> {
+            handlerStarted.tryComplete();
+            return releaseHandler.future();
+        });
+
+        consumerGroup.start()
+                .compose(v -> producer.send("close settlement message"))
+                .compose(v -> handlerStarted.future())
+                .compose(v -> {
+                    Future<Void> firstClose = consumerGroup.close();
+                    Future<Void> repeatedClose = consumerGroup.close();
+                    try {
+                        assertSame(firstClose, repeatedClose,
+                                "Repeated close calls must share the in-progress settlement Future");
+                        assertFalse(repeatedClose.isComplete(),
+                                "Close must remain pending while a message handler is in flight");
+                    } finally {
+                        releaseHandler.tryComplete();
+                    }
+                    return repeatedClose;
+                })
+                .onComplete(testContext.succeeding(v -> testContext.completeNow()));
+    }
+
+    @Test
     void testConsumerGroupDynamicScaling(VertxTestContext testContext) throws Exception {
         logger.info("Test: consumer group dynamic scaling");
         int initialMessageCount = 3;
@@ -326,4 +355,3 @@ class OutboxConsumerGroupTest {
             "Should have active additional consumers");
     }
 }
-
