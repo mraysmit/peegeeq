@@ -13,6 +13,7 @@ import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -413,6 +414,11 @@ public class OutboxSchemaIsolationCoverageTest {
     // -----------------------------------------------------------------------
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.PeeGeeQManager",
+            message = "Failed to start PeeGeeQ Manager reactively",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = IllegalStateException.class)
     @DisplayName("TC-S6: config without an explicit schema resolves to the 'myschema' placeholder and fails fast")
     void tcS6_missingSchemaFailsFastOnPlaceholder(VertxTestContext testContext) throws Exception {
         // Inverted contract: the previous test asserted that an omitted schema silently
@@ -438,8 +444,6 @@ public class OutboxSchemaIsolationCoverageTest {
 
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
 
-        logger.error("THIS IS AN INTENTIONAL TEST ERROR: the next manager-start failure "
-                + "('required tables missing in schema myschema') is the expected fail-fast behavior");
         manager.start()
                 .onComplete(testContext.failing(err -> testContext.verify(() -> {
                     RuntimeException startupFailure = assertInstanceOf(RuntimeException.class, err,

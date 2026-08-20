@@ -32,8 +32,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Tests the null handler return path in OutboxConsumer.processMessageWithCompletion.
@@ -44,8 +42,6 @@ import org.slf4j.LoggerFactory;
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 public class OutboxConsumerNullHandlerTest {
-
-    private static final Logger logger = LoggerFactory.getLogger(OutboxConsumerNullHandlerTest.class);
 
     @Container
     private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
@@ -108,7 +104,6 @@ public class OutboxConsumerNullHandlerTest {
         Checkpoint retried = testContext.checkpoint();
 
         consumer.subscribe(message -> {
-            logger.error("===== INTENTIONAL ERROR TEST ===== The next WARN log ('Message handler returned null Future') is EXPECTED");
             if (invocationCount.incrementAndGet() == 2) {
                 retried.flag();
             }
@@ -120,5 +115,4 @@ public class OutboxConsumerNullHandlerTest {
                 "Handler should be invoked twice: once initially, once after null-return retry cycle");
     }
 }
-
 

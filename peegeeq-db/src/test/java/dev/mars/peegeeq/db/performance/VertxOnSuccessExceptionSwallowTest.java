@@ -80,7 +80,7 @@ class VertxOnSuccessExceptionSwallowTest {
     @Test
     @DisplayName("[ANTI-PATTERN] Exception thrown in onSuccess does NOT trigger onFailure")
     void antiPattern_exceptionInOnSuccess_bypassesOnFailure(Vertx vertx, VertxTestContext testContext) {
-        logger.warn("===== INTENTIONAL ERROR TEST START ===== "
+        logger.info("===== INTENTIONAL ERROR TEST START ===== "
             + "The next 'Unhandled exception' ERROR is EXPECTED "
             + "this test deliberately throws inside onSuccess to prove onFailure is never triggered.");
 
@@ -118,7 +118,7 @@ class VertxOnSuccessExceptionSwallowTest {
             assertTrue(exceptionReachedContextHandler.get(),
                 "PROOF OF DANGER: the exception was silently routed to vertx.exceptionHandler "
                     + "rather than to onFailure, making it invisible to the test framework");
-            logger.warn("===== INTENTIONAL ERROR TEST END ===== "
+            logger.info("===== INTENTIONAL ERROR TEST END ===== "
                 + "Anti-pattern confirmed: exception in onSuccess bypassed onFailure and was "
                 + "silently swallowed by the Vert.x context exception handler.");
             testContext.completeNow();
@@ -185,7 +185,7 @@ class VertxOnSuccessExceptionSwallowTest {
     @Test
     @DisplayName("[ANTI-PATTERN] Sync call after timer chain swallows exception test would hang 30 s")
     void antiPattern_syncCallAfterTimerChain_causesSilentHang(Vertx vertx, VertxTestContext testContext) {
-        logger.warn("===== INTENTIONAL ERROR TEST START ===== "
+        logger.info("===== INTENTIONAL ERROR TEST START ===== "
             + "The next 'Unhandled exception' ERROR is EXPECTED "
             + "this test models the MultiConfigurationExampleTest failure: "
             + "a sync call throws inside onSuccess after a timer chain, "
@@ -222,7 +222,7 @@ class VertxOnSuccessExceptionSwallowTest {
             assertTrue(exceptionReachedContextHandler.get(),
                 "PROOF OF DANGER: exception was silently routed to vertx.exceptionHandler "
                     + "after " + elapsedMs + "ms invisible to the test framework");
-            logger.warn("===== INTENTIONAL ERROR TEST END ===== "
+            logger.info("===== INTENTIONAL ERROR TEST END ===== "
                 + "Anti-pattern confirmed: after {}ms the test context was never completed. "
                 + "The real exception ('simulated-registerConfiguration-throws') appeared only "
                 + "as an ERROR log line, not as a test failure.", elapsedMs);

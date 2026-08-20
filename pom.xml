@@ -62,7 +62,7 @@
         <module>peegeeq-pg-sidecar</module>
         <module>peegeeq-test-support</module>
         <!-- peegeeq-performance-test-harness DELETED 2026-08-09: every figure it
-             reported was a hardcoded constant returned after Thread.sleep - fabricated
+             reported was a hardcoded constant returned after a blocking delay - fabricated
              performance results. Real load tests live in the modules under -Pperformance-tests
              (e.g. peegeeq-db fanout suites). -->
         <module>peegeeq-examples</module>
@@ -126,6 +126,7 @@
         -->
         <test.timeout.default>30s</test.timeout.default>
         <test.timeout.method>10s</test.timeout.method>
+        <junit.jupiter.extensions.autodetection.enabled>true</junit.jupiter.extensions.autodetection.enabled>
         <peegeeq.performance.tests>false</peegeeq.performance.tests>
     </properties>
 
@@ -456,6 +457,11 @@
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
                     <version>3.1.2</version>
+                    <configuration>
+                        <systemPropertyVariables>
+                            <junit.jupiter.extensions.autodetection.enabled>${junit.jupiter.extensions.autodetection.enabled}</junit.jupiter.extensions.autodetection.enabled>
+                        </systemPropertyVariables>
+                    </configuration>
                 </plugin>
                 <plugin>
                     <groupId>org.jacoco</groupId>

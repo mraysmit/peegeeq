@@ -11,6 +11,7 @@ import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.SqlConnection;
 import org.junit.jupiter.api.AfterEach;
@@ -22,8 +23,6 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
@@ -41,8 +40,6 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 @Execution(ExecutionMode.SAME_THREAD)
 public class PgConnectionProviderCoreTest extends BaseIntegrationTest {
-
-    private static final Logger logger = LoggerFactory.getLogger(PgConnectionProviderCoreTest.class);
 
     private PgConnectionManager connectionManager;
     private PgClientFactory clientFactory;
@@ -105,10 +102,9 @@ public class PgConnectionProviderCoreTest extends BaseIntegrationTest {
      * <p><strong>INTENTIONAL ERROR TEST:</strong> The next ERROR log
      * ('Failed to get reactive connection for client: non-existent-client') is EXPECTED 
      * this test deliberately requests a pool for an unknown client to verify error propagation.
-     */
+    */
     @Test
     void testGetReactivePoolNonExistentClient(VertxTestContext testContext) {
-        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Failed to get reactive connection for client: non-existent-client') is EXPECTED this test deliberately requests a pool for an unregistered client name");
         connectionProvider.getReactivePool("non-existent-client")
             .onComplete(testContext.failing(err -> testContext.verify(() -> {
                 assertTrue(err instanceof IllegalArgumentException);
@@ -126,6 +122,10 @@ public class PgConnectionProviderCoreTest extends BaseIntegrationTest {
     }
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.provider.PgConnectionProvider",
+            message = "Failed to get reactive connection for client: non-existent-client: No reactive pool found for service: non-existent-client",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void testGetConnectionNonExistentClient(VertxTestContext testContext) {
         connectionProvider.getConnection("non-existent-client")
             .onComplete(testContext.failing(err -> testContext.completeNow()));
@@ -152,8 +152,11 @@ public class PgConnectionProviderCoreTest extends BaseIntegrationTest {
      * this test deliberately uses an unknown client name to verify the error propagation path.
      */
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.provider.PgConnectionProvider",
+            message = "Failed to execute operation with connection for client: non-existent-client: No reactive pool found for service: non-existent-client",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void testWithConnectionNonExistentClient(VertxTestContext testContext) {
-        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Failed to execute operation with connection for client: non-existent-client') is EXPECTED this test deliberately uses an unregistered client name");
         connectionProvider.withConnection("non-existent-client", connection ->
             connection.query("SELECT 1")
                 .execute()
@@ -183,8 +186,11 @@ public class PgConnectionProviderCoreTest extends BaseIntegrationTest {
      * this test deliberately uses an unknown client name to verify the error propagation path.
      */
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.provider.PgConnectionProvider",
+            message = "Failed to execute operation with transaction for client: non-existent-client: No reactive pool found for service: non-existent-client",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void testWithTransactionNonExistentClient(VertxTestContext testContext) {
-        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Failed to execute operation with transaction for client: non-existent-client') is EXPECTED this test deliberately uses an unregistered client name");
         connectionProvider.withTransaction("non-existent-client", connection ->
             connection.query("SELECT 1")
                 .execute()
@@ -193,4 +199,3 @@ public class PgConnectionProviderCoreTest extends BaseIntegrationTest {
         .onComplete(testContext.failing(err -> testContext.completeNow()));
     }
 }
-

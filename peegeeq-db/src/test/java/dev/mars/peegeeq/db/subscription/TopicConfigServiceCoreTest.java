@@ -6,6 +6,7 @@ import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -207,9 +208,12 @@ public class TopicConfigServiceCoreTest extends BaseIntegrationTest {
      * this test deliberately updates a topic that was never created to verify the not-found error path.
      */
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.subscription.TopicConfigService",
+            message = "Topic configuration not found: 'test-topic-nonexistent'",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void testUpdateNonExistentTopic(VertxTestContext testContext) {
         String topic = "test-topic-nonexistent";
-        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Topic configuration not found: test-topic-nonexistent') is EXPECTED this test deliberately updates a topic that was never created to verify the not-found error path");
 
         TopicConfig config = TopicConfig.builder()
             .topic(topic)
@@ -357,4 +361,3 @@ public class TopicConfigServiceCoreTest extends BaseIntegrationTest {
         });
     }
 }
-
