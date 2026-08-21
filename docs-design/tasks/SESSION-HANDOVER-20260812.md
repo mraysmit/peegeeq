@@ -1,17 +1,18 @@
-# Session Handover — 2026-08-12 (reconciled 2026-08-20)
+# Session Handover — 2026-08-12 (reconciled 2026-08-21)
 
 Companion to `TEST-INTEGRITY-DEFECT-REMEDIATION-PLAN.md`, which is the defect register.
 This document covers what happened in this session, what state the working tree is in,
 and what the next person needs to know before touching it.
 
-## 2026-08-20 final continuation update (D1-D13 complete)
+## 2026-08-21 post-commit reconciliation (D1-D13 complete)
 
 This section supersedes the status and next-work statements in every older section below.
 The historical sections remain for audit context.
 
-- Branch `master` and `origin/master` remain at `a5625fa5`. The working tree contains the
-  uncommitted P4/D3/D7, P6/D11, and D10/D12 implementation, test, Maven, resource, and
-  documentation changes. No pre-existing user change was discarded.
+- Branch `master` and `origin/master` are aligned at `5ac99ac3`
+  (`fix: close test-integrity gaps and async shutdown races`). The P4/D3/D7, P6/D11, and
+  D10/D12 implementation, test, Maven, resource, and documentation changes are committed,
+  and the post-commit check found a clean working tree.
 - **D10 and D12 are fixed.** The reproducible defect was not slow cleanup: the public
   `closeReactive()` composition could lose its terminal signal when manager-owned Vert.x was
   terminated before that signal reached a caller composed on the same context. The method now
@@ -41,12 +42,13 @@ The historical sections remain for audit context.
   release gate was not run; it remains an owner-run release gate rather than an edit-test-loop
   requirement.
 - The next independent workstream is `peegeeq-utilities-ui`. Phase G.1b is already complete;
-  T.6 remains an optional precision/scoping enhancement rather than an unfinished defect in
-  this register.
+  T.6 was explicitly deferred on 2026-08-21. Its effort bands, architectural constraints,
+  acceptance criteria, and restart triggers are preserved in the utilities UI implementation
+  plan; dedicated-queue-per-run remains the current isolation contract.
 
-### Commit-ready worktree
+### Committed state
 
-The completed remediation is currently one uncommitted, internally coherent change set of
+Commit `5ac99ac3` records the completed remediation as one internally coherent change set of
 40 paths: 25 modified and 15 new. It spans:
 
 - root/test-support Maven activation plus the structured expected-ERROR model, capture
@@ -58,11 +60,10 @@ The completed remediation is currently one uncommitted, internally coherent chan
 - examples expected-ERROR migration;
 - this handover and the companion defect register.
 
-The `logs/` evidence files are intentionally not part of the tracked change set. The current
-worktree passes `git diff --check`. Commit all 40 listed source/resource/documentation paths
-together if preserving the register's phase-level audit trail in one commit; do not include
-unrelated files that may appear later. No additional build is required for this
-documentation-only reconciliation. The owner-run `-Pall-tests` release gate remains
+The `logs/` evidence files were intentionally excluded from the commit. `master` and
+`origin/master` both resolve to `5ac99ac3`, and `git status -sb` reports no divergence or
+working-tree changes before this documentation-only reconciliation. No additional build or
+test run is required for this wording update. The owner-run `-Pall-tests` release gate remains
 outstanding by design.
 
 ### D10/D12 and final-integrity verification evidence
