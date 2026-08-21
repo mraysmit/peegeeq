@@ -91,7 +91,7 @@ Phase F (Integration + E2E + screenshots)  ── ✅ DONE 2026-07-19 (F.1–F.4
 Phase SCH (Scheduled generator runs)       ── ✅ DONE 2026-07-19 (SCH.0–SCH.8; graduated from Part I §3
       │                                        non-goals) + SCH.9 hardening 2026-07-21; design Part III
 Phase G (Generation tool suite, §19)       ── after B; most tools client-only, no backend
-Phase T (Backend telemetry, peegeeq-db/rest) ── T.1–T.5/T.7 DONE; T.6 decision open
+Phase T (Backend telemetry, peegeeq-db/rest) ── T.1–T.5/T.7 DONE; T.6 DEFERRED
       └─ G.2 (native-vs-outbox) SHIPPED 2026-08-07 on T.1+T.2+T.7
       └─ G.1b (rich breaking-point) SHIPPED 2026-08-19 on T.4 (G3) + T.5 (G4) + T.7 (G7)
 
@@ -451,8 +451,9 @@ Surface as **modes of the Message Generator** (Flat rate · Ramp · Compare · P
 the dead `/tools` route as the suite launcher.
 
 **Build order within Phase G:** all Phase G tools are shipped. G.1b completed the phase on
-2026-08-19 using the telemetry supplied by T.4, T.5 and T.7. T.6 remains an independent
-precision/scoping decision; it did not block G.1b and is not silently inferred by the UI.
+2026-08-19 using the telemetry supplied by T.4, T.5 and T.7. T.6 is deliberately deferred;
+its scope, effort, restart criteria, and dedicated-queue workaround are recorded in Phase T.
+It did not block G.1b and is not silently inferred by the UI.
 
 ### G.2 — Native-vs-Outbox comparison, 2026-08-07 — **G.2 COMPLETE**
 
@@ -1075,8 +1076,8 @@ banned patterns; TestContainers integration tests. Full rationale and verified b
 [PEEGEEQ_ADMIN_DEVOPS_TELEMETRY_REQUIREMENTS.md](PEEGEEQ_ADMIN_DEVOPS_TELEMETRY_REQUIREMENTS.md).
 
 *Gate status:* G.2 shipped on T.1/T.2/T.7. T.4 (G3) and T.5 (G4) were completed on
-2026-08-09; G.1b consumed those signals plus T.7 and shipped on 2026-08-19. T.6 remains an
-optional precision/scoping decision.
+2026-08-09; G.1b consumed those signals plus T.7 and shipped on 2026-08-19. T.6 was explicitly
+deferred on 2026-08-21; the decision record below preserves its scope and estimated effort.
 
 | Step | Gap | What to add | Reference |
 |---|---|---|---|
@@ -1085,8 +1086,75 @@ optional precision/scoping decision.
 | T.3 | G6 | ✅ **DONE 2026-08-05** — enqueue timestamp + client headers on the LIVE SSE message frame (`enqueuedAt`, `headers`); see the T.3 record below. The browse endpoint already satisfied G6 — confirmed against a running backend BEFORE any code was written — so the real gap was the stream. Additive: the pre-existing emit-time `timestamp` is kept and documented, so no SSE consumer breaks | telemetry §4 G6 |
 | T.4 | G3 | ✅ **DONE 2026-08-09** — typed core saturation snapshot: event-loop lag and pool acquire-wait; producer send timing; NOTIFY queue usage in DB telemetry. See the superseding metrics-stack remediation record below | telemetry §4 G3 |
 | T.5 | G4 | ✅ **DONE 2026-08-09** — periodic-stream jitter fixed and fast per-queue stats SSE added (`/stats/stream`, 200–10000 ms) | telemetry §5 |
-| T.6 | G5 | ◇ **DECISION OPEN, NOT A G.1b BLOCKER** — per-run/correlation scoping, or retain dedicated-queue-per-run as the tool-side workaround | telemetry §4 G5 |
+| T.6 | G5 | ⏸ **DEFERRED 2026-08-21, NOT A G.1b BLOCKER** — true per-run scoping is substantial cross-module work; retain dedicated-queue-per-run as the current tool-side isolation contract. Full scope, effort, and restart criteria are recorded below. | telemetry §4 G5 |
 | T.7 | G7 | ✅ **DONE 2026-08-06** (module-verified; the `peegeeq-db` blocker noted here was ~~unresolved~~ **fixed in `ed2e3d00`, the same commit — confirmed 2026-08-08, see the T.7 record below**) — `GET /api/v1/setups/{setupId}/db-telemetry` returns one snapshot: per-table `pg_stat_user_tables` + `pg_statio_user_tables` + size stats for every table in the setup's schema, plus the cluster signals (long-txn/`xmin`, locks, WAL, checkpoints, xid-age, commit/rollback/deadlock). Errors surface as 404/503 — never fabricated zeroes. Evidence: `peegeeq-rest` core 172/172, integration 332/332 (`logs/peegeeq-rest-*-20260806.txt`) | telemetry §4A |
+
+### T.6 — per-run telemetry scoping — DEFERRED 2026-08-21
+
+**Decision.** Do not implement T.6 until concurrent generator runs sharing one queue are a
+demonstrated operating requirement. G.1b and the comparison tool already report their actual
+scope honestly. For isolated attribution today, use a dedicated queue per run. This is an
+explicit workaround, not a claim that queue-wide or lifetime metrics are run-scoped.
+
+**Why this is not a small UI change.** The generator owns a `runId`, but the current publish
+contract sends `correlationId`, not a dedicated run identity. Correlation IDs also become
+per-message in trace-seed mode, so they cannot safely double as the run key. Core metrics are
+per-instance/per-topic Micrometer meters, REST exposes queue snapshots and streams, and PostgreSQL
+`pg_stat_*` counters are table-wide. Filtering the UI after collection cannot separate two runs
+whose activity was aggregated before it reached the browser.
+
+**Effort estimate** (one engineer, targeted edit-test loops, excluding the approximately
+90-minute owner-run release gate):
+
+| Option | Estimate | Delivered scope |
+|---|---:|---|
+| Preserve and make the dedicated-queue contract more explicit in the UI | 0.5–1 day | Guidance/validation only; no backend telemetry change |
+| True run-scoped application telemetry | 6–9 engineering days | Run-scoped send/claim/process/failure/DLQ counts and latency distributions through API, DB metrics, native, outbox, REST/SSE, and utilities UI |
+| Application telemetry plus genuinely run-scoped PostgreSQL churn | 10–15 engineering days | The above plus new application-maintained database accounting or schema/index work; `pg_stat_*` cannot provide this partition by itself |
+
+These are planning estimates, not commitments. Re-estimate after the first design/reproduction
+phase if the existing message metadata or storage paths have changed.
+
+**Required design constraints if resumed:**
+
+1. Add an explicit run identifier to the publish/message contract or a formally reserved header;
+   do not overload `correlationId`.
+2. Keep run state bounded and expiring. Do not add arbitrary run IDs as permanent Micrometer tags:
+   that creates unbounded meter cardinality and retains completed runs indefinitely.
+3. Define lifecycle semantics before implementation: registration, first accepted message,
+   completion, expiry, late messages, retries, DLQ transitions, and process restart.
+4. Instrument both native and outbox paths at equivalent send, claim, process, failure, and DLQ
+   boundaries so a comparison does not measure two different contracts.
+5. Extend typed API statistics and REST/SSE contracts with explicit run selection and the existing
+   absent-means-unmeasured rule. Unknown, expired, or unavailable run telemetry must not become
+   fabricated zeroes.
+6. Pass the run identity through the generator, ramp, comparison, and scheduled-run paths, then
+   consume the scoped stream/snapshots in the attribution reports.
+7. Treat database churn separately. Queue-table `pg_stat_*` deltas remain run-window observations
+   unless the larger database-accounting option is deliberately selected.
+
+**Likely module scope:** `peegeeq-api`, `peegeeq-db`, `peegeeq-native`, `peegeeq-outbox`,
+`peegeeq-rest`, and `peegeeq-utilities-ui`, plus their existing same-area tests and telemetry
+documentation.
+
+**Minimum acceptance criteria if resumed:**
+
+- two concurrent runs on the same queue report separate counts and latency sample populations,
+  with no cross-run leakage;
+- native and outbox expose the same run-scoped fields and lifecycle semantics;
+- retries and DLQ transitions remain attributed to the originating run;
+- expired/unknown runs are explicit absence or a typed not-found response, never zero-filled data;
+- retention is bounded and a contract test proves completed runs are evicted;
+- queue-wide endpoints remain backward compatible and clearly labelled as queue/lifetime scope;
+- the utilities UI names the observed scope in every report and continues to surface telemetry
+  failures rather than dropping them;
+- each changed Java reactor slice receives its mandatory clean rebuild followed by targeted core
+  and Testcontainers integration tests; the UI receives a production build, focused Vitest, and
+  a real-backend Playwright scenario with two overlapping runs on one queue.
+
+**Restart trigger.** Reopen T.6 only when users need concurrent same-queue runs, an automated
+environment cannot allocate a dedicated queue, or a downstream consumer requires run-isolated
+telemetry through the API. Otherwise the dedicated-queue contract remains the lower-risk choice.
 
 ### T.4 — historical first increment, 2026-08-08
 
@@ -2311,8 +2379,8 @@ Test counts are deliberately not recorded here — run the suites for current nu
   code once the runtime behaviour is known. Use the Backend service control prerequisite (copied
   from management-ui) to stand up the REST backend for that verification.
 - **Backend-led work is quarantined into named tracks:** Phase T's required telemetry for G.1b
-  was delivered on 2026-08-09, and rich breaking-point attribution shipped on 2026-08-19. T.6 remains
-  a non-blocking scoping decision. The **Setup connect / reconnect track (Phases S → R → M)** is a separate backend-led effort
+  was delivered on 2026-08-09, and rich breaking-point attribution shipped on 2026-08-19. T.6 is
+  deliberately deferred with its scope, effort, and restart criteria recorded above. The **Setup connect / reconnect track (Phases S → R → M)** is a separate backend-led effort
   spec'd in the connect and management-DB docs. Everything else — all of Phases A–F and most of G —
   runs on client-side metering plus the telemetry/endpoints PeeGeeQ already exposes, so the utilities-ui
   UI work never blocks on backend changes.
