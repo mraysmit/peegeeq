@@ -6,6 +6,7 @@ import dev.mars.peegeeq.rest.PeeGeeQRestServer;
 import dev.mars.peegeeq.rest.config.RestServerConfig;
 import dev.mars.peegeeq.rest.support.ControllableSetupService;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
@@ -120,6 +121,16 @@ class ManagementApiHandlerErrorTest {
     // =========================================================================
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.rest.handlers.ManagementApiHandler",
+            message = "Error getting system overview: service down",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = RuntimeException.class)
+    @ExpectedErrorLog(
+            logger = "io.vertx.ext.web.handler.LoggerHandler",
+            message = "127.0.0.1 - - [",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void getOverview_serviceFails_returns503(Vertx vertx, VertxTestContext testContext) {
         logger.info("--- EXPECTED ERROR (C3: getSystemOverview service failure → 503) ---");
         ControllableSetupService svc = ControllableSetupService.alwaysFailing("service down");
@@ -148,6 +159,11 @@ class ManagementApiHandlerErrorTest {
     // =========================================================================
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.rest.handlers.ManagementApiHandler",
+            message = "Error parsing create queue request",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = NullPointerException.class)
     void createQueue_missingBody_returns400(VertxTestContext testContext) {
         logger.info("--- EXPECTED ERROR (C1: createQueue missing body → 400, NullPointerException) ---");
         webClient.post(TEST_PORT, "localhost", "/api/v1/management/queues")
@@ -167,6 +183,10 @@ class ManagementApiHandlerErrorTest {
     // =========================================================================
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.rest.handlers.ManagementApiHandler",
+            message = "Error creating queue 'test-q' in setup 'test-setup': Setup not found: test-setup",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void createQueue_serviceFailsWithSetupNotFound_returns404(Vertx vertx, VertxTestContext testContext) {
         logger.info("--- EXPECTED ERROR (C2: createQueue Setup not found → 404, RuntimeException) ---");
         ControllableSetupService svc = ControllableSetupService.defaults()
@@ -197,6 +217,15 @@ class ManagementApiHandlerErrorTest {
     // =========================================================================
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.rest.handlers.ManagementApiHandler",
+            message = "Error creating queue 'test-q' in setup 'test-setup': database connection failed",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    @ExpectedErrorLog(
+            logger = "io.vertx.ext.web.handler.LoggerHandler",
+            message = "127.0.0.1 - - [",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void createQueue_serviceFails_returns503(Vertx vertx, VertxTestContext testContext) {
         logger.info("--- EXPECTED ERROR (C3: createQueue service failure → 503, RuntimeException) ---");
         ControllableSetupService svc = ControllableSetupService.defaults()
@@ -300,6 +329,11 @@ class ManagementApiHandlerErrorTest {
     // =========================================================================
 
     @Test
+    @ExpectedErrorLog(
+            logger = "io.vertx.ext.web.handler.LoggerHandler",
+            message = "127.0.0.1 - - [",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void pauseConsumerGroup_subscriptionServiceUnavailable_returns503(VertxTestContext testContext) {
         logger.info("--- EXPECTED ERROR (C10: pauseConsumerGroup subscription service null → 503, ResponseException) ---");
         webClient.post(TEST_PORT, "localhost",
@@ -351,6 +385,11 @@ class ManagementApiHandlerErrorTest {
     // =========================================================================
 
     @Test
+    @ExpectedErrorLog(
+            logger = "io.vertx.ext.web.handler.LoggerHandler",
+            message = "127.0.0.1 - - [",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void resumeConsumerGroup_subscriptionServiceUnavailable_returns503(VertxTestContext testContext) {
         logger.info("--- EXPECTED ERROR (C12: resumeConsumerGroup subscription service null → 503, ResponseException) ---");
         webClient.post(TEST_PORT, "localhost",
@@ -402,6 +441,11 @@ class ManagementApiHandlerErrorTest {
     // =========================================================================
 
     @Test
+    @ExpectedErrorLog(
+            logger = "io.vertx.ext.web.handler.LoggerHandler",
+            message = "127.0.0.1 - - [",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void backfillConsumerGroup_subscriptionServiceUnavailable_returns503(VertxTestContext testContext) {
         logger.info("--- EXPECTED ERROR (C14: backfillConsumerGroup subscription service null → 503, ResponseException) ---");
         webClient.post(TEST_PORT, "localhost",

@@ -4,10 +4,16 @@
 
 ## Profile Architecture (read this first)
 
-Test-execution profiles are defined in **exactly one place**: the root `pom.xml`.
-Module poms must NOT redeclare them. The previous per-module `activeByDefault`
-profiles silently overrode root settings and caused tests to be skipped for
-months — that architecture is gone.
+Java test-execution profiles are defined in **exactly one place**: the root
+`pom.xml`. Java module poms must NOT redeclare them. The previous per-Java-module
+`activeByDefault` profiles silently overrode root settings and caused tests to be
+skipped for months — that architecture is gone.
+
+The two UI packaging modules are the deliberate exception: their matching profile
+IDs wire npm commands into Maven rather than filtering JUnit tags. Each UI's
+`core-tests` wiring is `activeByDefault`, so plain `mvn test` executes its Vitest
+suite. Selecting another shared profile ID deactivates that default and executes
+only the requested frontend test command.
 
 The root pom provides these defaults (applied to every module automatically
 when no `-P` is given):
@@ -20,9 +26,10 @@ when no `-P` is given):
 | `test.threadCount` | `4` |
 | `peegeeq.performance.tests` | `false` |
 
-So **`mvn test`** (no `-P`) = "run `@Tag("core")` tests, exclude
-integration / performance / slow". There is no `core-tests` profile any
-more — it would be redundant.
+So **`mvn test`** (no `-P`) = "run `@Tag("core")` Java tests, exclude
+integration / performance / slow, and run both UI Vitest suites". There is no
+root Java `core-tests` profile — it would be redundant. The UI-only profiles of
+that name provide frontend lifecycle wiring, not Java tag selection.
 
 ### Available profiles (root pom)
 
@@ -47,7 +54,7 @@ mvn test -Pall-tests -rf :peegeeq-examples 2>&1 | Tee-Object -FilePath logs\all-
 # Full suite — every tag, every module (~90m) — explicit release GATE
 mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260526.txt
 
-# Core tests — all modules (default, ~30s)
+# Core tests — all modules, including both UI Vitest suites (default, ~4m)
 mvn test 2>&1 | Tee-Object -FilePath logs\core-tests-20260526.txt
 
 # Core tests — single module
@@ -210,8 +217,10 @@ mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260526.t
 
 `-Pall-tests` is the **single guarantee** that every test in every module
 runs. If a test exists in the repo and a `mvn clean test -Pall-tests` invocation
-does not execute it, that is a bug — file it. There is no longer any
-per-module `activeByDefault` profile that can silently override the filters.
+does not execute it, that is a bug — file it. There is no longer any Java-module
+`activeByDefault` profile that can silently override the filters. The UI-only
+defaults merely bind Vitest to plain `mvn test`; explicit `-Pall-tests` activation
+replaces them with each UI's `npm-test-all` execution.
 
 > **Use `clean`** for regression-safety runs. Maven's incremental compiler
 > can leave stale synthetic inner classes (e.g. enum-switch `$1` SwitchMap
@@ -237,7 +246,7 @@ repo reports `Tests run: 0` in every module.
 
 - **`peegeeq-runtime`**: surefire has no `<groups>` filter — runs every test on `mvn test`, regardless of tag. Intentional but inconsistent.
 - **`peegeeq-rest-client`**: reads `${test.groups}` from root but has no module-local profile.
-- **`peegeeq-management-ui`**: profiles in this module wire the frontend (`npm test`) scripts via `frontend-maven-plugin`. They intentionally share profile IDs with the root pom so they activate together. This is the **only** module besides root that declares `<id>core-tests</id>`, `<id>integration-tests</id>`, etc., and that is correct.
+- **`peegeeq-management-ui`** and **`peegeeq-utilities-ui`**: profiles in these packaging modules wire frontend npm scripts via `frontend-maven-plugin`. They intentionally share profile IDs with the root pom so explicit profiles activate together. Their `core-tests` profiles are `activeByDefault` so plain `mvn test` cannot silently skip Vitest.
 - **`peegeeq-migrations`**: has environment profiles (`local` / `test` / `production`), not tag-filter profiles. `mvn test` runs all tests here.
 - **`peegeeq-pg-sidecar`**: provides a GraalVM `-Pnative` profile for native-image builds (unrelated to test filtering).
 - **`peegeeq-openapi`**, **`peegeeq-coverage-report`**: no tests.
@@ -257,10 +266,12 @@ mvn help:effective-pom -pl :peegeeq-db 2>&1 |
     Select-String -Pattern "test\.groups|test\.excludedGroups"
 # Expect: test.groups=core, test.excludedGroups=integration,performance,slow.
 
-# 3. Confirm no Java module pom redeclares root profiles
+# 3. Confirm no Java module pom redeclares root profiles; only the two UI
+#    packaging modules may provide matching frontend-wiring profiles
 Get-ChildItem -Recurse -Filter pom.xml |
     Select-String -Pattern "<id>(core-tests|integration-tests|performance-tests|smoke-tests|slow-tests|all-tests|untagged-tests)</id>"
-# Expect: matches only in .\pom.xml (root) and .\peegeeq-management-ui\pom.xml (frontend wiring).
+# Expect: matches only in .\pom.xml (root), .\peegeeq-management-ui\pom.xml,
+# and .\peegeeq-utilities-ui\pom.xml (the latter two are frontend wiring).
 ```
 
 If any of these checks fail, the centralisation has been broken and tests

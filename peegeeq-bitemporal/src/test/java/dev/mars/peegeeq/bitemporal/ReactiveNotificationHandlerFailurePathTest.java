@@ -14,6 +14,7 @@ import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
@@ -38,7 +39,6 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
-import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -113,7 +113,7 @@ class ReactiveNotificationHandlerFailurePathTest {
                     return startFuture.compose(v -> handler.stop());
                 })
                 .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
-                    assertEquals(1, connectCalls.get(), "Expected a single connect attempt");
+                    assertEquals(1, connectCalls.intValue(), "Expected a single connect attempt");
                     assertTrue(listenChannels.contains(channelFor("order_created")),
                             "Existing subscriptions should re-issue LISTEN commands after connect");
                     assertFalse(handler.listeningChannelsView().contains("stale_channel_state_should_be_cleared"),
@@ -142,7 +142,7 @@ class ReactiveNotificationHandlerFailurePathTest {
         Future<Void> second = handler.start();
 
         assertSame(first, second, "Concurrent start calls should return the same in-progress future");
-        assertEquals(1, connectCalls.get(), "Only one physical connect attempt should be started");
+        assertEquals(1, connectCalls.intValue(), "Only one physical connect attempt should be started");
 
         connect(vertx)
                 .compose(connection -> {
@@ -157,6 +157,11 @@ class ReactiveNotificationHandlerFailurePathTest {
     }
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.bitemporal.ReactiveNotificationHandler",
+            message = "Failed to stop reactive notification handler cleanly: forced unlisten failure",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = RuntimeException.class)
     void stopShouldFailWhenUnlistenFailsAndStillCleanupState(Vertx vertx, VertxTestContext testContext) {
         AtomicBoolean closeCalled = new AtomicBoolean(false);
         logger.info("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = stop() must fail when UNLISTEN fails, while still cleaning internal state");
@@ -184,7 +189,7 @@ class ReactiveNotificationHandlerFailurePathTest {
                     assertFalse(handler.hasListenConnection());
                     assertTrue(handler.listeningChannelsView().isEmpty(), "Listening channels should be cleaned up on failed stop");
                     assertTrue(handler.subscriptionsView().isEmpty(), "Subscriptions should be cleaned up on failed stop");
-                    assertTrue(closeCalled.get(), "stop() should attempt to close connection even after UNLISTEN failure");
+                    assertTrue(closeCalled.getAcquire(), "stop() should attempt to close connection even after UNLISTEN failure");
                     logger.info("THIS IS AN INTENTIONAL TEST ERROR: Confirmed expected UNLISTEN failure path and cleanup behavior");
                     testContext.completeNow();
                 }));
@@ -209,6 +214,10 @@ class ReactiveNotificationHandlerFailurePathTest {
     }
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.bitemporal.ReactiveNotificationHandler",
+            message = "Failed to establish reactive subscription: forced listen failure",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void subscribeShouldRollbackStateWhenListenSetupFails(Vertx vertx, VertxTestContext testContext) {
         String failingChannel = channelFor("test_event");
         logger.info("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = subscribe() must fail and rollback state when LISTEN setup fails");
@@ -266,7 +275,7 @@ class ReactiveNotificationHandlerFailurePathTest {
     }
 
     private static final class TestableReactiveNotificationHandler extends ReactiveNotificationHandler<String> {
-        private final Supplier<Future<PgConnection>> connectBehavior;
+        private final ConnectBehavior connectBehavior;
         private final AtomicInteger connectCalls;
         private final List<String> listenedChannels;
         private final Function<String, Future<Void>> listenBehavior;
@@ -276,7 +285,7 @@ class ReactiveNotificationHandlerFailurePathTest {
         private TestableReactiveNotificationHandler(Vertx vertx,
                 PgConnectOptions connectOptions,
                 Function<String, Future<BiTemporalEvent<String>>> eventRetriever,
-                Supplier<Future<PgConnection>> connectBehavior,
+                ConnectBehavior connectBehavior,
                 AtomicInteger connectCalls,
                 List<String> listenedChannels,
                 Function<String, Future<Void>> listenBehavior,
@@ -295,7 +304,7 @@ class ReactiveNotificationHandlerFailurePathTest {
         @Override
         Future<PgConnection> connectReactive() {
             connectCalls.incrementAndGet();
-            return connectBehavior.get();
+            return connectBehavior.connect();
         }
 
         @Override
@@ -314,5 +323,10 @@ class ReactiveNotificationHandlerFailurePathTest {
             closeCalled.set(true);
             return super.closeListenConnection(connection);
         }
+    }
+
+    @FunctionalInterface
+    private interface ConnectBehavior {
+        Future<PgConnection> connect();
     }
 }
