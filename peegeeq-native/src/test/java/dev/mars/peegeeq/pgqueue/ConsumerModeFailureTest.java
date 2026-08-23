@@ -102,18 +102,28 @@ class ConsumerModeFailureTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
-        if (factory != null) {
-            factory.close();
-        }
-        if (manager != null) {
-            manager.closeReactive()
-                .onSuccess(v -> testContext.completeNow())
-                .onFailure(testContext::failNow);
-        } else {
-            testContext.completeNow();
-        }
-        logger.info("Test teardown completed");
+        closeResources()
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+    }
+
+    private Future<Void> closeResources() {
+        Future<Void> factoryClose = factory != null ? factory.close() : Future.succeededFuture();
+        return factoryClose.transform(factoryResult -> {
+            Future<Void> managerClose = manager != null ? manager.closeReactive() : Future.succeededFuture();
+            return managerClose.transform(managerResult -> combinedCloseResult(factoryResult.cause(), managerResult.cause()));
+        });
+    }
+
+    private Future<Void> combinedCloseResult(Throwable factoryFailure, Throwable managerFailure) {
+        if (factoryFailure != null) {
+            if (managerFailure != null) {
+                factoryFailure.addSuppressed(managerFailure);
+            }
+            return Future.failedFuture(factoryFailure);
+        }
+        return managerFailure == null ? Future.succeededFuture() : Future.failedFuture(managerFailure);
     }
 
     @Test
@@ -125,10 +135,9 @@ class ConsumerModeFailureTest {
             ConsumerConfig.builder().mode(ConsumerMode.HYBRID).pollingInterval(Duration.ofSeconds(1)).build());
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        try {
-            AtomicInteger processedCount = new AtomicInteger(0);
-            AtomicInteger exceptionCount = new AtomicInteger(0);
-            Checkpoint normalMessages = testContext.checkpoint(3);
+        AtomicInteger processedCount = new AtomicInteger(0);
+        AtomicInteger exceptionCount = new AtomicInteger(0);
+        Checkpoint normalMessages = testContext.checkpoint(3);
 
             consumer.subscribe(message -> {
                 String payload = message.getPayload();
@@ -164,13 +173,8 @@ class ConsumerModeFailureTest {
             assertTrue(exceptionCount.get() >= 2, "Should encounter at least 2 exceptions (original attempts)");
             assertTrue(exceptionCount.get() <= 6, "Should not exceed 6 exceptions (2 messages  3 retry attempts)");
 
-            logger.info("Exception handling verified - processed: {}, exceptions: {} (includes retries)",
-                processedCount.get(), exceptionCount.get());
-
-        } finally {
-            consumer.close();
-            producer.close();
-        }
+        logger.info("Exception handling verified - processed: {}, exceptions: {} (includes retries)",
+            processedCount.get(), exceptionCount.get());
 
         logger.info("Exception handling in message handlers test completed successfully");
     }
@@ -187,10 +191,9 @@ class ConsumerModeFailureTest {
             ConsumerConfig.builder().mode(ConsumerMode.LISTEN_NOTIFY_ONLY).build());
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        try {
-            AtomicInteger consumer1Count = new AtomicInteger(0);
-            AtomicInteger consumer2Count = new AtomicInteger(0);
-            Checkpoint messagesProcessed = testContext.checkpoint(2);
+        AtomicInteger consumer1Count = new AtomicInteger(0);
+        AtomicInteger consumer2Count = new AtomicInteger(0);
+        Checkpoint messagesProcessed = testContext.checkpoint(2);
 
             Future.all(
                 consumer1.subscribe(message -> {
@@ -217,14 +220,8 @@ class ConsumerModeFailureTest {
             int totalProcessed = consumer1Count.get() + consumer2Count.get();
             assertTrue(totalProcessed >= 2, "Should process at least 2 messages across consumers");
 
-            logger.info("Channel collision handling verified - consumer1: {}, consumer2: {}, total: {}",
-                consumer1Count.get(), consumer2Count.get(), totalProcessed);
-
-        } finally {
-            consumer1.close();
-            consumer2.close();
-            producer.close();
-        }
+        logger.info("Channel collision handling verified - consumer1: {}, consumer2: {}, total: {}",
+            consumer1Count.get(), consumer2Count.get(), totalProcessed);
 
         logger.info("Channel name collision handling test completed successfully");
     }
@@ -239,9 +236,8 @@ class ConsumerModeFailureTest {
             ConsumerConfig.builder().mode(ConsumerMode.HYBRID).pollingInterval(Duration.ofSeconds(1)).build());
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        try {
-            AtomicInteger processedCount = new AtomicInteger(0);
-            Checkpoint messagesReceived = testContext.checkpoint(3);
+        AtomicInteger processedCount = new AtomicInteger(0);
+        Checkpoint messagesReceived = testContext.checkpoint(3);
 
             consumer.subscribe(message -> {
                 processedCount.incrementAndGet();
@@ -259,12 +255,7 @@ class ConsumerModeFailureTest {
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should process messages even with potential partial failures");
             assertEquals(3, processedCount.get(), "Should process exactly 3 messages");
 
-            logger.info("Partial failure recovery verified - processed: {} messages", processedCount.get());
-
-        } finally {
-            consumer.close();
-            producer.close();
-        }
+        logger.info("Partial failure recovery verified - processed: {} messages", processedCount.get());
 
         logger.info("Partial mode failure recovery test completed successfully");
     }
@@ -278,10 +269,9 @@ class ConsumerModeFailureTest {
             ConsumerConfig.builder().mode(ConsumerMode.HYBRID).pollingInterval(Duration.ofSeconds(1)).build());
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        try {
-            AtomicInteger processedCount = new AtomicInteger(0);
-            AtomicReference<String> lastProcessedMessage = new AtomicReference<>();
-            Checkpoint messagesReceived = testContext.checkpoint(2);
+        AtomicInteger processedCount = new AtomicInteger(0);
+        AtomicReference<String> lastProcessedMessage = new AtomicReference<>();
+        Checkpoint messagesReceived = testContext.checkpoint(2);
 
             consumer.subscribe(message -> {
                 processedCount.incrementAndGet();
@@ -303,12 +293,7 @@ class ConsumerModeFailureTest {
             assertEquals("After recovery message", lastProcessedMessage.get(),
                 "Should process the recovery message last");
 
-            logger.info("Recovery after failure verified - processed: {} messages", processedCount.get());
-
-        } finally {
-            consumer.close();
-            producer.close();
-        }
+        logger.info("Recovery after failure verified - processed: {} messages", processedCount.get());
 
         logger.info("Recovery after temporary failure test completed successfully");
     }
@@ -322,9 +307,8 @@ class ConsumerModeFailureTest {
             ConsumerConfig.builder().mode(ConsumerMode.HYBRID).pollingInterval(Duration.ofSeconds(1)).build());
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        try {
-            AtomicInteger processedCount = new AtomicInteger(0);
-            Checkpoint messagesReceived = testContext.checkpoint(10);
+        AtomicInteger processedCount = new AtomicInteger(0);
+        Checkpoint messagesReceived = testContext.checkpoint(10);
 
             consumer.subscribe(message -> {
                 int count = processedCount.incrementAndGet();
@@ -346,15 +330,8 @@ class ConsumerModeFailureTest {
             assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Should handle moderate load without failures");
             assertEquals(10, processedCount.get(), "Should process exactly 10 messages under load");
 
-            logger.info("Robustness under load verified - processed: {} messages", processedCount.get());
-
-        } finally {
-            consumer.close();
-            producer.close();
-        }
+        logger.info("Robustness under load verified - processed: {} messages", processedCount.get());
 
         logger.info("Consumer mode robustness under load test completed successfully");
     }
 }
-
-

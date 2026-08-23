@@ -45,8 +45,10 @@ import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -76,8 +78,9 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     private final OffsetDateTime minimumCreatedAt;
     private final AtomicBoolean subscribed = new AtomicBoolean(false);
     private final AtomicBoolean closed = new AtomicBoolean(false);
-    private final AtomicInteger inFlightOperations = new AtomicInteger(0);
     private final AtomicInteger processingInFlight = new AtomicInteger(0);
+    private final Object lifecycleLock = new Object();
+    private final Set<Future<Void>> inFlightProcessing = new HashSet<>();
 
     private MessageHandler<T> messageHandler;
     private PgConnection subscriber;
@@ -86,6 +89,21 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     private int listenBackoffMs = 1000;
     private long pollingTimerId = -1;
     private long cleanupTimerId = -1;
+    private Future<Void> closeFuture;
+
+    private record HandlerSettlement(Throwable failure, boolean visibilityExpired) {
+        private static HandlerSettlement succeeded() {
+            return new HandlerSettlement(null, false);
+        }
+
+        private static HandlerSettlement failed(Throwable failure) {
+            return new HandlerSettlement(failure, false);
+        }
+
+        private static HandlerSettlement expired() {
+            return new HandlerSettlement(null, true);
+        }
+    }
 
     // The configuration-less constructor was removed deliberately: the consumer's
     // LISTEN channel derives from the configured schema, and PeeGeeQ has no default
@@ -221,7 +239,10 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     @Override
     public void unsubscribe() {
         if (subscribed.compareAndSet(true, false)) {
-            stopListening();
+            stopListening()
+                    .onFailure(err -> logger.warn(
+                            "Failed to stop LISTEN subscription for topic {}: {}",
+                            topic, err.getMessage(), err));
             this.messageHandler = null;
             logger.info("Unsubscribed from topic: {}", topic);
         }
@@ -246,8 +267,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                         .map(conn))
                 .compose(conn -> {
                     if (!shouldMaintainListenSubscription()) {
-                        conn.close();
-                        return Future.<Void>succeededFuture();
+                        return conn.close();
                     }
                     // Reset backoff on successful connect
                     listenBackoffMs = 1000;
@@ -279,8 +299,13 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                             logger.warn("LISTEN error on channel {} (polling active as fallback): {}", notifyChannel, err.getMessage());
                         }
                         try {
-                            conn.close();
-                        } catch (Exception ignore) {
+                            conn.close()
+                                    .onFailure(closeError -> logger.warn(
+                                            "Failed to close LISTEN connection for channel {} after error: {}",
+                                            notifyChannel, closeError.getMessage(), closeError));
+                        } catch (Exception closeError) {
+                            logger.warn("Failed to initiate LISTEN connection close for channel {}: {}",
+                                    notifyChannel, closeError.getMessage(), closeError);
                         }
                     });
 
@@ -303,7 +328,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 });
     }
 
-    private void stopListening() {
+    private Future<Void> stopListening() {
         Vertx vertx = poolAdapter.getVertx();
         if (vertx != null && listenReconnectTimerId != -1) {
             vertx.cancelTimer(listenReconnectTimerId);
@@ -314,20 +339,20 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             subscriber = null; // Clear reference first to prevent new operations
 
             logger.debug("Executing UNLISTEN for channel: {}", notifyChannel);
-            connectionToClose
+            return connectionToClose
                     .query("UNLISTEN \"" + notifyChannel + "\"")
                     .execute()
                     .onSuccess(rs -> logger.info("Stopped listening on channel: {}", notifyChannel))
-                    .onFailure(err ->
-                            // During shutdown, UNLISTEN errors are expected (connection may already be
-                            // closed)
-                            logger.debug("Error during UNLISTEN for channel {}: {}", notifyChannel,
-                                    err.getMessage()))
+                    .onFailure(err -> logger.warn(
+                            "Error during UNLISTEN for channel {}: {}", notifyChannel,
+                            err.getMessage(), err))
                     .eventually(() -> connectionToClose.close()
-                            .onFailure(ignore ->
-                                logger.debug("Error closing connection after UNLISTEN: {}", ignore.getMessage()))
-                            .transform(ar -> Future.<Void>succeededFuture()));
+                            .onFailure(closeError -> logger.warn(
+                                    "Error closing connection after UNLISTEN on channel {}: {}",
+                                    notifyChannel, closeError.getMessage(), closeError)))
+                    .mapEmpty();
         }
+        return Future.succeededFuture();
     }
 
     private void scheduleListenReconnect() {
@@ -363,7 +388,10 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     void closeSubscriberConnectionForTest() {
         PgConnection connectionToClose = subscriber;
         if (connectionToClose != null) {
-            connectionToClose.close();
+            connectionToClose.close()
+                    .onFailure(error -> logger.warn(
+                            "Test-triggered LISTEN connection close failed for channel {}: {}",
+                            notifyChannel, error.getMessage(), error));
         }
     }
 
@@ -423,54 +451,56 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
 
     private void processAvailableMessages() {
         logger.debug("processAvailableMessages() called for topic: {}", topic);
-        // : Check if consumer is closed to prevent infinite retry loops
-        // during shutdown
-        if (!subscribed.get() || messageHandler == null || closed.get()) {
-            logger.debug(
-                    "Skipping message processing - subscribed: {}, messageHandler: {}, closed: {} for topic {}",
-                    subscribed.get(), (messageHandler != null), closed.get(), topic);
-            return;
+        Future<Void> processing;
+        synchronized (lifecycleLock) {
+            if (!subscribed.get() || messageHandler == null || closed.get()) {
+                logger.debug(
+                        "Skipping message processing - subscribed: {}, messageHandler: {}, closed: {} for topic {}",
+                        subscribed.get(), messageHandler != null, closed.get(), topic);
+                return;
+            }
+            try {
+                processing = processAvailableMessagesInternal();
+                inFlightProcessing.add(processing);
+            } catch (Exception error) {
+                logger.error("Failed to start message processing for topic {}: {}",
+                        topic, error.getMessage(), error);
+                return;
+            }
         }
-        logger.debug("Consumer is active, proceeding with message processing for topic: {}", topic);
 
+        processing
+                .eventually(() -> {
+                    synchronized (lifecycleLock) {
+                        inFlightProcessing.remove(processing);
+                    }
+                    return Future.succeededFuture();
+                })
+                .onFailure(error -> logger.error(
+                        "Message processing pipeline failed for topic {}: {}",
+                        topic, error.getMessage(), error));
+    }
+
+    private Future<Void> processAvailableMessagesInternal() {
+        int reservedCapacity = 0;
         try {
             final Pool pool = poolAdapter.getPoolOrThrow();
 
-            // : Check if pool is closed before attempting operations
-            // This prevents RejectedExecutionException during shutdown
-            if (pool == null) {
-                logger.debug("Pool is null, skipping message processing for topic: {}", topic);
-                return;
-            }
-
-            // Determine batch size: prefer ConsumerConfig, then PeeGeeQConfiguration, else
-            // default 1
-            int batchSize = (consumerConfig != null) ? consumerConfig.getBatchSize()
-                    : (configuration != null ? configuration.getQueueConfig().getBatchSize() : 1);
-
-            // Bounded concurrency: do not claim more than remaining processing capacity
-            int maxThreads;
-            if (consumerConfig != null && consumerConfig.getConsumerThreads() > 0) {
-                maxThreads = consumerConfig.getConsumerThreads();
-            } else if (configuration != null && configuration.getQueueConfig().getConsumerThreads() > 0) {
-                maxThreads = configuration.getQueueConfig().getConsumerThreads();
-            } else {
-                maxThreads = 1;
-            }
-            int remainingCapacity = Math.max(0, maxThreads - processingInFlight.get());
-            if (remainingCapacity <= 0) {
+            int batchSize = consumerConfig != null
+                    ? consumerConfig.getBatchSize()
+                    : configuration.getQueueConfig().getBatchSize();
+            int maxThreads = consumerConfig != null && consumerConfig.getConsumerThreads() > 0
+                    ? consumerConfig.getConsumerThreads()
+                    : configuration.getQueueConfig().getConsumerThreads();
+            reservedCapacity = reserveProcessingCapacity(maxThreads, batchSize);
+            if (reservedCapacity == 0) {
                 logger.debug("No remaining capacity (processingInFlight={} >= maxThreads={}), skip claim",
                         processingInFlight.get(), maxThreads);
-                return;
+                return Future.succeededFuture();
             }
-            int effectiveBatch = Math.min(batchSize, remainingCapacity);
+            int admittedCapacity = reservedCapacity;
+            long lockDurationSeconds = configuration.getQueueConfig().getVisibilityTimeout().toSeconds();
 
-            // Compute lock duration from configured visibility timeout; default 30 s
-            long lockDurationSeconds = (configuration != null)
-                    ? configuration.getQueueConfig().getVisibilityTimeout().toSeconds()
-                    : 30L;
-
-            // Build SQL dynamically based on whether server-side filter is present
             ServerSideFilter filter = consumerConfig != null ? consumerConfig.getServerSideFilter() : null;
             String startPositionCondition = "";
             List<Object> startPositionParameters = new ArrayList<>(1);
@@ -481,11 +511,10 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 startPositionCondition = " AND created_at >= $4";
                 startPositionParameters.add(minimumCreatedAt);
             }
+
             String sql;
             Tuple params;
-
             if (filter != null) {
-                // Server-side filtering: add filter condition to WHERE clause
                 int filterParameterOffset = 4 + startPositionParameters.size();
                 String filterCondition = filter.toSqlCondition(filterParameterOffset);
                 sql = """
@@ -502,22 +531,18 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                         SET status = 'LOCKED', lock_until = now() + make_interval(secs => $3)
                         FROM c
                         WHERE q.id = c.id
-                        RETURNING q.id, q.payload, q.headers, q.correlation_id, q.message_group, q.retry_count, q.created_at,
+                        RETURNING q.id, q.payload, q.headers, q.correlation_id, q.message_group,
+                                  q.retry_count, q.created_at,
                                   EXTRACT(EPOCH FROM (now() - q.created_at)) * 1000.0 AS delivery_latency_ms
-                        """
-                        .formatted(startPositionCondition, filterCondition);
-
+                        """.formatted(startPositionCondition, filterCondition);
                 List<Object> allParameters = new ArrayList<>();
                 allParameters.add(topic);
-                allParameters.add(effectiveBatch);
+                allParameters.add(admittedCapacity);
                 allParameters.add(lockDurationSeconds);
                 allParameters.addAll(startPositionParameters);
                 allParameters.addAll(filter.getParameters());
                 params = Tuple.from(allParameters);
-
-                logger.debug("Using server-side filter: {}, SQL filter: {}", filter, filterCondition);
             } else {
-                // No filter: use original SQL
                 sql = """
                         WITH c AS (
                             SELECT id FROM queue_messages
@@ -531,120 +556,127 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                         SET status = 'LOCKED', lock_until = now() + make_interval(secs => $3)
                         FROM c
                         WHERE q.id = c.id
-                        RETURNING q.id, q.payload, q.headers, q.correlation_id, q.message_group, q.retry_count, q.created_at,
+                        RETURNING q.id, q.payload, q.headers, q.correlation_id, q.message_group,
+                                  q.retry_count, q.created_at,
                                   EXTRACT(EPOCH FROM (now() - q.created_at)) * 1000.0 AS delivery_latency_ms
                         """.formatted(startPositionCondition);
                 List<Object> allParameters = new ArrayList<>();
                 allParameters.add(topic);
-                allParameters.add(effectiveBatch);
+                allParameters.add(admittedCapacity);
                 allParameters.add(lockDurationSeconds);
                 allParameters.addAll(startPositionParameters);
                 params = Tuple.from(allParameters);
             }
 
-            // Use injected Vert.x instance; avoid creating new Vert.x inside existing
-            // contexts
-            Vertx vt = poolAdapter.getVertx();
-            if (vt == null && Vertx.currentContext() != null) {
-                vt = Vertx.currentContext().owner();
+            Vertx vertx = poolAdapter.getVertx();
+            if (vertx == null && Vertx.currentContext() != null) {
+                vertx = Vertx.currentContext().owner();
             }
-            if (vt == null) {
-                logger.debug("No Vert.x instance available, skipping message processing for topic: {}",
-                        topic);
-                return;
+            if (vertx == null) {
+                releaseProcessingCapacity(admittedCapacity);
+                return Future.failedFuture(
+                        new IllegalStateException("No Vert.x instance available for topic " + topic));
             }
-            final Vertx vertx = vt;
-
-            // Execute batch processing with proper parameters and retry for transient DB
-            // errors - use withTransaction for automatic commit/rollback and search_path support
-            executeOnVertxContext(vertx, () -> withRetry(vertx,
+            Vertx operationVertx = vertx;
+            return executeOnVertxContext(operationVertx, () -> withRetry(operationVertx,
                     () -> pool.withTransaction(conn -> conn.preparedQuery(sql).execute(params)),
-                    3, 50)
-                    .onSuccess(result -> {
-                        // Double-check if consumer is still active after async operation
-                        if (closed.get()) {
-                            logger.debug(
-                                    "Consumer closed during message processing, ignoring results for topic: {}",
-                                    topic);
-                            return;
+                    3, 50))
+                    .transform(claimResult -> {
+                        if (claimResult.failed()) {
+                            releaseProcessingCapacity(admittedCapacity);
+                            return Future.failedFuture(claimResult.cause());
                         }
 
-                        if (result.size() > 0) {
-                            logger.debug("Processing {} messages for topic {}", result.size(), topic);
-                            logger.debug("Processing {} messages for topic {}", result.size(), topic);
-
-                            // : Process messages without transactions since locking is already
-                            // committed
-                            for (Row row : result) {
-                                processMessageWithoutTransaction(row);
-                            }
-                        } else {
-                            logger.debug("No messages found for topic {}", topic);
-                            logger.debug("No messages found for topic {}", topic);
+                        var rows = claimResult.result();
+                        int claimedMessages = rows.size();
+                        if (claimedMessages > admittedCapacity) {
+                            releaseProcessingCapacity(admittedCapacity);
+                            return Future.failedFuture(new IllegalStateException(
+                                    "Claim returned " + claimedMessages + " rows after reserving "
+                                            + admittedCapacity + " capacity slots for topic " + topic));
                         }
+                        releaseProcessingCapacity(admittedCapacity - claimedMessages);
+                        if (rows.size() == 0) {
+                            logger.debug("No messages found for topic {}", topic);
+                            return Future.succeededFuture();
+                        }
+                        logger.debug("Processing {} messages for topic {}", rows.size(), topic);
+                        List<Future<Void>> messagePipelines = new ArrayList<>();
+                        for (Row row : rows) {
+                            messagePipelines.add(processReservedMessage(row));
+                        }
+                        return Future.join(messagePipelines).map(ignored -> (Void) null);
                     })
-                    .onFailure(error -> {
-                        logger.debug("Error querying messages for topic {}: {}", topic,
-                                error.getMessage());
-                        // : Handle shutdown-related errors gracefully following established
-                        // pattern
-                        if (closed.get() && (error.getMessage().contains("Pool closed") ||
-                                error.getMessage().contains("event executor terminated") ||
-                                error.getMessage().contains("Connection closed") ||
-                                error.getMessage().contains("Connection is not active now") ||
-                                error.getMessage().contains("Failed to read any response"))) {
-                            logger.debug("Expected error during shutdown for topic {}: {}", topic, error.getMessage());
-                        } else {
-                            logger.error("Error querying messages for topic {}: {}", topic, error.getMessage());
-                        }
-                    }))
-                    .onFailure(error -> {
-                        // : Handle various error conditions gracefully following
-                        // established pattern
-                        String errorMessage = error.getMessage() != null ? error.getMessage()
-                                : error.getClass().getSimpleName();
+                    .onFailure(error -> logger.error(
+                            "Error processing messages for topic {}: {}",
+                            topic, error.getMessage(), error));
+        } catch (Exception error) {
+            if (reservedCapacity > 0) {
+                releaseProcessingCapacity(reservedCapacity);
+            }
+            logger.error("Error starting message processing for topic {}: {}",
+                    topic, error.getMessage(), error);
+            return Future.failedFuture(error);
+        }
+    }
 
-                        if (closed.get()) {
-                            // During shutdown, many errors are expected
-                            if (errorMessage.contains("Pool closed") ||
-                                    errorMessage.contains("event executor terminated") ||
-                                    errorMessage.contains("Connection closed") ||
-                                    errorMessage.contains("RejectedExecutionException")) {
-                                logger.debug("Message processing aborted for topic {}: {}", topic, errorMessage);
-                            } else {
-                                logger.debug("Message processing error during shutdown for topic {}: {}", topic, errorMessage);
-                            }
-                        } else {
-                            // During normal operation, log as error but don't let it terminate the executor
-                            if (errorMessage.contains("event executor terminated") ||
-                                    errorMessage.contains("RejectedExecutionException")) {
-                                logger.warn(
-                                        "Event executor terminated for topic {} - this may indicate system shutdown: {}",
-                                        topic, errorMessage);
-                                // Mark as closed to prevent further processing attempts
-                                closed.set(true);
-                            } else {
-                                logger.error("Error processing messages for topic {}: {}", topic, errorMessage);
-                            }
-                        }
-                    });
+    private int reserveProcessingCapacity(int maxThreads, int batchSize) {
+        while (true) {
+            int current = processingInFlight.get();
+            int remaining = maxThreads - current;
+            if (remaining <= 0) {
+                return 0;
+            }
 
-        } catch (Exception e) {
-            // : Handle executor termination and other errors gracefully
-            String errorMessage = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-
-            if (closed.get()) {
-                logger.debug("Message processing aborted for topic {}: {}", topic, errorMessage);
-            } else if (errorMessage.contains("event executor terminated") ||
-                    errorMessage.contains("RejectedExecutionException")) {
-                // Executor termination - log as warning and stop processing
-                logger.warn("Executor terminated for topic {} - stopping message processing: {}", topic, errorMessage);
-                // Mark as closed to prevent further processing attempts
-                closed.set(true);
-            } else {
-                logger.error("Error processing available messages for topic {}: {}", topic, errorMessage);
+            int reservation = Math.min(batchSize, remaining);
+            if (processingInFlight.compareAndSet(current, current + reservation)) {
+                return reservation;
             }
         }
+    }
+
+    private void releaseProcessingCapacity(int capacity) {
+        if (capacity == 0) {
+            return;
+        }
+        if (capacity < 0) {
+            throw new IllegalArgumentException("Capacity release cannot be negative: " + capacity);
+        }
+
+        while (true) {
+            int current = processingInFlight.get();
+            if (current < capacity) {
+                throw new IllegalStateException(
+                        "Cannot release " + capacity + " capacity slots when only " + current
+                                + " are reserved for topic " + topic);
+            }
+            if (processingInFlight.compareAndSet(current, current - capacity)) {
+                return;
+            }
+        }
+    }
+
+    private Future<Void> processReservedMessage(Row row) {
+        Future<Void> processing;
+        try {
+            processing = processMessageWithoutTransaction(row);
+            if (processing == null) {
+                processing = Future.failedFuture(
+                        new IllegalStateException("Reserved message processing returned null Future"));
+            }
+        } catch (Exception error) {
+            processing = Future.failedFuture(error);
+        }
+
+        return processing.eventually(() -> {
+            try {
+                releaseProcessingCapacity(1);
+            } finally {
+                TraceContextUtil.clearTraceMDC();
+                processAvailableMessages();
+            }
+            return Future.succeededFuture();
+        });
     }
 
     /**
@@ -652,15 +684,9 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
      * committed.
      * This prevents transaction rollback from undoing the LOCKED status.
      */
-    private void processMessageWithoutTransaction(Row row) {
+    private Future<Void> processMessageWithoutTransaction(Row row) {
         Long messageIdLong = row.getLong("id");
         String messageId = messageIdLong.toString();
-
-        // : Check if consumer is closed before processing message
-        if (closed.get()) {
-            logger.debug("Skipping message processing - consumer is closed");
-            return;
-        }
 
         // Delivery latency (telemetry G2): enqueue → claim, computed by the
         // claim statement on the DATABASE clock (now() - created_at), so no
@@ -707,258 +733,231 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             // Get message handler
             MessageHandler<T> handler = this.messageHandler;
             if (handler == null) {
-                logger.error("Message handler is null for message {}, consumer may have been unsubscribed", messageId);
                 TraceContextUtil.clearTraceMDC();
-                return;
+                return Future.failedFuture(new IllegalStateException(
+                        "Message handler is unavailable for admitted message " + messageId));
             }
 
             // Create message (following existing pattern)
             Message<T> message = new SimpleMessage<>(
                     messageId, topic, parsedPayload, headerMap, correlationId, messageGroup, java.time.Instant.now());
 
-            // Process message asynchronously and wait for Future
+            long startTime = System.currentTimeMillis();
+            var traceCtx = TraceContextUtil.captureTraceContext();
+
+            Future<Void> processingFuture;
             try {
-                long startTime = System.currentTimeMillis();
-
-                // Increment processing concurrency before invoking handler
-                processingInFlight.incrementAndGet();
-
-                // Capture logs context for async callbacks
-                var traceCtx = TraceContextUtil.captureTraceContext();
-
-                // Call handler and get Future
-                Future<Void> processingFuture = handler.handle(message);
-
+                processingFuture = handler.handle(message);
                 if (processingFuture == null) {
-                    throw new IllegalStateException("Message handler returned null Future");
+                    processingFuture = Future.failedFuture(
+                            new IllegalStateException("Message handler returned null Future"));
                 }
-
-                // Wait for completion and handle success/failure
-                processingFuture
-                        .onSuccess(result -> {
-                            // Restore trace context for logging and cleanup operations
-                            try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
-                                long processingTime = System.currentTimeMillis() - startTime;
-                                logger.debug("Message {} processed successfully", messageId);
-
-                                // Record metrics for successful message processing
-                                metrics.recordMessageReceived(topic);
-                                metrics.recordMessageProcessed(topic, java.time.Duration.ofMillis(processingTime));
-
-                                // Success: Delete message from queue using separate connection
-                                deleteMessage(messageIdLong, messageId);
-                                // Decrement processing concurrency on success
-                                processingInFlight.decrementAndGet();
-                            }
-                        })
-                        .onFailure(processingError -> {
-                            // Restore trace context for logging and cleanup operations
-                            try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
-                                logger.error("Error processing message {}: {}", messageId, processingError.getMessage());
-
-                                // Failure: Handle retry logic
-                                int retryCount = row.getInteger("retry_count") != null ? row.getInteger("retry_count") : 0;
-                                handleProcessingFailure(messageIdLong, messageId, retryCount + 1, processingError);
-                                // Decrement processing concurrency on failure
-                                processingInFlight.decrementAndGet();
-                            }
-                        })
-                        .eventually(() -> {
-                            TraceContextUtil.clearTraceMDC();
-                            // Drain: after processing each message, check if more messages are available.
-                            // This handles LISTEN/NOTIFY coalescing where multiple rapid inserts may
-                            // result in fewer NOTIFYs than messages (PostgreSQL deduplicates pending NOTIFYs).
-                            processAvailableMessages();
-                            return Future.succeededFuture();
-                        });
-
             } catch (Exception processingError) {
-                logger.error("Error calling message handler for {}: {}", messageId, processingError.getMessage());
-
-                // Failure: Handle retry logic
-                int retryCount = row.getInteger("retry_count") != null ? row.getInteger("retry_count") : 0;
-                handleProcessingFailure(messageIdLong, messageId, retryCount + 1, processingError);
-                // Decrement processing concurrency on synchronous failure
-                processingInFlight.decrementAndGet();
-                // Clear MDC on synchronous exception
-                TraceContextUtil.clearTraceMDC();
-                // Drain: check if more messages are available after handling this one
-                processAvailableMessages();
+                processingFuture = Future.failedFuture(processingError);
             }
 
+            int previousRetryCount = row.getInteger("retry_count") != null
+                    ? row.getInteger("retry_count")
+                    : 0;
+            return settleHandlerWithinVisibility(processingFuture, messageIdLong, messageId)
+                    .compose(settlement -> {
+                        try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
+                            if (settlement.visibilityExpired()) {
+                                return Future.succeededFuture();
+                            }
+
+                            if (settlement.failure() == null) {
+                                long processingTime = System.currentTimeMillis() - startTime;
+                                metrics.recordMessageReceived(topic);
+                                metrics.recordMessageProcessed(
+                                        topic, java.time.Duration.ofMillis(processingTime));
+                                return deleteMessage(messageIdLong, messageId);
+                            }
+
+                            Throwable processingError = settlement.failure();
+                            logger.warn("Message handler failed for message {}: {}",
+                                    messageId, processingError.getMessage(), processingError);
+                            return handleProcessingFailure(
+                                    messageIdLong,
+                                    messageId,
+                                    previousRetryCount + 1,
+                                    processingError);
+                        }
+                    });
+
         } catch (Exception e) {
-            logger.error("Error parsing message {}: {}", messageId, e.getMessage());
+            logger.error("Error parsing message {}: {}", messageId, e.getMessage(), e);
             int retryCount = row.getInteger("retry_count") != null ? row.getInteger("retry_count") : 0;
-            handleProcessingFailure(messageIdLong, messageId, retryCount + 1, e);
-            // Clear MDC on parsing exception
-            TraceContextUtil.clearTraceMDC();
+            return handleProcessingFailure(messageIdLong, messageId, retryCount + 1, e);
         }
     }
 
     // Removed processMessageInThread - replaced with transaction-based
     // processMessageWithTransaction
 
-    private void deleteMessage(Long messageIdLong, String messageId) {
-        // : Don't attempt to delete messages if consumer is closed
-        if (closed.get()) {
-            logger.debug("Skipping message deletion for {} - consumer is closed", messageId);
-            // Transaction-level advisory lock will be automatically released when
-            // transaction ends
-            return;
+    private Future<HandlerSettlement> settleHandlerWithinVisibility(
+            Future<Void> handlerFuture,
+            Long messageIdLong,
+            String messageId) {
+        Vertx vertx = poolAdapter.getVertx();
+        if (vertx == null && Vertx.currentContext() != null) {
+            vertx = Vertx.currentContext().owner();
+        }
+        if (vertx == null) {
+            return Future.failedFuture(
+                    new IllegalStateException("No Vert.x instance available for handler visibility timeout"));
         }
 
-        // Track in-flight operation
-        inFlightOperations.incrementAndGet();
-
-        try {
-            final Pool pool = poolAdapter.getPoolOrThrow();
-            String sql = "DELETE FROM queue_messages WHERE id = $1";
-
-            // : Use synchronous deletion during shutdown to prevent race
-            // conditions
-            if (closed.get()) {
-                // Double-check after getting pool - if closed, skip deletion
-                logger.debug("Consumer closed after getting pool, skipping message deletion for {}", messageId);
-                inFlightOperations.decrementAndGet(); // Decrement counter
+        Promise<HandlerSettlement> settlement = Promise.promise();
+        AtomicBoolean decided = new AtomicBoolean(false);
+        long visibilityTimeoutMs = Math.max(
+                1L, configuration.getQueueConfig().getVisibilityTimeout().toMillis());
+        Vertx operationVertx = vertx;
+        long timeoutId = operationVertx.setTimer(visibilityTimeoutMs, ignored -> {
+            if (!decided.compareAndSet(false, true)) {
                 return;
             }
 
-            Vertx vt = poolAdapter.getVertx();
-            if (vt == null && Vertx.currentContext() != null) {
-                vt = Vertx.currentContext().owner();
+            logger.warn(
+                    "Message handler visibility expired for message {}; relinquishing the stale delivery",
+                    messageId);
+            releaseTimedOutMessage(messageIdLong, messageId)
+                    .onSuccess(v -> settlement.tryComplete(HandlerSettlement.expired()))
+                    .onFailure(settlement::tryFail);
+        });
+
+        handlerFuture
+                .onSuccess(v -> {
+                    if (decided.compareAndSet(false, true)) {
+                        operationVertx.cancelTimer(timeoutId);
+                        settlement.tryComplete(HandlerSettlement.succeeded());
+                    }
+                })
+                .onFailure(error -> {
+                    if (decided.compareAndSet(false, true)) {
+                        operationVertx.cancelTimer(timeoutId);
+                        settlement.tryComplete(HandlerSettlement.failed(error));
+                    }
+                });
+        return settlement.future();
+    }
+
+    private Future<Void> releaseTimedOutMessage(Long messageIdLong, String messageId) {
+        try {
+            Pool pool = poolAdapter.getPoolOrThrow();
+            String sql = """
+                    UPDATE queue_messages
+                    SET status = 'AVAILABLE', lock_until = NULL
+                    WHERE id = $1 AND status = 'LOCKED' AND lock_until <= now()
+                    """;
+            Vertx vertx = poolAdapter.getVertx();
+            if (vertx == null && Vertx.currentContext() != null) {
+                vertx = Vertx.currentContext().owner();
             }
 
-            if (vt == null) {
-                // Fallback: execute without retry when Vert.x is not available
-                // Use withTransaction for automatic commit/rollback and search_path support
-                pool.withTransaction(conn -> conn.preparedQuery(sql).execute(Tuple.of(messageIdLong)))
-                        .onSuccess(result -> {
-                            logger.debug("Deleted processed message: {}", messageId);
-                            inFlightOperations.decrementAndGet(); // Decrement counter on success
-                        })
-                        .onFailure(error -> {
-                            inFlightOperations.decrementAndGet(); // Decrement counter on failure
-                            String errorMsg = error.getMessage();
-                            if (closed.get() && (errorMsg.contains("Pool closed") ||
-                                    errorMsg.contains("connection may have been lost") ||
-                                    errorMsg.contains("Failed to read any response") ||
-                                    errorMsg.contains("Connection is not active now"))) {
-                                logger.debug(
-                                        "Message deletion aborted for {} - connection closed during shutdown",
-                                        messageId);
-                            } else {
-                                logger.error("Failed to delete message {}: {}", messageId, errorMsg);
-                            }
-                        });
-            } else {
-                final Vertx vertx = vt;
-                withRetry(vertx,
-                        () -> pool.withTransaction(conn -> conn.preparedQuery(sql).execute(Tuple.of(messageIdLong))),
-                        3, 50)
-                        .onSuccess(result -> {
-                            logger.debug("Deleted processed message: {}", messageId);
-                            inFlightOperations.decrementAndGet();
-                        })
-                        .onFailure(error -> {
-                            inFlightOperations.decrementAndGet();
-                            String errorMsg = error.getMessage();
-                            if (closed.get() && (errorMsg.contains("Pool closed") ||
-                                    errorMsg.contains("connection may have been lost") ||
-                                    errorMsg.contains("Failed to read any response") ||
-                                    errorMsg.contains("Connection is not active now"))) {
-                                logger.debug(
-                                        "Message deletion aborted for {} - connection closed during shutdown",
-                                        messageId);
-                            } else {
-                                logger.error("Failed to delete message {}: {}", messageId, errorMsg);
-                            }
-                        });
-            }
-
-        } catch (Exception e) {
-            inFlightOperations.decrementAndGet(); // Decrement counter on exception
-            // Handle exceptions during shutdown gracefully
-            String errorMsg = e.getMessage();
-            if (closed.get() && (errorMsg.contains("Pool closed") ||
-                    errorMsg.contains("connection may have been lost") ||
-                    errorMsg.contains("Failed to read any response") ||
-                    errorMsg.contains("Connection is not active now"))) {
-                logger.debug("Message deletion aborted for {} during shutdown: {}",
-                        messageId, errorMsg);
-            } else {
-                logger.error("Error deleting message {}: {}", messageId, errorMsg);
-            }
-            // Transaction-level advisory lock will be automatically released when
-            // transaction ends
+            Future<io.vertx.sqlclient.RowSet<Row>> release = vertx == null
+                    ? pool.withTransaction(conn -> conn.preparedQuery(sql)
+                            .execute(Tuple.of(messageIdLong)))
+                    : withRetry(vertx,
+                            () -> pool.withTransaction(conn -> conn.preparedQuery(sql)
+                                    .execute(Tuple.of(messageIdLong))),
+                            3, 50);
+            return release
+                    .map(ignored -> (Void) null)
+                    .onSuccess(v -> logger.debug(
+                            "Relinquished stale delivery for message {} after visibility timeout",
+                            messageId))
+                    .onFailure(error -> logger.error(
+                            "Failed to relinquish stale delivery for message {}: {}",
+                            messageId, error.getMessage(), error));
+        } catch (Exception error) {
+            logger.error("Error relinquishing stale delivery for message {}: {}",
+                    messageId, error.getMessage(), error);
+            return Future.failedFuture(error);
         }
     }
 
-    private void handleProcessingFailure(Long messageIdLong, String messageId, int retryCount, Throwable error) {
+    private Future<Void> deleteMessage(Long messageIdLong, String messageId) {
         try {
-            final Pool pool = poolAdapter.getPoolOrThrow();
-
-            // Check if we should retry or move to dead letter queue
-            int maxRetries = configuration != null ? configuration.getQueueConfig().getMaxRetries() : 3; // Use
-                                                                                                         // configuration
-                                                                                                         // or fallback
-                                                                                                         // to 3
-
-            if (retryCount >= maxRetries) {
-                // Move to dead letter queue
-                moveToDeadLetterQueue(messageIdLong, messageId, error.getMessage());
-            } else {
-                // Reset status for retry and increment retry count
-                String sql = "UPDATE queue_messages SET status = 'AVAILABLE', lock_until = NULL, retry_count = $2 WHERE id = $1";
-
-                Vertx vt = poolAdapter.getVertx();
-                if (vt == null && Vertx.currentContext() != null) {
-                    vt = Vertx.currentContext().owner();
-                }
-                if (vt == null) {
-                    // Use withTransaction for automatic commit/rollback and search_path support
-                    pool.withTransaction(conn -> conn.preparedQuery(sql).execute(Tuple.of(messageIdLong, retryCount)))
-                            .onSuccess(result -> {
-                                logger.debug("Reset message {} for retry (attempt {})", messageId, retryCount);
-                            })
-                            .onFailure(updateError -> {
-                                logger.error("Failed to reset message {} for retry: {}", messageId,
-                                        updateError.getMessage());
-                            });
-                } else {
-                    final Vertx vertx = vt;
-                    withRetry(vertx,
-                            () -> pool.withTransaction(conn -> conn.preparedQuery(sql).execute(Tuple.of(messageIdLong, retryCount))),
-                            3, 50)
-                            .onSuccess(result -> {
-                                logger.debug("Reset message {} for retry (attempt {})", messageId, retryCount);
-                            })
-                            .onFailure(updateError -> {
-                                logger.error("Failed to reset message {} for retry: {}", messageId,
-                                        updateError.getMessage());
-                            });
-                }
+            Pool pool = poolAdapter.getPoolOrThrow();
+            String sql = "DELETE FROM queue_messages WHERE id = $1";
+            Vertx vertx = poolAdapter.getVertx();
+            if (vertx == null && Vertx.currentContext() != null) {
+                vertx = Vertx.currentContext().owner();
             }
 
-        } catch (Exception e) {
-            logger.error("Error handling processing failure for message {}: {}", messageId, e.getMessage());
-            // Transaction-level advisory lock will be automatically released when
-            // transaction ends
+            Future<?> deletion = vertx == null
+                    ? pool.withTransaction(conn ->
+                            conn.preparedQuery(sql).execute(Tuple.of(messageIdLong)))
+                    : withRetry(vertx,
+                            () -> pool.withTransaction(conn ->
+                                    conn.preparedQuery(sql).execute(Tuple.of(messageIdLong))),
+                            3, 50);
+            return deletion
+                    .map(ignored -> (Void) null)
+                    .onSuccess(result -> logger.debug("Deleted processed message: {}", messageId))
+                    .onFailure(error -> logger.error(
+                            "Failed to delete message {}: {}", messageId, error.getMessage(), error));
+        } catch (Exception error) {
+            logger.error("Error initiating deletion for message {}: {}",
+                    messageId, error.getMessage(), error);
+            return Future.failedFuture(error);
         }
     }
 
-    private void moveToDeadLetterQueue(Long messageIdLong, String messageId, String errorMessage) {
+    private Future<Void> handleProcessingFailure(
+            Long messageIdLong,
+            String messageId,
+            int retryCount,
+            Throwable error) {
         try {
-            final Pool pool = poolAdapter.getPoolOrThrow();
+            if (retryCount >= configuration.getQueueConfig().getMaxRetries()) {
+                return moveToDeadLetterQueue(messageIdLong, messageId, error.getMessage());
+            }
 
-            logger.warn("Message {} exceeded retry limit, moving to dead letter queue: {}", messageId, errorMessage);
+            Pool pool = poolAdapter.getPoolOrThrow();
+            String sql = "UPDATE queue_messages "
+                    + "SET status = 'AVAILABLE', lock_until = NULL, retry_count = $2 WHERE id = $1";
+            Vertx vertx = poolAdapter.getVertx();
+            if (vertx == null && Vertx.currentContext() != null) {
+                vertx = Vertx.currentContext().owner();
+            }
 
-            // Use withTransaction to ensure SELECT + INSERT + DELETE are atomic
+            Future<?> reset = vertx == null
+                    ? pool.withTransaction(conn -> conn.preparedQuery(sql)
+                            .execute(Tuple.of(messageIdLong, retryCount)))
+                    : withRetry(vertx,
+                            () -> pool.withTransaction(conn -> conn.preparedQuery(sql)
+                                    .execute(Tuple.of(messageIdLong, retryCount))),
+                            3, 50);
+            return reset
+                    .map(ignored -> (Void) null)
+                    .onSuccess(result -> logger.debug(
+                            "Reset message {} for retry (attempt {})", messageId, retryCount))
+                    .onFailure(updateError -> logger.error(
+                            "Failed to reset message {} for retry: {}",
+                            messageId, updateError.getMessage(), updateError));
+        } catch (Exception persistenceError) {
+            logger.error("Error handling processing failure for message {}: {}",
+                    messageId, persistenceError.getMessage(), persistenceError);
+            return Future.failedFuture(persistenceError);
+        }
+    }
+
+    private Future<Void> moveToDeadLetterQueue(
+            Long messageIdLong,
+            String messageId,
+            String errorMessage) {
+        try {
+            Pool pool = poolAdapter.getPoolOrThrow();
+            logger.warn("Message {} exceeded retry limit, moving to dead letter queue: {}",
+                    messageId, errorMessage);
+
             String selectSql = """
                     SELECT payload, headers, correlation_id, message_group, retry_count, created_at
                     FROM queue_messages
                     WHERE id = $1
                     """;
-
             String insertSql = """
                     INSERT INTO dead_letter_queue (
                         original_table, original_id, topic, payload, headers,
@@ -966,98 +965,54 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                         failed_at, original_created_at
                     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), $10)
                     """;
-
             String deleteSql = "DELETE FROM queue_messages WHERE id = $1";
 
-            Vertx vt = poolAdapter.getVertx();
-            if (vt == null && Vertx.currentContext() != null) {
-                vt = Vertx.currentContext().owner();
+            java.util.function.Supplier<Future<io.vertx.sqlclient.RowSet<Row>>> moveOperation = () ->
+                    pool.withTransaction(conn -> conn.preparedQuery(selectSql)
+                            .execute(Tuple.of(messageIdLong))
+                            .compose(selectResult -> {
+                                if (selectResult.size() == 0) {
+                                    return Future.failedFuture(
+                                            new IllegalStateException("Message " + messageId
+                                                    + " not found during dead-letter persistence"));
+                                }
+                                Row row = selectResult.iterator().next();
+                                return conn.preparedQuery(insertSql)
+                                        .execute(Tuple.of(
+                                                "queue_messages",
+                                                messageIdLong,
+                                                topic,
+                                                row.getJsonObject("payload"),
+                                                row.getJsonObject("headers"),
+                                                row.getString("correlation_id"),
+                                                row.getString("message_group"),
+                                                row.getInteger("retry_count"),
+                                                errorMessage,
+                                                row.get(OffsetDateTime.class, "created_at")))
+                                        .compose(inserted -> conn.preparedQuery(deleteSql)
+                                                .execute(Tuple.of(messageIdLong)));
+                            }));
+
+            Vertx vertx = poolAdapter.getVertx();
+            if (vertx == null && Vertx.currentContext() != null) {
+                vertx = Vertx.currentContext().owner();
             }
-            final Vertx vertx = vt;
-
-            if (vertx == null) {
-                // Use withTransaction for automatic commit/rollback and search_path support
-                pool.withTransaction(conn ->
-                        conn.preparedQuery(selectSql)
-                                .execute(Tuple.of(messageIdLong))
-                                .compose(selectResult -> {
-                                    if (selectResult.size() > 0) {
-                                        Row row = selectResult.iterator().next();
-                                        // : Use JSONB objects instead of JSON strings for dead letter queue
-                                        JsonObject payload = row.getJsonObject("payload");
-                                        JsonObject headers = row.getJsonObject("headers");
-                                        String correlationId = row.getString("correlation_id");
-                                        String messageGroup = row.getString("message_group");
-                                        int retryCount = row.getInteger("retry_count");
-                                        OffsetDateTime createdAtOffset = row.get(OffsetDateTime.class, "created_at");
-
-                                        return conn.preparedQuery(insertSql)
-                                                .execute(Tuple.of(
-                                                        "queue_messages", messageIdLong, topic, payload, headers,
-                                                        correlationId, messageGroup, retryCount, errorMessage,
-                                                        createdAtOffset))
-                                                .compose(insertResult ->
-                                                        conn.preparedQuery(deleteSql).execute(Tuple.of(messageIdLong))
-                                                );
-                                    } else {
-                                        logger.error("Message {} not found when trying to move to dead letter queue", messageId);
-                                        return io.vertx.core.Future.failedFuture("Message not found");
-                                    }
-                                })
-                ).onSuccess(result -> {
-                    logger.info("Moved message {} to dead letter queue", messageId);
-                    metrics.recordMessageDeadLettered(topic, errorMessage);
-                    inFlightOperations.decrementAndGet();
-                }).onFailure(error -> {
-                    logger.error("Failed to move message {} to dead letter queue: {}", messageId, error.getMessage());
-                    // As fallback, just delete the message
-                    deleteMessage(messageIdLong, messageId);
-                });
-            } else {
-                withRetry(vertx,
-                        () -> pool.withTransaction(conn ->
-                                conn.preparedQuery(selectSql)
-                                        .execute(Tuple.of(messageIdLong))
-                                        .compose(selectResult -> {
-                                            if (selectResult.size() > 0) {
-                                                Row row = selectResult.iterator().next();
-                                                JsonObject payload = row.getJsonObject("payload");
-                                                JsonObject headers = row.getJsonObject("headers");
-                                                String correlationId = row.getString("correlation_id");
-                                                String messageGroup = row.getString("message_group");
-                                                int retryCount = row.getInteger("retry_count");
-                                                OffsetDateTime createdAtOffset = row.get(OffsetDateTime.class, "created_at");
-
-                                                return conn.preparedQuery(insertSql)
-                                                        .execute(Tuple.of(
-                                                                "queue_messages", messageIdLong, topic, payload, headers,
-                                                                correlationId, messageGroup, retryCount, errorMessage,
-                                                                createdAtOffset))
-                                                        .compose(insertResult ->
-                                                                conn.preparedQuery(deleteSql).execute(Tuple.of(messageIdLong))
-                                                        );
-                                            } else {
-                                                logger.error("Message {} not found when trying to move to dead letter queue", messageId);
-                                                return io.vertx.core.Future.failedFuture("Message not found");
-                                            }
-                                        })
-                        ),
-                        3, 50)
-                        .onSuccess(result -> {
-                            logger.info("Moved message {} to dead letter queue", messageId);
-                            metrics.recordMessageDeadLettered(topic, errorMessage);
-                            inFlightOperations.decrementAndGet();
-                        })
-                        .onFailure(error -> {
-                            logger.error("Failed to move message {} to dead letter queue: {}", messageId, error.getMessage());
-                            deleteMessage(messageIdLong, messageId);
-                        });
-            }
-
-        } catch (Exception e) {
-            logger.error("Error moving message {} to dead letter queue: {}", messageId, e.getMessage());
-            // As fallback, just delete the message
-            deleteMessage(messageIdLong, messageId);
+            Future<?> move = vertx == null
+                    ? moveOperation.get()
+                    : withRetry(vertx, moveOperation, 3, 50);
+            return move
+                    .map(ignored -> (Void) null)
+                    .onSuccess(result -> {
+                        logger.info("Moved message {} to dead letter queue", messageId);
+                        metrics.recordMessageDeadLettered(topic, errorMessage);
+                    })
+                    .onFailure(moveError -> logger.error(
+                            "Failed to move message {} to dead letter queue: {}",
+                            messageId, moveError.getMessage(), moveError));
+        } catch (Exception moveError) {
+            logger.error("Error moving message {} to dead letter queue: {}",
+                    messageId, moveError.getMessage(), moveError);
+            return Future.failedFuture(moveError);
         }
     }
 
@@ -1069,88 +1024,86 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     // handle cleanup
 
     private void releaseExpiredLocks() {
-        // : Don't attempt to release expired locks if consumer is closed
-        if (closed.get()) {
-            return;
+        Future<Void> cleanup;
+        synchronized (lifecycleLock) {
+            if (closed.get()) {
+                return;
+            }
+            try {
+                cleanup = releaseExpiredLocksInternal();
+                inFlightProcessing.add(cleanup);
+            } catch (Exception error) {
+                logger.error("Error starting expired-lock cleanup for topic {}: {}",
+                        topic, error.getMessage(), error);
+                return;
+            }
         }
 
-        try {
-            final Pool pool = poolAdapter.getPoolOrThrow();
+        cleanup
+                .eventually(() -> {
+                    synchronized (lifecycleLock) {
+                        inFlightProcessing.remove(cleanup);
+                    }
+                    return Future.succeededFuture();
+                })
+                .onFailure(error -> logger.error(
+                        "Failed to query expired locks for topic {}: {}",
+                        topic, error.getMessage(), error));
+    }
 
-            // : Just reset expired locks in database - don't manually release
-            // advisory locks
-            // Advisory locks will be auto-released when connections are returned to pool
-            String updateSql = """
-                    UPDATE queue_messages
-                    SET status = 'AVAILABLE', lock_until = NULL
-                    WHERE topic = $1 AND status = 'LOCKED' AND lock_until < now()
-                    """;
+    private Future<Void> releaseExpiredLocksInternal() {
+        final Pool pool = poolAdapter.getPoolOrThrow();
+        String updateSql = """
+                UPDATE queue_messages
+                SET status = 'AVAILABLE', lock_until = NULL
+                WHERE topic = $1 AND status = 'LOCKED' AND lock_until < now()
+                """;
 
-            Vertx vt = poolAdapter.getVertx();
-            if (vt == null && Vertx.currentContext() != null) {
-                vt = Vertx.currentContext().owner();
-            }
-            if (vt == null) {
-                // Use withTransaction for automatic commit/rollback and search_path support
-                pool.withTransaction(conn -> conn.preparedQuery(updateSql).execute(Tuple.of(topic)))
-                        .onSuccess(updateResult -> {
-                            if (updateResult.rowCount() > 0) {
-                                logger.debug("Reset {} expired locks for topic: {} - advisory locks will auto-release",
-                                        updateResult.rowCount(), topic);
-                                // Free capacity: consider stuck handlers dead after visibility timeout
-                                processingInFlight.set(0);
-                                processAvailableMessages();
-                            }
-                        })
-                        .onFailure(error -> {
-                            if (closed.get() && error.getMessage().contains("Pool closed")) {
-                                logger.debug(
-                                        "Lock cleanup aborted for topic {} - pool closed", topic);
-                            } else {
-                                logger.error("Failed to query expired locks for topic {}: {}", topic,
-                                        error.getMessage());
-                            }
-                        });
-            } else {
-                final Vertx vertx = vt;
-                withRetry(vertx,
-                        () -> pool.withTransaction(conn -> conn.preparedQuery(updateSql).execute(Tuple.of(topic))),
-                        3, 50)
-                        .onSuccess(updateResult -> {
-                            if (updateResult.rowCount() > 0) {
-                                logger.debug("Reset {} expired locks for topic: {} - advisory locks will auto-release",
-                                        updateResult.rowCount(), topic);
-                                // Free capacity: consider stuck handlers dead after visibility timeout
-                                processingInFlight.set(0);
-                                processAvailableMessages();
-                            }
-                        })
-                        .onFailure(error -> {
-                            if (closed.get() && error.getMessage().contains("Pool closed")) {
-                                logger.debug(
-                                        "Lock cleanup aborted for topic {} - pool closed", topic);
-                            } else {
-                                logger.error("Failed to query expired locks for topic {}: {}", topic,
-                                        error.getMessage());
-                            }
-                        });
-            }
-
-        } catch (Exception e) {
-            logger.error("Error releasing expired locks for topic {}: {}", topic, e.getMessage());
+        Vertx vertx = poolAdapter.getVertx();
+        if (vertx == null && Vertx.currentContext() != null) {
+            vertx = Vertx.currentContext().owner();
         }
+        Future<io.vertx.sqlclient.RowSet<Row>> cleanup = vertx == null
+                ? pool.withTransaction(conn -> conn.preparedQuery(updateSql).execute(Tuple.of(topic)))
+                : withRetry(vertx,
+                        () -> pool.withTransaction(conn -> conn.preparedQuery(updateSql)
+                                .execute(Tuple.of(topic))),
+                        3, 50);
+        return cleanup
+                .onSuccess(updateResult -> {
+                    if (updateResult.rowCount() > 0) {
+                        logger.debug(
+                                "Reset {} expired locks for topic: {} - advisory locks will auto-release",
+                                updateResult.rowCount(), topic);
+                        processAvailableMessages();
+                    }
+                })
+                .map(ignored -> (Void) null);
     }
 
     @Override
     public void close() {
-        if (closed.compareAndSet(false, true)) {
+        closeAsync().onFailure(error -> logger.error(
+                "Failed to close native queue consumer for topic {}", topic, error));
+    }
+
+    /**
+     * Stops admission of new poll cycles and settles only after every admitted
+     * handler and its terminal database operation has completed.
+     *
+     * @return the shared Future representing this consumer's close operation
+     */
+    public Future<Void> closeAsync() {
+        synchronized (lifecycleLock) {
+            if (closeFuture != null) {
+                return closeFuture;
+            }
+
             logger.info("Starting graceful shutdown of native queue consumer for topic: {}", topic);
+            closed.set(true);
+            subscribed.set(false);
+            Future<Void> listenClose = stopListening();
 
-            // Step 1: Stop accepting new work
-            unsubscribe();
-            stopListening();
-
-            // Step 2: Cancel Vert.x timers for polling and cleanup
             Vertx vertx = poolAdapter.getVertx();
             if (vertx == null && Vertx.currentContext() != null) {
                 vertx = Vertx.currentContext().owner();
@@ -1166,12 +1119,19 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 }
             }
 
-            if (inFlightOperations.get() > 0) {
-                logger.info("Shutdown of native queue consumer for topic: {} with {} in-flight operations that will complete asynchronously",
-                        topic, inFlightOperations.get());
-            }
+            List<Future<Void>> processingSnapshot = new ArrayList<>(inFlightProcessing);
+            Future<Void> processingDrain = processingSnapshot.isEmpty()
+                    ? Future.<Void>succeededFuture()
+                    : Future.join(processingSnapshot).map(ignored -> (Void) null);
 
-            logger.info("Completed graceful shutdown of native queue consumer for topic: {}", topic);
+            closeFuture = Future.join(listenClose, processingDrain)
+                    .map(ignored -> (Void) null)
+                    .eventually(() -> {
+                        messageHandler = null;
+                        logger.info("Completed graceful shutdown of native queue consumer for topic: {}", topic);
+                        return Future.<Void>succeededFuture();
+                    });
+            return closeFuture;
         }
     }
 

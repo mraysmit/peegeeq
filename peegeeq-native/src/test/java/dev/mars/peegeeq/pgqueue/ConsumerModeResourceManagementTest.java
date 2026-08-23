@@ -98,17 +98,28 @@ class ConsumerModeResourceManagementTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
-        if (factory != null) {
-            factory.close();
-        }
-        if (manager != null) {
-            manager.closeReactive()
-                .onSuccess(v -> testContext.completeNow())
-                .onFailure(testContext::failNow);
-        } else {
-            testContext.completeNow();
-        }
+        closeResources()
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+    }
+
+    private Future<Void> closeResources() {
+        Future<Void> factoryClose = factory != null ? factory.close() : Future.succeededFuture();
+        return factoryClose.transform(factoryResult -> {
+            Future<Void> managerClose = manager != null ? manager.closeReactive() : Future.succeededFuture();
+            return managerClose.transform(managerResult -> combinedCloseResult(factoryResult.cause(), managerResult.cause()));
+        });
+    }
+
+    private Future<Void> combinedCloseResult(Throwable factoryFailure, Throwable managerFailure) {
+        if (factoryFailure != null) {
+            if (managerFailure != null) {
+                factoryFailure.addSuppressed(managerFailure);
+            }
+            return Future.failedFuture(factoryFailure);
+        }
+        return managerFailure == null ? Future.succeededFuture() : Future.failedFuture(managerFailure);
     }
 
     @Test
@@ -118,8 +129,7 @@ class ConsumerModeResourceManagementTest {
         List<MessageConsumer<String>> consumers = new ArrayList<>();
         List<MessageProducer<String>> producers = new ArrayList<>();
 
-        try {
-            MessageConsumer<String> listenConsumer = factory.createConsumer(topicName + "-listen", String.class,
+        MessageConsumer<String> listenConsumer = factory.createConsumer(topicName + "-listen", String.class,
                 ConsumerConfig.builder().mode(ConsumerMode.LISTEN_NOTIFY_ONLY).build());
             MessageConsumer<String> pollingConsumer = factory.createConsumer(topicName + "-polling", String.class,
                 ConsumerConfig.builder().mode(ConsumerMode.POLLING_ONLY).pollingInterval(Duration.ofSeconds(1)).build());
@@ -156,17 +166,7 @@ class ConsumerModeResourceManagementTest {
             }).onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive all messages across different consumer modes");
-            assertEquals(3, messageCount.get(), "Should process exactly 3 messages");
-
-        } finally {
-            // Clean up resources
-            for (MessageConsumer<String> consumer : consumers) {
-                consumer.close();
-            }
-            for (MessageProducer<String> producer : producers) {
-                producer.close();
-            }
-        }
+        assertEquals(3, messageCount.get(), "Should process exactly 3 messages");
     }
 
     @Test
@@ -176,8 +176,7 @@ class ConsumerModeResourceManagementTest {
         String topicName = "test-scheduler-resources";
         List<MessageConsumer<String>> pollingConsumers = new ArrayList<>();
 
-        try {
-            for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 3; i++) {
                 ConsumerConfig config = ConsumerConfig.builder()
                     .mode(ConsumerMode.POLLING_ONLY)
                     .pollingInterval(Duration.ofMillis(500))
@@ -217,13 +216,7 @@ class ConsumerModeResourceManagementTest {
             }).onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive messages via polling mechanism");
-            assertEquals(3, messageCount.get(), "Should process exactly 3 messages");
-
-        } finally {
-            for (MessageConsumer<String> consumer : pollingConsumers) {
-                consumer.close();
-            }
-        }
+        assertEquals(3, messageCount.get(), "Should process exactly 3 messages");
     }
 
     @Test
@@ -235,9 +228,8 @@ class ConsumerModeResourceManagementTest {
             ConsumerConfig.builder().mode(ConsumerMode.HYBRID).pollingInterval(Duration.ofSeconds(1)).build());
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        try {
-            AtomicInteger processedCount = new AtomicInteger(0);
-            Checkpoint messagesReceived = testContext.checkpoint(10);
+        AtomicInteger processedCount = new AtomicInteger(0);
+        Checkpoint messagesReceived = testContext.checkpoint(10);
 
             consumer.subscribe(message -> {
                 processedCount.incrementAndGet();
@@ -254,13 +246,8 @@ class ConsumerModeResourceManagementTest {
             })
             .onFailure(testContext::failNow);
 
-            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should process all messages without memory issues");
-            assertEquals(10, processedCount.get(), "Should process exactly 10 messages");
-
-        } finally {
-            consumer.close();
-            producer.close();
-        }
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should process all messages without memory issues");
+        assertEquals(10, processedCount.get(), "Should process exactly 10 messages");
     }
 
     @Test
@@ -272,9 +259,8 @@ class ConsumerModeResourceManagementTest {
             ConsumerConfig.builder().mode(ConsumerMode.HYBRID).pollingInterval(Duration.ofSeconds(1)).build());
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        try {
-            AtomicInteger processedCount = new AtomicInteger(0);
-            Checkpoint messagesProcessed = testContext.checkpoint(2);
+        AtomicInteger processedCount = new AtomicInteger(0);
+        Checkpoint messagesProcessed = testContext.checkpoint(2);
 
             consumer.subscribe(message -> {
                 processedCount.incrementAndGet();
@@ -286,13 +272,7 @@ class ConsumerModeResourceManagementTest {
                     .onFailure(testContext::failNow))
             .onFailure(testContext::failNow);
 
-            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process messages before shutdown");
-            assertEquals(2, processedCount.get(), "Should process exactly 2 messages");
-        } finally {
-            consumer.close();
-            producer.close();
-        }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process messages before shutdown");
+        assertEquals(2, processedCount.get(), "Should process exactly 2 messages");
     }
 }
-
-

@@ -1,8 +1,107 @@
-# Session Handover — 2026-08-12 (reconciled 2026-08-21)
+# Session Handover — 2026-08-12 (reconciled 2026-08-23)
 
 Companion to `TEST-INTEGRITY-DEFECT-REMEDIATION-PLAN.md`, which is the defect register.
 This document covers what happened in this session, what state the working tree is in,
 and what the next person needs to know before touching it.
+
+## 2026-08-23 P11 completion (D17 and D18 fixed)
+
+This section supersedes every older completion and next-work statement below. Historical sections
+remain for audit context.
+
+- **D17 is reproduced and fixed.** A controlled pending-subscription contract proved that
+  `PgNativeConsumerGroup.close()` could settle before the shared startup continuation aborted.
+  The red run failed 1/1. Close now waits for the pending start result before final resource
+  cleanup, partitioned startup uses a stable local engine reference, and field clearing is
+  conditional on that engine still being current. The focused contract passes 1/1, the final
+  nested lifecycle class passes 65/65, and the live partitioned regression passes 1/1.
+- **D18's complete P11 inventory is fixed.** Ten discarded factory-close Futures, six discarded
+  group-start Futures, three log-and-continue group cleanup handlers, and the empty Vert.x close
+  handler were remediated class by class. Factory and manager teardown is dependency ordered and
+  failure preserving; starts precede sends; group stops settle before test completion; and the
+  partitioned fixture uses its extension-owned Vert.x instance.
+- The standardized consumer-mode performance class required a wider correction because the full
+  file also contained latch bridges, discarded subscribe/send Futures, silent cleanup catches,
+  and placeholder latency values. It now uses composed Futures and measures actual delivered
+  message latency. Its first focused run correctly exposed missing schema migration for each new
+  profile container; that run was stopped, schema initialization was restored, and the class then
+  passed all 16 parameterized invocations.
+- Required clean native reactor rebuilds passed after every Java sub-phase and compiled all 61
+  native test sources. Final affected results are: partitioned core 37/37, consumer-group
+  integration 26/26, six consumer-mode classes 26/26, standardized performance 16/16, legacy
+  performance 2/2, consumer-group example 1/1, final lifecycle 65/65, and live partitioned 1/1.
+  Green D18 logs contain no ERROR or unhandled-exception lines. The lifecycle log contains ten
+  intentional, method-declared startup-failure ERROR records.
+- Repository integrity guards pass 10/10: disabled tests 2/2, lifecycle/discarded-Future guards
+  7/7, and forbidden async patterns 1/1. The Tier 9 baseline was tightened by deleting the two
+  rows remediated in P11. Tier 7 permits zero discarded stop/close Futures repository-wide.
+- The separate Tier 9 ratchet still records 63 pre-existing discarded `subscribe()` Futures in
+  19 other native test files. This is explicit remaining debt, not part of the enumerated D18
+  lifecycle inventory and not evidence against the completed P11 contracts. It should be handled
+  as a new phased backlog if the owner wants the subscribe ratchet driven to zero.
+- Authoritative logs include `p11-d17-red-test-nested-20260823.txt`,
+  `p11-d17-green-test-20260823.txt`, `p11-final-consumer-group-lifecycle-20260823.txt`,
+  `p11-d18-group-a-partitioned-core-green-20260823.txt`,
+  `p11-d18-group-a-consumer-group-integration-20260823.txt`,
+  `p11-d18-group-b-consumer-mode-20260823.txt`,
+  `p11-d18-performance-standardized-test-green-20260823.txt`,
+  `p11-d18-performance-legacy-test-20260823.txt`,
+  `p11-d18-consumer-group-example-test-20260823.txt`,
+  `p11-d18-repository-async-guards-green-20260823.txt`, and
+  `p11-d18-disabled-tests-guard-20260823.txt`.
+- No commit was created. The untracked Jenkins/WSL documentation files are unrelated user files
+  and were preserved. `PgNativeQueueConsumerCapacityIT` remains the untracked P10 contract to
+  include with the eventual native commit. `git diff --check` is clean apart from line-ending
+  conversion notices. The approximately 90-minute owner-run `-Pall-tests` release gate was not
+  run; it is the next release-level verification, not part of the focused edit-test loop.
+
+## 2026-08-23 P11 pre-implementation audit (D17 not reproduced, D18 expanded)
+
+This section supersedes the completion and next-work statements in every older section below.
+The historical sections remain for audit context.
+
+- The current base commit is `446893de` (`docs: update session handover dates and clarify
+  deferred tasks in implementation plan`). The uncommitted native worktree contains the P8-P10
+  production, test, and defect-register changes. This handover is also modified by the final
+  review, and `PgNativeQueueConsumerCapacityIT` remains a new untracked source file until the
+  eventual commit.
+- D14-D16 retain their completed red/green evidence: startup readiness and failure rollback,
+  handler/terminal-persistence shutdown drain, and atomic native capacity admission. The final
+  P10 contract passed 1/1 with a private `maxSize=1, shared=false` PostgreSQL pool and deleted all
+  32 distinct messages exactly once. The affected native regression, lifecycle, active-fetch,
+  and quality-guard scopes previously passed 21/21, 64/64, 1/1, and 10/10 respectively.
+- **D17 was exposed by static final-diff review and is `NOT REPRODUCED`.** When close wins while
+  `PgNativeConsumerGroup` is `STARTING`, `close()` snapshots the engine/consumer currently stored
+  in fields but does not compose the pending `startFuture`. A delayed mode-detection,
+  subscription, or engine-start continuation can therefore create and stop resources after the
+  public close Future has already settled. The partitioned abort continuation also calls
+  `partitionedEngine.stop()` through the mutable field that close may have set to null, rather
+  than through a stable local engine reference.
+- The existing partitioned close-race integration test does not settle D17. It composes on
+  `group.close()` and then waits for the separately captured startup Future to abort. That proves
+  eventual startup cleanup and terminal `CLOSED` state, but it does not prove that close itself
+  owns and awaits the cleanup boundary. The lifecycle test named "close during mode detection"
+  uses an immediately failed missing-pool path rather than a controlled pending continuation.
+- **D18 is a systemic open test-integrity violation, not one isolated teardown.** A whole-module
+  static audit found 10 discarded `factory.close()` Futures across 10 native test classes. Those
+  teardowns can start manager shutdown before factory-owned consumers have drained. The audit also
+  found 6 discarded consumer-group `start()` Futures, 3 group cleanup handlers that only warn, and
+  1 empty Vert.x close failure handler. The exact inventory is in P11 of the companion register.
+  These sites predate the P8-P10 edits but directly contradict the current async/testing rules and
+  cannot remain in the final change set.
+- The companion defect register now contains planned P11. Strict TDD must first reproduce D17
+  with controlled pending startup, make close await the shared startup-abort/resource-cleanup
+  boundary, and use stable resource references. D18 then needs composed, aggregate,
+  failure-propagating producer/factory/manager teardown. Required rebuilds, focused tests,
+  regressions, and guards follow only after Java changes.
+- The owner authorized rebuilding but not test execution. The clean native reactor rebuild passed
+  on 2026-08-23 with `-DskipTests`, compiling all 61 native test sources; its log is
+  `p11-preimplementation-rebuild-20260823.txt`. No test ran. The remaining audit used source/diff
+  inspection, prohibited-pattern scans, and `git diff --check`. No newly added Mockito, disabled
+  test, blocking bridge, sleep, `.recover`, or `.otherwise` pattern was found, and the diff
+  whitespace check is clean.
+- Do not commit this worktree and do not start the owner-run `-Pall-tests` release gate yet.
+  D17 and D18 must be remediated and verified first.
 
 ## 2026-08-21 post-commit reconciliation (D1-D13 complete)
 

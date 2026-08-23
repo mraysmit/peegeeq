@@ -17,20 +17,25 @@ import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceP
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Promise;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 import java.util.Properties;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -56,6 +61,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @see ConsumerModeTestScenario
  */
 @Tag(TestCategories.PERFORMANCE)
+@ExtendWith(VertxExtension.class)
 public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerformanceTestBase {
     private static final Logger logger = LoggerFactory.getLogger(ConsumerModePerformanceStandardizedTest.class);
 
@@ -73,25 +79,23 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
         logger.info("=== Starting Standardized Performance Tests ===");
     }
 
-    @BeforeEach
-    void setUp() throws Exception {
-        logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        // Manager and factory are initialized per-scenario after the container profile is set.
-        // No-op here to avoid binding to the wrong container profile.
-    }
-
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws InterruptedException {
         logger.info("Tearing down: closing resources and manager");
-        CountDownLatch teardownLatch = new CountDownLatch(1);
-        (factory != null ? factory.close() : Future.<Void>succeededFuture())
-            .compose(v -> manager != null ? manager.closeReactive() : Future.succeededFuture())
-            .onSuccess(v -> teardownLatch.countDown())
-            .onFailure(err -> { logger.warn("Teardown error: {}", err.getMessage()); teardownLatch.countDown(); });
-        teardownLatch.await(30, TimeUnit.SECONDS);
+        closeResources()
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "tearDown timed out");
     }
 
-    private void initializeManagerAndFactory() throws Exception {
+    private Future<Void> initializeManagerAndFactory() {
+        PeeGeeQTestSchemaInitializer.initializeSchema(
+            container,
+            PostgreSQLTestConstants.TEST_SCHEMA,
+            SchemaComponent.NATIVE_QUEUE,
+            SchemaComponent.OUTBOX,
+            SchemaComponent.DEAD_LETTER_QUEUE);
+
         // Configure test properties using container from base class
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(container)
@@ -101,17 +105,35 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
         // Initialize PeeGeeQ with test configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        CountDownLatch startLatch = new CountDownLatch(1);
-        manager.start()
-            .onSuccess(v -> {
+        return manager.start()
+            .map(v -> {
                 PgDatabaseService databaseService = new PgDatabaseService(manager);
                 PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
                 PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
                 factory = provider.createFactory("native", databaseService);
-                startLatch.countDown();
-            })
-            .onFailure(err -> { logger.error("Manager start failed", err); startLatch.countDown(); });
-        startLatch.await(30, TimeUnit.SECONDS);
+                return null;
+            });
+    }
+
+    private Future<Void> closeResources() {
+        Future<Void> factoryClose = factory != null ? factory.close() : Future.succeededFuture();
+        factory = null;
+        return factoryClose.transform(factoryResult -> {
+            Future<Void> managerClose = manager != null ? manager.closeReactive() : Future.succeededFuture();
+            manager = null;
+            return managerClose.transform(managerResult ->
+                combinedCloseResult(factoryResult.cause(), managerResult.cause()));
+        });
+    }
+
+    private Future<Void> combinedCloseResult(Throwable factoryFailure, Throwable managerFailure) {
+        if (factoryFailure != null) {
+            if (managerFailure != null) {
+                factoryFailure.addSuppressed(managerFailure);
+            }
+            return Future.failedFuture(factoryFailure);
+        }
+        return managerFailure == null ? Future.succeededFuture() : Future.failedFuture(managerFailure);
     }
 
     /**
@@ -136,8 +158,9 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
      */
     @ParameterizedTest(name = "Throughput Test: {0}")
     @MethodSource("getConsumerModeTestMatrix")
-    @Timeout(30) // 30 second timeout per test scenario
-    void testStandardizedThroughputComparison(ConsumerModeTestScenario scenario) throws Exception {
+    @Timeout(120)
+    void testStandardizedThroughputComparison(ConsumerModeTestScenario scenario, Vertx vertx,
+                                              VertxTestContext testContext) throws InterruptedException {
         logger.info("=== TEST METHOD STARTED: {} ===", scenario.getScenarioName());
 
         logger.info("Testing standardized throughput for scenario: {}", scenario.getDescription());
@@ -149,35 +172,20 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
         int messageCount = Math.min(baseMessageCount, scenario.getMessageCount());
         int warmupMessages = Math.max(1, messageCount / 4); // 25% warmup
 
-        try {
-            // Use the standardized test execution pattern
-            ConsumerModeTestResult result = runConsumerModeTest(scenario, (testScenario) -> {
-                return measureThroughputMetrics(topicName, testScenario, messageCount, warmupMessages);
-            });
+        setupContainerForProfile(scenario.getPerformanceProfile());
+        initializeManagerAndFactory()
+            .compose(v -> measureThroughputMetrics(topicName, scenario, messageCount, warmupMessages, vertx))
+            .onSuccess(metrics -> testContext.verify(() -> {
+                validateThroughputMetrics(metrics, scenario);
+                logger.info("{} - Throughput: {:.2f} msg/sec, Avg Latency: {:.2f}ms",
+                    scenario.getConsumerMode(), metrics.get("messages_per_second"),
+                    metrics.get("average_processing_time"));
+                logger.info("=== TEST METHOD COMPLETED: {} ===", scenario.getScenarioName());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-            // Fail with the actual error if the operation failed, not a misleading null-metrics assertion
-            if (!result.isSuccess()) {
-                fail("Consumer mode test failed for scenario " + scenario.getScenarioName() + ": " + result.getErrorMessage());
-            }
-
-            // Debug logging to verify result metrics
-            logger.info("Test result: {}", result);
-            logger.info("Test result metrics: {}", result.getMetrics());
-
-            // Validate results using scenario-specific expectations
-            validateThroughputResult(result, scenario);
-
-            logger.info("{} - Throughput: {:.2f} msg/sec, Avg Latency: {:.2f}ms",
-                scenario.getConsumerMode(),
-                result.getMetrics().get("messages_per_second"),
-                result.getMetrics().get("average_processing_time"));
-
-            logger.info("=== TEST METHOD COMPLETED: {} ===", scenario.getScenarioName());
-
-        } catch (Exception e) {
-            logger.warn("=== TEST METHOD FAILED: {} - {} ===", scenario.getScenarioName(), e.getMessage());
-            throw e;
-        }
+        assertTrue(testContext.awaitCompletion(110, TimeUnit.SECONDS), "throughput test timed out");
     }
 
     /**
@@ -186,208 +194,155 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
      */
     @ParameterizedTest(name = "Latency Test: {0}")
     @MethodSource("getConsumerModeTestMatrix")
-    void testStandardizedLatencyComparison(ConsumerModeTestScenario scenario) throws Exception {
+    void testStandardizedLatencyComparison(ConsumerModeTestScenario scenario, Vertx vertx,
+                                           VertxTestContext testContext) throws InterruptedException {
         logger.info("Testing standardized latency for scenario: {}", scenario.getDescription());
 
         String topicName = "standardized-latency-" + scenario.getConsumerMode().name().toLowerCase();
         int messageCount = Math.min(50, scenario.getMessageCount()); // Smaller count for latency precision
 
-        // Use the standardized test execution pattern
-        ConsumerModeTestResult result = runConsumerModeTest(scenario, (testScenario) -> {
-            return measureLatencyMetrics(topicName, testScenario, messageCount);
-        });
+        setupContainerForProfile(scenario.getPerformanceProfile());
+        initializeManagerAndFactory()
+            .compose(v -> measureLatencyMetrics(topicName, scenario, messageCount, vertx))
+            .onSuccess(metrics -> testContext.verify(() -> {
+                validateLatencyMetrics(metrics, scenario);
+                logger.info("{} - Avg: {:.2f}ms, P95: {:.2f}ms",
+                    scenario.getConsumerMode(), metrics.get("average_processing_time"),
+                    metrics.get("p95_latency"));
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        // Validate results using scenario-specific expectations
-        validateLatencyResult(result, scenario);
-        
-        logger.info("{} - Avg: {:.2f}ms, P95: {:.2f}ms", 
-            scenario.getConsumerMode(),
-            result.getMetrics().get("average_processing_time"),
-            result.getMetrics().getOrDefault("p95_latency", 0.0));
+        assertTrue(testContext.awaitCompletion(110, TimeUnit.SECONDS), "latency test timed out");
     }
 
     /**
      * Measure throughput using the scenario configuration and return metrics.
      */
-    private Map<String, Object> measureThroughputMetrics(String topicName,
-                                                        ConsumerModeTestScenario scenario,
-                                                        int messageCount,
-                                                        int warmupMessages) throws Exception {
+    private Future<Map<String, Object>> measureThroughputMetrics(String topicName,
+                                                                ConsumerModeTestScenario scenario,
+                                                                int messageCount,
+                                                                int warmupMessages,
+                                                                Vertx vertx) {
         logger.info("=== STARTING THROUGHPUT MEASUREMENT ===");
 
         logger.info("Starting throughput measurement: topic={}, messages={}, warmup={}, mode={}",
             topicName, messageCount, warmupMessages, scenario.getConsumerMode());
 
-        // Ensure schema exists and (re)initialize manager/factory for the current container profile
-        if (factory != null) {
-            try { factory.close(); } catch (Exception ignore) {}
-            factory = null;
-        }
-        if (manager != null) {
-            try {
-                CountDownLatch closeLatch = new CountDownLatch(1);
-                manager.closeReactive()
-                    .onSuccess(v -> closeLatch.countDown())
-                    .onFailure(err -> closeLatch.countDown());
-                closeLatch.await(30, TimeUnit.SECONDS);
-            } catch (Exception ignore) {}
-            manager = null;
-        }
-        PeeGeeQTestSchemaInitializer.initializeSchema(container, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.NATIVE_QUEUE,
-                SchemaComponent.OUTBOX,
-                SchemaComponent.DEAD_LETTER_QUEUE);
-        Properties testProps = PeeGeeQTestConfig.builder()
-                .from(container)
-                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
-                .build();
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
-        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        CountDownLatch startLatch = new CountDownLatch(1);
-        manager.start()
-            .onSuccess(v -> {
-                PgDatabaseService databaseService = new PgDatabaseService(manager);
-                PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-                PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-                factory = provider.createFactory("native", databaseService);
-                startLatch.countDown();
-            })
-            .onFailure(err -> { logger.error("Manager start failed in measureThroughputMetrics", err); startLatch.countDown(); });
-        startLatch.await(30, TimeUnit.SECONDS);
-
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicLong totalLatency = new AtomicLong(0);
-        CountDownLatch allProcessed = new CountDownLatch(messageCount);
+        Promise<Long> allProcessed = Promise.promise();
+        int timeoutSeconds = scenario.getPerformanceProfile() == PerformanceProfile.BASIC ? 20 : 10;
+        long timerId = vertx.setTimer(TimeUnit.SECONDS.toMillis(timeoutSeconds), id ->
+            allProcessed.tryFail("Timed out after processing " + processedCount.get() + "/"
+                + (messageCount + warmupMessages) + " messages"));
+        long[] messageSentTimes = new long[messageCount + warmupMessages];
 
-        MessageConsumer<String> consumer = null;
-        MessageProducer<String> producer = null;
+        MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
+            ConsumerConfig.builder()
+                .mode(convertConsumerMode(scenario.getConsumerMode()))
+                .pollingInterval(scenario.getPollingInterval())
+                .build());
+        MessageProducer<String> producer = factory.createProducer(topicName, String.class);
+        long[] startTime = {0L};
 
-        try {
-            // Create consumer with scenario configuration
-            consumer = factory.createConsumer(topicName, String.class,
-                ConsumerConfig.builder()
-                    .mode(convertConsumerMode(scenario.getConsumerMode()))
-                    .pollingInterval(scenario.getPollingInterval())
-                    .build());
-
-            long[] messageSentTimes = new long[messageCount + warmupMessages];
-
-            // Subscribe to messages with proper error handling
-            consumer.subscribe(message -> {
-                try {
-                    long receiveTime = System.currentTimeMillis();
-                    int index = processedCount.incrementAndGet();
-
-                    // Skip warmup messages in calculations
-                    if (index > warmupMessages) {
-                        long sendTime = messageSentTimes[index - 1];
-                        long latency = receiveTime - sendTime;
-                        totalLatency.addAndGet(latency);
-                        allProcessed.countDown();
-
-                        if (index % 10 == 0) {
-                            logger.debug("Processed {} messages", index);
-                        }
-                    }
-
-                    return Future.succeededFuture();
-                } catch (Exception e) {
-                    logger.error("Error processing message", e);
-                    return Future.failedFuture(e);
+        return consumer.subscribe(message -> {
+            long receiveTime = System.currentTimeMillis();
+            int index = processedCount.incrementAndGet();
+            if (index > warmupMessages) {
+                totalLatency.addAndGet(receiveTime - messageSentTimes[index - 1]);
+                if (index == messageCount + warmupMessages) {
+                    allProcessed.tryComplete(receiveTime);
                 }
-            });
-
-            // Create producer
-            producer = factory.createProducer(topicName, String.class);
-
-            long startTime = System.currentTimeMillis();
-
-            // Send warmup + test messages
+            }
+            return Future.succeededFuture();
+        }).compose(v -> {
+            startTime[0] = System.currentTimeMillis();
+            Future<Void> sends = Future.succeededFuture();
             for (int i = 0; i < messageCount + warmupMessages; i++) {
-                messageSentTimes[i] = System.currentTimeMillis();
-                producer.send("Standardized performance test message " + i);
+                int index = i;
+                sends = sends.compose(ignored -> {
+                    messageSentTimes[index] = System.currentTimeMillis();
+                    return producer.send("Standardized performance test message " + index);
+                });
             }
-
-            logger.info("Sent {} messages, waiting for processing...", messageCount + warmupMessages);
-
-            // Wait for all test messages to be processed (excluding warmup) with timeout
-            // Adjust timeout based on performance profile - BASIC needs more time
-            int timeoutSeconds = scenario.getPerformanceProfile() == PerformanceProfile.BASIC ? 20 : 10;
-            boolean completed = allProcessed.await(timeoutSeconds, TimeUnit.SECONDS);
-            long endTime = System.currentTimeMillis();
-
-            if (!completed) {
-                logger.error("Test did not complete within timeout. Processed: {}/{}",
-                    processedCount.get(), messageCount + warmupMessages);
-                throw new RuntimeException("Test did not complete within " + timeoutSeconds + " seconds timeout.");
-            }
-
-            // Calculate metrics
-            double durationSeconds = (endTime - startTime) / 1000.0;
+            return sends.compose(ignored -> allProcessed.future());
+        }).eventually(() -> {
+            vertx.cancelTimer(timerId);
+            return Future.succeededFuture();
+        }).map(endTime -> {
+            double durationSeconds = Math.max(0.001, (endTime - startTime[0]) / 1000.0);
             double throughput = messageCount / durationSeconds;
             double averageLatency = totalLatency.get() / (double) messageCount;
-
-            logger.info("Throughput test completed: {:.2f} msg/sec, avg latency: {:.2f}ms",
-                throughput, averageLatency);
-
-            logger.info("=== THROUGHPUT MEASUREMENT COMPLETED ===");
-
-            // Return standardized metrics
-            Map<String, Object> metrics = createConsumerModeMetrics(throughput, averageLatency, 0.0, 0.8, 0.0);
-
-            // Debug logging to verify metrics creation
-            logger.info("Created metrics: {}", metrics);
-            logger.info("=== METRICS CREATED: {} ===", metrics);
-
-            return metrics;
-
-        } finally {
-            // Proper resource cleanup following PGQ patterns
-            if (consumer != null) {
-                try {
-                    consumer.close();
-                    logger.debug("Consumer closed successfully");
-                } catch (Exception e) {
-                    logger.error("Error closing consumer", e);
-                }
-            }
-            if (producer != null) {
-                try {
-                    producer.close();
-                    logger.debug("Producer closed successfully");
-                } catch (Exception e) {
-                    logger.error("Error closing producer", e);
-                }
-            }
-        }
+            return createConsumerModeMetrics(throughput, averageLatency, 0.0, 0.8, 0.0);
+        });
     }
 
     /**
      * Measure latency using the scenario configuration and return metrics.
      */
-    private Map<String, Object> measureLatencyMetrics(String topicName,
-                                                     ConsumerModeTestScenario scenario,
-                                                     int messageCount) throws Exception {
-        // Implementation similar to measureThroughputWithScenario but focused on latency metrics
-        // This would include detailed latency statistics (min, max, avg, p95, p99)
-        
-        // For brevity, returning a simplified result
-        // In a real implementation, this would collect detailed latency statistics
-        double averageLatency = 50.0; // Placeholder - would be calculated from actual measurements
-        return createConsumerModeMetrics(100.0, averageLatency, 0.0, 0.8, 0.0);
+    private Future<Map<String, Object>> measureLatencyMetrics(String topicName,
+                                                              ConsumerModeTestScenario scenario,
+                                                              int messageCount,
+                                                              Vertx vertx) {
+        List<Long> latencies = new ArrayList<>();
+        AtomicInteger processedCount = new AtomicInteger();
+        long[] messageSentTimes = new long[messageCount];
+        Promise<Void> allProcessed = Promise.promise();
+        long timerId = vertx.setTimer(20_000, id ->
+            allProcessed.tryFail("Timed out after processing " + processedCount.get() + "/" + messageCount + " messages"));
+
+        MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
+            ConsumerConfig.builder()
+                .mode(convertConsumerMode(scenario.getConsumerMode()))
+                .pollingInterval(scenario.getPollingInterval())
+                .build());
+        MessageProducer<String> producer = factory.createProducer(topicName, String.class);
+
+        return consumer.subscribe(message -> {
+            int index = processedCount.getAndIncrement();
+            if (index < messageCount) {
+                latencies.add(System.currentTimeMillis() - messageSentTimes[index]);
+                if (index == messageCount - 1) {
+                    allProcessed.tryComplete();
+                }
+            }
+            return Future.succeededFuture();
+        }).compose(v -> {
+            Future<Void> sends = Future.succeededFuture();
+            for (int i = 0; i < messageCount; i++) {
+                int index = i;
+                sends = sends.compose(ignored -> {
+                    messageSentTimes[index] = System.currentTimeMillis();
+                    return producer.send("Standardized latency test message " + index);
+                });
+            }
+            return sends.compose(ignored -> allProcessed.future());
+        }).eventually(() -> {
+            vertx.cancelTimer(timerId);
+            return Future.succeededFuture();
+        }).map(v -> {
+            latencies.sort(Long::compareTo);
+            double averageLatency = latencies.stream().mapToLong(Long::longValue).average().orElseThrow();
+            int p95Index = Math.min(latencies.size() - 1, (int) Math.ceil(latencies.size() * 0.95) - 1);
+            Map<String, Object> metrics = createConsumerModeMetrics(
+                0.0, averageLatency, 0.0, 0.8, 0.0);
+            metrics.put("p95_latency", latencies.get(p95Index).doubleValue());
+            return metrics;
+        });
     }
 
     /**
      * Validate throughput results based on scenario expectations.
      * Follows PGQ coding principles: proper null checking and realistic expectations.
      */
-    private void validateThroughputResult(ConsumerModeTestResult result, ConsumerModeTestScenario scenario) {
+    private void validateThroughputMetrics(Map<String, Object> metrics, ConsumerModeTestScenario scenario) {
         // Validate result and metrics are not null
-        assertNotNull(result, "Test result should not be null");
-        assertNotNull(result.getMetrics(), "Metrics should not be null");
+        assertNotNull(metrics, "Metrics should not be null");
 
         // Safe extraction of metrics with null checking
-        Object throughputObj = result.getMetrics().get("messages_per_second");
-        Object latencyObj = result.getMetrics().get("average_processing_time");
+        Object throughputObj = metrics.get("messages_per_second");
+        Object latencyObj = metrics.get("average_processing_time");
 
         assertNotNull(throughputObj, "Throughput metric should not be null");
         assertNotNull(latencyObj, "Average latency metric should not be null");
@@ -415,13 +370,12 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
      * Validate latency results based on scenario expectations.
      * Follows PGQ coding principles: proper null checking and error handling.
      */
-    private void validateLatencyResult(ConsumerModeTestResult result, ConsumerModeTestScenario scenario) {
+    private void validateLatencyMetrics(Map<String, Object> metrics, ConsumerModeTestScenario scenario) {
         // Validate result and metrics are not null
-        assertNotNull(result, "Test result should not be null");
-        assertNotNull(result.getMetrics(), "Metrics should not be null");
+        assertNotNull(metrics, "Metrics should not be null");
 
         // Safe extraction of latency metric with null checking
-        Object latencyObj = result.getMetrics().get("average_processing_time");
+        Object latencyObj = metrics.get("average_processing_time");
         assertNotNull(latencyObj, "Average latency metric should not be null");
 
         double averageLatency = ((Number) latencyObj).doubleValue();
@@ -466,5 +420,3 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
         };
     }
 }
-
-
