@@ -4,6 +4,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -44,6 +45,14 @@ class BackgroundTaskFailureTrackerTest {
     }
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.health.BackgroundTaskFailureTrackerTest.captured",
+            message = "Test background task is still failing (3 consecutive failures, 3 total failures): database unavailable",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.health.BackgroundTaskFailureTrackerTest.captured",
+            message = "Test background task is still failing (6 consecutive failures, 6 total failures): database unavailable",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void firstFailureKeepsStackAndPersistentSummariesAreRateLimited() {
         BackgroundTaskFailureTracker tracker = tracker();
         RuntimeException failure = new RuntimeException("database unavailable");
@@ -74,6 +83,10 @@ class BackgroundTaskFailureTrackerTest {
     }
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.health.BackgroundTaskFailureTrackerTest.captured",
+            message = "Test background task is still failing (3 consecutive failures, 3 total failures): third",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void healthEscalatesAndSuccessfulRunRestoresHealthyState() {
         BackgroundTaskFailureTracker tracker = tracker();
 

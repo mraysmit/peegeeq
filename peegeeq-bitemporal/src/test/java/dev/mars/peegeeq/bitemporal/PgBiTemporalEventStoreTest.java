@@ -541,10 +541,8 @@ class PgBiTemporalEventStoreTest {
     @Test
     void testConstructorRejectsSchemaQualifiedTableName(Vertx vertx, VertxTestContext testContext) {
         logger.info("Test: constructor rejects schema-qualified table name 'public.bitemporal_event_log'");
-        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = constructor rejects schema-qualified table name");
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
             () -> new PgBiTemporalEventStore<>(vertx, manager, TestEvent.class, "public.bitemporal_event_log", new ObjectMapper()));
-        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected constructor validation failure = {}", error.getMessage());
         assertTrue(error.getMessage().contains("unqualified"),
             "Expected schema-qualified table name to be rejected");
         logger.info("Rejected as expected: {}", error.getMessage());
@@ -554,11 +552,9 @@ class PgBiTemporalEventStoreTest {
     @Test
     void testConstructorRejectsUnsafeTableNameCharacters(Vertx vertx, VertxTestContext testContext) {
         logger.info("Test: constructor rejects SQL-injection-style table name");
-        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = constructor rejects unsafe table name characters");
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
             () -> new PgBiTemporalEventStore<>(vertx, manager, TestEvent.class,
                 "bitemporal_event_log;DROP TABLE bitemporal_event_log;--", new ObjectMapper()));
-        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected constructor validation failure = {}", error.getMessage());
         logger.info("Unsafe table name rejected as expected");
         testContext.completeNow();
     }
