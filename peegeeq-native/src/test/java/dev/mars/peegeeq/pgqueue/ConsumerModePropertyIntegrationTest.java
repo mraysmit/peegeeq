@@ -36,7 +36,6 @@ import java.time.Duration;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -76,19 +75,28 @@ class ConsumerModePropertyIntegrationTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
-        if (factory != null) {
-            factory.close();
-        }
-        if (manager != null) {
-            manager.closeReactive()
-                .onSuccess(v -> testContext.completeNow())
-                .onFailure(testContext::failNow);
-        } else {
-            testContext.completeNow();
-        }
-
-        logger.info("Test teardown completed");
+        closeResources()
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+    }
+
+    private Future<Void> closeResources() {
+        Future<Void> factoryClose = factory != null ? factory.close() : Future.succeededFuture();
+        return factoryClose.transform(factoryResult -> {
+            Future<Void> managerClose = manager != null ? manager.closeReactive() : Future.succeededFuture();
+            return managerClose.transform(managerResult -> combinedCloseResult(factoryResult.cause(), managerResult.cause()));
+        });
+    }
+
+    private Future<Void> combinedCloseResult(Throwable factoryFailure, Throwable managerFailure) {
+        if (factoryFailure != null) {
+            if (managerFailure != null) {
+                factoryFailure.addSuppressed(managerFailure);
+            }
+            return Future.failedFuture(factoryFailure);
+        }
+        return managerFailure == null ? Future.succeededFuture() : Future.failedFuture(managerFailure);
     }
 
     private Future<Void> initializeManagerAndFactory(Properties testProps) {
@@ -110,8 +118,6 @@ class ConsumerModePropertyIntegrationTest {
         String topicName = "test-polling-interval-property";
         AtomicInteger processedCount = new AtomicInteger(0);
         Checkpoint messagesReceived = testContext.checkpoint(2);
-        AtomicReference<MessageConsumer<String>> consumerRef = new AtomicReference<>();
-        AtomicReference<MessageProducer<String>> producerRef = new AtomicReference<>();
 
         initializeManagerAndFactory(PeeGeeQTestConfig.builder()
                 .from(postgres)
@@ -128,9 +134,6 @@ class ConsumerModePropertyIntegrationTest {
                         .pollingInterval(Duration.ofSeconds(2))
                         .build());
                 MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-                consumerRef.set(consumer);
-                producerRef.set(producer);
-
                 consumer.subscribe(message -> {
                     processedCount.incrementAndGet();
                     logger.info(" Property integration processed: {}", message.getPayload());
@@ -144,14 +147,9 @@ class ConsumerModePropertyIntegrationTest {
             })
             .onFailure(testContext::failNow);
 
-        try {
-            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process messages with custom polling interval");
-            assertEquals(2, processedCount.get(), "Should process exactly 2 messages");
-            logger.info("Polling interval property integration verified - processed: {} messages", processedCount.get());
-        } finally {
-            if (consumerRef.get() != null) consumerRef.get().close();
-            if (producerRef.get() != null) producerRef.get().close();
-        }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process messages with custom polling interval");
+        assertEquals(2, processedCount.get(), "Should process exactly 2 messages");
+        logger.info("Polling interval property integration verified - processed: {} messages", processedCount.get());
 
         logger.info("Polling interval property integration test completed successfully");
     }
@@ -163,8 +161,6 @@ class ConsumerModePropertyIntegrationTest {
         String topicName = "test-batch-size-property";
         AtomicInteger processedCount = new AtomicInteger(0);
         Checkpoint messagesReceived = testContext.checkpoint(5);
-        AtomicReference<MessageConsumer<String>> consumerRef = new AtomicReference<>();
-        AtomicReference<MessageProducer<String>> producerRef = new AtomicReference<>();
 
         initializeManagerAndFactory(PeeGeeQTestConfig.builder()
                 .from(postgres)
@@ -182,9 +178,6 @@ class ConsumerModePropertyIntegrationTest {
                         .batchSize(3)
                         .build());
                 MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-                consumerRef.set(consumer);
-                producerRef.set(producer);
-
                 consumer.subscribe(message -> {
                     processedCount.incrementAndGet();
                     logger.info(" Batch property processed: {}", message.getPayload());
@@ -203,14 +196,9 @@ class ConsumerModePropertyIntegrationTest {
             })
             .onFailure(testContext::failNow);
 
-        try {
-            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should process messages with custom batch size");
-            assertEquals(5, processedCount.get(), "Should process exactly 5 messages");
-            logger.info("Batch size property integration verified - processed: {} messages", processedCount.get());
-        } finally {
-            if (consumerRef.get() != null) consumerRef.get().close();
-            if (producerRef.get() != null) producerRef.get().close();
-        }
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should process messages with custom batch size");
+        assertEquals(5, processedCount.get(), "Should process exactly 5 messages");
+        logger.info("Batch size property integration verified - processed: {} messages", processedCount.get());
 
         logger.info("Batch size property integration test completed successfully");
     }
@@ -222,8 +210,6 @@ class ConsumerModePropertyIntegrationTest {
         String topicName = "test-visibility-timeout-property";
         AtomicInteger processedCount = new AtomicInteger(0);
         Checkpoint messagesReceived = testContext.checkpoint(2);
-        AtomicReference<MessageConsumer<String>> consumerRef = new AtomicReference<>();
-        AtomicReference<MessageProducer<String>> producerRef = new AtomicReference<>();
 
         initializeManagerAndFactory(PeeGeeQTestConfig.builder()
                 .from(postgres)
@@ -240,9 +226,6 @@ class ConsumerModePropertyIntegrationTest {
                         .pollingInterval(Duration.ofSeconds(1))
                         .build());
                 MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-                consumerRef.set(consumer);
-                producerRef.set(producer);
-
                 consumer.subscribe(message -> {
                     processedCount.incrementAndGet();
                     logger.info(" Visibility timeout processed: {}", message.getPayload());
@@ -256,14 +239,9 @@ class ConsumerModePropertyIntegrationTest {
             })
             .onFailure(testContext::failNow);
 
-        try {
-            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should process messages with custom visibility timeout");
-            assertEquals(2, processedCount.get(), "Should process exactly 2 messages");
-            logger.info("Visibility timeout property integration verified - processed: {} messages", processedCount.get());
-        } finally {
-            if (consumerRef.get() != null) consumerRef.get().close();
-            if (producerRef.get() != null) producerRef.get().close();
-        }
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should process messages with custom visibility timeout");
+        assertEquals(2, processedCount.get(), "Should process exactly 2 messages");
+        logger.info("Visibility timeout property integration verified - processed: {} messages", processedCount.get());
 
         logger.info("Visibility timeout property integration test completed successfully");
     }
@@ -275,8 +253,6 @@ class ConsumerModePropertyIntegrationTest {
         String topicName = "test-multiple-properties";
         AtomicInteger processedCount = new AtomicInteger(0);
         Checkpoint messagesReceived = testContext.checkpoint(4);
-        AtomicReference<MessageConsumer<String>> consumerRef = new AtomicReference<>();
-        AtomicReference<MessageProducer<String>> producerRef = new AtomicReference<>();
 
         initializeManagerAndFactory(PeeGeeQTestConfig.builder()
                 .from(postgres)
@@ -294,9 +270,6 @@ class ConsumerModePropertyIntegrationTest {
                         .batchSize(2)
                         .build());
                 MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-                consumerRef.set(consumer);
-                producerRef.set(producer);
-
                 consumer.subscribe(message -> {
                     processedCount.incrementAndGet();
                     logger.info(" Multiple properties processed: {}", message.getPayload());
@@ -315,14 +288,9 @@ class ConsumerModePropertyIntegrationTest {
             })
             .onFailure(testContext::failNow);
 
-        try {
-            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should process messages with multiple property combinations");
-            assertEquals(4, processedCount.get(), "Should process exactly 4 messages");
-            logger.info("Multiple property combinations verified - processed: {} messages", processedCount.get());
-        } finally {
-            if (consumerRef.get() != null) consumerRef.get().close();
-            if (producerRef.get() != null) producerRef.get().close();
-        }
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should process messages with multiple property combinations");
+        assertEquals(4, processedCount.get(), "Should process exactly 4 messages");
+        logger.info("Multiple property combinations verified - processed: {} messages", processedCount.get());
 
         logger.info("Multiple property combinations test completed successfully");
     }
@@ -334,8 +302,6 @@ class ConsumerModePropertyIntegrationTest {
         String topicName = "test-property-override";
         AtomicInteger processedCount = new AtomicInteger(0);
         Checkpoint messagesReceived = testContext.checkpoint(3);
-        AtomicReference<MessageConsumer<String>> consumerRef = new AtomicReference<>();
-        AtomicReference<MessageProducer<String>> producerRef = new AtomicReference<>();
 
         initializeManagerAndFactory(PeeGeeQTestConfig.builder()
                 .from(postgres)
@@ -352,9 +318,6 @@ class ConsumerModePropertyIntegrationTest {
                         .pollingInterval(Duration.ofSeconds(1))
                         .build());
                 MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-                consumerRef.set(consumer);
-                producerRef.set(producer);
-
                 consumer.subscribe(message -> {
                     processedCount.incrementAndGet();
                     logger.info(" Property override processed: {}", message.getPayload());
@@ -373,17 +336,10 @@ class ConsumerModePropertyIntegrationTest {
             })
             .onFailure(testContext::failNow);
 
-        try {
-            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process messages with overridden properties");
-            assertEquals(3, processedCount.get(), "Should process exactly 3 messages");
-            logger.info("Property override scenarios verified - processed: {} messages", processedCount.get());
-        } finally {
-            if (consumerRef.get() != null) consumerRef.get().close();
-            if (producerRef.get() != null) producerRef.get().close();
-        }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process messages with overridden properties");
+        assertEquals(3, processedCount.get(), "Should process exactly 3 messages");
+        logger.info("Property override scenarios verified - processed: {} messages", processedCount.get());
 
         logger.info("Property override scenarios test completed successfully");
     }
 }
-
-

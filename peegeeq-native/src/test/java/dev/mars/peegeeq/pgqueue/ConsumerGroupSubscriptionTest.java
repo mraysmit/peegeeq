@@ -119,20 +119,47 @@ class ConsumerGroupSubscriptionTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) throws InterruptedException {
         logger.info("Tearing down: closing resources and manager");
+        Future<Void> producerClose = Future.succeededFuture();
         if (producer != null) {
-            try { producer.close(); } catch (Exception e) { logger.warn("Error closing producer", e); }
+            try {
+                producer.close();
+            } catch (Exception e) {
+                logger.error("Error closing producer", e);
+                producerClose = Future.failedFuture(e);
+            }
         }
-        if (factory != null) {
-            try { factory.close(); } catch (Exception e) { logger.warn("Error closing factory", e); }
-        }
-        if (manager != null) {
-            manager.closeReactive()
-                .onSuccess(v -> testContext.completeNow())
-                .onFailure(e -> { logger.error("manager close failed", e); testContext.failNow(e); });
-        } else {
-            testContext.completeNow();
-        }
-        testContext.awaitCompletion(30, TimeUnit.SECONDS);
+        Future<Void> factoryClose = factory != null ? factory.close() : Future.succeededFuture();
+        Future.join(producerClose, factoryClose)
+                .mapEmpty()
+                .onSuccess(v -> finishManagerClose(testContext, null))
+                .onFailure(e -> finishManagerClose(testContext, e));
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
+                "Test resource cleanup timed out");
+    }
+
+    private void finishManagerClose(VertxTestContext testContext, Throwable cleanupFailure) {
+        Future<Void> managerClose = manager != null
+                ? manager.closeReactive()
+                : Future.succeededFuture();
+        managerClose
+                .onSuccess(v -> {
+                    if (cleanupFailure == null) {
+                        testContext.completeNow();
+                    } else {
+                        logger.error("Test resource cleanup failed", cleanupFailure);
+                        testContext.failNow(cleanupFailure);
+                    }
+                })
+                .onFailure(closeFailure -> {
+                    if (cleanupFailure == null) {
+                        logger.error("Manager close failed", closeFailure);
+                        testContext.failNow(closeFailure);
+                    } else {
+                        cleanupFailure.addSuppressed(closeFailure);
+                        logger.error("Test resource cleanup and manager close failed", cleanupFailure);
+                        testContext.failNow(cleanupFailure);
+                    }
+                });
     }
 
     // ========================================================================
@@ -320,9 +347,6 @@ class ConsumerGroupSubscriptionTest {
             // Act & Assert
             assertThrows(IllegalArgumentException.class, () -> group.start(null),
                 "Should throw IllegalArgumentException for null SubscriptionOptions");
-
-            // Cleanup
-            group.close().onFailure(e -> fail("close() failed: " + e.getMessage()));
         }
 
         @Test
@@ -337,37 +361,40 @@ class ConsumerGroupSubscriptionTest {
 
             SubscriptionOptions options = SubscriptionOptions.defaults();
             group.start(options)
-                .onSuccess(v1 -> testContext.verify(() -> {
+                .compose(v1 -> {
                     assertTrue(group.isActive(), "Group should be active after first start");
-                    // Act - second start should be idempotent (no exception)
-                    group.start(options)
-                        .onSuccess(v2 -> testContext.verify(() -> {
-                            assertTrue(group.isActive(), "Group should remain active after second start");
-                            group.close().onFailure(testContext::failNow);
-                            testContext.completeNow();
-                        }))
-                        .onFailure(testContext::failNow);
-                }))
+                    return group.start(options);
+                })
+                .compose(v2 -> {
+                    assertTrue(group.isActive(), "Group should remain active after second start");
+                    return group.close();
+                })
+                .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
         }
 
         @Test
         @DisplayName("should return failed future after close")
-        void testStartWithOptions_AfterClose() throws Exception {
+        void testStartWithOptions_AfterClose(VertxTestContext testContext) {
         logger.info("Test: start with options  after close");
             // Arrange
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
             group.addConsumer("consumer-1", msg -> Future.succeededFuture());
-            group.close().onFailure(e -> fail("close() failed: " + e.getMessage()));
-
             SubscriptionOptions options = SubscriptionOptions.defaults();
 
-            // Act & Assert async method returns a failed future, not a thrown exception
-            Future<Void> result = group.start(options);
-            assertTrue(result.failed(), "Should fail when starting a closed group");
-            assertInstanceOf(IllegalStateException.class, result.cause());
+            group.close()
+                .compose(v -> group.start(options).transform(startResult -> {
+                    if (startResult.succeeded()) {
+                        return Future.failedFuture(
+                            new AssertionError("Starting a closed group unexpectedly succeeded"));
+                    }
+                    assertInstanceOf(IllegalStateException.class, startResult.cause());
+                    return Future.succeededFuture();
+                }))
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
         }
 
         @Test
@@ -436,11 +463,11 @@ class ConsumerGroupSubscriptionTest {
                     assertTrue(group2.isActive());
                     return group2.stopGracefully().compose(ignored -> group3.start(SubscriptionOptions.defaults()));
                 })
-                .onSuccess(v -> testContext.verify(() -> {
+                .compose(v -> {
                     assertTrue(group3.isActive());
-                    group3.stopGracefully().onFailure(testContext::failNow);
-                    testContext.completeNow();
-                }))
+                    return group3.stopGracefully();
+                })
+                .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
         }
     }
@@ -474,8 +501,6 @@ class ConsumerGroupSubscriptionTest {
             assertTrue(group.getConsumerIds().contains("test-group-default-consumer"),
                 "Consumer list should contain default consumer");
 
-            // Cleanup
-            group.close().onFailure(e -> fail("close() failed: " + e.getMessage()));
         }
 
         @Test
@@ -496,8 +521,6 @@ class ConsumerGroupSubscriptionTest {
             assertEquals("test-group", member.getGroupName());
             assertEquals("test-topic", member.getTopic());
 
-            // Cleanup
-            group.close().onFailure(e -> fail("close() failed: " + e.getMessage()));
         }
 
         @Test
@@ -519,13 +542,12 @@ class ConsumerGroupSubscriptionTest {
                 return Future.succeededFuture();
             });
 
-            // Act
-            group.start();
-
-            // Send messages
-            producer.send("Message-1").onFailure(testContext::failNow);
-            producer.send("Message-2").onFailure(testContext::failNow);
-            producer.send("Message-3").onFailure(testContext::failNow);
+            group.start()
+                .compose(v -> Future.all(
+                    producer.send("Message-1"),
+                    producer.send("Message-2"),
+                    producer.send("Message-3")))
+                .onFailure(testContext::failNow);
 
             // Wait for processing
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
@@ -541,8 +563,6 @@ class ConsumerGroupSubscriptionTest {
             assertEquals(receivedMessages.size(), receivedMessages.stream().distinct().count(),
                 "Received payloads must not contain duplicates; got: " + receivedMessages);
 
-            // Cleanup
-            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
@@ -560,8 +580,6 @@ class ConsumerGroupSubscriptionTest {
                 () -> group.setMessageHandler(msg -> Future.succeededFuture()),
                 "Should throw IllegalStateException when called twice");
 
-            // Cleanup
-            group.close().onFailure(e -> fail("close() failed: " + e.getMessage()));
         }
 
         @Test
@@ -577,24 +595,24 @@ class ConsumerGroupSubscriptionTest {
                 () -> group.setMessageHandler(null),
                 "Should throw IllegalArgumentException for null handler");
 
-            // Cleanup
-            group.close().onFailure(e -> fail("close() failed: " + e.getMessage()));
         }
 
         @Test
         @DisplayName("should throw IllegalStateException after close")
-        void testSetMessageHandler_AfterClose() throws Exception {
+        void testSetMessageHandler_AfterClose(VertxTestContext testContext) {
         logger.info("Test: set message handler  after close");
             // Arrange
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
-            group.close().onFailure(e -> fail("close() failed: " + e.getMessage()));
-
-            // Act & Assert
-            assertThrows(IllegalStateException.class,
-                () -> group.setMessageHandler(msg -> Future.succeededFuture()),
-                "Should throw IllegalStateException when called on closed group");
+            group.close()
+                .onSuccess(v -> testContext.verify(() -> {
+                    assertThrows(IllegalStateException.class,
+                        () -> group.setMessageHandler(msg -> Future.succeededFuture()),
+                        "Should throw IllegalStateException when called on closed group");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
         }
 
         @Test
@@ -615,12 +633,11 @@ class ConsumerGroupSubscriptionTest {
                 return Future.succeededFuture();
             });
 
-            // Act
-            group.start();
-
-            // Send messages
-            producer.send("Test-1").onFailure(testContext::failNow);
-            producer.send("Test-2").onFailure(testContext::failNow);
+            group.start()
+                .compose(v -> Future.all(
+                    producer.send("Test-1"),
+                    producer.send("Test-2")))
+                .onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
 
@@ -634,8 +651,6 @@ class ConsumerGroupSubscriptionTest {
             assertEquals(receivedPayloads.size(), receivedPayloads.stream().distinct().count(),
                 "Received payloads must not contain duplicates; got: " + receivedPayloads);
 
-            // Cleanup
-            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
@@ -694,12 +709,12 @@ class ConsumerGroupSubscriptionTest {
                 return Future.succeededFuture();
             });
 
-            group.start();
-
-            // Send messages
+            Future<Void> sends = group.start();
             for (int i = 0; i < 5; i++) {
-                producer.send("Message-" + i).onFailure(testContext::failNow);
+                String payload = "Message-" + i;
+                sends = sends.compose(v -> producer.send(payload));
             }
+            sends.onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
 
@@ -714,8 +729,6 @@ class ConsumerGroupSubscriptionTest {
             assertEquals("test-group-default-consumer", memberStats.getConsumerId());
             assertTrue(memberStats.isActive());
 
-            // Cleanup
-            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test

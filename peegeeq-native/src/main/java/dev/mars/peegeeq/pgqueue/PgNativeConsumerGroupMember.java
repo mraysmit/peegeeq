@@ -261,7 +261,18 @@ public class PgNativeConsumerGroupMember<T> implements dev.mars.peegeeq.api.mess
         logger.debug("Processing message {} with consumer '{}' in group '{}'", 
             message.getId(), consumerId, groupName);
         
-        return messageHandler.handle(message)
+        Future<Void> handling;
+        try {
+            handling = messageHandler.handle(message);
+            if (handling == null) {
+                handling = Future.failedFuture(
+                        new IllegalStateException("Message handler returned null Future"));
+            }
+        } catch (Exception e) {
+            handling = Future.failedFuture(e);
+        }
+
+        return handling
             .onSuccess(result -> {
                 long processingTime = System.currentTimeMillis() - startTime;
                 totalProcessingTimeMs.addAndGet(processingTime);

@@ -74,6 +74,7 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
     private final List<AutoCloseable> managedResources = new CopyOnWriteArrayList<>();
     private final List<ConsumerGroup<?>> managedConsumerGroups = new CopyOnWriteArrayList<>();
     private volatile boolean closed = false;
+    private Future<Void> closeFuture;
 
     // Partitioned consumption support (optional)
     private final PgConnectionManager connectionManager;
@@ -438,17 +439,19 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
      * Closes the factory and releases resources reactively.
      */
     @Override
-    public Future<Void> close() {
-        if (closed) {
-            logger.debug("PgNativeQueueFactory already closed");
-            return Future.succeededFuture();
+    public synchronized Future<Void> close() {
+        if (closeFuture != null) {
+            logger.debug("PgNativeQueueFactory close already in progress or complete");
+            return closeFuture;
         }
 
         logger.info("Closing PgNativeQueueFactory");
         closed = true;
 
-        return closeManagedResources()
-                .onSuccess(v -> logger.info("PgNativeQueueFactory closed successfully"));
+        closeFuture = closeManagedResources()
+                .onSuccess(v -> logger.info("PgNativeQueueFactory closed successfully"))
+                .onFailure(error -> logger.error("Failed to close PgNativeQueueFactory", error));
+        return closeFuture;
     }
 
     /**
@@ -473,16 +476,24 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
         List<Future<Void>> asyncCloses = new ArrayList<>();
         for (ConsumerGroup<?> group : managedConsumerGroups) {
             asyncCloses.add(group.close()
-                    .onFailure(e -> logger.error("Error closing consumer group", e))
-                    .transform(ar -> Future.<Void>succeededFuture()));
+                    .onFailure(e -> logger.error("Error closing consumer group", e)));
         }
         managedConsumerGroups.clear();
 
         for (AutoCloseable resource : managedResources) {
             try {
-                resource.close();
+                Future<Void> resourceClose;
+                if (resource instanceof PgNativeQueueConsumer<?> nativeConsumer) {
+                    resourceClose = nativeConsumer.closeAsync();
+                } else {
+                    resource.close();
+                    resourceClose = Future.succeededFuture();
+                }
+                asyncCloses.add(resourceClose.onFailure(
+                        e -> logger.error("Error closing managed native queue resource", e)));
             } catch (Exception e) {
                 logger.error("Error closing managed native queue resource", e);
+                asyncCloses.add(Future.failedFuture(e));
             }
         }
         managedResources.clear();
