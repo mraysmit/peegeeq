@@ -10,9 +10,24 @@
  */
 
 import { afterEach } from 'vitest'
-import { cleanup } from '@testing-library/react'
+import { cleanup, waitFor } from '@testing-library/react'
 
-afterEach(() => {
+afterEach(async () => {
+  // Ant Design's static feedback APIs mount roots outside the tree tracked by
+  // Testing Library. Only load and destroy the singleton when a test actually
+  // opened a message; calling destroy() without an existing holder makes Ant
+  // Design create one asynchronously while the test environment is tearing
+  // down. Wait for notice removal so the next test cannot observe an animated
+  // remnant and make assertions depend on suite speed.
+  if (document.querySelector('.ant-message-notice')) {
+    const { message } = await import('antd')
+    message.destroy()
+    await waitFor(() => {
+      if (document.querySelector('.ant-message-notice')) {
+        throw new Error('Ant Design message portal was not removed during test cleanup')
+      }
+    })
+  }
   cleanup()
 })
 
