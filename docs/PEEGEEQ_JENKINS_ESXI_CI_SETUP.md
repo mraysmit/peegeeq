@@ -256,7 +256,8 @@ snapshot, not permanent package guarantees:
 - host `ubu24-cicd` is Ubuntu 24.04 Noble on `amd64`, kernel `6.8.0-138-generic`, with
   4 vCPUs and 15 GiB RAM;
 - the 20 GB virtual disk uses a 1.8 GB `/boot` partition and an 18.2 GB LVM root volume;
-  after provisioning a 2 GB swap file, `/` has approximately 11 GB available;
+  after provisioning, Temurin installation, and diagnostics, `/` has approximately
+  9 GB available;
 - `/swapfile` is active, persistent through `/etc/fstab`, owned by `root`, mode `0600`,
   and configured with `vm.swappiness=10` in `/etc/sysctl.d/99-peegeeq-ci.conf`;
 - `docker.io` `29.1.3-0ubuntu3~24.04.2` is installed from
@@ -266,8 +267,9 @@ snapshot, not permanent package guarantees:
 - Docker is enabled and active, listens only on `/run/docker.sock`, and passed a
   privileged `hello-world` container smoke test;
 - `docker-ce` has no candidate because Docker's third-party repository is not enabled;
-- OpenJDK 21.0.11, OpenJDK JDK 25.0.3, and Apache Maven 3.9.16 are installed; Maven
-  executes on JDK 25, while the Java 21 executable remains available for Jenkins;
+- Ubuntu OpenJDK 21.0.11 is installed for the Jenkins controller, Ubuntu OpenJDK JDK
+  25.0.3 remains installed but is not the selected build JDK, Eclipse Temurin
+  25.0.4.1 is installed for PeeGeeQ builds, and Apache Maven 3.9.16 is installed;
 - Jenkins LTS 2.568.2 is installed from the official `debian-stable` repository, enabled,
   active, and runs as the non-root `jenkins` account on Java 21;
 - the first-run wizard is complete, the named administrator `mraysmit` exists, and the
@@ -279,11 +281,47 @@ snapshot, not permanent package guarantees:
   service inherited that supplementary group, and an operator-run `hello-world` smoke
   test succeeded as `jenkins`;
 - `/var/lib/jenkins/.m2/toolchains.xml` selects
-  `/usr/lib/jvm/java-25-openjdk-amd64` for JDK 25 builds and is readable only by the
+  `/usr/lib/jvm/temurin-25-jdk-amd64` for JDK 25 builds and is readable only by the
   `jenkins` account;
 - Git 2.43.0 and Xvfb are installed; host-level Node and npm are intentionally absent
   because the Maven frontend plugin provisions the project-pinned versions; and
 - the Ubuntu Pro client is installed, but this VM is not attached to a Pro subscription.
+
+### 2026-08-23 JDK and memory diagnostic
+
+The first Jenkins build reached the rebuild stage but failed while compiling
+`peegeeq-test-support`. Reproducing that reactor slice outside Jenkins with Ubuntu
+OpenJDK 25 produced a native `SIGSEGV` in `libjvm.so`, in
+`InstanceKlass::find_method_index`. Maven's forked compiler surfaced only a blank
+compilation failure in the Jenkins log. The same source revision compiled on Windows
+with another JDK distribution.
+
+During the attempted Temurin installation, two downloaded package archives later read
+with different checksums. Direct I/O returned the correct on-disk bytes while ordinary
+buffered reads returned altered bytes. The same discrepancy affected the in-memory page
+cache for `/var/lib/dpkg/status`: the direct on-disk copy was valid and byte-identical
+to `status-old`, while the cached copy contained changed dependency text. This proves
+that the guest experienced transient memory or page-cache corruption. It also means the
+earlier JVM crash cannot be attributed conclusively to Ubuntu's OpenJDK build.
+
+The ESXi host exposes no IPMI sensor data, and the reviewed VMkernel log contained only
+normal machine-check initialization messages, not a reported ECC, MCA, memory-controller,
+or page-retirement event. Restarting the ESXi host cleared the observed guest corruption.
+After restart:
+
+- cached and direct reads of `/var/lib/dpkg/status` matched;
+- a time-boxed user-space `memtester` screen exercised 4 GiB through most patterns
+  without reporting an error, but was stopped before completing and is not a full
+  physical-memory test;
+- the verified Temurin package installed successfully and passed `dpkg --verify`; and
+- the exact failed reactor slice, pinned to commit
+  `1454c4e718dee96267e54b0a6fd36504d9bbd484`, passed with Temurin using
+  `mvn clean install -DskipTests -pl :peegeeq-test-support -am`.
+
+The worker is therefore usable only on a provisional basis until an offline physical
+memory test can be scheduled. Any future checksum mismatch, impossible package-manager
+parse error, unexplained JVM native crash, or nondeterministic compiler output is a stop
+condition: preserve evidence, stop Jenkins, and test the ESXi host's physical memory.
 
 Re-run these checks immediately before installation because repository candidates can
 change:
@@ -483,23 +521,57 @@ Two Java roles should be kept conceptually separate:
   controller choice.
 - PeeGeeQ builds with JDK 25, as required by the root Maven configuration and toolchain.
 
-Ubuntu 24.04 currently supplies both required versions. Install Java 21 for Jenkins and
-JDK 25 for PeeGeeQ without adding a third-party Java repository:
+Use Ubuntu OpenJDK 21 for Jenkins and Eclipse Temurin 25 for PeeGeeQ builds. Temurin is
+installed from Eclipse Adoptium's signed apt repository. This is a deliberate
+third-party repository choice, and its signing key is scoped to that repository rather
+than trusted globally.
 
 ```bash
 sudo apt update
-sudo apt install -y ca-certificates curl fontconfig openjdk-21-jre openjdk-25-jdk
+sudo apt install -y ca-certificates curl fontconfig gpg openjdk-21-jre
 
-sudo update-alternatives --set java /usr/lib/jvm/java-25-openjdk-amd64/bin/java
-sudo update-alternatives --set javac /usr/lib/jvm/java-25-openjdk-amd64/bin/javac
+sudo install -d -m 0755 /etc/apt/keyrings
+
+key_file="$(mktemp)"
+trap 'rm -f "$key_file"' EXIT
+
+curl -fsSL \
+  https://packages.adoptium.net/artifactory/api/gpg/key/public \
+  -o "$key_file"
+
+fingerprint="$(
+  gpg --show-keys --with-colons "$key_file" |
+  awk -F: '$1 == "fpr" { print $10; exit }'
+)"
+
+test "$fingerprint" = "3B04D753C9050D9A5D343F39843C48A565F8F04B"
+
+gpg --dearmor < "$key_file" |
+  sudo tee /etc/apt/keyrings/adoptium.gpg >/dev/null
+
+sudo chmod 0644 /etc/apt/keyrings/adoptium.gpg
+
+adoptium_codename="$(awk -F= '$1 == "VERSION_CODENAME" { print $2 }' /etc/os-release)"
+
+echo \
+  "deb [signed-by=/etc/apt/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb ${adoptium_codename} main" |
+  sudo tee /etc/apt/sources.list.d/adoptium.list >/dev/null
+
+sudo apt update
+apt-cache policy temurin-25-jdk
+sudo apt install -y temurin-25-jdk
+
+sudo update-alternatives --set java /usr/lib/jvm/temurin-25-jdk-amd64/bin/java
+sudo update-alternatives --set javac /usr/lib/jvm/temurin-25-jdk-amd64/bin/javac
 
 java -version
 javac -version
 /usr/lib/jvm/java-21-openjdk-amd64/bin/java -version
+dpkg --verify temurin-25-jdk
 ```
 
-The first two version checks should report Java 25. The explicit Java 21 check proves the
-controller runtime remains available. Confirm the selected JDK location:
+The first two version checks should report Temurin Java 25. The explicit Java 21 check
+proves the controller runtime remains available. Confirm the selected JDK location:
 
 ```bash
 dirname "$(dirname "$(readlink -f "$(command -v javac)")")"
@@ -517,7 +589,7 @@ all-in-one VM this normally means `/var/lib/jenkins/.m2/toolchains.xml`:
       <version>25</version>
     </provides>
     <configuration>
-      <jdkHome>/usr/lib/jvm/java-25-openjdk-amd64</jdkHome>
+      <jdkHome>/usr/lib/jvm/temurin-25-jdk-amd64</jdkHome>
     </configuration>
   </toolchain>
 </toolchains>
@@ -529,8 +601,9 @@ Replace `jdkHome` with the actual location reported on the VM. Set ownership cor
 sudo chown -R jenkins:jenkins /var/lib/jenkins/.m2
 ```
 
-The pipeline should set `JAVA_HOME` to JDK 25 for Maven commands. This does not change
-the Java runtime used by the already-running Jenkins service.
+The pipeline should set `JAVA_HOME` to `/usr/lib/jvm/temurin-25-jdk-amd64` for Maven
+commands. This does not change the Java runtime used by the already-running Jenkins
+service.
 
 ## Maven installation
 
@@ -641,10 +714,10 @@ sudo systemctl enable jenkins
 sudo systemctl restart jenkins
 ```
 
-The system-wide `java` alternative remains JDK 25 for PeeGeeQ command-line builds. The
-systemd drop-in pins only the Jenkins controller to Java 21. Current Jenkins LTS releases
-support both Java 21 and Java 25, but keeping the controller runtime explicit prevents a
-future alternatives change from silently changing Jenkins.
+The system-wide `java` alternative remains Temurin JDK 25 for PeeGeeQ command-line
+builds. The systemd drop-in pins only the Jenkins controller to Java 21. Current Jenkins
+LTS releases support both Java 21 and Java 25, but keeping the controller runtime
+explicit prevents a future alternatives change from silently changing Jenkins.
 
 Check the service and retrieve the initial administrator password:
 
@@ -702,8 +775,8 @@ Keep Jenkins core and plugins patched, and remove plugins that are no longer req
 For the preferred two-VM architecture:
 
 1. Install JDK 21 or another controller-compatible agent runtime on the worker.
-2. Install JDK 25, Maven, Docker, Node, Xvfb, Playwright, Git, and the base packages on
-   the worker.
+2. Install Temurin JDK 25, Maven, Docker, Node, Xvfb, Playwright, Git, and the base
+   packages on the worker.
 3. Create a dedicated agent account and add only that account to the Docker group,
    recording that this makes the account root-equivalent on the worker.
 4. Add the node under **Manage Jenkins > Nodes**.
@@ -771,8 +844,9 @@ The job has a fixed `TEST_SUITE` choice rather than accepting an arbitrary shell
 | `all` | `xvfb-run -a mvn clean test -Pall-tests` | Explicit approximately 90-minute regression gate |
 
 Every selection first runs `mvn clean install -DskipTests`, which compiles tests and
-installs the complete reactor before verification. The pipeline validates JDK 25, the
-Maven toolchain, Docker socket access, Docker API compatibility, disk, memory, and swap.
+installs the complete reactor before verification. The pipeline validates Temurin JDK
+25, the Maven toolchain, Docker socket access, Docker API compatibility, disk, memory,
+and swap.
 It allows only one build at a time, enforces a 150-minute overall timeout, keeps ten build
 records and five artifact sets, publishes JUnit XML, archives logs and Playwright
 diagnostics, and deletes only its allocated Jenkins workspace during final cleanup.
@@ -1061,7 +1135,7 @@ coverage is unknown.
       and full PeeGeeQ test gate instead of mixing rootful and rootless instructions.
 - [ ] Pull `postgres:15.13-alpine3.20`.
 - [ ] Install Java 21 for Jenkins.
-- [ ] Install JDK 25 for PeeGeeQ.
+- [ ] Install Temurin JDK 25 for PeeGeeQ.
 - [ ] Configure Maven Toolchains for JDK 25.
 - [ ] Install Maven 3.9.16 and verify its published SHA-512 checksum.
 - [ ] Install or provision Node 22.12.0 and npm 10.2.4.
