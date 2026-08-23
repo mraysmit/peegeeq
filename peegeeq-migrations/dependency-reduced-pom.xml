@@ -160,6 +160,10 @@
           <groupId>org.slf4j</groupId>
         </exclusion>
         <exclusion>
+          <artifactId>logback-classic</artifactId>
+          <groupId>ch.qos.logback</groupId>
+        </exclusion>
+        <exclusion>
           <artifactId>oshi-core</artifactId>
           <groupId>com.github.oshi</groupId>
         </exclusion>
