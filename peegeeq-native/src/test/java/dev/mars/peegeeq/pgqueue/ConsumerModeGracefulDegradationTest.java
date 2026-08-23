@@ -108,19 +108,28 @@ class ConsumerModeGracefulDegradationTest {
         logger.info("Tearing down: closing resources and manager");
         logger.info("Cleaning up graceful degradation test environment");
 
-        if (factory != null) {
-            factory.close();
-        }
-        if (manager != null) {
-            manager.closeReactive()
-                .onSuccess(v -> testContext.completeNow())
-                .onFailure(testContext::failNow);
-        } else {
-            testContext.completeNow();
-        }
-
-        logger.info("Graceful degradation test cleanup completed");
+        closeResources()
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+    }
+
+    private Future<Void> closeResources() {
+        Future<Void> factoryClose = factory != null ? factory.close() : Future.succeededFuture();
+        return factoryClose.transform(factoryResult -> {
+            Future<Void> managerClose = manager != null ? manager.closeReactive() : Future.succeededFuture();
+            return managerClose.transform(managerResult -> combinedCloseResult(factoryResult.cause(), managerResult.cause()));
+        });
+    }
+
+    private Future<Void> combinedCloseResult(Throwable factoryFailure, Throwable managerFailure) {
+        if (factoryFailure != null) {
+            if (managerFailure != null) {
+                factoryFailure.addSuppressed(managerFailure);
+            }
+            return Future.failedFuture(factoryFailure);
+        }
+        return managerFailure == null ? Future.succeededFuture() : Future.failedFuture(managerFailure);
     }
 
     /**
@@ -142,9 +151,8 @@ class ConsumerModeGracefulDegradationTest {
                 .build());
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        try {
-            Checkpoint received = testContext.checkpoint(3);
-            AtomicInteger processedCount = new AtomicInteger(0);
+        Checkpoint received = testContext.checkpoint(3);
+        AtomicInteger processedCount = new AtomicInteger(0);
 
             consumer.subscribe(message -> {
                 int count = processedCount.incrementAndGet();
@@ -155,21 +163,14 @@ class ConsumerModeGracefulDegradationTest {
                 received.flag();
                 return Future.succeededFuture();
             })
-            .onSuccess(ignored -> {
-                producer.send("Degradation test message 1");
-                producer.send("Degradation test message 2");
-                producer.send("Degradation test message 3");
-            })
+            .compose(ignored -> producer.send("Degradation test message 1"))
+            .compose(ignored -> producer.send("Degradation test message 2"))
+            .compose(ignored -> producer.send("Degradation test message 3"))
             .onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(25, TimeUnit.SECONDS), "Test timed out");
-            logger.info("HYBRID mode degradation verified - processed: {} messages via polling fallback",
-                processedCount.get());
-
-        } finally {
-            consumer.close();
-            producer.close();
-        }
+        logger.info("HYBRID mode degradation verified - processed: {} messages via polling fallback",
+            processedCount.get());
     }
 
     /**
@@ -191,11 +192,10 @@ class ConsumerModeGracefulDegradationTest {
                 .build());
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        try {
-            AtomicInteger processedCount = new AtomicInteger(0);
-            AtomicInteger errorCount = new AtomicInteger(0);
-            AtomicBoolean resourceExhaustionSimulated = new AtomicBoolean(false);
-            Checkpoint processed = testContext.checkpoint(10);
+        AtomicInteger processedCount = new AtomicInteger(0);
+        AtomicInteger errorCount = new AtomicInteger(0);
+        AtomicBoolean resourceExhaustionSimulated = new AtomicBoolean(false);
+        Checkpoint processed = testContext.checkpoint(10);
 
             consumer.subscribe(message -> {
                 int count = processedCount.incrementAndGet();
@@ -213,17 +213,13 @@ class ConsumerModeGracefulDegradationTest {
                 processed.flag();
                 return Future.succeededFuture();
             })
-            .onSuccess(ignored -> {
-                AtomicInteger sendIndex = new AtomicInteger(0);
-                vertx.setPeriodic(50, periodicId -> {
-                    int i = sendIndex.incrementAndGet();
-                    if (i <= 15) {
-                        producer.send("Resource test message " + i);
-                    }
-                    if (i >= 15) {
-                        vertx.cancelTimer(periodicId);
-                    }
-                });
+            .compose(ignored -> {
+                Future<Void> sends = Future.succeededFuture();
+                for (int i = 1; i <= 15; i++) {
+                    int messageNumber = i;
+                    sends = sends.compose(v -> producer.send("Resource test message " + messageNumber));
+                }
+                return sends;
             })
             .onFailure(testContext::failNow);
 
@@ -231,13 +227,8 @@ class ConsumerModeGracefulDegradationTest {
             assertTrue(processedCount.get() >= 10, "Should process at least 10 messages");
             assertTrue(errorCount.get() > 0, "Should encounter some resource exhaustion errors");
 
-            logger.info("Resource exhaustion handling verified - processed: {}, errors: {}",
-                processedCount.get(), errorCount.get());
-
-        } finally {
-            consumer.close();
-            producer.close();
-        }
+        logger.info("Resource exhaustion handling verified - processed: {}, errors: {}",
+            processedCount.get(), errorCount.get());
     }
 
     /**
@@ -258,11 +249,10 @@ class ConsumerModeGracefulDegradationTest {
                 .build());
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        try {
-            AtomicInteger processedCount = new AtomicInteger(0);
-            AtomicInteger degradationPhase = new AtomicInteger(0); // 0=normal, 1=degraded, 2=recovered
-            AtomicReference<String> lastProcessedMessage = new AtomicReference<>();
-            Checkpoint received = testContext.checkpoint(6);
+        AtomicInteger processedCount = new AtomicInteger(0);
+        AtomicInteger degradationPhase = new AtomicInteger(0); // 0=normal, 1=degraded, 2=recovered
+        AtomicReference<String> lastProcessedMessage = new AtomicReference<>();
+        Checkpoint received = testContext.checkpoint(6);
 
             consumer.subscribe(message -> {
                 int count = processedCount.incrementAndGet();
@@ -289,20 +279,14 @@ class ConsumerModeGracefulDegradationTest {
                 received.flag();
                 return Future.succeededFuture();
             })
-            .onSuccess(ignored -> {
-                producer.send("Pre-degradation message 1");
-                producer.send("Pre-degradation message 2");
-
-                vertx.setTimer(500, phase2Id -> {
-                    producer.send("Degraded message 3");
-                    producer.send("Degraded message 4");
-
-                    vertx.setTimer(500, phase3Id -> {
-                        producer.send("Recovery message 5");
-                        producer.send("Recovery message 6");
-                    });
-                });
-            })
+            .compose(ignored -> producer.send("Pre-degradation message 1"))
+            .compose(ignored -> producer.send("Pre-degradation message 2"))
+            .compose(ignored -> vertx.timer(500).mapEmpty())
+            .compose(ignored -> producer.send("Degraded message 3"))
+            .compose(ignored -> producer.send("Degraded message 4"))
+            .compose(ignored -> vertx.timer(500).mapEmpty())
+            .compose(ignored -> producer.send("Recovery message 5"))
+            .compose(ignored -> producer.send("Recovery message 6"))
             .onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(25, TimeUnit.SECONDS), "Test timed out");
@@ -311,14 +295,7 @@ class ConsumerModeGracefulDegradationTest {
             assertTrue(lastProcessedMessage.get().startsWith("Recovery message"),
                 "Last processed message should be a recovery-phase message");
 
-            logger.info("Recovery after degradation verified - processed: {} messages, final phase: {}",
-                processedCount.get(), degradationPhase.get());
-
-        } finally {
-            consumer.close();
-            producer.close();
-        }
+        logger.info("Recovery after degradation verified - processed: {} messages, final phase: {}",
+            processedCount.get(), degradationPhase.get());
     }
 }
-
-

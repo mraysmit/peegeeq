@@ -1,8 +1,9 @@
 # Test Integrity Defect Remediation Plan
 
 Opened: 2026-08-11
-Last reconciled: 2026-08-20 against commit
-`a5625fa5` plus the completed P4, P6/D11, and D10/D12 worktree described below
+Last reconciled: 2026-08-23 against the current worktree at commit `446893de`, including
+the native consumer-group startup, graceful-shutdown, atomic-capacity, startup-close
+settlement, and test-lifecycle integrity work through P11
 Origin: reading `logs/peegeeq-outbox-integration-20260811.txt` — a run reporting
 `Tests run: 537, Failures: 0, Errors: 0, Skipped: 0` and `BUILD SUCCESS` while logging
 46 ERROR-level exceptions.
@@ -52,6 +53,38 @@ an unresolved cause).
 | D11 | Unasserted ERROR logs do not fail the build | FIXED | normal Maven profiles enable the packaged gate; real canary failed 1/1 unclaimed and passed 1/1 with an exact expectation; final gate contracts 30/30 |
 | D12 | `PostgreSQLErrorHandlingTest` teardown exceeded a **60 s** budget — third occurrence of D10 | FIXED | D10 root cause fixed without raising the budget; original native class passes 5/5 |
 | D13 | 6 `@Disabled` tests in `ConsumerGroupSubscriptionTest`, one hiding a known race condition | FIXED | production start-position/race fixes and six restored tests in `20537c83`; `DisabledTestsGuardTest` added in `2b35bbdc` |
+| D14 | `PgNativeConsumerGroup.start()` reported success/`ACTIVE` before subscription readiness; concurrent starts did not share the pending result, activation failures did not restore a restartable state, and synchronous handler exceptions could escape the Future contract | FIXED | deterministic red lifecycle contracts followed by 69/69 affected native tests and 10/10 quality guards; see P8 |
+| D15 | Native group/factory shutdown could report completion while queue consumers still had in-flight handler and terminal database work, allowing manager pool closure to abort deletion/retry persistence | FIXED | deterministic 1/1 red shutdown-settlement proof; final native integration 13/13, consumer-group integration 7/7, lifecycle 64/64, active-fetch fault 1/1, and quality guards 10/10; see P9 |
+| D16 | Overlapping native NOTIFY/poll claim cycles can all observe spare capacity before any increments `processingInFlight`, so configured `consumerThreads=1` does not bound admitted handlers | FIXED | deterministic real-PostgreSQL contract observed 27 concurrent handlers before the fix and 1 afterward, then processed all 32 distinct messages exactly once; see P10 |
+| D17 | `PgNativeConsumerGroup.close()` snapshots only resources already materialized in `STARTING` and does not await `startFuture`; a delayed startup continuation can therefore create/stop resources after close has reported completion, and the partitioned abort path dereferences the mutable `partitionedEngine` field after close may clear it | FIXED | controlled pending-start contract failed 1/1 because close settled early, then passed 1/1; final lifecycle 65/65 and live partitioned regression 1/1; see P11 |
+| D18 | Native tests still discard asynchronous lifecycle Futures or log-and-continue on lifecycle failure, including factory teardown before manager pool closure and consumer-group startup/cleanup | FIXED | every P11 inventory owner remediated; affected scopes passed 37/37, 26/26, 26/26, 16/16, 2/2, and 1/1; quality guards 10/10; see P11 |
+
+### 2026-08-22 native consumer-group lifecycle reconciliation
+
+P8 corrected the startup-readiness boundary in the current uncommitted native worktree. The group now
+remains `STARTING` until the underlying subscription is ready, concurrent callers observe the
+same pending start result, members become active only after readiness, activation failure rolls
+the group back to `NEW`, and synchronous user-handler throws are represented by a failed
+Future. The final diff review subsequently exposed D17: close cleans resources already visible
+in `STARTING`, but does not yet prove settlement of resources created by a delayed startup
+continuation after the close snapshot.
+
+The initial affected scope failed 13/67 tests, and a later activation-failure regression was
+captured as a separate 1/1 red proof. After the implementation, `ConsumerGroupTest` passed 5/5
+and the nested `PgNativeConsumerGroupLifecycleTest` scopes passed 64/64, for 69/69 total. The
+three repository quality guards passed 10/10. Authoritative logs are:
+
+- `phase-1-native-red-20260821.txt`
+- `phase-1-native-activation-red-20260821.txt`
+- `phase-1-native-activation-green-rebuild-20260821.txt`
+- `phase-1-native-final-20260821.txt`
+- `phase-1-quality-guards-20260821.txt`
+
+The same final integration log exposed D15: several native-consumer shutdowns reported between
+2 and 5 in-flight operations that would complete asynchronously, followed by message-processing
+or deletion aborts after the database pool closed. P9 subsequently reproduced the public defect
+with a deterministic real-PostgreSQL contract and fixed the consumer, group, and factory shutdown
+ownership boundaries. The completed evidence is recorded in P9 below.
 
 ### 2026-08-20 P4 worktree and verification
 
@@ -605,7 +638,182 @@ resource-leak method 1/1, outbox settlement 1/1, examples resilience 3/3, parall
 failure propagation 2/2, and static async guards 8/8. Required clean reactor-slice rebuilds
 passed before downstream testing.
 
-All registered defects D1-D13 are fixed.
+### P8 — Native consumer-group startup settlement (D14) — COMPLETE
+
+Entry condition: deterministic lifecycle expectations were applied to the existing native
+implementation. The affected scope failed 13/67, proving that the old tests and implementation
+assumed immediate activation. A focused activation-failure contract later failed 1/1 before its
+rollback fix.
+
+Work completed:
+
+1. Kept the group in `STARTING` until every member subscription reported readiness.
+2. Made concurrent start calls observe the same pending Future and result.
+3. Activated members only after readiness and restored `NEW` after activation failure so a
+   subsequent start remains possible.
+4. Closed resources already materialized in `STARTING`, `ACTIVE`, or `STOPPING` and kept close
+   idempotent. D17 records the remaining delayed-startup settlement gap found in final review.
+5. Converted synchronous handler exceptions into failed Futures at the group-member boundary.
+6. Reworked the lifecycle fixtures around explicitly controlled Futures/Promises; database
+   behavior remains covered with real infrastructure rather than a shared or mocked pool.
+
+Exit evidence: the required clean `peegeeq-native` reactor-slice rebuild passed. The affected
+scope passed 69/69 (`ConsumerGroupTest` 5/5 and the lifecycle nested scopes 64/64). The disabled,
+on-success exception-swallowing, and forbidden-async-pattern guards passed 10/10. The final logs
+are listed in the 2026-08-22 reconciliation section above.
+
+### P9 — Native graceful-shutdown drain (D15) — COMPLETE
+
+Strict TDD first added a real-PostgreSQL contract that held an admitted native handler on a
+test-controlled Promise. The pre-fix implementation failed 1/1 because `stopGracefully()` was
+already complete while the handler was pending; its log also showed the later deletion being
+skipped after shutdown. The red proof is `p9-native-drain-red-20260822.txt`.
+
+Work completed:
+
+1. `PgNativeQueueConsumer` now registers the complete claim/handler/terminal-database pipeline
+   under a lifecycle lock. `closeAsync()` stops admission, closes LISTEN, cancels periodic work,
+   and settles only after the admitted snapshot completes.
+2. Successful handlers drain through message deletion. Failed handlers drain through the retry
+   reset or atomic DLQ move. Persistence failures propagate instead of becoming successful close.
+3. `PgNativeConsumerGroup` shares one stop Future across repeated stop calls, and `close()` during
+   `STOPPING` observes that same settlement. Native consumer close is composed rather than fired
+   and forgotten.
+4. `PgNativeQueueFactory.close()` now awaits managed native consumers and groups, returns one
+   cached close Future to repeated callers, and propagates resource-close failures. This fixed a
+   second red regression where factory teardown closed the pool during message deletion.
+5. Stuck handlers are bounded by the configured visibility timeout. Once a delivery becomes
+   stale, the consumer atomically relinquishes that specific database lock and ignores the late
+   handler outcome; the replacement delivery remains authoritative. Periodic expired-lock cleanup
+   is tracked by shutdown, and the unsafe global in-flight counter reset was removed.
+6. Real-database assertions cover held-handler success/deletion, handler-failure retry state,
+   repeated group stop/close, repeated factory close, retry/DLQ settlement, and visibility-timeout
+   redelivery. No shared pool, mock, sleep, or timer-as-readiness was added.
+
+Exit evidence:
+
+- required clean reactor rebuild: `p9-native-stale-handler-rebuild-20260822.txt`;
+- focused repeated group stop/close: 1/1 in
+  `p9-native-repeated-stop-close-20260822.txt`;
+- focused failed-handler retry persistence: 1/1 in
+  `p9-native-handler-failure-20260822.txt`;
+- focused factory close settlement: 1/1 in `p9-native-factory-contract-20260822.txt`;
+- focused stale-handler recovery: 1/1 in `p9-native-stale-handler-recovery-20260822.txt`;
+- final `NativeQueueIntegrationTest`: 13/13 in
+  `p9-native-full-integration-regression-20260822.txt`;
+- final `ConsumerGroupTest`: 7/7 in `p9-native-consumer-group-final-20260822.txt`;
+- final nested `PgNativeConsumerGroupLifecycleTest`: 64/64 in
+  `p9-native-lifecycle-final-20260822.txt`;
+- existing active-fetch shutdown fault contract: 1/1 in
+  `p9-native-active-fetch-regression-20260822.txt`;
+- disabled-test, on-success exception-swallowing, and forbidden-async guards: 10/10 in
+  `p9-native-quality-guards-20260822.txt`.
+
+The final integration logs contain no unclaimed ERROR, unhandled exception, pool-closed abort,
+or failed terminal message operation. Lifecycle tests intentionally emit ten ERROR records for
+their declared startup-failure contracts; every one is matched by `@ExpectedErrorLog`.
+
+At the P9 checkpoint, defects D1-D16 were fixed while D17 and D18 still remained. P11 below
+records their later reproduction, remediation, and targeted verification. The owner-run
+`-Pall-tests` release gate remains a separate final release step.
+
+### P10 — Atomic native consumer-capacity admission (D16) — COMPLETE
+
+Strict TDD added a deterministic real-PostgreSQL contract with a private one-connection pool,
+`consumerThreads=1`, a 16-message claim batch, 32 distinct messages, and a handler held by a
+test-controlled Promise. A database connection barrier ordered the capacity observation behind
+all already-admitted claims. Before the production change, the contract failed 1/1 because it
+observed 27 concurrent handlers rather than 1; `p10-capacity-red-2-20260822.txt` is the red proof.
+
+Work completed:
+
+1. `PgNativeQueueConsumer` now reserves capacity with a compare-and-set loop before an
+   asynchronous claim starts. The SQL claim limit is the reserved count, so overlapping poll or
+   notification wakeups cannot admit work beyond `consumerThreads`.
+2. Claim failure releases the complete reservation; empty and partial claims release every
+   unused slot; each claimed row releases its remaining slot exactly once after its handler and
+   terminal delete/retry/DLQ pipeline settles. Negative or excessive releases fail explicitly
+   rather than corrupting the counter.
+3. The capacity reservation remains owned through the P9 terminal-persistence boundary. Handler
+   parse failures, synchronous throws, failed Futures, visibility-timeout relinquishment, and
+   graceful shutdown therefore use the same observed settlement path.
+4. The final contract releases the held slot and requires all 32 expected payloads to enter the
+   handler exactly once before consumer shutdown. It proves bounded admission, continued queued
+   progress, no duplicate delivery, no loss, no starvation within the test budget, terminal
+   deletion, and zero residual active handlers without mocks, shared pools, sleeps, or readiness
+   timers.
+
+Exit evidence:
+
+- deterministic red proof: 1/1 failed only on expected 1 versus observed 27 in
+  `p10-capacity-red-2-20260822.txt`;
+- required clean reactor rebuild after the final contract: `BUILD SUCCESS` in
+  `p10-continuation-rebuild-20260822.txt`;
+- final focused capacity/continuation contract: 1/1 in
+  `p10-capacity-continuation-green-20260822.txt`;
+- native integration regression: 21/21 (`ConsumerGroupTest` 7/7,
+  `NativeQueueIntegrationTest` 13/13, and the initial capacity contract 1/1) in
+  `p10-native-integration-regression-20260822.txt`;
+- nested `PgNativeConsumerGroupLifecycleTest`: 64/64 in
+  `p10-native-lifecycle-regression-20260822.txt`;
+- active-fetch graceful-shutdown fault contract: 1/1 in
+  `p10-native-active-fetch-regression-20260822.txt`;
+- disabled-test, on-success exception-swallowing, and forbidden-async guards: 10/10 in
+  `p10-final-quality-guards-20260822.txt` after the final contract change.
+
+The green P10 logs contain no unclaimed ERROR, unhandled exception, pool exhaustion, capacity
+invariant failure, or build failure. The lifecycle log's ten intentional ERROR records are all
+matched by method-owned `@ExpectedErrorLog` contracts. The approximately 90-minute owner-run
+`-Pall-tests` release gate was not run.
+
+### P11 — Startup-close settlement and teardown integrity (D17, D18) — COMPLETE
+
+Strict TDD added `closeDuringPendingStartupWaitsForStartupSettlement`, which keeps the native
+subscription Future pending, starts the group, calls close, records whether close settles early,
+then releases startup. Before the production change it failed 1/1 because close completed before
+the startup continuation settled (`p11-d17-red-test-nested-20260823.txt`).
+
+`PgNativeConsumerGroup.close()` now composes the shared pending `startFuture` before closing
+materialized resources. Partitioned startup captures its engine in a stable local reference and
+only clears the field when that same engine still owns it. Close therefore cannot report success
+while a delayed startup continuation is still able to materialize or abort resources, and the
+abort path cannot dereference a field concurrently cleared by close.
+
+D18 was remediated class by class across the complete P11 inventory. Factory teardown now composes
+factory then manager closure and preserves a primary close failure with later failures suppressed.
+Consumer-group starts precede dependent sends and assertions; group stops settle before test
+completion; the partitioned lifecycle fixture uses the extension-owned Vert.x instance; and no
+lifecycle catch logs and continues. The consumer-mode performance tests now use Future-driven
+setup, sends, measurement, and teardown. The standardized latency test also measures delivered
+message latency rather than returning placeholder values.
+
+Verification after mandatory clean reactor-slice rebuilds:
+
+- D17 controlled contract: 1/1 green in `p11-d17-green-test-20260823.txt`;
+- final nested lifecycle regression: 65/65 in
+  `p11-final-consumer-group-lifecycle-20260823.txt`; its ten ERROR records are declared
+  startup-failure contracts and no unhandled exception was present;
+- live partitioned regression: 1/1 in `p11-d17-partitioned-regression-20260823.txt`;
+- partitioned core lifecycle: 37/37 in
+  `p11-d18-group-a-partitioned-core-green-20260823.txt`;
+- consumer-group integration owners: 26/26 in
+  `p11-d18-group-a-consumer-group-integration-20260823.txt`;
+- six consumer-mode integration/resource owners: 26/26 in
+  `p11-d18-group-b-consumer-mode-20260823.txt`;
+- standardized performance matrix: 16/16 in
+  `p11-d18-performance-standardized-test-green-20260823.txt`;
+- legacy performance class: 2/2 in `p11-d18-performance-legacy-test-20260823.txt`;
+- consumer-group example: 1/1 in `p11-d18-consumer-group-example-test-20260823.txt`;
+- repository disabled/async/forbidden guards: 10/10 across
+  `p11-d18-disabled-tests-guard-20260823.txt` and
+  `p11-d18-repository-async-guards-green-20260823.txt`.
+
+All green D18 runtime logs above contain zero ERROR or unhandled-exception lines. The Tier 9
+subscribe-Future ratchet was tightened by removing the two remediated stale rows. It still records
+63 pre-existing discarded `subscribe()` calls in 19 other native test files; those are a separate
+ratcheted backlog and were not part of the enumerated D18 lifecycle inventory. Tier 7 permits zero
+discarded stop/close Futures repository-wide. The approximately 90-minute owner-run `-Pall-tests`
+release gate was not run.
 
 ---
 

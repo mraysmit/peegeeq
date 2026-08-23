@@ -38,6 +38,7 @@ import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -369,6 +370,44 @@ class NativeQueueIntegrationTest {
     }
 
     @Test
+    void testFactoryCloseWaitsForNativeConsumerSettlementAndIsIdempotent(
+            VertxTestContext testContext) throws InterruptedException {
+        Promise<Void> handlerEntered = Promise.promise();
+        Promise<Void> releaseHandler = Promise.promise();
+
+        consumer.subscribe(message -> {
+            handlerEntered.tryComplete();
+            return releaseHandler.future();
+        })
+        .compose(v -> producer.send("Message held during factory close"))
+        .compose(v -> handlerEntered.future())
+        .compose(v -> {
+            Future<Void> firstClose = queueFactory.close();
+            Future<Void> repeatedClose = queueFactory.close();
+            try {
+                assertFalse(firstClose.isComplete(),
+                        "Factory close must remain pending while a managed handler is pending");
+                assertSame(firstClose, repeatedClose,
+                        "Repeated factory close must observe the same settlement Future");
+            } finally {
+                releaseHandler.tryComplete();
+            }
+            return Future.join(firstClose, repeatedClose).map(ignored -> (Void) null);
+        })
+        .compose(v -> manager.getPool()
+                .preparedQuery("SELECT COUNT(*) AS message_count FROM queue_messages WHERE topic = $1")
+                .execute(Tuple.of("test-native-topic")))
+        .onSuccess(rows -> testContext.verify(() -> {
+            assertEquals(0L, rows.iterator().next().getLong("message_count"),
+                    "Factory close must wait for terminal message deletion");
+            testContext.completeNow();
+        }))
+        .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+    }
+
+    @Test
     void testNativeQueueDeadLetterIntegration(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
         // Configure a message that will exceed retry limits
         String testMessage = "Dead letter test message";
@@ -558,5 +597,4 @@ class NativeQueueIntegrationTest {
         assertEquals(totalMessages, receivedMessages.size());
     }
 }
-
 
