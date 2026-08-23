@@ -5,6 +5,7 @@ import dev.mars.peegeeq.rest.config.RestServerConfig;
 import dev.mars.peegeeq.rest.support.ControllableHealthService;
 import dev.mars.peegeeq.rest.support.ControllableSetupService;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.ext.web.client.WebClient;
@@ -158,6 +159,16 @@ class HealthHandlerErrorTest {
     // =========================================================================
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.rest.handlers.HealthHandler",
+            message = "Failed to get overall health for setup: test-id",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = RuntimeException.class)
+    @ExpectedErrorLog(
+            logger = "io.vertx.ext.web.handler.LoggerHandler",
+            message = "127.0.0.1 - - [",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void getOverallHealth_asyncFails_returns500(Vertx vertx, VertxTestContext testContext) {
         logger.info("--- EXPECTED ERROR (E1: getOverallHealth async failure → 500, RuntimeException) ---");
         ControllableHealthService failingHealth = ControllableHealthService.alwaysFailing("health check unavailable");
@@ -190,6 +201,16 @@ class HealthHandlerErrorTest {
     // =========================================================================
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.rest.handlers.HealthHandler",
+            message = "Failed to list component health for setup: test-id",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = RuntimeException.class)
+    @ExpectedErrorLog(
+            logger = "io.vertx.ext.web.handler.LoggerHandler",
+            message = "127.0.0.1 - - [",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void listComponentHealth_asyncFails_returns500(Vertx vertx, VertxTestContext testContext) {
         logger.info("--- EXPECTED ERROR (E2: listComponentHealth async failure → 500, RuntimeException) ---");
         ControllableHealthService failingHealth = ControllableHealthService.alwaysFailing("health check unavailable");
@@ -221,6 +242,16 @@ class HealthHandlerErrorTest {
     // =========================================================================
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.rest.handlers.HealthHandler",
+            message = "Failed to get component health: test-id/database",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = RuntimeException.class)
+    @ExpectedErrorLog(
+            logger = "io.vertx.ext.web.handler.LoggerHandler",
+            message = "127.0.0.1 - - [",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void getComponentHealth_asyncFails_returns500(Vertx vertx, VertxTestContext testContext) {
         logger.info("--- EXPECTED ERROR (E3: getComponentHealth async failure → 500, RuntimeException) ---");
         ControllableHealthService failingHealth = ControllableHealthService.alwaysFailing("health check unavailable");

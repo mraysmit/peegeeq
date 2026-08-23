@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
 
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 
 import java.time.Duration;
 import java.util.Properties;
@@ -201,6 +202,10 @@ public class PeeGeeQConfigurationTest {
     }
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.config.PeeGeeQConfiguration",
+            message = "Invalid duration value for peegeeq.test.invalid.duration: not-a-duration, using default: PT5M",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void testGetDuration() {
         PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE, new Properties());
 

@@ -6,6 +6,7 @@ import dev.mars.peegeeq.rest.support.ControllableSetupService;
 import dev.mars.peegeeq.api.setup.SetupNotFoundException;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.ext.web.client.WebClient;
@@ -128,6 +129,16 @@ class DatabaseSetupHandlerErrorTest {
     // =========================================================================
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.rest.handlers.DatabaseSetupHandler",
+            message = "Failed to get setup status: any-id",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = RuntimeException.class)
+    @ExpectedErrorLog(
+            logger = "io.vertx.ext.web.handler.LoggerHandler",
+            message = "127.0.0.1 - - [",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void getSetupStatus_serviceFails_returns503(Vertx vertx, VertxTestContext testContext) {
         logger.info("--- EXPECTED ERROR (A4: getSetupStatus service failure → 503, RuntimeException) ---");
         ControllableSetupService svc = ControllableSetupService.defaults()
@@ -181,6 +192,11 @@ class DatabaseSetupHandlerErrorTest {
     // =========================================================================
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.rest.handlers.DatabaseSetupHandler",
+            message = "Failed to add queue 'test-q' to setup: bad-id",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = RuntimeException.class)
     void addQueue_unknownSetup_returns404(Vertx vertx, VertxTestContext testContext) {
         logger.info("--- EXPECTED ERROR (A6: addQueue unknown setup → 404, RuntimeException) ---");
         ControllableSetupService svc = ControllableSetupService.defaults()
@@ -208,6 +224,11 @@ class DatabaseSetupHandlerErrorTest {
     // =========================================================================
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.rest.handlers.DatabaseSetupHandler",
+            message = "Error parsing create setup request",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = NullPointerException.class)
     void createSetup_missingBody_returns400(VertxTestContext testContext) {
         logger.info("--- EXPECTED ERROR (A7: createSetup missing body → 400, NullPointerException) ---");
         webClient.post(TEST_PORT, "localhost", "/api/v1/setups")
@@ -228,6 +249,16 @@ class DatabaseSetupHandlerErrorTest {
     // =========================================================================
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.rest.handlers.DatabaseSetupHandler",
+            message = "Error creating database setup: error-test",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = RuntimeException.class)
+    @ExpectedErrorLog(
+            logger = "io.vertx.ext.web.handler.LoggerHandler",
+            message = "127.0.0.1 - - [",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void createSetup_serviceFails_returns503(Vertx vertx, VertxTestContext testContext) {
         logger.info("--- EXPECTED ERROR (A8: createSetup service failure → 503, RuntimeException) ---");
         ControllableSetupService svc = ControllableSetupService.defaults()
@@ -268,6 +299,11 @@ class DatabaseSetupHandlerErrorTest {
     // =========================================================================
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.rest.handlers.DatabaseSetupHandler",
+            message = "Error creating database setup: duplicate-setup",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = RuntimeException.class)
     void createSetup_conflictingSetup_returns409(Vertx vertx, VertxTestContext testContext) {
         logger.info("--- EXPECTED ERROR (A9: createSetup conflict → 409, 'already exists' message) ---");
         ControllableSetupService svc = ControllableSetupService.defaults()

@@ -29,6 +29,9 @@ import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.logging.ErrorLogExpectation;
+import dev.mars.peegeeq.test.logging.ErrorLogExpectations;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
@@ -551,6 +554,16 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
         DatabaseSetupRequest connectReq = new DatabaseSetupRequest(
                 setupId, dbConfig, List.of(), List.of(), Map.of());
 
+        ErrorLogExpectations.expect(new ErrorLogExpectation(
+                "dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService",
+                ExpectedErrorLog.MessageMatch.EXACT,
+                "Failed to connect to existing setup '" + setupId + "': Setup '" + setupId
+                        + "' is already active; refusing duplicate connect",
+                ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+                IllegalStateException.class,
+                1,
+                1));
+
         setupService.createCompleteSetup(createReq)
                 // createCompleteSetup makes the setup active; connecting to it again must be refused.
                 .compose(created -> setupService.connectToExistingSetup(connectReq)
@@ -604,6 +617,16 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
         DatabaseSetupRequest createB = new DatabaseSetupRequest(setupIdB, dbConfig, List.of(), List.of(), Map.of());
 
         PgConnectionManager verifyMgr = new PgConnectionManager(vertx, null);
+
+        ErrorLogExpectations.expect(new ErrorLogExpectation(
+                "dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService",
+                ExpectedErrorLog.MessageMatch.EXACT,
+                "STEP 1 FAILED for setupId=" + setupIdB + ": Database already exists: " + dbName
+                        + " — create will not overwrite it. Drop it explicitly (a separate, guarded operation) to recreate.",
+                ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+                DatabaseCreationConflictException.class,
+                1,
+                1));
 
         setupService.createCompleteSetup(createA)
                 .compose(createdA -> {

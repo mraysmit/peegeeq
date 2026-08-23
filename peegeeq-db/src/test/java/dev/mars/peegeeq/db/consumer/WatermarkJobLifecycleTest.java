@@ -2,6 +2,7 @@ package dev.mars.peegeeq.db.consumer;
 
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
@@ -46,6 +47,11 @@ class WatermarkJobLifecycleTest {
     }
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.consumer.WatermarkJob",
+            message = "Watermark sweep #1 failed: topic=failed-lifecycle-topic",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = IllegalStateException.class)
     void stopDoesNotReplayAnAlreadyObservedSweepFailure(Vertx vertx, VertxTestContext testContext) {
         PgConnectionManager connectionManager = new PgConnectionManager(vertx, null);
         ControlledWatermarkCalculator calculator = new ControlledWatermarkCalculator(connectionManager);

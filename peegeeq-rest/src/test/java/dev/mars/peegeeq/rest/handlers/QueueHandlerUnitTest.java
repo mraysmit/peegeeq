@@ -4,6 +4,7 @@ import dev.mars.peegeeq.rest.PeeGeeQRestServer;
 import dev.mars.peegeeq.rest.config.RestServerConfig;
 import dev.mars.peegeeq.rest.support.ControllableSetupService;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
@@ -111,6 +112,11 @@ class QueueHandlerUnitTest {
     // =========================================================================
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.rest.handlers.QueueHandler",
+            message = "Error parsing message request",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = IllegalArgumentException.class)
     void sendMessage_missingBody_returns400(VertxTestContext testContext) {
         logger.info("--- EXPECTED ERROR (B3: sendMessage missing body → 400, IllegalArgumentException) ---");
         webClient.post(TEST_PORT, "localhost", "/api/v1/queues/setup1/test-q/messages")

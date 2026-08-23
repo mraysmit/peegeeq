@@ -101,6 +101,9 @@
         <!-- CORE Tests Profile -->
         <profile>
             <id>core-tests</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
             <build>
                 <plugins>
                     <plugin>
