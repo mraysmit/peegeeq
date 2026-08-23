@@ -27,7 +27,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Duration;
 
 import java.util.Properties;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -95,18 +94,28 @@ public class ConsumerModeIntegrationTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
-        if (factory != null) {
-            factory.close();
-        }
-        if (manager != null) {
-            manager.closeReactive()
-                .onSuccess(v -> testContext.completeNow())
-                .onFailure(testContext::failNow);
-        } else {
-            testContext.completeNow();
-        }
-        logger.info("Test teardown completed");
+        closeResources()
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+    }
+
+    private Future<Void> closeResources() {
+        Future<Void> factoryClose = factory != null ? factory.close() : Future.succeededFuture();
+        return factoryClose.transform(factoryResult -> {
+            Future<Void> managerClose = manager != null ? manager.closeReactive() : Future.succeededFuture();
+            return managerClose.transform(managerResult -> combinedCloseResult(factoryResult.cause(), managerResult.cause()));
+        });
+    }
+
+    private Future<Void> combinedCloseResult(Throwable factoryFailure, Throwable managerFailure) {
+        if (factoryFailure != null) {
+            if (managerFailure != null) {
+                factoryFailure.addSuppressed(managerFailure);
+            }
+            return Future.failedFuture(factoryFailure);
+        }
+        return managerFailure == null ? Future.succeededFuture() : Future.failedFuture(managerFailure);
     }
 
     @Test
@@ -137,21 +146,19 @@ public class ConsumerModeIntegrationTest {
         })
         .onSuccess(v -> {
             logger.info("LISTEN_NOTIFY_ONLY: Sending test message...");
-            producer.send("Hello LISTEN_NOTIFY_ONLY!");
-            logger.info("LISTEN_NOTIFY_ONLY: Message sent");
+            producer.send("Hello LISTEN_NOTIFY_ONLY!")
+                .onFailure(testContext::failNow);
         })
         .onFailure(testContext::failNow);
 
         // Wait for message
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Message should be received via LISTEN/NOTIFY");
 
-        consumer.close();
-        producer.close();
         logger.info("LISTEN_NOTIFY_ONLY mode test completed");
     }
 
     @Test
-    void testPollingOnlyMode() throws Exception {
+    void testPollingOnlyMode(VertxTestContext testContext) throws Exception {
         logger.info("Testing POLLING_ONLY mode");
 
         // Create consumer with POLLING_ONLY mode and fast polling
@@ -163,30 +170,26 @@ public class ConsumerModeIntegrationTest {
         MessageConsumer<String> consumer = factory.createConsumer("test-polling-only", String.class, config);
         MessageProducer<String> producer = factory.createProducer("test-polling-only", String.class);
 
-        CountDownLatch methodLatch = new CountDownLatch(1);
         AtomicReference<String> receivedMessage = new AtomicReference<>();
 
         // Subscribe to messages
         consumer.subscribe(message -> {
             receivedMessage.set(message.getPayload());
-            methodLatch.countDown();
+            testContext.completeNow();
             return Future.succeededFuture();
-        });
-
-        // Send message
-        producer.send("Hello POLLING_ONLY!");
+        })
+        .compose(v -> producer.send("Hello POLLING_ONLY!"))
+        .onFailure(testContext::failNow);
 
         // Wait for message (should be received via polling)
-        assertTrue(methodLatch.await(10, TimeUnit.SECONDS), "Message should be received via polling");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received via polling");
         assertEquals("Hello POLLING_ONLY!", receivedMessage.get());
 
-        consumer.close();
-        producer.close();
         logger.info("POLLING_ONLY mode test passed");
     }
 
     @Test
-    void testHybridMode() throws Exception {
+    void testHybridMode(VertxTestContext testContext) throws Exception {
         logger.info("Testing HYBRID mode (default behavior)");
 
         // Create consumer with HYBRID mode (should work like before)
@@ -198,57 +201,47 @@ public class ConsumerModeIntegrationTest {
         MessageConsumer<String> consumer = factory.createConsumer("test-hybrid", String.class, config);
         MessageProducer<String> producer = factory.createProducer("test-hybrid", String.class);
 
-        CountDownLatch methodLatch = new CountDownLatch(1);
         AtomicReference<String> receivedMessage = new AtomicReference<>();
 
         // Subscribe to messages
         consumer.subscribe(message -> {
             receivedMessage.set(message.getPayload());
-            methodLatch.countDown();
+            testContext.completeNow();
             return Future.succeededFuture();
-        });
-
-        // Send message
-        producer.send("Hello HYBRID!");
+        })
+        .compose(v -> producer.send("Hello HYBRID!"))
+        .onFailure(testContext::failNow);
 
         // Wait for message (should be received via LISTEN/NOTIFY or polling)
-        assertTrue(methodLatch.await(10, TimeUnit.SECONDS), "Message should be received via HYBRID mode");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received via HYBRID mode");
         assertEquals("Hello HYBRID!", receivedMessage.get());
 
-        consumer.close();
-        producer.close();
         logger.info("HYBRID mode test passed");
     }
 
     @Test
-    void testBackwardCompatibility() throws Exception {
+    void testBackwardCompatibility(VertxTestContext testContext) throws Exception {
         logger.info("Testing backward compatibility (no ConsumerConfig)");
 
         // Create consumer without ConsumerConfig (should default to HYBRID)
         MessageConsumer<String> consumer = factory.createConsumer("test-backward-compat", String.class);
         MessageProducer<String> producer = factory.createProducer("test-backward-compat", String.class);
 
-        CountDownLatch methodLatch = new CountDownLatch(1);
         AtomicReference<String> receivedMessage = new AtomicReference<>();
 
         // Subscribe to messages
         consumer.subscribe(message -> {
             receivedMessage.set(message.getPayload());
-            methodLatch.countDown();
+            testContext.completeNow();
             return Future.succeededFuture();
-        });
-
-        // Send message
-        producer.send("Hello Backward Compatibility!");
+        })
+        .compose(v -> producer.send("Hello Backward Compatibility!"))
+        .onFailure(testContext::failNow);
 
         // Wait for message
-        assertTrue(methodLatch.await(10, TimeUnit.SECONDS), "Message should be received in backward compatibility mode");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received in backward compatibility mode");
         assertEquals("Hello Backward Compatibility!", receivedMessage.get());
 
-        consumer.close();
-        producer.close();
         logger.info("Backward compatibility test passed");
     }
 }
-
-

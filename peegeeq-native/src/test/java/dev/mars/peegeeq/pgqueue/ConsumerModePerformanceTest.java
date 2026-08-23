@@ -103,26 +103,28 @@ class ConsumerModePerformanceTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws InterruptedException {
-        if (factory != null) {
-            try {
-                factory.close();
-            } catch (Exception e) {
-                logger.warn("factory.close() failed in teardown", e);
+        Future<Void> factoryClose = factory != null ? factory.close() : Future.succeededFuture();
+        factory = null;
+        factoryClose.transform(factoryResult -> {
+            Future<Void> managerClose = manager != null ? manager.closeReactive() : Future.succeededFuture();
+            manager = null;
+            return managerClose.transform(managerResult ->
+                    combinedCloseResult(factoryResult.cause(), managerResult.cause()));
+        })
+        .onSuccess(v -> testContext.completeNow())
+        .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "tearDown timed out");
+    }
+
+    private Future<Void> combinedCloseResult(Throwable factoryFailure, Throwable managerFailure) {
+        if (factoryFailure != null) {
+            if (managerFailure != null) {
+                factoryFailure.addSuppressed(managerFailure);
             }
-            factory = null;
+            return Future.failedFuture(factoryFailure);
         }
-        if (manager == null) {
-            testContext.completeNow();
-        } else {
-            manager.closeReactive()
-                    .onSuccess(v -> { manager = null; testContext.completeNow(); })
-                    .onFailure(err -> {
-                        logger.error("manager.closeReactive() failed in teardown", err);
-                        manager = null;
-                        testContext.failNow(err);
-                    });
-        }
-        testContext.awaitCompletion(30, TimeUnit.SECONDS);
+        return managerFailure == null ? Future.succeededFuture() : Future.failedFuture(managerFailure);
     }
 
     @Test
@@ -339,4 +341,3 @@ class ConsumerModePerformanceTest {
         }
     }
 }
-

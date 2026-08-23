@@ -15,6 +15,7 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
+import io.vertx.core.Promise;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -32,7 +33,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 
 import java.util.Properties;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -101,18 +101,28 @@ class ConsumerModeBackwardCompatibilityTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
-        if (factory != null) {
-            factory.close();
-        }
-        if (manager != null) {
-            manager.closeReactive()
-                .onSuccess(v -> testContext.completeNow())
-                .onFailure(testContext::failNow);
-        } else {
-            testContext.completeNow();
-        }
-        logger.info("Test teardown completed");
+        closeResources()
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+    }
+
+    private Future<Void> closeResources() {
+        Future<Void> factoryClose = factory != null ? factory.close() : Future.succeededFuture();
+        return factoryClose.transform(factoryResult -> {
+            Future<Void> managerClose = manager != null ? manager.closeReactive() : Future.succeededFuture();
+            return managerClose.transform(managerResult -> combinedCloseResult(factoryResult.cause(), managerResult.cause()));
+        });
+    }
+
+    private Future<Void> combinedCloseResult(Throwable factoryFailure, Throwable managerFailure) {
+        if (factoryFailure != null) {
+            if (managerFailure != null) {
+                factoryFailure.addSuppressed(managerFailure);
+            }
+            return Future.failedFuture(factoryFailure);
+        }
+        return managerFailure == null ? Future.succeededFuture() : Future.failedFuture(managerFailure);
     }
 
     @Test
@@ -125,9 +135,8 @@ class ConsumerModeBackwardCompatibilityTest {
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class);
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        try {
-            AtomicInteger processedCount = new AtomicInteger(0);
-            Checkpoint messagesReceived = testContext.checkpoint(3);
+        AtomicInteger processedCount = new AtomicInteger(0);
+        Checkpoint messagesReceived = testContext.checkpoint(3);
 
             consumer.subscribe(message -> {
                 processedCount.incrementAndGet();
@@ -145,12 +154,7 @@ class ConsumerModeBackwardCompatibilityTest {
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Legacy API should process messages successfully");
             assertEquals(3, processedCount.get(), "Should process exactly 3 messages with legacy API");
 
-            logger.info("Legacy API compatibility verified - processed: {} messages", processedCount.get());
-
-        } finally {
-            consumer.close();
-            producer.close();
-        }
+        logger.info("Legacy API compatibility verified - processed: {} messages", processedCount.get());
 
         logger.info("Legacy API without ConsumerConfig test completed successfully");
     }
@@ -172,10 +176,9 @@ class ConsumerModeBackwardCompatibilityTest {
         MessageProducer<String> legacyProducer = factory.createProducer(legacyTopic, String.class);
         MessageProducer<String> newProducer = factory.createProducer(newTopic, String.class);
 
-        try {
-            AtomicInteger legacyCount = new AtomicInteger(0);
-            AtomicInteger newCount = new AtomicInteger(0);
-            Checkpoint messagesReceived = testContext.checkpoint(4); // 2 messages each
+        AtomicInteger legacyCount = new AtomicInteger(0);
+        AtomicInteger newCount = new AtomicInteger(0);
+        Checkpoint messagesReceived = testContext.checkpoint(4); // 2 messages each
 
             Future.all(
                 legacyConsumer.subscribe(message -> {
@@ -202,14 +205,7 @@ class ConsumerModeBackwardCompatibilityTest {
             assertEquals(2, legacyCount.get(), "Legacy consumer should process 2 messages");
             assertEquals(2, newCount.get(), "New consumer should process 2 messages");
 
-            logger.info("Mixed API usage verified - legacy: {}, new: {}", legacyCount.get(), newCount.get());
-
-        } finally {
-            legacyConsumer.close();
-            newConsumer.close();
-            legacyProducer.close();
-            newProducer.close();
-        }
+        logger.info("Mixed API usage verified - legacy: {}, new: {}", legacyCount.get(), newCount.get());
 
         logger.info("Mixed API usage test completed successfully");
     }
@@ -231,10 +227,9 @@ class ConsumerModeBackwardCompatibilityTest {
         MessageProducer<String> legacyProducer = factory.createProducer(legacyTopic, String.class);
         MessageProducer<String> hybridProducer = factory.createProducer(hybridTopic, String.class);
 
-        try {
-            AtomicInteger legacyCount = new AtomicInteger(0);
-            AtomicInteger hybridCount = new AtomicInteger(0);
-            Checkpoint messagesReceived = testContext.checkpoint(4); // 2 messages each
+        AtomicInteger legacyCount = new AtomicInteger(0);
+        AtomicInteger hybridCount = new AtomicInteger(0);
+        Checkpoint messagesReceived = testContext.checkpoint(4); // 2 messages each
 
             Future.all(
                 legacyConsumer.subscribe(message -> {
@@ -261,15 +256,8 @@ class ConsumerModeBackwardCompatibilityTest {
             assertEquals(2, legacyCount.get(), "Legacy default should process 2 messages");
             assertEquals(2, hybridCount.get(), "Explicit HYBRID should process 2 messages");
 
-            logger.info("Legacy API default behavior verified - legacy: {}, hybrid: {}",
-                legacyCount.get(), hybridCount.get());
-
-        } finally {
-            legacyConsumer.close();
-            hybridConsumer.close();
-            legacyProducer.close();
-            hybridProducer.close();
-        }
+        logger.info("Legacy API default behavior verified - legacy: {}, hybrid: {}",
+            legacyCount.get(), hybridCount.get());
 
         logger.info("Legacy API default behavior test completed successfully");
     }
@@ -285,57 +273,47 @@ class ConsumerModeBackwardCompatibilityTest {
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         AtomicInteger totalProcessed = new AtomicInteger(0);
+        AtomicInteger legacyProcessed = new AtomicInteger(0);
+        AtomicInteger migratedProcessed = new AtomicInteger(0);
+        Promise<Void> legacyPhaseComplete = Promise.promise();
+        Promise<Void> migratedPhaseComplete = Promise.promise();
 
-        try {
-            Checkpoint legacyMessages = testContext.checkpoint(2);
-
-            legacyConsumer.subscribe(message -> {
-                totalProcessed.incrementAndGet();
-                logger.info(" Legacy migration processed: {}", message.getPayload());
-                legacyMessages.flag();
-                return Future.succeededFuture();
-            })
-            .onSuccess(ignored -> producer.send("Migration message 1")
-                    .compose(v -> producer.send("Migration message 2"))
-                    .onFailure(testContext::failNow))
-            .onFailure(testContext::failNow);
-
-            // Wait for processing
-            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Legacy consumer should process initial messages");
-
-            // Close legacy consumer
+        legacyConsumer.subscribe(message -> {
+            totalProcessed.incrementAndGet();
+            logger.info(" Legacy migration processed: {}", message.getPayload());
+            if (legacyProcessed.incrementAndGet() == 2) {
+                legacyPhaseComplete.tryComplete();
+            }
+            return Future.succeededFuture();
+        })
+        .compose(v -> producer.send("Migration message 1"))
+        .compose(v -> producer.send("Migration message 2"))
+        .compose(v -> legacyPhaseComplete.future())
+        .compose(v -> {
             legacyConsumer.close();
-
-            // Migrate to new API with explicit configuration
             MessageConsumer<String> newConsumer = factory.createConsumer(topicName, String.class,
                 ConsumerConfig.builder().mode(ConsumerMode.HYBRID).build());
-
-            CountDownLatch phase2 = new CountDownLatch(2);
-
-            newConsumer.subscribe(message -> {
+            return newConsumer.subscribe(message -> {
                 totalProcessed.incrementAndGet();
                 logger.info(" New API migration processed: {}", message.getPayload());
-                phase2.countDown();
+                if (migratedProcessed.incrementAndGet() == 2) {
+                    migratedPhaseComplete.tryComplete();
+                }
                 return Future.succeededFuture();
-            })
-            .onSuccess(ignored -> producer.send("Migration message 3")
-                    .compose(v -> producer.send("Migration message 4"))
-                    .onFailure(testContext::failNow))
-            .onFailure(testContext::failNow);
-
-            // Wait for processing
-            boolean newReceived = phase2.await(10, TimeUnit.SECONDS);
-            assertTrue(newReceived, "New consumer should process migrated messages");
-
+            });
+        })
+        .compose(v -> producer.send("Migration message 3"))
+        .compose(v -> producer.send("Migration message 4"))
+        .compose(v -> migratedPhaseComplete.future())
+        .onSuccess(v -> testContext.verify(() -> {
             assertEquals(4, totalProcessed.get(), "Should process all 4 messages during migration");
-
             logger.info("Gradual migration verified - total processed: {}", totalProcessed.get());
+            testContext.completeNow();
+        }))
+        .onFailure(testContext::failNow);
 
-            newConsumer.close();
-
-        } finally {
-            producer.close();
-        }
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS),
+            "Both migration phases should complete");
 
         logger.info("Gradual migration path test completed successfully");
     }
@@ -350,9 +328,8 @@ class ConsumerModeBackwardCompatibilityTest {
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class);
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        try {
-            AtomicInteger processedCount = new AtomicInteger(0);
-            Checkpoint messagesReceived = testContext.checkpoint(5);
+        AtomicInteger processedCount = new AtomicInteger(0);
+        Checkpoint messagesReceived = testContext.checkpoint(5);
 
             long startTime = System.currentTimeMillis();
 
@@ -381,16 +358,9 @@ class ConsumerModeBackwardCompatibilityTest {
             assertEquals(5, processedCount.get(), "Should process exactly 5 messages");
             assertTrue(duration < 10000, "Processing should complete within reasonable time (10s)");
 
-            logger.info("Legacy API performance verified - processed: {} messages in {}ms",
-                processedCount.get(), duration);
-
-        } finally {
-            consumer.close();
-            producer.close();
-        }
+        logger.info("Legacy API performance verified - processed: {} messages in {}ms",
+            processedCount.get(), duration);
 
         logger.info("Legacy API performance consistency test completed successfully");
     }
 }
-
-

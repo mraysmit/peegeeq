@@ -18,13 +18,18 @@ package dev.mars.peegeeq.pgqueue;
 
 import dev.mars.peegeeq.api.messaging.ConsumerGroupMember;
 import dev.mars.peegeeq.api.messaging.Message;
+import dev.mars.peegeeq.api.messaging.MessageConsumer;
+import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.api.messaging.SimpleMessage;
+import dev.mars.peegeeq.api.messaging.StartPosition;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import dev.mars.peegeeq.api.database.ConnectOptionsProvider;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
@@ -34,6 +39,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 
 import java.util.List;
 import java.util.Map;
@@ -62,6 +70,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @see PgNativeConsumerGroup
  */
 @Tag(TestCategories.CORE)
+@ExtendWith(VertxExtension.class)
 @DisplayName("PgNativeConsumerGroup lifecycle & safety")
 class PgNativeConsumerGroupLifecycleTest {
 
@@ -70,18 +79,19 @@ class PgNativeConsumerGroupLifecycleTest {
     private final List<PgConnectionManager> extraConnectionManagers = new CopyOnWriteArrayList<>();
 
     @AfterEach
-    void tearDown() {
-        if (group != null) {
-            group.stopGracefully().onFailure(e -> fail("tearDown group.close() failed: " + e.getMessage()));
-        }
+    void tearDown(VertxTestContext testContext) {
+        Future<Void> cleanup = group != null ? group.close() : Future.succeededFuture();
         for (PgConnectionManager cm : extraConnectionManagers) {
-            try { cm.close(); } catch (Exception ignored) { }
+            cleanup = cleanup.eventually(cm::close);
         }
         extraConnectionManagers.clear();
         for (Vertx vtx : extraVertxInstances) {
-            vtx.close().onFailure(e -> fail("tearDown vtx.close() failed: " + e.getMessage()));
+            cleanup = cleanup.eventually(vtx::close);
         }
         extraVertxInstances.clear();
+        cleanup
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -105,7 +115,7 @@ class PgNativeConsumerGroupLifecycleTest {
         void startTransitionsToActive() {
             group = createGroup("sm-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.start();
+            startGroup();
             assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState());
             assertTrue(group.isActive());
         }
@@ -115,16 +125,114 @@ class PgNativeConsumerGroupLifecycleTest {
         void startIsIdempotentWhenActive() {
             group = createGroup("sm-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.start();
-            assertDoesNotThrow(() -> group.start());
+            startGroup();
+            assertSucceeded(group.start(), "idempotent start");
             assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState());
+        }
+
+        @Test
+        @DisplayName("start() remains STARTING and shares its Future until subscription is ready")
+        void startWaitsForSubscriptionReadiness(VertxTestContext testContext) {
+            Promise<Void> subscriptionReady = Promise.promise();
+            group = createGroup("sm-group", "topic-a", subscriptionReady.future());
+            ConsumerGroupMember<String> member =
+                    group.addConsumer("c1", msg -> Future.succeededFuture());
+
+            Future<Void> firstStart = group.start();
+            Future<Void> secondStart = group.start();
+
+            assertSame(firstStart, secondStart, "Concurrent callers must observe the same startup attempt");
+            assertFalse(firstStart.isComplete(), "start() must remain pending until subscribe completes");
+            assertEquals(PgNativeConsumerGroup.State.STARTING, group.getState());
+            assertFalse(member.isActive(), "Members must not activate before subscription readiness");
+
+            firstStart
+                    .onSuccess(v -> testContext.verify(() -> {
+                        assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState());
+                        assertTrue(member.isActive());
+                        testContext.completeNow();
+                    }))
+                    .onFailure(testContext::failNow);
+            subscriptionReady.complete();
+        }
+
+        @Test
+        @DisplayName("close during pending startup waits for the startup abort to settle")
+        void closeDuringPendingStartupWaitsForStartupSettlement(VertxTestContext testContext) {
+            Promise<Void> subscriptionReady = Promise.promise();
+            TestMessageConsumer<String> consumer = new TestMessageConsumer<>(subscriptionReady.future());
+            group = createGroup("sm-group", "topic-a", consumer);
+            group.addConsumer("c1", msg -> Future.succeededFuture());
+
+            Future<Void> start = group.start();
+            Future<Void> close = group.close();
+            Future<Void> repeatedClose = group.close();
+            boolean closeCompletedBeforeStartupSettled = close.isComplete();
+            Promise<Throwable> startupFailure = Promise.promise();
+
+            start
+                    .onSuccess(v -> startupFailure.tryFail(
+                            new AssertionError("Startup unexpectedly succeeded after close")))
+                    .onFailure(startupFailure::tryComplete);
+
+            subscriptionReady.complete();
+
+            Future.all(close, startupFailure.future())
+                    .onSuccess(v -> testContext.verify(() -> {
+                        assertFalse(closeCompletedBeforeStartupSettled,
+                                "close() must remain pending until the in-progress startup attempt settles");
+                        assertSame(close, repeatedClose,
+                                "Concurrent close callers must observe the same close attempt");
+                        assertTrue(start.failed(), "The startup attempt must report its close-induced abort");
+                        assertInstanceOf(IllegalStateException.class, start.cause());
+                        assertTrue(consumer.isClosed(),
+                                "The startup-owned consumer must be closed before close() settles");
+                        assertEquals(PgNativeConsumerGroup.State.CLOSED, group.getState());
+                        testContext.completeNow();
+                    }))
+                    .onFailure(testContext::failNow);
+        }
+
+        @Test
+        @ExpectedErrorLog(
+                logger = "dev.mars.peegeeq.pgqueue.PgNativeConsumerGroup",
+                message = "Failed to subscribe consumer group 'sm-group' for topic 'topic-a':",
+                messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+                throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+                throwableType = IllegalStateException.class)
+        @ExpectedErrorLog(
+                logger = "dev.mars.peegeeq.pgqueue.PgNativeConsumerGroup",
+                message = "Failed to start consumer group 'sm-group':",
+                messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+                throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+        @DisplayName("member activation failure fails startup and restores NEW state")
+        void memberActivationFailureRestoresNewState(VertxTestContext testContext) {
+            Promise<Void> subscriptionReady = Promise.promise();
+            group = createGroup("sm-group", "topic-a", subscriptionReady.future());
+            PgNativeConsumerGroupMember<String> member =
+                    (PgNativeConsumerGroupMember<String>) group.addConsumer(
+                            "c1", msg -> Future.succeededFuture());
+
+            Future<Void> start = group.start();
+            member.close();
+
+            start
+                    .onSuccess(v -> testContext.failNow("Startup unexpectedly survived member activation failure"))
+                    .onFailure(error -> testContext.verify(() -> {
+                        assertInstanceOf(IllegalStateException.class, error);
+                        assertEquals(PgNativeConsumerGroup.State.NEW, group.getState());
+                        assertFalse(group.isActive());
+                        assertEquals(0, group.getActiveConsumerCount());
+                        testContext.completeNow();
+                    }));
+            subscriptionReady.complete();
         }
 
         @Test
         @DisplayName("start() throws when group is CLOSED")
         void startThrowsWhenClosed() {
             group = createGroup("sm-group", "topic-a");
-            group.close().onFailure(e -> fail("close() failed: " + e.getMessage()));
+            closeGroup();
             assertEquals(PgNativeConsumerGroup.State.CLOSED, group.getState());
             Future<Void> result = group.start();
             assertTrue(result.failed(), "start() must return a failed future when CLOSED");
@@ -136,8 +244,8 @@ class PgNativeConsumerGroupLifecycleTest {
         void stopTransitionsToNew() {
             group = createGroup("sm-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.start();
-            group.stopGracefully().onFailure(e -> fail("stop failed: " + e.getMessage()));
+            startGroup();
+            stopGroup();
             assertEquals(PgNativeConsumerGroup.State.NEW, group.getState());
             assertFalse(group.isActive());
         }
@@ -146,7 +254,7 @@ class PgNativeConsumerGroupLifecycleTest {
         @DisplayName("stop() is a no-op when not ACTIVE")
         void stopIsNoOpWhenNew() {
             group = createGroup("sm-group", "topic-a");
-            assertTrue(group.stop().succeeded(), "stop() on non-active group must return a succeeded future");
+            assertSucceeded(group.stop(), "stop on NEW group");
             assertEquals(PgNativeConsumerGroup.State.NEW, group.getState());
         }
 
@@ -155,10 +263,10 @@ class PgNativeConsumerGroupLifecycleTest {
         void stopThenStartAllowsRestart() {
             group = createGroup("sm-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.start();
-            group.stopGracefully().onFailure(e -> fail("stop failed: " + e.getMessage()));
+            startGroup();
+            stopGroup();
             assertEquals(PgNativeConsumerGroup.State.NEW, group.getState());
-            group.start();
+            startGroup();
             assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState());
         }
 
@@ -167,8 +275,8 @@ class PgNativeConsumerGroupLifecycleTest {
         void closeFromActiveTransitionsToClosed() {
             group = createGroup("sm-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.start();
-            group.close().onFailure(e -> fail("close() failed: " + e.getMessage()));
+            startGroup();
+            closeGroup();
             assertEquals(PgNativeConsumerGroup.State.CLOSED, group.getState());
             assertFalse(group.isActive());
         }
@@ -177,7 +285,7 @@ class PgNativeConsumerGroupLifecycleTest {
         @DisplayName("close() from NEW goes directly to CLOSED")
         void closeFromNewGoesToClosed() {
             group = createGroup("sm-group", "topic-a");
-            group.close().onFailure(e -> fail("close() failed in closeFromNew: " + e.getMessage()));
+            closeGroup();
             assertEquals(PgNativeConsumerGroup.State.CLOSED, group.getState());
         }
 
@@ -185,8 +293,8 @@ class PgNativeConsumerGroupLifecycleTest {
         @DisplayName("close() is idempotent")
         void closeIsIdempotent() {
             group = createGroup("sm-group", "topic-a");
-            group.close().onFailure(e -> fail("close() failed: " + e.getMessage()));
-            assertDoesNotThrow(() -> group.close().onFailure(e -> fail("second close() failed: " + e.getMessage())));
+            closeGroup();
+            assertSucceeded(group.close(), "second close");
             assertEquals(PgNativeConsumerGroup.State.CLOSED, group.getState());
         }
 
@@ -197,7 +305,7 @@ class PgNativeConsumerGroupLifecycleTest {
             group.addConsumer("c1", msg -> Future.succeededFuture());
             group.addConsumer("c2", msg -> Future.succeededFuture());
             assertEquals(2, group.getConsumerIds().size());
-            group.close().onFailure(e -> fail("close() failed: " + e.getMessage()));
+            closeGroup();
             assertTrue(group.getConsumerIds().isEmpty());
         }
 
@@ -208,13 +316,13 @@ class PgNativeConsumerGroupLifecycleTest {
             assertFalse(group.isActive(), "NEW");
 
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.start();
+            startGroup();
             assertTrue(group.isActive(), "ACTIVE");
 
-            group.stopGracefully().onFailure(e -> fail("stop failed: " + e.getMessage()));
+            stopGroup();
             assertFalse(group.isActive(), "back to NEW after stop");
 
-            group.close().onFailure(e -> fail("close() failed: " + e.getMessage()));
+            closeGroup();
             assertFalse(group.isActive(), "CLOSED");
         }
     }
@@ -238,7 +346,7 @@ class PgNativeConsumerGroupLifecycleTest {
         @DisplayName("start(SubscriptionOptions) fails with future when CLOSED")
         void failsWhenClosed() {
             group = createGroup("sub-group", "topic-a");
-            group.close().onFailure(e -> fail("close() failed in failsWhenClosed: " + e.getMessage()));
+            closeGroup();
 
             var options = SubscriptionOptions.builder().build();
             Future<Void> result = group.start(options);
@@ -253,7 +361,7 @@ class PgNativeConsumerGroupLifecycleTest {
         void succeedsWhenAlreadyActive() {
             group = createGroup("sub-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.start();
+            startGroup();
 
             var options = SubscriptionOptions.builder().build();
             Future<Void> result = group.start(options);
@@ -266,9 +374,11 @@ class PgNativeConsumerGroupLifecycleTest {
             group = createGroup("sub-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
 
-            var options = SubscriptionOptions.builder().build();
+            var options = SubscriptionOptions.builder()
+                    .startPosition(StartPosition.FROM_BEGINNING)
+                    .build();
             Future<Void> result = group.start(options);
-            assertTrue(result.succeeded(), "start(options) with null databaseService should succeed");
+            assertSucceeded(result, "start(options) with null databaseService");
             assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState());
         }
     }
@@ -294,7 +404,7 @@ class PgNativeConsumerGroupLifecycleTest {
         @DisplayName("addConsumer throws when group is CLOSED")
         void throwsWhenClosed() {
             group = createGroup("mem-group", "topic-a");
-            group.close().onFailure(e -> fail("close() failed in throwsWhenClosed: " + e.getMessage()));
+            closeGroup();
             assertThrows(IllegalStateException.class,
                     () -> group.addConsumer("c1", msg -> Future.succeededFuture()));
         }
@@ -351,6 +461,7 @@ class PgNativeConsumerGroupLifecycleTest {
             ExecutorService executor = Executors.newFixedThreadPool(threadCount);
             List<ConsumerGroupMember<String>> winners = new CopyOnWriteArrayList<>();
             List<Throwable> rejections = new CopyOnWriteArrayList<>();
+            List<Throwable> errors = new CopyOnWriteArrayList<>();
 
             for (int i = 0; i < threadCount; i++) {
                 executor.submit(() -> {
@@ -362,13 +473,14 @@ class PgNativeConsumerGroupLifecycleTest {
                     } catch (IllegalArgumentException e) {
                         rejections.add(e);
                     } catch (Exception e) {
-                        // barrier/interrupt not relevant
+                        errors.add(e);
                     }
                 });
             }
 
             executor.shutdown();
             assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+            assertTrue(errors.isEmpty(), "Unexpected concurrency failures: " + errors);
             assertEquals(1, winners.size(), "Exactly one thread should win");
             assertEquals(threadCount - 1, rejections.size(),
                     "All others should be rejected with IllegalArgumentException");
@@ -406,10 +518,10 @@ class PgNativeConsumerGroupLifecycleTest {
         void stopResetsStateToNew() {
             group = createGroup("stop-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.start();
+            startGroup();
             assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState());
 
-            group.stopGracefully().onFailure(e -> fail("stop failed: " + e.getMessage()));
+            stopGroup();
             assertEquals(PgNativeConsumerGroup.State.NEW, group.getState(),
                     "State must be NEW after stop, not stuck in STOPPING or ACTIVE");
         }
@@ -427,10 +539,9 @@ class PgNativeConsumerGroupLifecycleTest {
         void stopGracefullyReturnsFutureRefCounting() {
             group = createGroup("stop-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.start();
+            startGroup();
             Future<Void> result = group.stopGracefully();
-            assertTrue(result.succeeded(),
-                    "stopGracefully must return a succeeded future (not null or pending)");
+            assertSucceeded(result, "stopGracefully");
             assertEquals(PgNativeConsumerGroup.State.NEW, group.getState());
         }
 
@@ -439,8 +550,8 @@ class PgNativeConsumerGroupLifecycleTest {
         void stopGracefullyTransitionsToNew() {
             group = createGroup("stop-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.start();
-            group.stopGracefully();
+            startGroup();
+            stopGroup();
             assertEquals(PgNativeConsumerGroup.State.NEW, group.getState());
         }
 
@@ -449,10 +560,10 @@ class PgNativeConsumerGroupLifecycleTest {
         void multipleStopsIdempotent() {
             group = createGroup("stop-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.start();
-            group.stopGracefully().onFailure(e -> fail("stop failed: " + e.getMessage()));
-            group.stop().onFailure(e -> fail("second stop() failed: " + e.getMessage()));
-            group.stop().onFailure(e -> fail("third stop() failed: " + e.getMessage()));
+            startGroup();
+            stopGroup();
+            assertSucceeded(group.stop(), "second stop");
+            assertSucceeded(group.stop(), "third stop");
             assertEquals(PgNativeConsumerGroup.State.NEW, group.getState());
         }
 
@@ -461,9 +572,9 @@ class PgNativeConsumerGroupLifecycleTest {
         void closeAfterStopIsSafe() {
             group = createGroup("stop-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.start();
-            group.stopGracefully().onFailure(e -> fail("stop failed: " + e.getMessage()));
-            assertDoesNotThrow(() -> group.close());
+            startGroup();
+            stopGroup();
+            closeGroup();
             assertEquals(PgNativeConsumerGroup.State.CLOSED, group.getState());
         }
 
@@ -472,9 +583,9 @@ class PgNativeConsumerGroupLifecycleTest {
         void stopCloseStartThrows() {
             group = createGroup("stop-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.start();
-            group.stopGracefully().onFailure(e -> fail("stop failed: " + e.getMessage()));
-            group.close().onFailure(e -> fail("close() failed in stopCloseStart: " + e.getMessage()));
+            startGroup();
+            stopGroup();
+            closeGroup();
             Future<Void> result = group.start();
             assertTrue(result.failed(), "start() must return a failed future when CLOSED");
             assertInstanceOf(IllegalStateException.class, result.cause());
@@ -485,13 +596,13 @@ class PgNativeConsumerGroupLifecycleTest {
         void stopClearsUnderlyingConsumer() {
             group = createGroup("stop-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.start();
+            startGroup();
             assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState());
 
             // Stop and restart should not fail due to stale underlyingConsumer
-            group.stopGracefully().onFailure(e -> fail("stop failed: " + e.getMessage()));
+            stopGroup();
             assertEquals(PgNativeConsumerGroup.State.NEW, group.getState());
-            group.start();
+            startGroup();
             assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState(),
                     "restart should succeed underlyingConsumer was cleaned up on stop");
         }
@@ -510,13 +621,13 @@ class PgNativeConsumerGroupLifecycleTest {
         void closeDuringStopKeepsClosed() {
             group = createGroup("cas-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.start();
+            startGroup();
             assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState());
 
             // Graceful stop starts the STOPPING transition
-            group.stopGracefully();
+            stopGroup();
             // Immediately close should set CLOSED
-            group.close().onFailure(e -> fail("close() failed in closeDuringStop: " + e.getMessage()));
+            closeGroup();
             assertEquals(PgNativeConsumerGroup.State.CLOSED, group.getState(),
                     "close() must win over stop's NEW reset state should be CLOSED");
         }
@@ -526,9 +637,9 @@ class PgNativeConsumerGroupLifecycleTest {
         void closeOverridesStartStopCycle() {
             group = createGroup("cas-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.start();
-            group.stopGracefully().onFailure(e -> fail("stop failed: " + e.getMessage()));
-            group.close().onFailure(e -> fail("close() failed in closeOverrides: " + e.getMessage()));
+            startGroup();
+            stopGroup();
+            closeGroup();
             assertEquals(PgNativeConsumerGroup.State.CLOSED, group.getState());
 
             // Verify no operation can resurrect from CLOSED
@@ -544,11 +655,12 @@ class PgNativeConsumerGroupLifecycleTest {
         void concurrentCloseAndStop() throws Exception {
             group = createGroup("cas-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.start();
+            startGroup();
 
             int threadCount = 10;
             CyclicBarrier barrier = new CyclicBarrier(threadCount);
             ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+            List<Throwable> errors = new CopyOnWriteArrayList<>();
 
             // Half the threads call stop(), half call close()
             for (int i = 0; i < threadCount; i++) {
@@ -556,17 +668,19 @@ class PgNativeConsumerGroupLifecycleTest {
                 executor.submit(() -> {
                     try {
                         barrier.await(5, TimeUnit.SECONDS);
-                        if (doClose) {
-                            group.close().onFailure(e -> {});
-                        } else {
-                            group.stopGracefully().onFailure(e -> {});
+                        Future<Void> result = doClose ? group.close() : group.stopGracefully();
+                        if (result.failed()) {
+                            errors.add(result.cause());
                         }
-                    } catch (Exception ignored) {}
+                    } catch (Exception e) {
+                        errors.add(e);
+                    }
                 });
             }
 
             executor.shutdown();
             assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+            assertTrue(errors.isEmpty(), "Concurrent lifecycle calls failed: " + errors);
 
             // At least one close() ran, so state must be CLOSED
             assertEquals(PgNativeConsumerGroup.State.CLOSED, group.getState(),
@@ -597,9 +711,10 @@ class PgNativeConsumerGroupLifecycleTest {
             PeeGeeQConfiguration config = new PeeGeeQConfiguration("test", new Properties());
             group = new PgNativeConsumerGroup<>(
                     "cfg-group", "cfg-topic", String.class,
-                    adapter, null, null, config, null, null, null);
+                    adapter, null, null, config, null, null, null,
+                    (minimumMessageId, minimumCreatedAt) -> new TestMessageConsumer<>());
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.start();
+            startGroup();
             assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState(),
                     "Group with configuration should start in ACTIVE");
         }
@@ -611,16 +726,17 @@ class PgNativeConsumerGroupLifecycleTest {
             PeeGeeQConfiguration config = new PeeGeeQConfiguration("test", new Properties());
             group = new PgNativeConsumerGroup<>(
                     "cfg-group", "cfg-topic", String.class,
-                    adapter, null, null, config, null, null, null);
+                    adapter, null, null, config, null, null, null,
+                    (minimumMessageId, minimumCreatedAt) -> new TestMessageConsumer<>());
             group.addConsumer("c1", msg -> Future.succeededFuture());
 
-            group.start();
+            startGroup();
             assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState());
 
-            group.stopGracefully().onFailure(e -> fail("stop failed: " + e.getMessage()));
+            stopGroup();
             assertEquals(PgNativeConsumerGroup.State.NEW, group.getState());
 
-            group.start();
+            startGroup();
             assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState(),
                     "Restart with configuration should succeed");
         }
@@ -630,7 +746,7 @@ class PgNativeConsumerGroupLifecycleTest {
         void addConsumerToActiveGroupAutoStarts() {
             group = createGroup("edge-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.start();
+            startGroup();
 
             // Add a second consumer while active
             ConsumerGroupMember<String> member = group.addConsumer("c2", msg -> Future.succeededFuture());
@@ -666,7 +782,7 @@ class PgNativeConsumerGroupLifecycleTest {
             group = createGroup("edge-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
             group.addConsumer("c2", msg -> Future.succeededFuture());
-            group.start();
+            startGroup();
 
             var stats = group.getStats();
             assertEquals(2, stats.getTotalConsumerCount());
@@ -699,7 +815,7 @@ class PgNativeConsumerGroupLifecycleTest {
                 handlerCalls.incrementAndGet();
                 return Future.succeededFuture();
             });
-            group.start();
+            startGroup();
 
             Future<Void> result = group.distributeMessage(createMessage("msg-1", "hello"));
             assertTrue(result.succeeded(), "distributeMessage should succeed");
@@ -718,11 +834,13 @@ class PgNativeConsumerGroupLifecycleTest {
             AtomicInteger consumer2Calls = new AtomicInteger(0);
             group.addConsumer("c1", msg -> { consumer1Calls.incrementAndGet(); return Future.succeededFuture(); });
             group.addConsumer("c2", msg -> { consumer2Calls.incrementAndGet(); return Future.succeededFuture(); });
-            group.start();
+            startGroup();
 
             // Send enough messages to exercise both consumers
             for (int i = 0; i < 20; i++) {
-                group.distributeMessage(createMessage("msg-" + i, "data-" + i));
+                assertSucceeded(
+                        group.distributeMessage(createMessage("msg-" + i, "data-" + i)),
+                        "distributeMessage");
             }
 
             assertTrue(consumer1Calls.get() > 0, "consumer 1 should receive some messages");
@@ -736,7 +854,7 @@ class PgNativeConsumerGroupLifecycleTest {
         void groupFilterRejects_incrementsFilteredCount() {
             group = createGroup("dm-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.start();
+            startGroup();
             group.setGroupFilter(msg -> false); // reject all
 
             Future<Void> result = group.distributeMessage(createMessage("msg-1", "hello"));
@@ -753,7 +871,7 @@ class PgNativeConsumerGroupLifecycleTest {
             group = createGroup("dm-group", "topic-a");
             // Add consumer with a filter that rejects everything
             group.addConsumer("c1", msg -> Future.succeededFuture(), msg -> false);
-            group.start();
+            startGroup();
 
             Future<Void> result = group.distributeMessage(createMessage("msg-1", "hello"));
             assertTrue(result.succeeded(), "distributeMessage should succeed when no consumers eligible");
@@ -768,7 +886,7 @@ class PgNativeConsumerGroupLifecycleTest {
         void handlerFailure_incrementsFailedCount() {
             group = createGroup("dm-group", "topic-a");
             group.addConsumer("c1", msg -> Future.failedFuture(new RuntimeException("handler error")));
-            group.start();
+            startGroup();
 
             Future<Void> result = group.distributeMessage(createMessage("msg-1", "hello"));
             assertTrue(result.failed(), "distributeMessage should propagate handler failure");
@@ -786,7 +904,7 @@ class PgNativeConsumerGroupLifecycleTest {
                 receivedHeaders.set(msg.getHeaders());
                 return Future.succeededFuture();
             });
-            group.start();
+            startGroup();
 
             Map<String, String> headers = Map.of(
                     "traceparent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
@@ -807,7 +925,7 @@ class PgNativeConsumerGroupLifecycleTest {
 
             // Force state to ACTIVE for testing distributeMessage directly
             // We start and then stop members manually by removing them
-            group.start();
+            startGroup();
             group.removeConsumer("c1");
 
             Future<Void> result = group.distributeMessage(createMessage("msg-1", "hello"));
@@ -837,7 +955,7 @@ class PgNativeConsumerGroupLifecycleTest {
             // Consumer whose filter always throws
             group.addConsumer("c1", msg -> Future.succeededFuture(),
                     msg -> { throw new RuntimeException("filter exploded"); });
-            group.start();
+            startGroup();
 
             Future<Void> result = group.distributeMessage(msg("msg-1"));
             assertTrue(result.succeeded(),
@@ -861,11 +979,11 @@ class PgNativeConsumerGroupLifecycleTest {
                     msg -> { throw new RuntimeException("c1 filter broken"); });
             // c2 is healthy
             group.addConsumer("c2", msg -> { healthyCalls.incrementAndGet(); return Future.succeededFuture(); });
-            group.start();
+            startGroup();
 
             // Send enough messages: round-robin selects c2 for some IDs since c1 is filtered out
             for (int i = 0; i < 10; i++) {
-                group.distributeMessage(msg("msg-" + i));
+                assertSucceeded(group.distributeMessage(msg("msg-" + i)), "distributeMessage");
             }
 
             assertTrue(healthyCalls.get() > 0,
@@ -887,7 +1005,7 @@ class PgNativeConsumerGroupLifecycleTest {
                 c2Calls.incrementAndGet();
                 return Future.failedFuture(new RuntimeException("c2 exploded"));
             });
-            group.start();
+            startGroup();
 
             // Send messages each is routed to exactly one consumer via round-robin
             for (int i = 0; i < 10; i++) {
@@ -913,7 +1031,7 @@ class PgNativeConsumerGroupLifecycleTest {
         void removeConsumerDuringDispatch_failsGracefully() {
             group = createGroup("bad-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.start();
+            startGroup();
 
             // Remove the consumer simulates concurrent removal
             group.removeConsumer("c1");
@@ -929,19 +1047,18 @@ class PgNativeConsumerGroupLifecycleTest {
         }
 
         @Test
-        @DisplayName("F6: consumer handler throws synchronously exception propagates (not caught)")
-        void handlerThrowsSynchronously_exceptionPropagates() {
+        @DisplayName("F6: synchronous consumer handler exception becomes a failed Future")
+        void handlerThrowsSynchronously_returnsFailedFuture() {
             group = createGroup("bad-group", "topic-a");
             group.addConsumer("c1", msg -> { throw new RuntimeException("sync boom"); });
-            group.start();
+            startGroup();
 
-            // A synchronous throw from the handler escapes the Future chain.
-            // processMessage() calls handler.handle(message) without try-catch,
-            // so synchronous throws propagate directly rather than becoming failed futures.
-            RuntimeException thrown = assertThrows(RuntimeException.class,
+            Future<Void> result = assertDoesNotThrow(
                     () -> group.distributeMessage(msg("msg-1")),
-                    "Synchronous throw from handler propagates to caller");
-            assertEquals("sync boom", thrown.getMessage());
+                    "Async APIs must surface handler exceptions through their Future");
+            assertTrue(result.failed(), "Synchronous handler exception must fail the Future");
+            assertEquals("sync boom", result.cause().getMessage());
+            assertEquals(1, group.getStats().getTotalMessagesFailed());
         }
     }
 
@@ -993,59 +1110,99 @@ class PgNativeConsumerGroupLifecycleTest {
     }
 
     // ========================================================================
-    // 5.x Partitioned Path with connectionManager (no pool  fallback)
-    //
-    // When connectionManager is non-null, startInternal() calls
-    // isOffsetWatermarkTopic() which fails (no pool)  .transform() catches it
-    //  falls back to reference-counting mode. This exercises the branching
-    // in startInternal() that the null-connectionManager tests never reach.
+    // 5.x Partitioned mode detection failure propagation
     // ========================================================================
 
     @Nested
-    @DisplayName("Partitioned Fallback (connectionManager present, no pool)")
-    class PartitionedFallback {
+    @DisplayName("Partitioned mode detection failure")
+    class PartitionedModeDetectionFailure {
 
         @Test
-        @DisplayName("start() with connectionManager but no pool falls back to reference counting")
-        void startWithConnectionManager_fallsBackToReferenceCounting() {
+        @ExpectedErrorLog(
+                logger = "dev.mars.peegeeq.pgqueue.PgNativeConsumerGroup",
+                message = "Failed to detect completion-tracking mode for topic 'topic-a':",
+                messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+                throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+                throwableType = IllegalStateException.class)
+        @ExpectedErrorLog(
+                logger = "dev.mars.peegeeq.pgqueue.PgNativeConsumerGroup",
+                message = "Failed to start consumer group 'pf-group':",
+                messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+                throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+        @DisplayName("start() with connectionManager but no pool propagates the infrastructure failure")
+        void startWithConnectionManager_propagatesFailure(VertxTestContext testContext) {
             group = createGroupWithConnectionManager("pf-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.start();
-            // The transform path in startInternal catches the "no pool" error
-            // and falls back to reference counting, which succeeds
-            assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState(),
-                    "Should reach ACTIVE via reference-counting fallback");
-            assertTrue(group.isActive());
+            group.start()
+                    .onSuccess(v -> testContext.failNow("Mode detection unexpectedly succeeded"))
+                    .onFailure(error -> testContext.verify(() -> {
+                        assertEquals(PgNativeConsumerGroup.State.NEW, group.getState());
+                        assertFalse(group.isActive());
+                        testContext.completeNow();
+                    }));
         }
 
         @Test
-        @DisplayName("start/stop/start cycle works with connectionManager fallback path")
-        void startStopRestart_withConnectionManager() {
+        @ExpectedErrorLog(
+                logger = "dev.mars.peegeeq.pgqueue.PgNativeConsumerGroup",
+                message = "Failed to detect completion-tracking mode for topic 'topic-b':",
+                messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+                throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+                throwableType = IllegalStateException.class,
+                minOccurrences = 2,
+                maxOccurrences = 2)
+        @ExpectedErrorLog(
+                logger = "dev.mars.peegeeq.pgqueue.PgNativeConsumerGroup",
+                message = "Failed to start consumer group 'pf-group':",
+                messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+                throwable = ExpectedErrorLog.ThrowablePolicy.NONE,
+                minOccurrences = 2,
+                maxOccurrences = 2)
+        @DisplayName("a failed mode-detection attempt can be retried and fails transparently again")
+        void failedStartCanBeRetried(VertxTestContext testContext) {
             group = createGroupWithConnectionManager("pf-group", "topic-b");
             group.addConsumer("c1", msg -> Future.succeededFuture());
 
-            group.start();
-            assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState());
-
-            group.stopGracefully().onFailure(e -> fail("stop failed: " + e.getMessage()));
-            assertEquals(PgNativeConsumerGroup.State.NEW, group.getState());
-
-            group.start();
-            assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState(),
-                    "Restart should succeed via fallback path");
+            group.start()
+                    .onSuccess(v -> testContext.failNow("First mode-detection attempt unexpectedly succeeded"))
+                    .onFailure(firstError -> {
+                        assertEquals(PgNativeConsumerGroup.State.NEW, group.getState());
+                        group.start()
+                                .onSuccess(v -> testContext.failNow(
+                                        "Second mode-detection attempt unexpectedly succeeded"))
+                                .onFailure(secondError -> testContext.verify(() -> {
+                                    assertEquals(PgNativeConsumerGroup.State.NEW, group.getState());
+                                    assertFalse(group.isActive());
+                                    testContext.completeNow();
+                                }));
+                    });
         }
 
         @Test
-        @DisplayName("close during fallback startup leaves state CLOSED")
-        void closeDuringFallbackStartup() {
+        @ExpectedErrorLog(
+                logger = "dev.mars.peegeeq.pgqueue.PgNativeConsumerGroup",
+                message = "Failed to detect completion-tracking mode for topic 'topic-c':",
+                messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+                throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+                throwableType = IllegalStateException.class)
+        @ExpectedErrorLog(
+                logger = "dev.mars.peegeeq.pgqueue.PgNativeConsumerGroup",
+                message = "Failed to start consumer group 'pf-group':",
+                messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+                throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+        @DisplayName("close during mode detection leaves state CLOSED")
+        void closeDuringModeDetectionKeepsClosed(VertxTestContext testContext) {
             group = createGroupWithConnectionManager("pf-group", "topic-c");
             group.addConsumer("c1", msg -> Future.succeededFuture());
 
-            group.start();
-            // Even though start is async, the transform  reference-counting path
-            // completes synchronously on the fallback branch
-            group.close().onFailure(e -> fail("close() failed in closeDuringFallback: " + e.getMessage()));
-            assertEquals(PgNativeConsumerGroup.State.CLOSED, group.getState());
+            Future<Void> start = group.start();
+            group.close()
+                    .compose(v -> start)
+                    .onSuccess(v -> testContext.failNow("Startup unexpectedly succeeded after close"))
+                    .onFailure(error -> testContext.verify(() -> {
+                        assertEquals(PgNativeConsumerGroup.State.CLOSED, group.getState());
+                        testContext.completeNow();
+                    }));
         }
     }
 
@@ -1090,7 +1247,21 @@ class PgNativeConsumerGroupLifecycleTest {
     private PgNativeConsumerGroup<String> createGroup(String groupName, String topic) {
         return new PgNativeConsumerGroup<>(
                 groupName, topic, String.class,
-                validAdapter(), null, null, testConfiguration(), null, null, null);
+                validAdapter(), null, null, testConfiguration(), null, null, null,
+                (minimumMessageId, minimumCreatedAt) -> new TestMessageConsumer<>());
+    }
+
+    private PgNativeConsumerGroup<String> createGroup(
+            String groupName, String topic, Future<Void> subscribeResult) {
+        return createGroup(groupName, topic, new TestMessageConsumer<>(subscribeResult));
+    }
+
+    private PgNativeConsumerGroup<String> createGroup(
+            String groupName, String topic, TestMessageConsumer<String> consumer) {
+        return new PgNativeConsumerGroup<>(
+                groupName, topic, String.class,
+                validAdapter(), null, null, testConfiguration(), null, null, null,
+                (minimumMessageId, minimumCreatedAt) -> consumer);
     }
 
     /**
@@ -1108,5 +1279,55 @@ class PgNativeConsumerGroupLifecycleTest {
                 groupName, topic, String.class,
                 adapter, null, null, testConfiguration(), null,
                 connMgr, "test-svc");
+    }
+
+    private static void assertSucceeded(Future<Void> future, String operation) {
+        assertTrue(future.isComplete(), operation + " must complete in this in-process fixture");
+        assertTrue(future.succeeded(),
+                () -> operation + " failed: " + (future.cause() == null ? "unknown" : future.cause().getMessage()));
+    }
+
+    private void startGroup() {
+        assertSucceeded(group.start(), "start");
+    }
+
+    private void stopGroup() {
+        assertSucceeded(group.stopGracefully(), "stopGracefully");
+    }
+
+    private void closeGroup() {
+        assertSucceeded(group.close(), "close");
+    }
+
+    private static final class TestMessageConsumer<T> implements MessageConsumer<T> {
+        private final Future<Void> subscribeResult;
+        private boolean closed;
+
+        private TestMessageConsumer() {
+            this(Future.succeededFuture());
+        }
+
+        private TestMessageConsumer(Future<Void> subscribeResult) {
+            this.subscribeResult = subscribeResult;
+        }
+
+        @Override
+        public Future<Void> subscribe(MessageHandler<T> handler) {
+            return subscribeResult;
+        }
+
+        @Override
+        public void unsubscribe() {
+            // No external subscription exists in this in-process fixture.
+        }
+
+        @Override
+        public void close() {
+            closed = true;
+        }
+
+        private boolean isClosed() {
+            return closed;
+        }
     }
 }

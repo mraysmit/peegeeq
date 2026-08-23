@@ -25,6 +25,7 @@ import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.consumer.OutboxMessage;
 import dev.mars.peegeeq.db.consumer.PartitionedConsumerEngine;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
@@ -34,6 +35,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 
 import java.time.Instant;
 import java.util.Map;
@@ -51,6 +55,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * {@code IllegalStateException} which exercises the failure paths.</p>
  */
 @Tag(TestCategories.CORE)
+@ExtendWith(VertxExtension.class)
 @DisplayName("PartitionedConsumerEngine CORE tests")
 class PartitionedConsumerEngineLifecycleTest {
 
@@ -58,19 +63,19 @@ class PartitionedConsumerEngineLifecycleTest {
     private PgConnectionManager connectionManager;
 
     @BeforeEach
-    void setUp() {
-        vertx = Vertx.vertx();
+    void setUp(Vertx vertx) {
+        this.vertx = vertx;
         connectionManager = new PgConnectionManager(vertx);
     }
 
     @AfterEach
-    void tearDown() {
-        if (connectionManager != null) {
-            connectionManager.close().onFailure(e -> fail("tearDown connectionManager.close() failed: " + e.getMessage()));
-        }
-        if (vertx != null) {
-            vertx.close().onFailure(e -> {});
-        }
+    void tearDown(VertxTestContext testContext) {
+        Future<Void> cleanup = connectionManager != null
+                ? connectionManager.close()
+                : Future.succeededFuture();
+        cleanup
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     private PartitionedConsumerEngine<String> createEngine(String topic, String group, String instance) {
@@ -532,6 +537,11 @@ class PartitionedConsumerEngineLifecycleTest {
         }
 
         @Test
+        @ExpectedErrorLog(
+                logger = "dev.mars.peegeeq.db.consumer.PartitionedConsumerEngine",
+                message = "Failed to dispatch message 1: Failed to deserialize payload to java.lang.Integer",
+                messageMatch = ExpectedErrorLog.MessageMatch.EXACT,
+                throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
         @DisplayName("parse exception returns failed future")
         void parseException_returnsFailedFuture() {
             // Engine with Integer payloadType but no valid integer payload
@@ -553,6 +563,11 @@ class PartitionedConsumerEngineLifecycleTest {
         }
 
         @Test
+        @ExpectedErrorLog(
+                logger = "dev.mars.peegeeq.db.consumer.PartitionedConsumerEngine",
+                message = "Failed to dispatch message 1: Payload cannot be null",
+                messageMatch = ExpectedErrorLog.MessageMatch.EXACT,
+                throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
         @DisplayName("null payload dispatched as null")
         void nullPayload_dispatchedAsNull() {
             var engine = createEngine("test-topic", "test-group", "inst-1");
