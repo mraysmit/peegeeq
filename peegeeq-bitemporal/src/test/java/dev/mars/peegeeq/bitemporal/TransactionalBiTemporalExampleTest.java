@@ -24,6 +24,7 @@ import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -356,6 +357,13 @@ public class TransactionalBiTemporalExampleTest {
      * the entire transaction is rolled back and the event is not committed.
      */
     @Test
+    @ExpectedErrorLog(logger = "dev.mars.peegeeq.bitemporal.TransactionalBiTemporalExampleTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = forced invalid SQL inside transaction to verify rollback",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    @ExpectedErrorLog(logger = "dev.mars.peegeeq.bitemporal.TransactionalBiTemporalExampleTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Captured expected transaction SQL failure = ",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void testErrorHandlingAndRollbackScenarios(VertxTestContext testContext) {
         logger.info("=== Testing Error Handling and Rollback Scenarios ===");
 
@@ -564,6 +572,5 @@ public class TransactionalBiTemporalExampleTest {
         }
     }
 }
-
 
 

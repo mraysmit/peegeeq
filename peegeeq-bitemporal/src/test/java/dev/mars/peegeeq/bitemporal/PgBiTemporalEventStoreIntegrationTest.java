@@ -4,6 +4,7 @@ import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -47,7 +48,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * <ul>
  *   <li>All blocking {@code await()} helpers removed tests use {@code .compose()} chains
  *       with {@code VertxTestContext} for async coordination.</li>
- *   <li>All {@code .toCompletionStage().toCompletableFuture().get()} bridges removed.</li>
+ *   <li>All blocking completion-stage bridges removed.</li>
  *   <li>All {@code CountDownLatch} patterns replaced with compose chains and promise-based completion.</li>
  * </ul>
  */
@@ -332,6 +333,10 @@ class PgBiTemporalEventStoreIntegrationTest {
     }
 
     @Test
+    @ExpectedErrorLog(logger = "dev.mars.peegeeq.bitemporal.ReactiveNotificationHandler",
+            message = "Error in reactive subscription handler for key 'SubscriptionKey{eventType='escalation.warn.error.test', aggregateId='null'}' (3 consecutive failures): intentional handler failure",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = IllegalStateException.class)
     void testHandlerFailuresEscalateWarnToError(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing consecutive handler failure escalation ===");
 
@@ -1062,5 +1067,3 @@ class PgBiTemporalEventStoreIntegrationTest {
     }
 
 }
-
-
