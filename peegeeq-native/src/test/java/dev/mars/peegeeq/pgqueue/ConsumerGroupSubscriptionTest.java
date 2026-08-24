@@ -533,12 +533,14 @@ class ConsumerGroupSubscriptionTest {
 
             AtomicInteger count = new AtomicInteger(0);
             List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
-            Checkpoint messagesReceived = testContext.checkpoint(2);
+            Promise<Void> atLeastTwoReceived = Promise.promise();
 
             group.setMessageHandler(msg -> {
-                count.incrementAndGet();
+                int currentCount = count.incrementAndGet();
                 receivedMessages.add(msg.getPayload());
-                messagesReceived.flag();
+                if (currentCount >= 2) {
+                    atLeastTwoReceived.tryComplete();
+                }
                 return Future.succeededFuture();
             });
 
@@ -546,22 +548,24 @@ class ConsumerGroupSubscriptionTest {
                 .compose(v -> Future.all(
                     producer.send("Message-1"),
                     producer.send("Message-2"),
-                    producer.send("Message-3")))
+                    producer.send("Message-3")).mapEmpty())
+                .compose(v -> atLeastTwoReceived.future())
+                .eventually(group::close)
+                .onSuccess(v -> testContext.verify(() -> {
+                    // The native queue may deliver any 2-3 of the sent payloads before close completes;
+                    // every received payload must be one of the sent payloads (no duplicates, no corruption).
+                    assertEquals(count.get(), receivedMessages.size(),
+                        "Counter and received-list must agree");
+                    List<String> expectedPayloads = List.of("Message-1", "Message-2", "Message-3");
+                    assertTrue(expectedPayloads.containsAll(receivedMessages),
+                        "Received payloads must be a subset of sent payloads; got: " + receivedMessages);
+                    assertEquals(receivedMessages.size(), receivedMessages.stream().distinct().count(),
+                        "Received payloads must not contain duplicates; got: " + receivedMessages);
+                    testContext.completeNow();
+                }))
                 .onFailure(testContext::failNow);
 
-            // Wait for processing
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
-
-            // Assert: checkpoint(2) gates timing; verify content correctness of what arrived.
-            // The native queue may deliver any 2-3 of the sent payloads within the checkpoint window;
-            // every received payload must be one of the sent payloads (no duplicates, no corruption).
-            assertEquals(count.get(), receivedMessages.size(),
-                "Counter and received-list must agree");
-            List<String> expectedPayloads = List.of("Message-1", "Message-2", "Message-3");
-            assertTrue(expectedPayloads.containsAll(receivedMessages),
-                "Received payloads must be a subset of sent payloads; got: " + receivedMessages);
-            assertEquals(receivedMessages.size(), receivedMessages.stream().distinct().count(),
-                "Received payloads must not contain duplicates; got: " + receivedMessages);
 
         }
 
