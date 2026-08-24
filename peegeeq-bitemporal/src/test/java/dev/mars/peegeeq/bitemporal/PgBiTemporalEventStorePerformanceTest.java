@@ -78,7 +78,9 @@ class PgBiTemporalEventStorePerformanceTest {
                 .from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.database.ssl.enabled", "false")
-                .property("peegeeq.database.pool.max-wait-queue-size", "256")
+                // The largest test burst submits 100 operations concurrently. Keep the
+                // three-connection test pool small while allowing that bounded burst.
+                .property("peegeeq.database.pool.wait-queue-multiplier", "64")
                 .build();
 
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
@@ -96,19 +98,21 @@ class PgBiTemporalEventStorePerformanceTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) {
-        if (eventStore != null) {
-            eventStore.close();
-        }
-        Future<Void> closeFuture = (peeGeeQManager != null)
-            ? peeGeeQManager.closeReactive().transform(ar -> {
-                if (ar.failed()) logger.warn("Error during cleanup: {}", ar.cause().getMessage());
-                return Future.succeededFuture();
-            })
+        Future<Void> closeFuture = eventStore != null
+            ? eventStore.close()
             : Future.succeededFuture();
-        closeFuture.onSuccess(v -> {
-            PgBiTemporalEventStore.clearCachedPools();
-            testContext.completeNow();
-        }).onFailure(testContext::failNow);
+        eventStore = null;
+
+        closeFuture
+            .compose(v -> peeGeeQManager != null
+                ? peeGeeQManager.closeReactive()
+                : Future.succeededFuture())
+            .onSuccess(v -> {
+                peeGeeQManager = null;
+                PgBiTemporalEventStore.clearCachedPools();
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
 
@@ -426,6 +430,5 @@ class PgBiTemporalEventStorePerformanceTest {
         })));
     }
 }
-
 
 
