@@ -91,6 +91,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
     // Consumer group name for tracking which messages this consumer has processed
     private String consumerGroupName;
+    private boolean enforceSubscriptionBounds;
 
     private MessageHandler<T> messageHandler;
     private volatile long pollingTimerId = -1;
@@ -195,6 +196,14 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
         logger.info("Set consumer group name to '{}' for topic '{}'", consumerGroupName, topic);
     }
 
+    /**
+     * Restricts claims to the start boundary stored for this consumer group in
+     * {@code outbox_topic_subscriptions}. Must be configured before subscription.
+     */
+    void enforceSubscriptionBounds() {
+        this.enforceSubscriptionBounds = true;
+    }
+
     @Override
     public Future<Void> subscribe(MessageHandler<T> handler) {
         if (closed.get()) {
@@ -295,57 +304,59 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
         try {
             int batchSize = getEffectiveBatchSize();
 
-            // Build SQL dynamically based on whether server-side filter is present
+            // Build one atomic claim statement. Subscription bounds and payload
+            // filters must both be applied inside the locked subquery so excluded
+            // rows remain PENDING for other subscriptions.
             ServerSideFilter filter = consumerConfig != null ? consumerConfig.getServerSideFilter() : null;
-            String sql;
-            Tuple params;
+            String sqOutbox = qualifyTable("outbox");
+            List<Object> queryParams = new ArrayList<>();
+            queryParams.add(OffsetDateTime.now());
+            queryParams.add(topic);
+            queryParams.add(batchSize);
+
+            StringBuilder additionalConditions = new StringBuilder();
+            int nextParameter = 4;
+            if (enforceSubscriptionBounds) {
+                String sqSubscriptions = qualifyTable("outbox_topic_subscriptions");
+                additionalConditions.append("""
+                          AND EXISTS (
+                              SELECT 1
+                              FROM %s subscription
+                              WHERE subscription.topic = $2
+                                AND subscription.group_name = $%d
+                                AND (subscription.start_from_message_id IS NULL
+                                     OR outbox_message.id >= subscription.start_from_message_id)
+                                AND (subscription.start_from_timestamp IS NULL
+                                     OR outbox_message.created_at >= subscription.start_from_timestamp)
+                          )
+                        """.formatted(sqSubscriptions, nextParameter));
+                queryParams.add(consumerGroupName);
+                nextParameter++;
+            }
 
             if (filter != null) {
-                // Server-side filtering: add filter condition to WHERE clause
-                String filterCondition = filter.toSqlCondition(4); // $4 onwards for filter params
-                String sqOutbox = qualifyTable("outbox");
-                sql = "UPDATE " + sqOutbox + "\n" +
-                      "SET status = 'PROCESSING', processed_at = $1\n" +
-                      "WHERE id IN (\n" +
-                      "    SELECT id FROM " + sqOutbox + "\n" +
-                      "    WHERE topic = $2 AND status = 'PENDING'\n" +
-                      "      AND " + filterCondition + "\n" +
-                      "    ORDER BY created_at ASC\n" +
-                      "    LIMIT $3\n" +
-                      "    FOR UPDATE SKIP LOCKED\n" +
-                      ")\n" +
-                      "RETURNING id, payload, headers, correlation_id, message_group, created_at,\n" +
-                      "          EXTRACT(EPOCH FROM (now() - created_at)) * 1000.0 AS delivery_latency_ms";
-
-                // Build tuple with base params + filter params
-                Object[] baseParams = new Object[] { OffsetDateTime.now(), topic, batchSize };
-                java.util.List<Object> filterParams = filter.getParameters();
-                Object[] allParams = new Object[baseParams.length + filterParams.size()];
-                System.arraycopy(baseParams, 0, allParams, 0, baseParams.length);
-                for (int i = 0; i < filterParams.size(); i++) {
-                    allParams[baseParams.length + i] = filterParams.get(i);
-                }
-                params = Tuple.from(allParams);
-
+                String filterCondition = filter.toSqlCondition(nextParameter);
+                additionalConditions.append(" AND ").append(filterCondition).append('\n');
+                queryParams.addAll(filter.getParameters());
                 logger.debug("OUTBOX-DEBUG: Using server-side filter: {}, SQL filter: {}", filter, filterCondition);
-            } else {
-                // No filter: use original SQL
-                String sqOutbox = qualifyTable("outbox");
-                sql = """
-                        UPDATE %s
-                        SET status = 'PROCESSING', processed_at = $1
-                        WHERE id IN (
-                            SELECT id FROM %s
-                            WHERE topic = $2 AND STATUS = 'PENDING'
-                            ORDER BY created_at ASC
-                            LIMIT $3
-                            FOR UPDATE SKIP LOCKED
-                        )
-                        RETURNING id, payload, headers, correlation_id, message_group, created_at,
-                                  EXTRACT(EPOCH FROM (now() - created_at)) * 1000.0 AS delivery_latency_ms
-                        """.formatted(sqOutbox, sqOutbox);
-                params = Tuple.of(OffsetDateTime.now(), topic, batchSize);
             }
+
+            String sql = """
+                    UPDATE %s
+                    SET status = 'PROCESSING', processed_at = $1
+                    WHERE id IN (
+                        SELECT outbox_message.id
+                        FROM %s outbox_message
+                        WHERE outbox_message.topic = $2
+                          AND outbox_message.status = 'PENDING'
+                    %s    ORDER BY outbox_message.created_at ASC
+                        LIMIT $3
+                        FOR UPDATE SKIP LOCKED
+                    )
+                    RETURNING id, payload, headers, correlation_id, message_group, created_at,
+                              EXTRACT(EPOCH FROM (now() - created_at)) * 1000.0 AS delivery_latency_ms
+                    """.formatted(sqOutbox, sqOutbox, additionalConditions);
+            Tuple params = Tuple.from(queryParams);
 
             return getReactivePoolFuture()
                     .compose(pool -> pool.preparedQuery(sql).execute(params))

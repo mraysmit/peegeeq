@@ -435,7 +435,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
                                         return startPartitioned();
                                     }
                                     try {
-                                        startInternal();
+                                        startInternal(true);
                                         return Future.<Void>succeededFuture();
                                     } catch (Exception e) {
                                         state.set(State.NEW);
@@ -445,7 +445,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
                     }
                     // No connectionManager wired \u2014 always reference counting.
                     try {
-                        startInternal();
+                        startInternal(true);
                         return Future.<Void>succeededFuture();
                     } catch (Exception e) {
                         state.set(State.NEW);
@@ -457,7 +457,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
             logger.warn("DatabaseService is null - cannot create subscription. " +
                        "Subscription must be created manually via SubscriptionManager before starting.");
             try {
-                startInternal();
+                startInternal(false);
                 return Future.succeededFuture();
             } catch (Exception e) {
                 state.set(State.NEW);
@@ -515,7 +515,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
      * Internal start logic assumes state is already STARTING.
      * Transitions to ACTIVE on success.
      */
-    private void startInternal() {
+    private void startInternal(boolean enforceSubscriptionBounds) {
         OutboxConsumer<T> outboxConsumer;
         if (clientFactory != null) {
             outboxConsumer = new OutboxConsumer<>(clientFactory, objectMapper, topic, payloadType, metrics, configuration, clientId);
@@ -526,6 +526,9 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
         }
         underlyingConsumer = outboxConsumer;
         outboxConsumer.setConsumerGroupName(groupName);
+        if (enforceSubscriptionBounds) {
+            outboxConsumer.enforceSubscriptionBounds();
+        }
         underlyingConsumer.subscribe(this::distributeMessage)
                 .onFailure(err -> logger.error("Failed to subscribe consumer group '{}' for topic '{}': {}",
                         groupName, topic, err.getMessage(), err));
