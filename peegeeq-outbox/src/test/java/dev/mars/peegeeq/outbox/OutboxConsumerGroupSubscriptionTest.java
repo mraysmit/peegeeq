@@ -31,10 +31,12 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -42,10 +44,13 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -194,30 +199,44 @@ class OutboxConsumerGroupSubscriptionTest {
 
         @Test
         @DisplayName("should start with FROM_TIMESTAMP position")
-        void testStartWithOptions_FromTimestamp(Vertx vertx, VertxTestContext testContext) throws Exception {
+        void testStartWithOptions_FromTimestamp(VertxTestContext testContext) throws Exception {
+            List<String> before = List.of("Timestamp-Before-1", "Timestamp-Before-2");
+            List<String> after = List.of("Timestamp-After-1", "Timestamp-After-2");
+            List<String> received = Collections.synchronizedList(new ArrayList<>());
+            Promise<Void> allAfterReceived = Promise.promise();
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
-
-            Checkpoint messageCheckpoint = testContext.checkpoint(3);
             group.addConsumer("consumer-1", msg -> {
-                messageCheckpoint.flag();
+                received.add(msg.getPayload());
+                if (received.containsAll(after)) {
+                    allAfterReceived.tryComplete();
+                }
                 return Future.succeededFuture();
             });
 
-            vertx.timer(100)
-                .compose(v -> sendBatch("Before-", 3))
-                .compose(v -> vertx.timer(100))
-                .map(v -> Instant.now())
-                .compose(cutoff -> vertx.timer(100).map(cutoff))
-                .compose(cutoff -> sendBatch("After-", 3).map(cutoff))
-                .compose(cutoff -> group.start(SubscriptionOptions.builder()
-                    .startPosition(StartPosition.FROM_TIMESTAMP)
-                    .startFromTimestamp(cutoff)
-                    .build()))
+            sendMessages(before)
+                .compose(v -> currentDatabaseTime())
+                .compose(cutoff -> sendMessages(after)
+                    .compose(v -> setCreatedAt(before, cutoff.minusSeconds(1)))
+                    .compose(v -> setCreatedAt(after, cutoff.plusSeconds(1)))
+                    .compose(v -> group.start(SubscriptionOptions.builder()
+                        .startFromTimestamp(cutoff)
+                        .build())))
+                .compose(v -> allAfterReceived.future())
+                .compose(v -> countPendingPayloads(before))
+                .map(pendingBefore -> {
+                    assertEquals(after.size(), received.size(),
+                        "FROM_TIMESTAMP must deliver only messages at or after the cutoff");
+                    assertEquals(Set.copyOf(after), Set.copyOf(received));
+                    assertEquals((long) before.size(), pendingBefore,
+                        "Messages before the timestamp must remain pending");
+                    return (Void) null;
+                })
+                .eventually(group::close)
+                .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
 
-            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-            assertTrue(group.isActive());
+            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
         }
 
         @Test
@@ -577,5 +596,50 @@ class OutboxConsumerGroupSubscriptionTest {
             sends.add(producer.send(prefix + i));
         }
         return Future.all(sends).mapEmpty();
+    }
+
+    private Future<Void> sendMessages(List<String> payloads) {
+        Future<Void> sends = Future.succeededFuture();
+        for (String payload : payloads) {
+            sends = sends.compose(v -> producer.send(payload));
+        }
+        return sends;
+    }
+
+    private Future<Instant> currentDatabaseTime() {
+        return manager.getPool()
+            .query("SELECT clock_timestamp() AS cutoff")
+            .execute()
+            .map(rows -> rows.iterator().next()
+                .get(OffsetDateTime.class, "cutoff")
+                .toInstant());
+    }
+
+    private Future<Long> countPendingPayloads(List<String> payloads) {
+        return manager.getPool()
+            .preparedQuery("""
+                SELECT COUNT(*) AS message_count
+                FROM outbox
+                WHERE topic = $1
+                  AND status = 'PENDING'
+                  AND payload->>'value' = ANY($2::text[])
+                """)
+            .execute(Tuple.of("test-topic", (Object) payloads.toArray(String[]::new)))
+            .map(rows -> rows.iterator().next().getLong("message_count"));
+    }
+
+    private Future<Void> setCreatedAt(List<String> payloads, Instant timestamp) {
+        return manager.getPool().withTransaction(connection -> connection
+            .preparedQuery("""
+                UPDATE outbox
+                SET created_at = $1
+                WHERE topic = $2
+                  AND payload->>'value' = ANY($3::text[])
+                """)
+            .execute(Tuple.of(
+                timestamp.atOffset(ZoneOffset.UTC),
+                "test-topic",
+                (Object) payloads.toArray(String[]::new)))
+            .mapEmpty());
     }
 }
