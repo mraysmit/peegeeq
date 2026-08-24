@@ -91,9 +91,10 @@ public abstract class FundsCustodyTestBase {
 
         Pool cleanupPool = PgBuilder.pool()
             .connectingTo(connectOptions)
+            .using(vertx)
             .build();
 
-        return cleanupPool.withConnection(conn ->
+        return cleanupPool.withTransaction(conn ->
                 conn.query("DELETE FROM bitemporal_event_log").execute()
                     .compose(deleteResult ->
                         conn.query("SELECT COUNT(*) AS count FROM bitemporal_event_log").execute())
@@ -193,7 +194,6 @@ public abstract class FundsCustodyTestBase {
         });
     }
 }
-
 
 
 
