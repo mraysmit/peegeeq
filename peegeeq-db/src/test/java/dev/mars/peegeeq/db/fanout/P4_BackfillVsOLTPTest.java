@@ -21,6 +21,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.json.JsonObject;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Row;
@@ -42,6 +43,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -189,7 +191,7 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
             })
             .onSuccess(v -> {
                 backfillEnd.set(System.currentTimeMillis());
-                logger.info("Backfill consumer finished: {} messages", backfillConsumed.get());
+                logger.info("Backfill consumer finished: {} messages", backfillConsumed.intValue());
             });
 
         Future<Void> oltpFuture = delay(100)
@@ -213,15 +215,15 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
                 long p95 = sortedLatencies.get(Math.min(sortedLatencies.size() - 1, (int) (sortedLatencies.size() * 0.95)));
                 long p99 = sortedLatencies.get(Math.min(sortedLatencies.size() - 1, (int) (sortedLatencies.size() * 0.99)));
 
-                long historicalPublishDuration = historicalPublishEnd.get() - historicalPublishStart.get();
-                long oltpPublishDuration = oltpPublishEnd.get() - oltpPublishStart.get();
-                long backfillDuration = backfillEnd.get() - backfillStart.get();
-                long oltpConsumeDuration = oltpConsumeEnd.get() - oltpConsumeStart.get();
+                long historicalPublishDuration = historicalPublishEnd.longValue() - historicalPublishStart.longValue();
+                long oltpPublishDuration = oltpPublishEnd.longValue() - oltpPublishStart.longValue();
+                long backfillDuration = backfillEnd.longValue() - backfillStart.longValue();
+                long oltpConsumeDuration = oltpConsumeEnd.longValue() - oltpConsumeStart.longValue();
 
                 testContext.verify(() -> {
-                    assertEquals(historicalMessageCount, backfillConsumed.get(),
+                    assertEquals(historicalMessageCount, backfillConsumed.intValue(),
                         "Backfill consumer should process all historical messages");
-                    assertEquals(oltpMessageCount, oltpConsumed.get(),
+                    assertEquals(oltpMessageCount, oltpConsumed.intValue(),
                         "OLTP consumer should process all new messages");
                     assertFalse(sortedLatencies.isEmpty(), "OLTP latencies should be captured");
                     assertTrue(p95 < 1000, "OLTP p95 latency should be < 1000ms, but was " + p95 + "ms");
@@ -231,9 +233,9 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
                 logger.info("Historical Messages Published: {} in {} ms", historicalMessageCount, historicalPublishDuration);
                 logger.info("OLTP Messages Published: {} in {} ms", oltpMessageCount, oltpPublishDuration);
                 logger.info("Backfill Duration: {} ms ({} msg/sec)", backfillDuration,
-                    (backfillConsumed.get() * 1000.0) / Math.max(1, backfillDuration));
+                    (backfillConsumed.intValue() * 1000.0) / Math.max(1, backfillDuration));
                 logger.info("OLTP Consume Duration: {} ms ({} msg/sec)", oltpConsumeDuration,
-                    (oltpConsumed.get() * 1000.0) / Math.max(1, oltpConsumeDuration));
+                    (oltpConsumed.intValue() * 1000.0) / Math.max(1, oltpConsumeDuration));
                 logger.info("OLTP Latency - p50: {} ms, p95: {} ms, p99: {} ms", p50, p95, p99);
                 logger.info("Messages Cleaned: {}", deleted);
                 logger.info("=== P4: BACKFILL VS OLTP TEST COMPLETE ===");
@@ -245,6 +247,7 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
     }
 
     @Test
+    @Timeout(value = 120, timeUnit = TimeUnit.SECONDS)
     void testRegularBackfillDoesNotImpactNormalOLTPThroughput(VertxTestContext testContext) {
         logger.info("=== P4: REGULAR BACKFILL VS NORMAL OLTP THROUGHPUT ===");
 
@@ -290,11 +293,11 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
                 return Future.all(backfillLoop, publisherLoop, consumerLoop).mapEmpty();
             })
             .compose(v -> cleanupService.cleanupCompletedMessages(topic, 5_000).map(deletedCount -> {
-                assertTrue(backfillRuns.get() >= 10,
+                assertTrue(backfillRuns.intValue() >= 10,
                     "Regular backfill should run repeatedly during OLTP window");
-                assertTrue(published.get() >= 1_000,
-                    "Should publish a meaningful OLTP load, got " + published.get());
-                assertEquals(published.get(), consumed.get(),
+                assertTrue(published.intValue() >= 1_000,
+                    "Should publish a meaningful OLTP load, got " + published.intValue());
+                assertEquals(published.intValue(), consumed.intValue(),
                     "OLTP consumer should keep up and complete all published messages");
 
                 assertFalse(oltpLatencies.isEmpty(), "OLTP latencies should be captured");
@@ -304,8 +307,8 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
                 long p95 = sortedLatencies.get(Math.min(sortedLatencies.size() - 1, (int) (sortedLatencies.size() * 0.95)));
                 long p99 = sortedLatencies.get(Math.min(sortedLatencies.size() - 1, (int) (sortedLatencies.size() * 0.99)));
 
-                long elapsedMs = System.currentTimeMillis() - testStartRef.get();
-                double oltpThroughput = consumed.get() * 1000.0 / Math.max(1, elapsedMs);
+                long elapsedMs = System.currentTimeMillis() - testStartRef.longValue();
+                double oltpThroughput = consumed.intValue() * 1000.0 / Math.max(1, elapsedMs);
 
                 assertTrue(p95 < 300,
                     "OLTP p95 latency should remain < 300ms during regular backfill, got " + p95 + "ms");
@@ -314,9 +317,9 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
                         + String.format("%.1f", oltpThroughput));
 
                 logger.info("=== REGULAR BACKFILL VS OLTP SUMMARY ===");
-                logger.info("Backfill runs: {}", backfillRuns.get());
-                logger.info("Published: {}", published.get());
-                logger.info("Consumed: {}", consumed.get());
+                logger.info("Backfill runs: {}", backfillRuns.intValue());
+                logger.info("Published: {}", published.intValue());
+                logger.info("Consumed: {}", consumed.intValue());
                 logger.info("OLTP Throughput: {} msg/s", String.format("%.1f", oltpThroughput));
                 logger.info("OLTP Latency p50={}ms p95={}ms p99={}ms", p50, p95, p99);
                 logger.info("Messages Cleaned: {}", deletedCount);
@@ -347,7 +350,7 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
         int targetCount,
         AtomicInteger consumedCount
     ) {
-        if (consumedCount.get() >= targetCount) {
+        if (consumedCount.intValue() >= targetCount) {
             return Future.succeededFuture();
         }
 
@@ -371,7 +374,7 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
         List<Long> latencies,
         int emptyPolls
     ) {
-        if (consumedCount.get() >= targetCount) {
+        if (consumedCount.intValue() >= targetCount) {
             return Future.succeededFuture();
         }
         if (emptyPolls > 1000) {
@@ -426,7 +429,7 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
         int batchSize = 10;
         List<Future<?>> batchFutures = new ArrayList<>();
         for (int i = 0; i < batchSize; i++) {
-            JsonObject payload = generatePayload(published.get() + i, payloadSizeBytes);
+            JsonObject payload = generatePayload(published.intValue() + i, payloadSizeBytes);
             batchFutures.add(insertMessage(topic, payload).map(id -> {
                 published.incrementAndGet();
                 return null;
@@ -448,7 +451,7 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
         List<Long> latencies,
         int idleRounds
     ) {
-        if (System.currentTimeMillis() >= testEndEpochMs && consumed.get() >= published.get()) {
+        if (System.currentTimeMillis() >= testEndEpochMs && consumed.intValue() >= published.intValue()) {
             return Future.succeededFuture();
         }
         if (idleRounds > 2000) {
