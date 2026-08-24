@@ -24,6 +24,7 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -820,6 +821,15 @@ class TransactionPropagationHonestyTest {
     // ========================================================================
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.bitemporal.TransactionPropagationHonestyTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = appendInTransaction invoked with null connection",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.bitemporal.TransactionPropagationHonestyTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Captured expected null-connection validation failure = ",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     @DisplayName("appendInTransaction with null connection returns failed future with IllegalArgumentException")
     void appendInTransactionNullConnectionReturnsFailed(VertxTestContext testContext) throws Exception {
         /*
@@ -854,6 +864,20 @@ class TransactionPropagationHonestyTest {
     // ========================================================================
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.bitemporal.TransactionPropagationHonestyTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = closed store rejects append and appendInTransaction",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.bitemporal.TransactionPropagationHonestyTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Captured expected closed-store append failure = ",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.bitemporal.TransactionPropagationHonestyTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Captured expected closed-store appendInTransaction failure = ",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     @DisplayName("Closed event store rejects append() and appendInTransaction() with IllegalStateException")
     void closedStoreRejectsAppend(VertxTestContext testContext) throws Exception {
         /*
