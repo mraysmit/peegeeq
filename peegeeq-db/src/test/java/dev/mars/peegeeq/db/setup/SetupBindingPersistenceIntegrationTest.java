@@ -370,11 +370,10 @@ class SetupBindingPersistenceIntegrationTest extends BaseIntegrationTest {
                             "the reloaded setup must be ACTIVE with no manual step");
                     return serviceB.destroySetup(setupId);
                 })
-                // Close serviceA first: this chain is running on serviceB's Vert.x, so ending
-                // serviceA's loop here strands nothing. Then close serviceB, which leaves exactly one
-                // continuation — the terminal handlers below — for its close to deliver.
-                .eventually(() -> serviceA.close())
-                .eventually(() -> serviceB.close())
+                // Start both independent shutdowns before either owned Vert.x instance stops.
+                // Observing them through one aggregate avoids scheduling the second close from a
+                // continuation whose event loop may already be terminating under CI load.
+                .eventually(() -> Future.all(serviceA.close(), serviceB.close()).mapEmpty())
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
     }
