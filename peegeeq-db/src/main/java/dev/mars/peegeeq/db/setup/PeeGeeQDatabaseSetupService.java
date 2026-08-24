@@ -16,7 +16,6 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.api.tracing.TraceCtx;
 import dev.mars.peegeeq.api.tracing.TraceContextUtil;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import io.vertx.core.AsyncResult;
 import io.vertx.core.Context;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.Future;
@@ -74,6 +73,8 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     // Dedicated worker executor to ensure setup runs off the event-loop (no Vert.x context issues)
     private final WorkerExecutor setupWorkerExecutor;
     private final AtomicBoolean closed = new AtomicBoolean(false);
+    private final Promise<Void> closePromise;
+    private final Future<Void> closeFuture;
 
     private final DatabaseTemplateManager templateManager;
     private final SqlTemplateProcessor templateProcessor = new SqlTemplateProcessor();
@@ -138,6 +139,11 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                                        DatabaseConfig registryDatabase,
                                        CredentialProvider credentialProvider) {
         this.eventStoreFactoryProvider = Optional.ofNullable(eventStoreFactoryProvider);
+        // Capture the construction context, not the setup worker that may later call close().
+        // For an owned Vert.x the service is constructed off-context, so this is deliberately
+        // context-free and remains observable after the setup worker executor is terminated.
+        this.closePromise = Promise.promise();
+        this.closeFuture = closePromise.future();
 
         // If we're inside a Vert.x context, reuse the owning Vertx instance; otherwise
         // create a new one
@@ -1773,9 +1779,10 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
      * 3. Close Vertx only if this service created it
      *
      * <p><b>Completion contract for a service-owned Vert.x.</b> When this service created its own
-     * Vert.x, the returned Future is completed <i>before</i> that Vert.x is closed, and the close is
-     * then queued behind the caller's continuation on the same context. The Future therefore signals
-     * "this service's resources are released", not "the owned Vert.x has finished closing".
+     * Vert.x, its close Future was created off-context with the service and is completed <i>before</i>
+     * that Vert.x is closed. It therefore remains observable after the setup worker executor has been
+     * terminated. The Future signals "this service's resources are released", not "the owned Vert.x
+     * has finished closing".
      *
      * <p>This ordering is required, not stylistic. A caller reached by
      * {@code .eventually(() -> service.close())} from inside a request chain is running <i>on</i> the
@@ -1785,7 +1792,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
      */
     public Future<Void> close() {
         if (!closed.compareAndSet(false, true)) {
-            return Future.succeededFuture();
+            return closeFuture;
         }
 
         // Close each active manager to cancel background timers and release pool connections.
@@ -1804,7 +1811,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                         }))
                 .toList();
 
-        return Future.join(closeFutures)
+        Future.join(closeFutures)
                 .transform(ar -> Future.<Void>succeededFuture())
                 .compose(v -> setupWorkerExecutor.close())
                 .transform(executorAr -> {
@@ -1816,43 +1823,38 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                     Throwable err = firstError.get();
                     return err != null ? Future.<Void>failedFuture(err) : Future.<Void>succeededFuture();
                 })
-                // Close the owned Vert.x last. This deliberately does NOT use
-                // .eventually(() -> vertx.close()): that chains the caller's continuation AFTER the
-                // event loop is gone, so a caller running on this Vert.x is never notified.
-                .transform(this::releaseOwnedVertx);
+                .onSuccess(v -> finishClose(null))
+                .onFailure(this::finishClose);
+
+        return closeFuture;
     }
 
     /**
-     * Final teardown step: hands {@code outcome} to the caller, then closes the Vert.x this service
-     * created — in that order.
+     * Final teardown step: settles the construction-bound public close Future, then closes the Vert.x
+     * this service created — in that order.
      *
-     * <p>Completing the returned Future dispatches the caller's already-registered continuation on a
-     * live event loop. Only then is {@code vertx.close()} queued with {@code runOnContext}, which
-     * places it behind everything already queued on that context, the caller's continuation included.
-     * Reversing the two strands the caller on a dead loop (see the close() javadoc).
+     * <p>For a service-owned Vert.x the public promise is context-free, so an already-registered
+     * continuation is delivered without dispatching back to the setup worker being terminated. Only
+     * then is {@code vertx.close()} queued with {@code runOnContext}. Reversing the two strands the
+     * caller on a dead loop (see the close() javadoc).
      *
      * <p>The close is observed rather than ignored: a failure is logged. It is not chained into the
      * returned Future, because by then the caller has already been given the outcome.
      */
-    private Future<Void> releaseOwnedVertx(AsyncResult<Void> outcome) {
-        Future<Void> callerOutcome = outcome.failed()
-                ? Future.failedFuture(outcome.cause())
-                : Future.succeededFuture();
-
-        if (!ownsVertx) {
-            return callerOutcome;
-        }
-
-        Promise<Void> callerVisible = Promise.promise();
-        if (outcome.failed()) {
-            callerVisible.fail(outcome.cause());
+    private void finishClose(Throwable failure) {
+        if (failure == null) {
+            closePromise.complete();
         } else {
-            callerVisible.complete();
+            closePromise.fail(failure);
         }
 
-        vertx.runOnContext(v -> vertx.close()
-                .onFailure(e -> logger.warn("Error closing service-owned Vert.x: {}", e.getMessage())));
-
-        return callerVisible.future();
+        if (ownsVertx) {
+            try {
+                vertx.runOnContext(v -> vertx.close()
+                        .onFailure(e -> logger.warn("Error closing service-owned Vert.x: {}", e.getMessage())));
+            } catch (RuntimeException error) {
+                logger.warn("Could not schedule service-owned Vert.x close: {}", error.getMessage(), error);
+            }
+        }
     }
 }
