@@ -80,6 +80,7 @@ public class PeeGeeQRestPerformanceTest {
     
     private WebClient client;
     private String testSetupId;
+    private String deploymentId;
     
     @BeforeEach
     void setUp(Vertx vertx, VertxTestContext testContext) {
@@ -95,6 +96,7 @@ public class PeeGeeQRestPerformanceTest {
         RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults(), List.of("*"));
         vertx.deployVerticle(new PeeGeeQRestServer(testConfig, setupService))
             .onSuccess(id -> {
+                deploymentId = id;
                 logger.info("Performance test server deployed successfully");
                 testContext.completeNow();
             })
@@ -103,11 +105,24 @@ public class PeeGeeQRestPerformanceTest {
     
     @AfterEach
     void tearDown(Vertx vertx, VertxTestContext testContext) {
-        if (client != null) {
-            client.close();
-        }
-        logger.info("Performance test cleanup completed");
-        testContext.completeNow();
+        Future<Void> cleanup = deploymentId != null
+                ? vertx.undeploy(deploymentId)
+                : Future.succeededFuture();
+        deploymentId = null;
+
+        cleanup
+                .eventually(() -> {
+                    if (client != null) {
+                        client.close();
+                        client = null;
+                    }
+                    return Future.succeededFuture();
+                })
+                .onSuccess(v -> {
+                    logger.info("Performance test cleanup completed");
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
     }
     
     @Test
@@ -188,7 +203,7 @@ public class PeeGeeQRestPerformanceTest {
                                         .put("messageId", i)
                                         .put("timestamp", System.currentTimeMillis())
                                         .put("data", "Performance test message " + i))
-                                .put("priority", i % 10);
+                                .put("priority", 1 + (i % 10));
                         
                         Future<?> messageFuture = client.post(TEST_PORT, "localhost", 
                                 "/api/v1/queues/" + testSetupId + "/perf_queue/messages")
