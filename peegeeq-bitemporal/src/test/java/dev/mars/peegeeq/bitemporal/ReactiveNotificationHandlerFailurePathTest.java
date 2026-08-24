@@ -18,6 +18,7 @@ import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
+import io.vertx.core.VertxException;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.pgclient.PgConnection;
 import org.junit.jupiter.api.BeforeEach;
@@ -193,6 +194,35 @@ class ReactiveNotificationHandlerFailurePathTest {
                     logger.info("THIS IS AN INTENTIONAL TEST ERROR: Confirmed expected UNLISTEN failure path and cleanup behavior");
                     testContext.completeNow();
                 }));
+    }
+
+    @Test
+    void stopShouldSucceedWhenListenerConnectionIsAlreadyClosing(Vertx vertx, VertxTestContext testContext) {
+        AtomicBoolean closeCalled = new AtomicBoolean(false);
+        TestableReactiveNotificationHandler handler = new TestableReactiveNotificationHandler(
+                vertx,
+                connectOptions,
+                eventId -> Future.succeededFuture(null),
+                () -> connect(vertx),
+                new AtomicInteger(0),
+                new CopyOnWriteArrayList<>(),
+                channel -> Future.succeededFuture(),
+                channel -> Future.failedFuture(
+                        new VertxException("Connection is not active now, current status: CLOSING")),
+                closeCalled);
+
+        handler.start()
+                .compose(v -> handler.subscribe("test.event", null, message -> Future.<Void>succeededFuture()))
+                .compose(v -> handler.stop())
+                .onSuccess(v -> testContext.verify(() -> {
+                    assertFalse(handler.isActive());
+                    assertFalse(handler.hasListenConnection());
+                    assertTrue(handler.listeningChannelsView().isEmpty());
+                    assertTrue(handler.subscriptionsView().isEmpty());
+                    assertTrue(closeCalled.getAcquire(), "stop() should still close an already-closing connection");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 
     @Test
