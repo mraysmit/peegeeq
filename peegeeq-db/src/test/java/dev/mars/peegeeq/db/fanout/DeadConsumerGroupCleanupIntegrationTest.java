@@ -13,6 +13,7 @@ import dev.mars.peegeeq.db.subscription.TopicConfig;
 import dev.mars.peegeeq.db.subscription.TopicConfigService;
 import dev.mars.peegeeq.db.subscription.TopicSemantics;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.json.JsonObject;
@@ -724,6 +725,12 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
      * group's transaction remains committed while the batch Future still fails.</p>
      */
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.cleanup.DeadConsumerGroupCleanup",
+            message = "Cleanup failed for group='group-dead-fail' on topic='resilience-z-fail-",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = RuntimeException.class)
     void testCleanupFailureIsSurfacedAfterPriorGroupCommits(VertxTestContext testContext) {
         String topicOk = uniqueTopic("resilience-a-ok");
         String topicFail = uniqueTopic("resilience-z-fail");
