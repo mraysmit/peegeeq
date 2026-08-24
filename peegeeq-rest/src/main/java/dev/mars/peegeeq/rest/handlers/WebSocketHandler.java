@@ -278,7 +278,7 @@ public class WebSocketHandler {
                 })
                 .compose(browser -> {
                     // If the client already disconnected, release the browser and stop.
-                    if (connection.getWebSocket().isClosed()) {
+                    if (!connection.isActive() || connection.getWebSocket().isClosed()) {
                         try { browser.close(); }
                         catch (Exception e) {
                             logger.warn("Error closing tail browser for {}: {}",
@@ -295,6 +295,10 @@ public class WebSocketHandler {
                     });
                 })
                 .onSuccess(v -> {
+                    if (!connection.isActive() || connection.getWebSocket().isClosed()) {
+                        connection.cleanup();
+                        return;
+                    }
                     connection.setSubscribed(true);
                     logger.info("WebSocket queue stream {} observing queue '{}' (non-destructive tail established)",
                             connection.getConnectionId(), connection.getQueueName());
@@ -306,6 +310,11 @@ public class WebSocketHandler {
                     connection.getWebSocket().writeTextMessage(subscribed.encode());
                 })
                 .onFailure(throwable -> {
+                    if (!connection.isActive()) {
+                        logger.debug("Message streaming setup stopped after WebSocket {} disconnected: {}",
+                                connection.getConnectionId(), throwable.getMessage());
+                        return;
+                    }
                     logger.error("Error setting up non-destructive message streaming for connection {}: {}",
                             connection.getConnectionId(), throwable.getMessage(), throwable);
                     sendErrorMessage(connection, "Failed to setup message streaming: " + throwable.getMessage());

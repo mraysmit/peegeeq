@@ -116,7 +116,16 @@ final class PgNativeQueueObserver<T> {
                     "No Vert.x instance available from pool adapter for tail observer on topic: " + topic));
         }
         this.shutdown = false;
-        return establish(true);
+        return establish(true).transform(result -> {
+            if (result.failed() && shutdown) {
+                logger.debug("tail: startup cancelled during shutdown for channel {}: {}",
+                        channel, result.cause().getMessage());
+                return Future.succeededFuture();
+            }
+            return result.succeeded()
+                    ? Future.<Void>succeededFuture()
+                    : Future.<Void>failedFuture(result.cause());
+        });
     }
 
     boolean isActive() {
@@ -161,7 +170,13 @@ final class PgNativeQueueObserver<T> {
         return poolAdapter.connectDedicated().compose(conn ->
                 conn.query("LISTEN \"" + channel + "\"").execute()
                         .compose(rs -> seedWatermark ? readMaxId() : Future.<Long>succeededFuture(highWaterId))
-                        .map(seededHighWater -> {
+                        .compose(seededHighWater -> {
+                            if (shutdown) {
+                                logger.debug("tail: startup completed after shutdown began for channel {}; closing connection",
+                                        channel);
+                                return conn.close().mapEmpty();
+                            }
+
                             // Runs on the connection's context — same place notifications are delivered.
                             this.listenConn = conn;
                             this.highWaterId = seededHighWater;
@@ -184,11 +199,16 @@ final class PgNativeQueueObserver<T> {
                             logger.info("tail: observing topic {} via LISTEN/NOTIFY (non-destructive), seeded highWater={}",
                                     topic, seededHighWater);
                             drain();   // initial (start) / catch-up (reconnect) drain
-                            return (Void) null;
+                            return Future.<Void>succeededFuture();
                         })
                         .onFailure(err -> {
-                            logger.error("tail: failed to start LISTEN on channel {}: {}",
-                                    channel, err.getMessage());
+                            if (shutdown) {
+                                logger.debug("tail: LISTEN startup stopped during shutdown for channel {}: {}",
+                                        channel, err.getMessage());
+                            } else {
+                                logger.error("tail: failed to start LISTEN on channel {}: {}",
+                                        channel, err.getMessage());
+                            }
                             conn.close().onFailure(closeErr -> logger.warn(
                                     "tail: failed to close connection after LISTEN error: {}",
                                     closeErr.getMessage()));
