@@ -447,29 +447,42 @@ class NativeQueueIntegrationTest {
     }
 
     @Test
-    void testNativeQueueMetricsIntegration(VertxTestContext testContext) throws Exception {
+    void testNativeQueueMetricsIntegration(Vertx vertx, VertxTestContext testContext) throws Exception {
         String testMessage = "Metrics integration test";
 
-        // Subscribe consumer before sending so it receives the message
-        Checkpoint received = testContext.checkpoint(1);
+        Promise<Void> handlerInvoked = Promise.promise();
         logger.debug("TEST: About to subscribe consumer to topic: test-native-topic");
         consumer.subscribe(message -> {
             logger.debug("TEST: Consumer received message: {}", message.getId());
-            received.flag();
+            handlerInvoked.tryComplete();
             return Future.succeededFuture();
-        }).onFailure(testContext::failNow);
-        logger.debug("TEST: Consumer subscription completed");
+        })
+                .compose(v -> producer.send(testMessage))
+                .compose(v -> handlerInvoked.future())
+                .compose(v -> awaitNativeMetrics(vertx, 100))
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
 
-        producer.send(testMessage).onFailure(testContext::failNow);
-
-        // Wait for processing
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
 
-        // Verify metrics were recorded
         var metrics = manager.getMetrics().getSummary();
         assertTrue(metrics.getMessagesSent() > 0);
         assertTrue(metrics.getMessagesReceived() > 0);
         assertTrue(metrics.getMessagesProcessed() > 0);
+    }
+
+    private Future<Void> awaitNativeMetrics(Vertx vertx, int remainingAttempts) {
+        var metrics = manager.getMetrics().getSummary();
+        if (metrics.getMessagesSent() > 0
+                && metrics.getMessagesReceived() > 0
+                && metrics.getMessagesProcessed() > 0) {
+            return Future.succeededFuture();
+        }
+        if (remainingAttempts == 0) {
+            return Future.failedFuture("Native queue metrics were not recorded after handler settlement");
+        }
+        return vertx.timer(50)
+                .compose(v -> awaitNativeMetrics(vertx, remainingAttempts - 1));
     }
 
     @Test
@@ -597,4 +610,3 @@ class NativeQueueIntegrationTest {
         assertEquals(totalMessages, receivedMessages.size());
     }
 }
-

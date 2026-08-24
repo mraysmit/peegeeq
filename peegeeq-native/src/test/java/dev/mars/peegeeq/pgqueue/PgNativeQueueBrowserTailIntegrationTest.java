@@ -25,6 +25,7 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -152,12 +153,18 @@ class PgNativeQueueBrowserTailIntegrationTest {
                                             })
                                             .compose(v -> consumedByRealConsumer.future())
                                             .eventually(() -> {
-                                                try { consumer.close(); } catch (Exception ignored) { }
+                                                try { consumer.close(); }
+                                                catch (Exception error) {
+                                                    logger.warn("Error closing consumer", error);
+                                                }
                                                 return Future.succeededFuture();
                                             });
                                 })
                                 .eventually(() -> {
-                                    try { browser.close(); } catch (Exception ignored) { }
+                                    try { browser.close(); }
+                                    catch (Exception error) {
+                                        logger.warn("Error closing browser", error);
+                                    }
                                     return Future.succeededFuture();
                                 }))
                 .onSuccess(consumedMsg -> ctx.verify(() -> {
@@ -198,7 +205,10 @@ class PgNativeQueueBrowserTailIntegrationTest {
         factory.<String>createBrowser("tail-null-" + System.currentTimeMillis(), String.class)
                 .compose(browser -> browser.tail(null)
                         .eventually(() -> {
-                            try { browser.close(); } catch (Exception ignored) { }
+                            try { browser.close(); }
+                            catch (Exception error) {
+                                logger.warn("Error closing browser", error);
+                            }
                             return Future.succeededFuture();
                         }))
                 .onSuccess(v -> ctx.failNow("tail(null) must fail, not succeed"))
@@ -220,7 +230,10 @@ class PgNativeQueueBrowserTailIntegrationTest {
                         browser.tail(message -> Future.succeededFuture())
                                 .compose(v -> browser.tail(message -> Future.succeededFuture()))
                                 .eventually(() -> {
-                                    try { browser.close(); } catch (Exception ignored) { }
+                                    try { browser.close(); }
+                                    catch (Exception error) {
+                                        logger.warn("Error closing browser", error);
+                                    }
                                     return Future.succeededFuture();
                                 }))
                 .onSuccess(v -> ctx.failNow("second tail() on the same browser must fail, not succeed"))
@@ -244,6 +257,11 @@ class PgNativeQueueBrowserTailIntegrationTest {
 
     @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.pgqueue.PgNativeQueueObserver",
+            message = "tail: LISTEN connection error on channel peegeeq_test_queue_tail-reconnect-",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void tail_reconnectsAfterListenConnectionDropped_andObservesGapMessage(VertxTestContext ctx) {
         String topic = "tail-reconnect-" + System.currentTimeMillis();
         // Same package as NativeQueueChannels — compute the exact channel the observer LISTENs on.
@@ -273,7 +291,7 @@ class PgNativeQueueBrowserTailIntegrationTest {
                         .compose(v -> afterObserved.future())
                         .eventually(() -> {
                             try { browser.close(); }
-                            catch (Exception e) { logger.warn("Error closing browser: {}", e.getMessage()); }
+                            catch (Exception error) { logger.warn("Error closing browser", error); }
                             return Future.succeededFuture();
                         }))
                 .onSuccess(after -> ctx.verify(() -> {

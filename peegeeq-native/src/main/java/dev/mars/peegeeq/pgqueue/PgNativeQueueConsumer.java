@@ -78,6 +78,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     private final OffsetDateTime minimumCreatedAt;
     private final AtomicBoolean subscribed = new AtomicBoolean(false);
     private final AtomicBoolean closed = new AtomicBoolean(false);
+    private final AtomicBoolean drainRequested = new AtomicBoolean(false);
     private final AtomicInteger processingInFlight = new AtomicInteger(0);
     private final Object lifecycleLock = new Object();
     private final Set<Future<Void>> inFlightProcessing = new HashSet<>();
@@ -311,7 +312,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
 
                     ConsumerMode mode = consumerConfig != null ? consumerConfig.getMode() : ConsumerMode.HYBRID;
                     if (mode == ConsumerMode.LISTEN_NOTIFY_ONLY) {
-                        processAvailableMessages();
+                        return processAvailableMessagesAndAwait();
                     }
                     return Future.<Void>succeededFuture();
                 })
@@ -371,7 +372,10 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             }
             listenReconnectTimerId = -1;
             logger.info("Reconnecting LISTEN on channel {} after {} ms", notifyChannel, delay);
-            startListening();
+            startListening()
+                    .onFailure(error -> logger.warn(
+                            "LISTEN reconnect attempt failed for channel {}: {}",
+                            notifyChannel, error.getMessage(), error));
         });
         // Exponential backoff capped at 30 seconds
         listenBackoffMs = Math.min(listenBackoffMs * 2, 30_000);
@@ -450,6 +454,13 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     }
 
     private void processAvailableMessages() {
+        processAvailableMessagesAndAwait()
+                .onFailure(error -> logger.error(
+                        "Message processing pipeline failed for topic {}: {}",
+                        topic, error.getMessage(), error));
+    }
+
+    private Future<Void> processAvailableMessagesAndAwait() {
         logger.debug("processAvailableMessages() called for topic: {}", topic);
         Future<Void> processing;
         synchronized (lifecycleLock) {
@@ -457,7 +468,17 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 logger.debug(
                         "Skipping message processing - subscribed: {}, messageHandler: {}, closed: {} for topic {}",
                         subscribed.get(), messageHandler != null, closed.get(), topic);
-                return;
+                return Future.succeededFuture();
+            }
+            int maxThreads = consumerConfig != null && consumerConfig.getConsumerThreads() > 0
+                    ? consumerConfig.getConsumerThreads()
+                    : configuration.getQueueConfig().getConsumerThreads();
+            if (processingInFlight.get() >= maxThreads) {
+                drainRequested.set(true);
+                logger.debug(
+                        "Deferring message drain for topic {} while {} processing slots are occupied",
+                        topic, processingInFlight.get());
+                return Future.succeededFuture();
             }
             try {
                 processing = processAvailableMessagesInternal();
@@ -465,20 +486,23 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             } catch (Exception error) {
                 logger.error("Failed to start message processing for topic {}: {}",
                         topic, error.getMessage(), error);
-                return;
+                return Future.failedFuture(error);
             }
         }
 
-        processing
-                .eventually(() -> {
+        return processing.eventually(() -> {
+                    boolean runDeferredDrain;
                     synchronized (lifecycleLock) {
                         inFlightProcessing.remove(processing);
+                        runDeferredDrain = drainRequested.compareAndSet(true, false)
+                                && subscribed.get()
+                                && messageHandler != null
+                                && !closed.get();
                     }
-                    return Future.succeededFuture();
-                })
-                .onFailure(error -> logger.error(
-                        "Message processing pipeline failed for topic {}: {}",
-                        topic, error.getMessage(), error));
+                    return runDeferredDrain
+                            ? processAvailableMessagesAndAwait()
+                            : Future.<Void>succeededFuture();
+                });
     }
 
     private Future<Void> processAvailableMessagesInternal() {

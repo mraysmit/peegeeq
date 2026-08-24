@@ -11,6 +11,7 @@ import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
@@ -229,6 +230,13 @@ class ConsumerModeTypeSafetyTest {
     }
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.pgqueue.PgNativeQueueConsumer",
+            message = "Error parsing message 1: Payload cannot be null",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = NullPointerException.class,
+            minOccurrences = 3,
+            maxOccurrences = 3)
     void testNullValueHandlingAcrossConsumerModes(VertxTestContext testContext) throws Exception {
         logger.info("Test: null value handling across consumer modes");
         String topicName = "test-null-value-handling";
@@ -242,11 +250,11 @@ class ConsumerModeTypeSafetyTest {
         consumer.subscribe(message -> {
             nullLatch.countDown();
             return Future.succeededFuture();
-        });
+        })
+                .compose(v -> producer.send(null))
+                .onFailure(testContext::failNow);
 
         try {
-            producer.send(null).onFailure(err -> logger.debug("Expected null send failure: {}", err.getMessage()));
-
             boolean received = nullLatch.await(5, TimeUnit.SECONDS);
             assertFalse(received, "Consumer should not receive null payload (moved to dead letter queue)");
         } finally {
@@ -279,9 +287,9 @@ class ConsumerModeTypeSafetyTest {
                 receivedMessage.set(message.getPayload());
                 modeLatch.countDown();
                 return Future.succeededFuture();
-            });
-
-            producer.send(expectedMessage).onFailure(err -> logger.warn("send failed in type-safety test: {}", err.getMessage()));
+            })
+                    .compose(v -> producer.send(expectedMessage))
+                    .onFailure(err -> logger.warn("send failed in type-safety test", err));
 
             boolean received = modeLatch.await(10, TimeUnit.SECONDS);
             assertTrue(received, "Should receive message in " + mode + " mode");
@@ -301,5 +309,3 @@ class ConsumerModeTypeSafetyTest {
         }
     }
 }
-
-
