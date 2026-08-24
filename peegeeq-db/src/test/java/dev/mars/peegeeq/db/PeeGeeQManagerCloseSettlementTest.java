@@ -48,6 +48,8 @@ class PeeGeeQManagerCloseSettlementTest {
 
         manager.getVertx().executeBlocking(() -> null)
                 .compose(ignored -> manager.closeReactive())
+                .eventually(() -> Future.succeededFuture())
+                .compose(ignored -> Future.succeededFuture())
                 .onSuccess(ignored -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }
