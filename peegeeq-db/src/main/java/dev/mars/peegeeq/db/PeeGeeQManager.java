@@ -534,9 +534,13 @@ public class PeeGeeQManager {
         if (vertx != null && vertxOwnedByManager) {
             logger.info("Closing Vert.x instance (manager-owned)");
             try {
-                vertx.close()
-                    .onSuccess(v -> logger.info("Vert.x instance closed successfully"))
-                    .onFailure(this::logVertxCloseFailure);
+                // Completing closePromise can enqueue the caller's continuation on this event
+                // loop. Queue termination behind that continuation instead of closing inline;
+                // otherwise a composed/eventually chain can be rejected before it receives the
+                // already-settled close result.
+                vertx.runOnContext(ignored -> vertx.close()
+                        .onSuccess(v -> logger.info("Vert.x instance closed successfully"))
+                        .onFailure(this::logVertxCloseFailure));
             } catch (RuntimeException failure) {
                 logVertxCloseFailure(failure);
             }
