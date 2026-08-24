@@ -29,6 +29,7 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -540,6 +541,10 @@ class OutboxConsumerGroupCoreTest {
         }
 
         @Test
+        @ExpectedErrorLog(
+                logger = "dev.mars.peegeeq.outbox.OutboxConsumerGroup",
+                message = "Group filter threw exception for message throw-1 in group 'throw-group', treating as rejection: filter boom",
+                throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
         @DisplayName("group filter throws exception  RejectedMessageException with MDC cleaned up")
         void groupFilterThrowsException_rejectedAndMdcCleaned() throws Exception {
             group = createGroup("throw-group", "test-topic");
@@ -571,6 +576,14 @@ class OutboxConsumerGroupCoreTest {
         }
 
         @Test
+        @ExpectedErrorLog(
+                logger = "dev.mars.peegeeq.outbox.OutboxConsumerGroup",
+                message = "Group filter threw exception for message tc1 in group 'throw-count-group', treating as rejection: broken",
+                throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+        @ExpectedErrorLog(
+                logger = "dev.mars.peegeeq.outbox.OutboxConsumerGroup",
+                message = "Group filter threw exception for message tc2 in group 'throw-count-group', treating as rejection: broken",
+                throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
         @DisplayName("group filter throws  totalMessagesFiltered incremented")
         void groupFilterThrows_incrementsFilteredCount() throws Exception {
             group = createGroup("throw-count-group", "test-topic");
@@ -587,6 +600,10 @@ class OutboxConsumerGroupCoreTest {
         }
 
         @Test
+        @ExpectedErrorLog(
+                logger = "dev.mars.peegeeq.outbox.OutboxConsumerGroup",
+                message = "Group filter threw exception for message nh1 in group 'throw-noinvoke-group', treating as rejection: kaboom",
+                throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
         @DisplayName("group filter throws  handler is NOT invoked")
         void groupFilterThrows_handlerNotInvoked() throws Exception {
             group = createGroup("throw-noinvoke-group", "test-topic");
