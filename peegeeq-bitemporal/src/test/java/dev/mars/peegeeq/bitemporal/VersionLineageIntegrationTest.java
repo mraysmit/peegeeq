@@ -4,6 +4,7 @@ import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -772,6 +773,11 @@ class VersionLineageIntegrationTest {
      * IllegalArgumentException before reaching the database.
      */
     @Test
+    @ExpectedErrorLog(logger = "dev.mars.peegeeq.bitemporal.PgBiTemporalEventStore",
+            message = "Failed to append correction event for ",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = IllegalArgumentException.class)
     void appendCorrectionForNonExistentRootIsRejectedByConstraint(VertxTestContext testContext) throws Exception {
         String fakeRootId = "non-existent-" + System.nanoTime();
         logger.info("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = appendCorrection must reject non-existent original event IDs");
