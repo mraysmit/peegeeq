@@ -144,7 +144,9 @@ class MultiTenantSchemaIsolationTest {
     @AfterEach
     void tearDown(VertxTestContext ctx) throws InterruptedException {
         logger.info("Tearing down multi-tenant test");
-        (managerTenantA != null ? managerTenantA.closeReactive() : Future.<Void>succeededFuture())
+        (factoryTenantA != null ? factoryTenantA.close() : Future.<Void>succeededFuture())
+                .compose(v -> factoryTenantB != null ? factoryTenantB.close() : Future.<Void>succeededFuture())
+                .compose(v -> managerTenantA != null ? managerTenantA.closeReactive() : Future.<Void>succeededFuture())
                 .compose(v -> managerTenantB != null ? managerTenantB.closeReactive() : Future.<Void>succeededFuture())
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(err -> {
@@ -299,5 +301,4 @@ class MultiTenantSchemaIsolationTest {
         logger.info("Test 3: Same queue name isolation verified successfully");
     }
 }
-
 
