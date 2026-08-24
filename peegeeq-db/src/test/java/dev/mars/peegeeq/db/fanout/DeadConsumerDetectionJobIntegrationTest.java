@@ -2,6 +2,7 @@ package dev.mars.peegeeq.db.fanout;
 
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.cleanup.DeadConsumerDetector.DetectionResult;
+import dev.mars.peegeeq.db.cleanup.DeadConsumerDetector.SubscriptionSummary;
 
 import dev.mars.peegeeq.db.BaseIntegrationTest;
 import dev.mars.peegeeq.db.cleanup.DeadConsumerDetector;
@@ -17,6 +18,7 @@ import dev.mars.peegeeq.db.subscription.TopicConfigService;
 import dev.mars.peegeeq.db.subscription.TopicSemantics;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.json.JsonObject;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.Tuple;
@@ -37,6 +39,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -402,48 +405,38 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
      */
     @Test
     void testConcurrentDetectionGuardPreventsOverlap(VertxTestContext ctx) {
-        Future<Void> setupFuture = Future.succeededFuture();
+        AtomicInteger detectionCalls = new AtomicInteger();
+        Promise<DetectionResult> firstRunGate = Promise.promise();
 
-        // Create multiple subscriptions so the detection query does real work
-        for (int i = 0; i < 10; i++) {
-            final int index = i;
-            setupFuture = setupFuture.compose(v -> {
-                String topic = "test-guard-" + UUID.randomUUID().toString().substring(0, 8);
-                return topicConfigService.createTopic(TopicConfig.builder()
-                        .topic(topic)
-                        .semantics(TopicSemantics.PUB_SUB)
-                        .messageRetentionHours(24)
-                        .build())
-                        .compose(u -> subscriptionManager.subscribe(topic, "group-" + index, SubscriptionOptions.builder()
-                                .heartbeatIntervalSeconds(60)
-                                .heartbeatTimeoutSeconds(300)
-                                .build()));
-            });
-        }
+        DeadConsumerDetector controlledDetector = new DeadConsumerDetector(
+                connectionManager, "peegeeq-main") {
+            @Override
+            public Future<DetectionResult> detectAllDeadSubscriptionsWithDetails() {
+                detectionCalls.incrementAndGet();
+                return firstRunGate.future();
+            }
 
-        setupFuture
+            @Override
+            public Future<SubscriptionSummary> getSubscriptionSummary() {
+                return Future.succeededFuture(new SubscriptionSummary(0, 0, 0, 0, 0, 0));
+            }
+        };
+
+        job = new DeadConsumerDetectionJob(manager.getVertx(), controlledDetector, cleanup, 5);
+        job.start();
+
+        manager.getVertx().timer(100)
                 .compose(v -> {
-                    job = new DeadConsumerDetectionJob(manager.getVertx(), detector, cleanup, 5);
-                    job.start();
-                    return manager.getVertx().timer(2000);
+                    int callsWhileFirstRunBlocked = detectionCalls.intValue();
+                    firstRunGate.complete(new DetectionResult(List.of(), 0, 0, 0));
+                    return job.stop().map(callsWhileFirstRunBlocked);
                 })
-                .onComplete(ctx.succeeding(v -> ctx.verify(() -> {
-                    job.stop().onFailure(ctx::failNow);
-                    long runCount = job.getTotalRunCount();
-                    long failures = job.getTotalFailures();
-                    long expectedTicks = 400;
-
-                    logger.info("Guard test: {} runs completed out of ~{} timer ticks, {} failures",
-                            runCount, expectedTicks, failures);
-
-                    assertTrue(runCount >= 1, "Should have completed at least 1 run");
-                    assertTrue(runCount < expectedTicks * 3 / 4,
-                            "Guard should skip overlapping runs. Expected <" + (expectedTicks * 3 / 4) +
-                                    " but got " + runCount + " out of ~" + expectedTicks + " timer ticks");
-                    assertEquals(0, failures,
-                            "No failures should occur  guard prevents concurrent DB access");
-
-                    logger.info("Concurrent detection guard verified: {} runs (not ~100)", runCount);
+                .onComplete(ctx.succeeding(callsWhileFirstRunBlocked -> ctx.verify(() -> {
+                    assertEquals(1, callsWhileFirstRunBlocked,
+                            "Periodic timer callbacks must not enter detection while the first run is blocked");
+                    assertEquals(0, job.getTotalFailures(),
+                            "The controlled detection run should complete without failures");
+                    logger.info("Concurrent detection guard verified with a blocked in-flight run");
                     ctx.completeNow();
                 })));
     }
