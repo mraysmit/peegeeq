@@ -6,6 +6,7 @@ import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxTestContext;
@@ -179,6 +180,18 @@ class SetupBindingRegistryIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.setup.SetupBindingRegistry",
+            message = "Failed to persist setup binding 'orphan': ",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = PgException.class)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.setup.SetupBindingRegistry",
+            message = "Failed to list setup bindings from 'binding_notable_",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = PgException.class)
     void operationsFailClearlyWhenSchemaWasNeverEnsured(Vertx vertx, VertxTestContext ctx) {
         // Dependency failure mode: the ops must not auto-create the table — an absent table is a
         // loud PgException (undefined relation), never a silent success or an empty result.
@@ -205,6 +218,12 @@ class SetupBindingRegistryIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.setup.SetupBindingRegistry",
+            message = "Failed to ensure setup-binding registry schema in 'public': ",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = PgException.class)
     void ensureSchemaFailsClearlyWhenRegistryDatabaseIsUnreachable(Vertx vertx, VertxTestContext ctx) {
         // Dependency failure mode: a registry database that does not exist must surface as a failed
         // Future carrying the PostgreSQL error — never be swallowed.
