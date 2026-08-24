@@ -578,11 +578,12 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                 processingFuture = Future.failedFuture(
                         new IllegalStateException("Message handler returned null Future"));
             }
-        } catch (Exception directException) {
-            // Convert direct exceptions to failed futures
-            logger.debug("Message handler threw direct exception for message {}: {}",
-                    messageId, directException.getMessage());
-            processingFuture = Future.failedFuture(directException);
+        } catch (Throwable directFailure) {
+            // User handlers may throw an Error as well as an Exception. Keep every
+            // synchronous handler failure inside the reactive retry/DLQ pipeline.
+            logger.debug("Message handler threw direct failure for message {}: {}",
+                    messageId, directFailure.getMessage());
+            processingFuture = Future.failedFuture(directFailure);
         }
 
         return processingFuture

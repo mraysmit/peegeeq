@@ -57,6 +57,7 @@ public class OutboxConsumerErrorPathsCoverageTest {
     private OutboxFactory outboxFactory;
     private MessageProducer<TestMessage> producer;
     private MessageConsumer<TestMessage> consumer;
+    private SimpleMeterRegistry meterRegistry;
     private String testTopic;
 
     @BeforeAll
@@ -74,7 +75,8 @@ public class OutboxConsumerErrorPathsCoverageTest {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
-        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
+        meterRegistry = new SimpleMeterRegistry();
+        manager = new PeeGeeQManager(config, meterRegistry);
         manager.start().onSuccess(v -> {
             DatabaseService databaseService = new PgDatabaseService(manager);
             outboxFactory = new OutboxFactory(databaseService, config);
@@ -181,11 +183,8 @@ public class OutboxConsumerErrorPathsCoverageTest {
     @Test
     @DisplayName("Test handler throws error (not exception)")
     void testHandlerThrowsError(Vertx vertx, VertxTestContext testContext) throws Exception {
-        Checkpoint errorCheckpoint = testContext.checkpoint();
-        
         MessageHandler<TestMessage> errorHandler = message -> {
-        logger.info("Test: handler throws error");
-            errorCheckpoint.flag();
+            logger.info("Test: handler throws error");
             // Throw Error instead of Exception
             throw new AssertionError("Simulated assertion error");
         };
@@ -193,7 +192,28 @@ public class OutboxConsumerErrorPathsCoverageTest {
         TestMessage testMsg = new TestMessage("error-test", "Error test message");
         consumer.subscribe(errorHandler)
                 .compose(v -> producer.send(testMsg))
+                .compose(v -> awaitFailureMetric(vertx, System.currentTimeMillis() + 10_000))
+                .onSuccess(count -> testContext.verify(() -> {
+                    assertEquals(1.0, count,
+                            "Thrown Error should be contained and recorded as a handler failure");
+                    testContext.completeNow();
+                }))
                 .onFailure(testContext::failNow);
+    }
+
+    private Future<Double> awaitFailureMetric(Vertx vertx, long deadline) {
+        var counter = meterRegistry.find("peegeeq.messages.failed.by.topic")
+                .tag("topic", testTopic)
+                .counter();
+        if (counter != null && counter.count() > 0) {
+            return Future.succeededFuture(counter.count());
+        }
+        if (System.currentTimeMillis() >= deadline) {
+            return Future.failedFuture(
+                    "Handler Error was not recorded for topic " + testTopic);
+        }
+        return vertx.timer(50)
+                .compose(v -> awaitFailureMetric(vertx, deadline));
     }
 
     @Test
