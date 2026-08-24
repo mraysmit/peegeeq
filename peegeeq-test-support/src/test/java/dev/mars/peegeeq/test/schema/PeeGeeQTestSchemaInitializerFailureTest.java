@@ -2,6 +2,7 @@ package dev.mars.peegeeq.test.schema;
 
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.junit.jupiter.Container;
@@ -23,6 +24,11 @@ class PeeGeeQTestSchemaInitializerFailureTest {
         PostgreSQLTestConstants.createStandardContainer();
 
     @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer",
+        message = "Failed to cleanup test data for schema 'peegeeq_test'",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = SQLException.class)
     void cleanupPropagatesConnectionFailure() {
         RuntimeException failure = assertThrows(RuntimeException.class, () ->
             PeeGeeQTestSchemaInitializer.cleanupTestData(
