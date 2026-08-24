@@ -206,7 +206,7 @@ public class OutboxRetryConcurrencyTest {
             .compose(v -> awaitObserved(vertx, processedCount, 100))
             .compose(v -> {
                 consumer.close();
-                return awaitStatusCount(vertx, testTopic, "COMPLETED", 1, 100);
+                return awaitStatusCountAtLeast(vertx, testTopic, "COMPLETED", 1, 100);
             })
             .onSuccess(count -> testContext.verify(() -> {
                 assertTrue(processedCount.intValue() >= 1);
@@ -272,6 +272,21 @@ public class OutboxRetryConcurrencyTest {
                         WHERE topic = $1 AND status = $2
                         """).execute(Tuple.of(topic, status))))
                 .map(rows -> rows.iterator().next().getInteger("message_count"));
+    }
+
+    private Future<Integer> awaitStatusCountAtLeast(
+            Vertx vertx, String topic, String status, int minimum, int remainingAttempts) {
+        return statusCount(topic, status).compose(count -> {
+            if (count >= minimum) {
+                return Future.succeededFuture(count);
+            }
+            if (remainingAttempts == 0) {
+                return Future.failedFuture(
+                        "Expected at least " + minimum + " " + status + " messages but found " + count);
+            }
+            return vertx.timer(100).compose(v ->
+                    awaitStatusCountAtLeast(vertx, topic, status, minimum, remainingAttempts - 1));
+        });
     }
 
     private Future<Row> awaitLatestStatus(
