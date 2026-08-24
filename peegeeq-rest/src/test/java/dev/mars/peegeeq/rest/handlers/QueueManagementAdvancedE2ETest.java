@@ -1,11 +1,13 @@
 package dev.mars.peegeeq.rest.handlers;
 
+import com.fasterxml.jackson.core.JsonParseException;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.rest.config.RestServerConfig;
 import dev.mars.peegeeq.rest.PeeGeeQRestServer;
 import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonArray;
@@ -361,6 +363,11 @@ public class QueueManagementAdvancedE2ETest {
     @Test
     @Order(6)
     @DisplayName("Advanced Test 6: Error Recovery - Invalid Message Format")
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.rest.handlers.QueueHandler",
+            message = "Error parsing message request",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = JsonParseException.class)
     void test06_InvalidMessageFormat(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Advanced Test 6: Error Recovery - Invalid Message Format ===");
         logger.info("--- EXPECTED ERROR (Advanced Test 6: invalid JSON → 400, JsonParseException) ---");

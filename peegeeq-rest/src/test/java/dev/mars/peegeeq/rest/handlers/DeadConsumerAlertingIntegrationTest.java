@@ -144,48 +144,32 @@ public class DeadConsumerAlertingIntegrationTest {
     }
 
     /**
-     * Forces the dead consumer group to become DEAD by using JDBC to expire the heartbeat
-     * and run detection. This is test precondition setup, not testing the REST endpoint itself.
+     * Forces the named consumer group to become DEAD using JDBC. This is deterministic test
+     * precondition setup; dead-consumer detection itself is covered by the database module.
      */
     private Future<Void> makeGroupDead(Vertx vertx) {
-        io.vertx.core.Promise<Void> promise = io.vertx.core.Promise.promise();
-        vertx.setTimer(2000, timerId -> {
-            try {
-                String jdbcUrl = postgres.getJdbcUrl();
-                try (java.sql.Connection conn = java.sql.DriverManager.getConnection(
-                        jdbcUrl, postgres.getUsername(), postgres.getPassword())) {
-
-                    // Phase 1: Increment consecutive_misses for expired subscriptions
-                    try (java.sql.PreparedStatement stmt = conn.prepareStatement("""
-                        UPDATE outbox_topic_subscriptions
-                        SET consecutive_misses = consecutive_misses + 1,
-                            last_active_at = NOW()
-                        WHERE subscription_status IN ('ACTIVE', 'PAUSED')
-                          AND last_heartbeat_at + (heartbeat_timeout_seconds || ' seconds')::INTERVAL < NOW()
-                        """)) {
-                        int count = stmt.executeUpdate();
-                        logger.info("Incremented consecutive_misses for {} subscriptions", count);
-                    }
-
-                    // Phase 2: Mark DEAD those that reached the threshold
-                    try (java.sql.PreparedStatement stmt = conn.prepareStatement("""
-                        UPDATE outbox_topic_subscriptions
-                        SET subscription_status = 'DEAD',
-                            last_active_at = NOW()
-                        WHERE subscription_status IN ('ACTIVE', 'PAUSED')
-                          AND consecutive_misses >= dead_after_misses
-                        """)) {
-                        int count = stmt.executeUpdate();
-                        logger.info("Marked {} subscriptions as DEAD", count);
-                    }
+        return vertx.executeBlocking(() -> {
+            try (java.sql.Connection conn = java.sql.DriverManager.getConnection(
+                    postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+                 java.sql.PreparedStatement stmt = conn.prepareStatement("""
+                    UPDATE outbox_topic_subscriptions
+                    SET subscription_status = 'DEAD',
+                        last_heartbeat_at = NOW() - INTERVAL '10 seconds',
+                        consecutive_misses = dead_after_misses,
+                        last_active_at = NOW()
+                    WHERE topic = ? AND group_name = ?
+                    """)) {
+                stmt.setString(1, TOPIC_NAME);
+                stmt.setString(2, DEAD_GROUP);
+                int count = stmt.executeUpdate();
+                if (count != 1) {
+                    throw new IllegalStateException(
+                            "Expected exactly one dead-group subscription row, updated " + count);
                 }
-                promise.complete();
-            } catch (Exception e) {
-                logger.error("Failed to run detection via JDBC", e);
-                promise.fail(e);
+                logger.info("Established DEAD state for subscription {}/{}", TOPIC_NAME, DEAD_GROUP);
+                return null;
             }
         });
-        return promise.future();
     }
 
     @AfterAll
