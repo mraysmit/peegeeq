@@ -21,6 +21,7 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -74,6 +75,11 @@ class MissingSchemaFailFastTest {
      * no Flyway migrations have been run and core tables do not exist.
      */
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.PeeGeeQManager",
+            message = "Failed to start PeeGeeQ Manager reactively",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = IllegalStateException.class)
     void startFailsWhenCoreTables_AreMissing(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing PeeGeeQManager fails fast with missing schema ===");
         logger.info("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = manager startup must fail when required tables are missing");
