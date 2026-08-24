@@ -106,7 +106,8 @@ class PeeGeeQConfigurationConsumerModeTest {
         logger.info("Tearing down: closing resources and manager");
         logger.info("Tearing down PeeGeeQConfiguration consumer mode integration test");
 
-        (manager != null ? manager.closeReactive() : Future.succeededFuture())
+        (factory != null ? factory.close() : Future.<Void>succeededFuture())
+                .compose(v -> manager != null ? manager.closeReactive() : Future.succeededFuture())
                 .onSuccess(v -> {
                     logger.info("Test teardown completed");
                     testContext.completeNow();
@@ -456,5 +457,4 @@ class PeeGeeQConfigurationConsumerModeTest {
         logger.info("PeeGeeQConfiguration default values integration test completed successfully");
     }
 }
-
 

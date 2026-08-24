@@ -17,7 +17,6 @@ package dev.mars.peegeeq.pgqueue.examples;
  */
 
 import dev.mars.peegeeq.api.deadletter.DeadLetterMessageInfo;
-import dev.mars.peegeeq.api.deadletter.DeadLetterStatsInfo;
 import dev.mars.peegeeq.api.health.OverallHealthInfo;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
@@ -50,7 +49,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -218,10 +216,10 @@ class PeeGeeQExampleTest {
     // testBackpressure deleted 2026-08-09 with the BackpressureManager (metrics-stack review: constructed but never guarded any operation).
 
     @Test
-    void testDeadLetterQueue(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
+    void testDeadLetterQueue(VertxTestContext testContext) throws InterruptedException {
         logger.info("=== Testing Dead Letter Queue ===");
         
-        demonstrateDeadLetterQueue(manager, vertx, testContext);
+        demonstrateDeadLetterQueue(manager, testContext);
         
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "DLQ demo should complete");
     }
@@ -341,7 +339,7 @@ class PeeGeeQExampleTest {
 
     // demonstrateBackpressure deleted 2026-08-09 with the BackpressureManager (metrics-stack review: constructed but never guarded any operation).
 
-    private void demonstrateDeadLetterQueue(PeeGeeQManager manager, Vertx vertx, VertxTestContext testContext) {
+    private void demonstrateDeadLetterQueue(PeeGeeQManager manager, VertxTestContext testContext) {
         logger.info("=== Dead Letter Queue Demo ===");
 
         var dlqManager = manager.getDeadLetterQueueManager();
@@ -357,32 +355,27 @@ class PeeGeeQExampleTest {
         headers2.put("source", "user-service");
         headers2.put("version", "2.1");
 
-        // Simulate messages that failed processing fire-and-forget, timer delay ensures completion
         dlqManager.moveToDeadLetterQueue("outbox_messages", 1001L, "order-processing",
-            Map.of("orderId", "12345", "customerId", "cust-001", "amount", 99.99),
-            Instant.now().minus(Duration.ofMinutes(5)), "Payment processing failed", 3,
-            headers1, "corr-001", "order-group");
+                        Map.of("orderId", "12345", "customerId", "cust-001", "amount", 99.99),
+                        Instant.now().minus(Duration.ofMinutes(5)), "Payment processing failed", 3,
+                        headers1, "corr-001", "order-group")
+                .compose(v -> dlqManager.moveToDeadLetterQueue("outbox_messages", 1002L, "user-events",
+                        Map.of("userId", "user-456", "action", "login", "timestamp", System.currentTimeMillis()),
+                        Instant.now().minus(Duration.ofMinutes(2)), "Database connection timeout", 1,
+                        headers2, "corr-002", "user-group"))
+                .compose(v -> dlqManager.moveToDeadLetterQueue("outbox_messages", 1003L, "notifications",
+                        Map.of("email", "user@example.com", "template", "welcome"),
+                        Instant.now().minus(Duration.ofMinutes(1)), "Email service unavailable", 5,
+                        Map.of("source", "notification-service"), "corr-003", "notification-group"))
+                .compose(v -> dlqManager.getStatistics())
+                .compose(stats -> {
+                    logger.info("Dead Letter Queue Statistics:");
+                    logger.info("Total Messages: {}", stats.totalMessages());
+                    logger.info("Messages by Topic: (detailed breakdown not available in current API)");
 
-        dlqManager.moveToDeadLetterQueue("outbox_messages", 1002L, "user-events",
-            Map.of("userId", "user-456", "action", "login", "timestamp", System.currentTimeMillis()),
-            Instant.now().minus(Duration.ofMinutes(2)), "Database connection timeout", 1,
-            headers2, "corr-002", "user-group");
-
-        dlqManager.moveToDeadLetterQueue("outbox_messages", 1003L, "notifications",
-            Map.of("email", "user@example.com", "template", "welcome"),
-            Instant.now().minus(Duration.ofMinutes(1)), "Email service unavailable", 5,
-            Map.of("source", "notification-service"), "corr-003", "notification-group");
-
-        // Wait for DLQ inserts to complete, then verify
-        vertx.setTimer(1000, id -> {
-            // Check DLQ statistics
-            dlqManager.getStatistics().onSuccess(stats -> {
-                logger.info("Dead Letter Queue Statistics:");
-                logger.info("Total Messages: {}", stats.totalMessages());
-                logger.info("Messages by Topic: (detailed breakdown not available in current API)");
-
-                // Retrieve and display some DLQ messages using the correct method
-                dlqManager.getAllDeadLetterMessages(10, 0).onSuccess(dlqMessages -> {
+                    return dlqManager.getAllDeadLetterMessages(10, 0);
+                })
+                .onSuccess(dlqMessages -> {
                     logger.info("Recent Dead Letter Messages:");
                     for (DeadLetterMessageInfo msg : dlqMessages) {
                         logger.info("  ID: {}, Original ID: {}, Topic: {}, Reason: {}, Retry Count: {}",
@@ -394,58 +387,53 @@ class PeeGeeQExampleTest {
                     });
                     testContext.completeNow();
                     logger.info("Dead letter queue test completed successfully!");
-                }).onFailure(testContext::failNow);
-            }).onFailure(testContext::failNow);
-        });
+                })
+                .onFailure(testContext::failNow);
     }
 
     private void monitorSystem(PeeGeeQManager manager, Vertx vertx, VertxTestContext testContext) {
         logger.info("=== System Monitoring ===");
         logger.info("Monitoring system for 30 seconds...");
 
-        AtomicInteger monitorCount = new AtomicInteger(0);
         int totalChecks = 6; // 30 seconds / 5 seconds per check
+        monitorSystemCheck(manager, vertx, testContext, totalChecks);
+    }
 
-        // Schedule monitoring every 5 seconds using Vert.x periodic timer
-        vertx.setPeriodic(5000, timerId -> {
-            try {
+    private void monitorSystemCheck(
+            PeeGeeQManager manager,
+            Vertx vertx,
+            VertxTestContext testContext,
+            int remainingChecks) {
+        vertx.timer(5000)
+            .compose(ignored -> {
                 logger.info("System Status Check:");
 
-                // Health status
                 OverallHealthInfo health = manager.getHealthCheckManager().getOverallHealth();
                 logger.info("  Health: {} ({} healthy, {} unhealthy)",
                     health.status(), health.getHealthyCount(), health.getUnhealthyCount());
 
-                // Metrics summary
                 var metrics = manager.getMetrics().getSummary();
                 logger.info("  Messages: {} sent, {} processed, {} failed ({}% success rate)",
                     (long)metrics.getMessagesSent(), (long)metrics.getMessagesProcessed(),
                     (long)metrics.getMessagesFailed(), metrics.getSuccessRate());
 
-                // DLQ status
-                manager.getDeadLetterQueueManager().getStatistics().onSuccess(dlqStats -> {
-                    logger.info("  Dead Letter Queue: {} total messages", dlqStats.totalMessages());
-                }).onFailure(e -> {
-                    logger.warn("Failed to get DLQ stats: {}", e.getMessage());
-                });
-
-            } catch (Exception e) {
-                logger.warn("Error during system monitoring: {}", e.getMessage());
-            }
-
-            if (monitorCount.incrementAndGet() >= totalChecks) {
-                vertx.cancelTimer(timerId);
-                logger.info("System monitoring completed");
-                testContext.verify(() -> {
-                    assertTrue(true, "System monitoring demonstration completed");
-                });
-                testContext.completeNow();
-                logger.info("System monitoring test completed successfully!");
-            }
-        });
+                return manager.getDeadLetterQueueManager().getStatistics();
+            })
+            .onSuccess(dlqStats -> {
+                logger.info("  Dead Letter Queue: {} total messages", dlqStats.totalMessages());
+                if (remainingChecks == 1) {
+                    logger.info("System monitoring completed");
+                    testContext.verify(() -> {
+                        assertTrue(true, "System monitoring demonstration completed");
+                    });
+                    testContext.completeNow();
+                    logger.info("System monitoring test completed successfully!");
+                } else {
+                    monitorSystemCheck(manager, vertx, testContext, remainingChecks - 1);
+                }
+            })
+            .onFailure(testContext::failNow);
     }
 
     // shutdownExecutorGracefully deleted 2026-08-09 with the BackpressureManager (metrics-stack review: constructed but never guarded any operation).
 }
-
-

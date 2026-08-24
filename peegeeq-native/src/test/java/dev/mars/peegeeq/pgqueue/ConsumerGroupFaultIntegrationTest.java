@@ -28,14 +28,17 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
+import io.vertx.core.VertxException;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.sqlclient.ClosedConnectionException;
 import io.vertx.sqlclient.SqlConnection;
 import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.*;
@@ -260,6 +263,12 @@ class ConsumerGroupFaultIntegrationTest {
 
     @Test
     @Order(3)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.consumer.WatermarkJob",
+            message = "Watermark sweep #1 failed: topic=test-fault-dbloss-",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = ClosedConnectionException.class)
     @DisplayName("F2: live PostgreSQL backend termination is recovered without losing delivery")
     void dbConnectionLoss_engineRecovers(VertxTestContext testContext) {
         String topic = "test-fault-dbloss-" + System.nanoTime();
@@ -369,6 +378,12 @@ class ConsumerGroupFaultIntegrationTest {
 
     @Test
     @Order(5)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.consumer.WatermarkJob",
+            message = "Watermark sweep #1 failed: topic=test-fault-leave-",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = VertxException.class)
     @DisplayName("F8: repository loss during close is surfaced and a later rebalance removes the orphan")
     void leaveGroupFailure_isSurfacedAndRebalanceRepairsAssignment(VertxTestContext testContext) {
         String topic = "test-fault-leave-" + System.nanoTime();
@@ -420,6 +435,16 @@ class ConsumerGroupFaultIntegrationTest {
 
     @Test
     @Order(6)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.pgqueue.PgNativeConsumerGroup",
+            message = "Failed to detect completion-tracking mode for topic 'test-fault-exhausted-",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = VertxException.class)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.pgqueue.PgNativeConsumerGroup",
+            message = "Failed to start consumer group 'fault-9': Timeout",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     @DisplayName("F9: exhausted repository pool fails startup instead of silently falling back")
     void exhaustedRepositoryPool_failsStartup(VertxTestContext testContext) {
         String topic = "test-fault-exhausted-" + System.nanoTime();
