@@ -23,6 +23,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -881,6 +882,12 @@ class PgBiTemporalEventStoreComplexTest {
     }
     
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.bitemporal.PgBiTemporalEventStore",
+            message = "Failed to append correction event for ",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = IllegalArgumentException.class)
     void testAppendCorrectionNonExistent(VertxTestContext testContext) throws Exception {
         String fakeId = UUID.randomUUID().toString();
         
@@ -2423,6 +2430,15 @@ class PgBiTemporalEventStoreComplexTest {
      * NullPointerException immediately.
      */
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.bitemporal.PgBiTemporalEventStoreComplexTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = appendCorrection invoked with null originalEventId",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.bitemporal.PgBiTemporalEventStoreComplexTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Captured expected NullPointerException for null originalEventId = ",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void testAppendCorrectionNullOriginalEventIdFails(VertxTestContext testContext) throws Exception {
         logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = appendCorrection invoked with null originalEventId");
         try {
@@ -2435,7 +2451,7 @@ class PgBiTemporalEventStoreComplexTest {
                     testContext.completeNow();
                 }));
         } catch (NullPointerException e) {
-            logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected synchronous NullPointerException for null originalEventId = {}", e.getMessage());
+            logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected NullPointerException for null originalEventId = {}", e.getMessage());
             // Thrown synchronously also acceptable
             testContext.completeNow();
         }
@@ -2451,6 +2467,15 @@ class PgBiTemporalEventStoreComplexTest {
      * NullPointerException immediately.
      */
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.bitemporal.PgBiTemporalEventStoreComplexTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = appendCorrection invoked with null correctionReason",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.bitemporal.PgBiTemporalEventStoreComplexTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Captured expected NullPointerException for null correctionReason = ",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void testAppendCorrectionNullCorrectionReasonFails(VertxTestContext testContext) throws Exception {
         Instant validTime = Instant.now();
 
@@ -2483,6 +2508,20 @@ class PgBiTemporalEventStoreComplexTest {
      * meaningful error (IllegalArgumentException).
      */
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.bitemporal.PgBiTemporalEventStoreComplexTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = appendCorrection for non-existent event ID",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.bitemporal.PgBiTemporalEventStore",
+            message = "Failed to append correction event for does-not-exist: Cannot correct non-existent event: does-not-exist",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = IllegalArgumentException.class)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.bitemporal.PgBiTemporalEventStoreComplexTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Captured expected non-existent event correction failure = ",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void testAppendCorrectionNonExistentEventFails(VertxTestContext testContext) throws Exception {
         logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = appendCorrection for non-existent event ID");
         eventStore.appendCorrection("does-not-exist", "Type",
@@ -2525,6 +2564,15 @@ class PgBiTemporalEventStoreComplexTest {
      * getAllVersions with a null event ID must fail with NullPointerException.
      */
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.bitemporal.PgBiTemporalEventStoreComplexTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = getAllVersions invoked with null ID",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.bitemporal.PgBiTemporalEventStoreComplexTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Captured expected NullPointerException for null ID = ",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void testGetAllVersionsNullIdFails(VertxTestContext testContext) throws Exception {
         logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = getAllVersions invoked with null ID");
         try {
@@ -2536,7 +2584,7 @@ class PgBiTemporalEventStoreComplexTest {
                     testContext.completeNow();
                 }));
         } catch (NullPointerException e) {
-            logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected synchronous NullPointerException for null ID = {}", e.getMessage());
+            logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected NullPointerException for null ID = {}", e.getMessage());
             testContext.completeNow();
         }
 
@@ -2553,6 +2601,15 @@ class PgBiTemporalEventStoreComplexTest {
      * fails the future rather than silently returning partial results.
      */
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.bitemporal.PgBiTemporalEventStoreComplexTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = forced corrupted payload row for query() mapping",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.bitemporal.PgBiTemporalEventStoreComplexTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Captured expected mapping failure from query() = ",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void testQueryFailsFastOnCorruptedPayload(VertxTestContext testContext) throws Exception {
         String schema = resolveSchema();
         String corruptEventType = "CorruptType_" + UUID.randomUUID();
@@ -2602,6 +2659,15 @@ class PgBiTemporalEventStoreComplexTest {
      * silently dropping the corrupted version.
      */
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.bitemporal.PgBiTemporalEventStoreComplexTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = forced corrupted correction payload for getAllVersions() mapping",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.bitemporal.PgBiTemporalEventStoreComplexTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Captured expected mapping failure from getAllVersions() = ",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void testGetAllVersionsFailsFastOnCorruptedPayload(VertxTestContext testContext) throws Exception {
         String schema = resolveSchema();
         Instant validTime = Instant.now();
