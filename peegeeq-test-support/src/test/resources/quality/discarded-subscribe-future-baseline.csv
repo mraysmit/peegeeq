@@ -17,7 +17,6 @@ peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/nativequeue/NativeQueue
 peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/outbox/EventSourcingCQRSDemoTest.java,4
 peegeeq-integration-tests/src/test/java/dev/mars/peegeeq/integration/nativequeue/NativeConcurrencySmokeTest.java,3
 peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/ConsumerModeMetricsTest.java,2
-peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/ConsumerModeTypeSafetyTest.java,2
 peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/HybridModeEdgeCaseTest.java,6
 peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/JsonbConversionValidationTest.java,1
 peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/ListenReconnectFaultInjectionIT.java,2
