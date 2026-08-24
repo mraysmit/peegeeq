@@ -10,6 +10,7 @@ import dev.mars.peegeeq.rest.PeeGeeQRestServer;
 import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.vertx.core.Future;
@@ -62,6 +63,7 @@ public class DatabaseSetupConnectIntegrationTest {
     private PeeGeeQRestServer server;
     private String deploymentId;
     private WebClient webClient;
+    private DatabaseSetupService provisioningService;
 
     private String provisionedSetupId;
     private String provisionedDbName;
@@ -103,12 +105,9 @@ public class DatabaseSetupConnectIntegrationTest {
 
         // Pre-provision the database/schema/registry with a SEPARATE service, so the server's own service
         // does not already hold the setup active (the duplicate-attach guard would refuse the connect).
-        // The provisioning service is intentionally left running for the class lifetime — like the sibling
-        // SetupManagementIntegrationTest, which never closes its setup service. Do NOT close it here: a
-        // manager owns its Vert.x, so closeReactive() terminates that event loop, and any continuation
-        // chained after close() is emitted on the dead loop and dropped (RejectedExecutionException),
-        // hanging @BeforeAll. Provision, then deploy — nothing is chained onto a service close().
-        DatabaseSetupService provisioningService = PeeGeeQRuntime.createDatabaseSetupService();
+        // Keep the provisioning service for teardown. It owns the manager that remains attached after
+        // provisioning; closing only the REST server releases the separately connected server-side manager.
+        provisioningService = PeeGeeQRuntime.createDatabaseSetupService();
         provisioningService.createCompleteSetup(createReq)
                 .compose(created -> {
                     logger.info("Provisioned setup '{}' in database '{}'", provisionedSetupId, provisionedDbName);
@@ -127,15 +126,14 @@ public class DatabaseSetupConnectIntegrationTest {
     void tearDown(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Tearing down Database Setup Connect Integration Test ===");
 
-        // Mirror SetupManagementIntegrationTest: only undeploy the server verticle. The setup services are
-        // NOT closed here — closing a service settles on its manager-owned Vert.x and would drop the
-        // teardown continuation (the same hang as @BeforeAll); the sibling tolerates the service leak for
-        // the test-JVM lifetime.
         Future<Void> undeploy = deploymentId != null
                 ? vertx.undeploy(deploymentId)
                 : Future.succeededFuture();
 
         undeploy
+                .eventually(() -> provisioningService != null
+                        ? provisioningService.close()
+                        : Future.<Void>succeededFuture())
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }
@@ -186,6 +184,20 @@ public class DatabaseSetupConnectIntegrationTest {
     @Test
     @Order(2)
     @DisplayName("Connect with an absent PeeGeeQ schema returns 400")
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService",
+            message = "VALIDATION FAILED: Missing required tables: [outbox, queue_messages, dead_letter_queue, queue_template, event_store_template, outbox_topics, outbox_topic_subscriptions, outbox_consumer_groups, processed_ledger, consumer_group_index, bitemporal_subscriptions, peegeeq_object_registry, peegeeq_setup_metadata]",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService",
+            message = "Failed to connect to existing setup 'does-not-exist': Database infrastructure validation failed - missing tables: [outbox, queue_messages, dead_letter_queue, queue_template, event_store_template, outbox_topics, outbox_topic_subscriptions, outbox_consumer_groups, processed_ledger, consumer_group_index, bitemporal_subscriptions, peegeeq_object_registry, peegeeq_setup_metadata]",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = IllegalStateException.class)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.rest.handlers.DatabaseSetupHandler",
+            message = "Error connecting to existing database setup: does-not-exist",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = RuntimeException.class)
     void testConnectMissingSchemaReturns400(VertxTestContext testContext) {
         JsonObject connectRequest = new JsonObject()
                 .put("setupId", "does-not-exist")
