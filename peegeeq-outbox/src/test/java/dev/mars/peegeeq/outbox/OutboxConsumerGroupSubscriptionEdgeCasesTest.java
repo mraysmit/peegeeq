@@ -206,7 +206,8 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                 .compose(v -> {
                     testContext.verify(() -> {
                         assertTrue(group.isActive());
-                        assertEquals(1, count.intValue(), "Consumer should process the newly sent message");
+                        assertEquals(0, count.intValue(),
+                            "Consumer should not process a message below the requested start ID");
                     });
                     return group.close();
                 })
