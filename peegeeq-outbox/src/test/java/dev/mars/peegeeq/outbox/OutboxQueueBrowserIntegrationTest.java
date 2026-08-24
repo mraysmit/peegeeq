@@ -24,6 +24,7 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -307,6 +308,16 @@ public class OutboxQueueBrowserIntegrationTest {
     }
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.outbox.OutboxQueueBrowserIntegrationTest",
+            message = "Error closing producer",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = IllegalStateException.class)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.outbox.OutboxQueueBrowserIntegrationTest",
+            message = "Error closing browser",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = IllegalArgumentException.class)
     void testCleanupFailureAggregationRetainsAllFailures() {
         List<Throwable> cleanupFailures = new ArrayList<>();
         IllegalStateException producerFailure = new IllegalStateException("producer close failed");

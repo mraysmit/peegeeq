@@ -30,6 +30,7 @@ import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.outbox.OutboxProducer;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
@@ -195,6 +196,10 @@ public class ErrorHandlingRollbackExampleTest {
      * "processOrderWithErrorHandling" - automatic rollback on failure
      */
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.outbox.examples.ErrorHandlingRollbackExampleTest",
+            message = " INTENTIONAL TEST FAILURE: Order processing failed, all events rolled back: Order amount exceeds limit",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void testBasicErrorHandlingWithRollback(VertxTestContext testContext) throws InterruptedException {
         logger.info("--- Testing Pattern 1: Basic Error Handling with Automatic Rollback ---");
 
@@ -251,6 +256,20 @@ public class ErrorHandlingRollbackExampleTest {
      * This tests various business validation scenarios that trigger rollback
      */
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.outbox.examples.ErrorHandlingRollbackExampleTest",
+            message = " INTENTIONAL TEST FAILURE: Business validation failed, all events rolled back: Invalid customer ID",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.outbox.examples.ErrorHandlingRollbackExampleTest",
+            message = " INTENTIONAL TEST FAILURE: Business validation failed, all events rolled back: Amount must be positive",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE,
+            minOccurrences = 2,
+            maxOccurrences = 2)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.outbox.examples.ErrorHandlingRollbackExampleTest",
+            message = " INTENTIONAL TEST FAILURE: Business validation failed, all events rolled back: Duplicate order ID",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void testBusinessLogicValidationFailures(VertxTestContext testContext) throws InterruptedException {
         logger.info("--- Testing Pattern 2: Business Logic Validation Failures ---");
 
@@ -273,6 +292,10 @@ public class ErrorHandlingRollbackExampleTest {
      * This tests complex operations with multiple stages that can fail at any point
      */
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.outbox.examples.ErrorHandlingRollbackExampleTest",
+            message = " INTENTIONAL TEST FAILURE: Multi-stage processing failed, all stages rolled back: Insufficient inventory in stage 2",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void testMultiStageOperationsWithRollback(VertxTestContext testContext) throws InterruptedException {
         logger.info("--- Testing Pattern 3: Multi-Stage Operations with Rollback ---");
 
@@ -617,4 +640,3 @@ public class ErrorHandlingRollbackExampleTest {
         public String getFinalStatus() { return finalStatus; }
     }
 }
-
