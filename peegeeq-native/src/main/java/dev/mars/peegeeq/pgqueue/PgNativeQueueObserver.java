@@ -258,8 +258,13 @@ final class PgNativeQueueObserver<T> {
                 .compose(this::pushAll)
                 .onSuccess(pushed -> finishDrain(pushed == DRAIN_BATCH_LIMIT))
                 .onFailure(err -> {
-                    logger.error("tail: drain failed for topic {} (will retry on next wake): {}",
-                            topic, err.getMessage());
+                    if (shutdown) {
+                        logger.debug("tail: drain stopped during shutdown for topic {}: {}",
+                                topic, err.getMessage());
+                    } else {
+                        logger.error("tail: drain failed for topic {} (will retry on next wake): {}",
+                                topic, err.getMessage());
+                    }
                     finishDrain(false);
                 });
     }
