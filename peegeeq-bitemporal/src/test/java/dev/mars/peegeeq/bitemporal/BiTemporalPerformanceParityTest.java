@@ -73,6 +73,9 @@ class BiTemporalPerformanceParityTest {
                 .from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.health-check.queue-checks-enabled", "false")
+                // appendMany submits up to 100 operations concurrently. Keep the
+                // three-connection test pool small while allowing that bounded burst.
+                .property("peegeeq.database.pool.wait-queue-multiplier", "64")
                 .build();
 
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.BITEMPORAL);
