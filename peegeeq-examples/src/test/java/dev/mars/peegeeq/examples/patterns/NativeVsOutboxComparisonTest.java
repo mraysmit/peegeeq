@@ -29,6 +29,8 @@ import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
@@ -113,6 +115,12 @@ class NativeVsOutboxComparisonTest {
     @BeforeEach
     void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
+
+        // The shared container can outlive a test class, so establish this class's
+        // required schema independently of execution order before starting the manager.
+        PeeGeeQTestSchemaInitializer.initializeSchema(
+                postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
+
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
 
@@ -444,5 +452,4 @@ class NativeVsOutboxComparisonTest {
                 .onFailure(testContext::failNow);
     }
 }
-
 
