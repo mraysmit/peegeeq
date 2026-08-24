@@ -528,43 +528,58 @@ public class ReactiveNotificationHandler<T> {
                 unlistenFuture = unlistenFuture.compose(v -> unlistenChannel(connectionToClose, channel));
             }
 
-            Promise<Void> promise = Promise.promise();
-            unlistenFuture.onComplete(unlistenResult -> {
-                // Always attempt to close the connection, even if UNLISTEN failed.
-                closeListenConnection(connectionToClose).onComplete(closeResult -> {
-                    this.listeningChannels.clear();
-                    this.subscriptions.clear();
-
-                    if (unlistenResult.failed()) {
-                        Throwable unlistenError = unlistenResult.cause();
-                        if (closeResult.failed()) {
-                            unlistenError.addSuppressed(closeResult.cause());
-                        }
-                        logger.error("Failed to stop reactive notification handler cleanly: {}",
-                                unlistenError.getMessage(), unlistenError);
-                        promise.fail(unlistenError);
-                        return;
-                    }
-
-                    if (closeResult.failed()) {
-                        Throwable closeError = closeResult.cause();
-                        logger.error("Failed to stop reactive notification handler cleanly: {}",
-                                closeError.getMessage(), closeError);
-                        promise.fail(closeError);
-                        return;
-                    }
-
-                    logger.info("Reactive notification handler stopped");
-                    promise.complete();
-                });
-            });
-
-            return promise.future();
+            // Always attempt to close the connection, even if UNLISTEN failed.
+            return unlistenFuture.transform(unlistenResult ->
+                    closeListenConnection(connectionToClose).transform(closeResult ->
+                            completeStop(unlistenResult.cause(), closeResult.cause())));
         } else {
             this.listeningChannels.clear();
             this.subscriptions.clear();
             return Future.succeededFuture();
         }
+    }
+
+    private Future<Void> completeStop(Throwable unlistenError, Throwable closeError) {
+        this.listeningChannels.clear();
+        this.subscriptions.clear();
+
+        Throwable failure = null;
+        if (unlistenError != null && !isExpectedShutdownConnectionState(unlistenError)) {
+            failure = unlistenError;
+        }
+        if (closeError != null && !isExpectedShutdownConnectionState(closeError)) {
+            if (failure == null) {
+                failure = closeError;
+            } else if (failure != closeError) {
+                failure.addSuppressed(closeError);
+            }
+        }
+
+        if (failure != null) {
+            logger.error("Failed to stop reactive notification handler cleanly: {}",
+                    failure.getMessage(), failure);
+            return Future.failedFuture(failure);
+        }
+
+        if (unlistenError != null || closeError != null) {
+            logger.debug("Reactive notification connection was already closing during shutdown");
+        }
+        logger.info("Reactive notification handler stopped");
+        return Future.succeededFuture();
+    }
+
+    private boolean isExpectedShutdownConnectionState(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null && (message.contains("Connection is not active now")
+                    || message.contains("current status: CLOSING")
+                    || message.contains("current status: CLOSED"))) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     /**
