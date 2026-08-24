@@ -130,8 +130,8 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
         logger.info("Initialized PgNativeQueueFactory with configuration from {}",
                 configuration != null ? "explicit argument" : "DatabaseService");
 
-        // Register a no-op close hook with the manager if available (explicit
-        // lifecycle, no reflection)
+        // Register the factory close with the manager so managed consumers drain
+        // before the manager closes their shared database pool.
         if (this.databaseService instanceof dev.mars.peegeeq.api.lifecycle.LifecycleHookRegistrar registrar) {
             registrar.registerCloseHook(new dev.mars.peegeeq.api.lifecycle.PeeGeeQCloseHook() {
                 @Override
@@ -141,10 +141,10 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
 
                 @Override
                 public io.vertx.core.Future<Void> closeReactive() {
-                    return io.vertx.core.Future.succeededFuture();
+                    return PgNativeQueueFactory.this.close();
                 }
             });
-            logger.debug("Registered native-queue close hook (no-op) with PeeGeeQManager");
+            logger.debug("Registered native-queue factory close hook with PeeGeeQManager");
         }
     }
 
