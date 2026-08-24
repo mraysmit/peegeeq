@@ -22,6 +22,7 @@ import dev.mars.peegeeq.api.EventStore;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
@@ -526,6 +527,13 @@ class PgBiTemporalEventStoreStatsTest {
     // ==================== Negative Tests ====================
 
     @Test
+    @ExpectedErrorLog(logger = "dev.mars.peegeeq.bitemporal.PgBiTemporalEventStoreStatsTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = getStats on closed store must fail",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    @ExpectedErrorLog(logger = "dev.mars.peegeeq.bitemporal.PgBiTemporalEventStoreStatsTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Captured expected closed-store failure = ",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void testGetStatsOnClosedStoreFailsWithIllegalState(VertxTestContext testContext) throws Exception {
         logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = getStats on closed store must fail");
         eventStore.close()
@@ -546,6 +554,12 @@ class PgBiTemporalEventStoreStatsTest {
     }
 
     @Test
+    @ExpectedErrorLog(logger = "dev.mars.peegeeq.bitemporal.PgBiTemporalEventStoreStatsTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = eventCountsByType map is immutable",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    @ExpectedErrorLog(logger = "dev.mars.peegeeq.bitemporal.PgBiTemporalEventStoreStatsTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Captured expected UnsupportedOperationException when mutating eventCountsByType",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void testGetStatsEmptyCountsByTypeIsImmutable(VertxTestContext testContext) throws Exception {
         eventStore.appendBuilder()
                 .eventType("ImmutableTest")

@@ -23,6 +23,7 @@ import dev.mars.peegeeq.api.EventStore;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
@@ -586,6 +587,13 @@ class VersionFamilyTopologyTest {
 
     @Test
     @DisplayName("getAllVersions on closed store returns failed future")
+    @ExpectedErrorLog(logger = "dev.mars.peegeeq.bitemporal.VersionFamilyTopologyTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = getAllVersions on closed store must fail",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    @ExpectedErrorLog(logger = "dev.mars.peegeeq.bitemporal.VersionFamilyTopologyTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Captured expected closed-store getAllVersions failure = ",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void getAllVersionsOnClosedStoreFailsWithIllegalState(VertxTestContext testContext) throws Exception {
                 logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = getAllVersions on closed store must fail");
         eventStore.close()
@@ -604,6 +612,13 @@ class VersionFamilyTopologyTest {
 
     @Test
     @DisplayName("getAsOfTransactionTime on closed store returns failed future")
+    @ExpectedErrorLog(logger = "dev.mars.peegeeq.bitemporal.VersionFamilyTopologyTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = getAsOfTransactionTime on closed store must fail",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    @ExpectedErrorLog(logger = "dev.mars.peegeeq.bitemporal.VersionFamilyTopologyTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Captured expected closed-store getAsOfTransactionTime failure = ",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void getAsOfTransactionTimeOnClosedStoreFailsWithIllegalState(VertxTestContext testContext) throws Exception {
                 logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = getAsOfTransactionTime on closed store must fail");
         eventStore.close()
@@ -624,6 +639,12 @@ class VersionFamilyTopologyTest {
 
     @Test
     @DisplayName("getAllVersions with null event ID throws NullPointerException")
+    @ExpectedErrorLog(logger = "dev.mars.peegeeq.bitemporal.VersionFamilyTopologyTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = getAllVersions invoked with null event ID",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    @ExpectedErrorLog(logger = "dev.mars.peegeeq.bitemporal.VersionFamilyTopologyTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Captured expected NullPointerException for null event ID",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void getAllVersionsWithNullEventIdFails(VertxTestContext testContext) throws Exception {
                 logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = getAllVersions invoked with null event ID");
         assertThrows(NullPointerException.class, () -> eventStore.getAllVersions(null));

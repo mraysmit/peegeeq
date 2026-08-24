@@ -3,6 +3,7 @@ package dev.mars.peegeeq.bitemporal;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -10,6 +11,7 @@ import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.core.VertxException;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -149,6 +151,18 @@ class DatabaseWorkerVerticleTest {
     }
 
     @Test
+    @ExpectedErrorLog(logger = "dev.mars.peegeeq.bitemporal.DatabaseWorkerVerticleTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = append via event bus with unknown instanceKey/clientKey",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    @ExpectedErrorLog(logger = "dev.mars.peegeeq.bitemporal.PgBiTemporalEventStore",
+            message = "Database operation 'append' failed on thread: ",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = VertxException.class)
+    @ExpectedErrorLog(logger = "dev.mars.peegeeq.bitemporal.DatabaseWorkerVerticleTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Captured expected failure = ",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void shouldFailAppendOperationForUnknownClientKey(VertxTestContext testContext) throws Exception {
         logger.info("Test: verify append with unknown instanceKey is rejected");
         String tableName = "bitemporal_event_log";
@@ -235,6 +249,18 @@ class DatabaseWorkerVerticleTest {
     }
 
     @Test
+    @ExpectedErrorLog(logger = "dev.mars.peegeeq.bitemporal.DatabaseWorkerVerticleTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = ambiguous legacy clientKey fallback across worker deployments",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    @ExpectedErrorLog(logger = "dev.mars.peegeeq.bitemporal.PgBiTemporalEventStore",
+            message = "Database operation 'append' failed on thread: ",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = VertxException.class)
+    @ExpectedErrorLog(logger = "dev.mars.peegeeq.bitemporal.DatabaseWorkerVerticleTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Captured expected failure = ",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void shouldRejectLegacyClientKeyFallbackWhenMultipleStoresShareClientKey(VertxTestContext testContext) throws Exception {
         logger.info("Test: verify ambiguous legacy clientKey fallback is rejected when multiple stores share __default__");
         String primaryTable = "bitemporal_event_log";
@@ -304,6 +330,5 @@ class DatabaseWorkerVerticleTest {
         return store.eventBusInstanceKey();
     }
 }
-
 
 

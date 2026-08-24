@@ -22,6 +22,7 @@ import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
@@ -775,6 +776,17 @@ class VersionFamilyDefensiveTest {
 
     @Test
     @DisplayName("appendCorrection to non-existent event ID fails with IllegalArgumentException")
+    @ExpectedErrorLog(logger = "dev.mars.peegeeq.bitemporal.VersionFamilyDefensiveTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = appendCorrection for non-existent event ID",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    @ExpectedErrorLog(logger = "dev.mars.peegeeq.bitemporal.PgBiTemporalEventStore",
+            message = "Failed to append correction event for ", messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = IllegalArgumentException.class)
+    @ExpectedErrorLog(logger = "dev.mars.peegeeq.bitemporal.VersionFamilyDefensiveTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Captured expected non-existent event correction failure = ",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void appendCorrectionNonExistentEventFails(VertxTestContext testContext) throws Exception {
         Instant t = Instant.now();
         String fakeId = UUID.randomUUID().toString();
@@ -799,6 +811,12 @@ class VersionFamilyDefensiveTest {
 
     @Test
     @DisplayName("appendCorrection with null correctionReason throws NullPointerException")
+    @ExpectedErrorLog(logger = "dev.mars.peegeeq.bitemporal.VersionFamilyDefensiveTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = appendCorrection invoked with null correctionReason",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    @ExpectedErrorLog(logger = "dev.mars.peegeeq.bitemporal.VersionFamilyDefensiveTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Captured expected NullPointerException for null correctionReason",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void appendCorrectionNullReasonThrowsNpe(VertxTestContext testContext) throws Exception {
         Instant t = Instant.now();
 
@@ -821,6 +839,12 @@ class VersionFamilyDefensiveTest {
 
     @Test
     @DisplayName("appendCorrection with null originalEventId throws NullPointerException")
+    @ExpectedErrorLog(logger = "dev.mars.peegeeq.bitemporal.VersionFamilyDefensiveTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = appendCorrection invoked with null originalEventId",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    @ExpectedErrorLog(logger = "dev.mars.peegeeq.bitemporal.VersionFamilyDefensiveTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Captured expected NullPointerException for null originalEventId",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void appendCorrectionNullOriginalIdThrowsNpe(VertxTestContext testContext) throws Exception {
         Instant t = Instant.now();
 
@@ -837,6 +861,12 @@ class VersionFamilyDefensiveTest {
 
     @Test
     @DisplayName("getAsOfTransactionTime with null asOfTime throws NullPointerException")
+    @ExpectedErrorLog(logger = "dev.mars.peegeeq.bitemporal.VersionFamilyDefensiveTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = getAsOfTransactionTime invoked with null asOfTime",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    @ExpectedErrorLog(logger = "dev.mars.peegeeq.bitemporal.VersionFamilyDefensiveTest",
+            message = "THIS IS AN INTENTIONAL TEST ERROR: Captured expected NullPointerException for null asOfTime",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void getAsOfTransactionTimeWithNullTimeFails(VertxTestContext testContext) throws Exception {
         logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = getAsOfTransactionTime invoked with null asOfTime");
         assertThrows(NullPointerException.class,
