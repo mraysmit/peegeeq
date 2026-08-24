@@ -10,9 +10,11 @@ import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.pgclient.PgException;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.Tuple;
@@ -173,6 +175,11 @@ class SetupBindingPersistenceIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService",
+            message = "Failed to create database setup: bindwire-noreg-",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void persistRequestedWithoutConfiguredRegistryFailsAndCleansUp(VertxTestContext ctx) {
         String dbName = "bindwire_noreg_db_" + System.currentTimeMillis();
         String setupId = "bindwire-noreg-" + System.currentTimeMillis();
@@ -283,6 +290,24 @@ class SetupBindingPersistenceIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService",
+            message = "Failed to connect to existing setup 'bindwire-ghost-",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = PgException.class)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService",
+            message = "Skipping persisted setup 'bindwire-ghost-",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = PgException.class)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService",
+            message = "Skipping persisted setup 'bindwire-unresolvable-",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = IllegalStateException.class)
     void reloadReconnectsPersistedSetupsAndSkipsBadEntries(Vertx vertx, VertxTestContext ctx) {
         String registrySchema = uniqueSchema("wire_reload");
         String dbName = "bindwire_reload_db_" + System.currentTimeMillis();
