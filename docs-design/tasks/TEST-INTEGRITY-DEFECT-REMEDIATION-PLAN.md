@@ -1,9 +1,9 @@
 # Test Integrity Defect Remediation Plan
 
 Opened: 2026-08-11
-Last reconciled: 2026-08-23 against the current worktree at commit `446893de`, including
-the native consumer-group startup, graceful-shutdown, atomic-capacity, startup-close
-settlement, and test-lifecycle integrity work through P11
+Last reconciled: 2026-08-25 through commit `e8d07e53` and Jenkins build #36. The
+2026-08-23 P0-P11 evidence remains the targeted checkpoint; P12 records the later
+full-gate remediation and final from-beginning regression result.
 Origin: reading `logs/peegeeq-outbox-integration-20260811.txt` — a run reporting
 `Tests run: 537, Failures: 0, Errors: 0, Skipped: 0` and `BUILD SUCCESS` while logging
 46 ERROR-level exceptions.
@@ -58,6 +58,11 @@ an unresolved cause).
 | D16 | Overlapping native NOTIFY/poll claim cycles can all observe spare capacity before any increments `processingInFlight`, so configured `consumerThreads=1` does not bound admitted handlers | FIXED | deterministic real-PostgreSQL contract observed 27 concurrent handlers before the fix and 1 afterward, then processed all 32 distinct messages exactly once; see P10 |
 | D17 | `PgNativeConsumerGroup.close()` snapshots only resources already materialized in `STARTING` and does not await `startFuture`; a delayed startup continuation can therefore create/stop resources after close has reported completion, and the partitioned abort path dereferences the mutable `partitionedEngine` field after close may clear it | FIXED | controlled pending-start contract failed 1/1 because close settled early, then passed 1/1; final lifecycle 65/65 and live partitioned regression 1/1; see P11 |
 | D18 | Native tests still discard asynchronous lifecycle Futures or log-and-continue on lifecycle failure, including factory teardown before manager pool closure and consumer-group startup/cleanup | FIXED | every P11 inventory owner remediated; affected scopes passed 37/37, 26/26, 26/26, 16/16, 2/2, and 1/1; quality guards 10/10; see P11 |
+| D19 | The targeted D11-C inventory did not cover every intentional ERROR emitted by the full regression suite | FIXED | the committed P11 checkpoint had 52 `@ExpectedErrorLog` declaration lines; the final revision has 165, an increase of 113 across the post-P11 full-gate remediation; Jenkins #36 passed from the beginning; see P12 |
+| D20 | Full-gate lifecycle paths exposed settlement gaps after the original P7/P9 targeted evidence, including manager-owned Vert.x shutdown, native factory/manager close ordering, setup-service close observation, bitemporal notification shutdown, and REST observer cancellation | FIXED | follow-up lifecycle commits `00d5e069`, `fa0d3dc4`, `56429525`, `b901ff2e`, `649f0dd7`, `6b1945d0`, and `56fcfec8`; Jenkins #36 passed from the beginning; see P12 |
+| D21 | Outbox delivery did not consistently contain synchronous handler throws or enforce subscription-start settlement before dependent work | FIXED | `51dd9f2e` and `582d5a36`; final Java outbox aggregate 667/667 in Jenkins #36; see P12 |
+| D22 | Linux CI could only restart the entire full suite and did not reliably prepare Maven-provisioned npm launchers or the Playwright Chromium binary | FIXED | module resume in `eeb9a525`, npm launcher permissions in `d83f4d88`, Chromium installation in `33778b7a`; tail diagnosis completed before a clean from-beginning gate; see P12 |
+| D23 | Management UI SSE real-time-count Playwright test needed one retry in the final full gate | NOT REPRODUCED | Jenkins #36: `queue-updates-sse.spec.ts:274` failed once and passed on retry; the suite finished 481 passed plus 1 flaky. The test still uses a fixed one-second readiness delay; no deterministic reproduction or implementation fix has been established; see P12 |
 
 ### 2026-08-22 native consumer-group lifecycle reconciliation
 
@@ -607,12 +612,13 @@ and the diagnostic must state that attribution was ambiguous.
    idempotent installation and removal, no event loss under parallel classes, no leakage
    between methods, deterministic diagnostics, and compatibility with tests that attach their
    own appenders. The service descriptor is packaged; profile activation remains D11-D.
-3. **D11-C — module migration — COMPLETE.** Inventoried green-run ERRORs, then migrated intentional
-   fault-injection tests module by module to structured expectations. Application modules have
-   30 structured method expectations. The remaining narration calls are INFO-only; source
-   marker and ERROR-call counts remain triage inputs, not expectation counts. A production/test
-   error handler that already fails its test needs no expectation unless ERROR is actually
-   emitted on the green path.
+3. **D11-C — targeted module migration — COMPLETE FOR THE OBSERVED INVENTORY.** Inventoried
+   green-run ERRORs, then migrated intentional fault-injection tests module by module to
+   structured expectations. At this checkpoint, application modules had 30 structured method
+   expectations. The remaining narration calls were INFO-only; source marker and ERROR-call
+   counts remain triage inputs, not expectation counts. A production/test error handler that
+   already fails its test needs no expectation unless ERROR is actually emitted on the green
+   path. P12 records the additional inventory exposed by the full regression gate.
 4. **D11-D — default gate — COMPLETE.** Root Surefire configuration enables the integration
    in the normal CORE, integration, performance, smoke, and all-tests profiles. The real
    unclaimed canary failed the Maven build 1/1; the same canary passed 1/1 with its structured
@@ -623,6 +629,9 @@ and the diagnostic must state that attribution was ambiguous.
 Each phase was rebuilt and verified before the next. D11 is fixed.
 
 ### P7 — Close settlement (D10, D12) — COMPLETE
+
+This is the targeted P7 checkpoint. P12 records later full-gate lifecycle refinements without
+changing the evidence or status established here.
 
 1. Added a deterministic manager settlement contract that failed before the production fix
    and passed afterward; no timeout threshold was increased.
@@ -663,6 +672,9 @@ on-success exception-swallowing, and forbidden-async-pattern guards passed 10/10
 are listed in the 2026-08-22 reconciliation section above.
 
 ### P9 — Native graceful-shutdown drain (D15) — COMPLETE
+
+This is the targeted P9 checkpoint. P12 records later full-gate lifecycle refinements without
+changing the evidence or status established here.
 
 Strict TDD first added a real-PostgreSQL contract that held an admitted native handler on a
 test-controlled Promise. The pre-fix implementation failed 1/1 because `stopGracefully()` was
@@ -815,6 +827,60 @@ ratcheted backlog and were not part of the enumerated D18 lifecycle inventory. T
 discarded stop/close Futures repository-wide. The approximately 90-minute owner-run `-Pall-tests`
 release gate was not run.
 
+### P12 — Full Jenkins gate reconciliation (D19-D23) — COMPLETE; D23 NOT REPRODUCED
+
+The first full regression after P11 exposed coverage that the targeted phases could not claim.
+There are 31 commits and 73 changed files between the committed P11 checkpoint `1454c4e7` and
+the final gate revision `e8d07e53`, including nine commits that touch production source. The
+historical P0-P11 counts above remain evidence for those phases; they are not evidence for the
+later full gate.
+
+#### Full-gate remediation
+
+1. **D19 — expected ERROR inventory.** The committed P11 checkpoint contains 52
+   `@ExpectedErrorLog` declaration lines. The final revision contains 165, an increase of 113.
+   The expansion was delivered by `c981ea53`, `53ed594e`, `4fe9b11c`, `430094f1`, `35e03a57`,
+   `b901ff2e`, `28e1d74b`, `56fcfec8`, and `654dcc4e`. This supersedes the P6 checkpoint count;
+   it does not make the earlier targeted evidence inaccurate.
+2. **D20 — lifecycle settlement follow-ups.** `00d5e069` defers manager-owned Vert.x shutdown
+   until close settlement, `fa0d3dc4` keeps the setup-service close Future observable,
+   `56429525` drains native consumers before manager pool shutdown, and the bitemporal/REST
+   follow-ups in `b901ff2e`, `649f0dd7`, `6b1945d0`, and `56fcfec8` settle notification and
+   observer shutdown paths.
+3. **D21 — outbox boundaries.** `51dd9f2e` contains synchronous handler failures within the
+   asynchronous delivery contract. `582d5a36` makes subscription start settlement precede
+   dependent work. The final outbox Java aggregate is 667/667.
+4. **D22 — efficient Linux CI diagnosis.** `eeb9a525` adds the guarded
+   `ALL_TESTS_START_MODULE` choice and maps a selected module to Maven's reactor resume option.
+   `d83f4d88` restores executable permission on the two Maven-provisioned npm/npx launchers,
+   and `33778b7a` installs the pinned Playwright Chromium binary in the Jenkins account's
+   cache before test execution.
+
+Jenkins builds #31-#35 used module resume to diagnose and verify the remaining tail without
+repeating already-green modules: #31 resumed the examples tail, #32 the integration tail, #33
+reached the management UI npm-launcher boundary, #34 reached the missing Chromium boundary, and
+#35 completed the UI tail. These resumed builds are diagnostic evidence only. They do not replace
+a release gate from the beginning.
+
+#### Final acceptance evidence
+
+Jenkins build #36 ran `TEST_SUITE=all` with `ALL_TESTS_START_MODULE=beginning` at
+`e8d07e53bf779660a68c47a1df94ec190c3c6665`. The workspace revision matched origin and the
+post-build worktree was clean. The build finished `SUCCESS` with:
+
+- Java aggregate: 4,022 tests, zero failures, zero errors, zero skipped;
+- management UI unit tests: 95/95;
+- management UI Playwright: 481 passed and one flaky retry, 482 total, in 25.9 minutes;
+- utilities UI unit tests: 836/836; and
+- utilities UI Playwright: 91/91 in 6.1 minutes.
+
+The one flaky management UI result is D23. `queue-updates-sse.spec.ts:274` failed on its first
+attempt and passed on retry. Its current readiness mechanism includes a fixed one-second delay,
+but this artifact alone does not prove the cause. D23 therefore remains `NOT REPRODUCED`: do not
+raise a timeout or add another fixed delay and call it fixed. A future phase must first establish
+a deterministic SSE-readiness signal, reproduce the failure in a focused repeat scope, and then
+verify the smallest correction.
+
 ---
 
 ## Out of scope
@@ -824,7 +890,8 @@ release gate was not run.
   longer blocks it.
 - **`peegeeq-utilities-ui` T.6** — an optional per-run telemetry precision/scoping
   enhancement. Utilities UI Phase G.1b is complete and T.6 is not a defect in this register.
-- Anything requiring `-Pall-tests`. That is the release gate, not a step in this work.
+- Repeating `-Pall-tests` during every targeted implementation phase. P12 records the explicitly
+  requested final Jenkins release gate after the targeted and resumed diagnostic runs completed.
 
 ---
 
