@@ -7,6 +7,31 @@ pipeline {
             choices: ['core', 'smoke', 'integration', 'untagged', 'all'],
             description: 'The all suite is the explicit approximately 90-minute regression gate.'
         )
+        choice(
+            name: 'ALL_TESTS_START_MODULE',
+            choices: [
+                'beginning',
+                'peegeeq-test-support',
+                'peegeeq-api',
+                'peegeeq-db',
+                'peegeeq-outbox',
+                'peegeeq-native',
+                'peegeeq-bitemporal',
+                'peegeeq-runtime',
+                'peegeeq-rest',
+                'peegeeq-rest-client',
+                'peegeeq-service-manager',
+                'peegeeq-pg-sidecar',
+                'peegeeq-examples',
+                'peegeeq-migrations',
+                'peegeeq-openapi',
+                'peegeeq-integration-tests',
+                'peegeeq-coverage-report',
+                'peegeeq-management-ui',
+                'peegeeq-utilities-ui'
+            ],
+            description: 'For the all suite, resume at the last failed Maven module. Use beginning for the final full gate.'
+        )
     }
 
     environment {
@@ -135,11 +160,21 @@ pipeline {
                 expression { params.TEST_SUITE == 'all' }
             }
             steps {
-                sh '''
-                    bash -o pipefail -c \
-                      'xvfb-run -a mvn --no-transfer-progress clean test -Pall-tests \
-                      2>&1 | tee logs/all-tests.log'
-                '''
+                script {
+                    def startModule = params.ALL_TESTS_START_MODULE ?: 'beginning'
+                    def resumeOption = startModule == 'beginning' ? '' : "-rf :${startModule}"
+                    def startMessage = startModule == 'beginning'
+                        ? 'Running the full regression from the beginning.'
+                        : "Resuming the full regression at Maven module ${startModule}."
+
+                    echo startMessage
+
+                    sh """
+                        bash -o pipefail -c \\
+                          'xvfb-run -a mvn --no-transfer-progress clean test -Pall-tests ${resumeOption} \\
+                          2>&1 | tee logs/all-tests.log'
+                    """
+                }
             }
         }
     }
