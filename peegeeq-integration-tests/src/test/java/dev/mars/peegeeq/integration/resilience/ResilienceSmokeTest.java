@@ -3,6 +3,7 @@ package dev.mars.peegeeq.integration.resilience;
 import dev.mars.peegeeq.api.database.DatabaseConfig;
 import dev.mars.peegeeq.api.setup.DatabaseSetupRequest;
 import dev.mars.peegeeq.integration.SmokeTestBase;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -44,7 +45,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * <h3>2. Retry polling loops require inter-attempt delays</h3>
  * <p>The tests poll the health endpoint up to 10 times waiting for the system to
  * detect connection loss (503) or recover (200). Each iteration needs a ~1 second
- * pause. {@code Thread.sleep} is forbidden by the project rules. The pattern used 
+ * pause. Blocking fixed delays are forbidden by the project rules. The pattern used
  * {@code vertx.timer(1000).onComplete(ar -> timerLatch.countDown())} on the main
  * JUnit thread  is the correct substitute: it delegates the timer to Vert.x (which
  * fires on the event loop) and the main thread waits on the latch without blocking
@@ -190,6 +191,13 @@ public class ResilienceSmokeTest extends SmokeTestBase {
 
     @Test
     @DisplayName("Verify Circuit Breaker opens under load/failure")
+    @ExpectedErrorLog(
+            logger = "io.vertx.ext.web.handler.LoggerHandler",
+            message = "127.0.0.1 - - [",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE,
+            minOccurrences = 5,
+            maxOccurrences = 13)
     void testCircuitBreakerOpen() throws Exception {
         String setupId = UUID.randomUUID().toString();
             String dbName = "peegeeq_cb_" + setupId.replace("-", "_");
