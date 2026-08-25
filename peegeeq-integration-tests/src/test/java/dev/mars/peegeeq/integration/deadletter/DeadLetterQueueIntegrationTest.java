@@ -16,7 +16,9 @@
 package dev.mars.peegeeq.integration.deadletter;
 
 import dev.mars.peegeeq.integration.SmokeTestBase;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.Future;
+import io.vertx.core.VertxException;
 import io.vertx.core.http.HttpServer;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
@@ -188,6 +190,14 @@ public class DeadLetterQueueIntegrationTest extends SmokeTestBase {
      */
     @Test
     @DisplayName("Exhausted retries promote message to dead letter queue")
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.rest.handlers.WebhookSubscriptionHandler",
+            message = "Failed to deliver message to webhook: http://localhost:",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = VertxException.class,
+            minOccurrences = 1,
+            maxOccurrences = 4)
     void testExhaustedRetriesPromoteMessageToDlq(VertxTestContext testContext) {
         String setupId = generateSetupId();
         String queueName = "dlq_retry_exhaustion_queue";
