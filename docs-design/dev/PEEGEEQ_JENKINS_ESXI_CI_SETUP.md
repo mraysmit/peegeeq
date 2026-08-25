@@ -25,10 +25,10 @@ Testcontainers workloads.
 
 This guide complements:
 
-- [PeeGeeQ Development Environment Setup](PEEGEEQ_DEVELOPMENT_ENVIRONMENT_SETUP.md)
-- [PeeGeeQ Test Commands](../docs-design/testing/PEEGEEQ-TEST-COMMANDS.md)
-- [PeeGeeQ Coding Principles](../docs-design/dev/pgq-coding-principles.md)
-- [PeeGeeQ Testing Standards and Antipatterns](../docs-design/testing/PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md)
+- [PeeGeeQ Development Environment Setup](../../docs/PEEGEEQ_DEVELOPMENT_ENVIRONMENT_SETUP.md)
+- [PeeGeeQ Test Commands](../testing/PEEGEEQ-TEST-COMMANDS.md)
+- [PeeGeeQ Coding Principles](pgq-coding-principles.md)
+- [PeeGeeQ Testing Standards and Antipatterns](../testing/PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md)
 
 ## Recommended architecture
 
@@ -647,27 +647,33 @@ The output used for builds should show JDK 25 after the pipeline environment is 
 
 The UI Maven modules pin Node 22.12.0 and npm 10.2.4 through the frontend Maven plugin.
 The plugin can provision those versions inside the build, so a host-level Node
-installation is not strictly required for Maven execution. Installing the same Node
-version system-wide is nevertheless useful for initial Playwright setup and diagnostics.
+installation is not required for Maven or Jenkins execution. Browser operating-system
+packages still require a one-time administrative installation on the VM. Browser binaries
+do not: install them as the `jenkins` account so Playwright writes to that account's cache.
 
-Install browser operating-system dependencies once with administrative privileges, then
-install browser binaries under the build account after the UI dependencies are present.
-For example, after the repository has been checked out:
+The Maven plugin creates module-local Node, npm, and npx launchers during the rebuild. A
+Git archive or workspace materialization can leave the npm/npx launchers without their
+executable bit on Linux. The repository pipeline therefore restores and verifies only the
+owner executable bit after the rebuild, then invokes the pinned Playwright CLI with the
+module-local Node runtime:
 
 ```bash
-cd peegeeq-management-ui
-npm ci
-sudo npx playwright install-deps
-npx playwright install
+for frontend in peegeeq-management-ui peegeeq-utilities-ui; do
+    chmod u+x "$frontend/node/npm" "$frontend/node/npx"
+    test -x "$frontend/node/npm"
+    test -x "$frontend/node/npx"
+done
 
-cd ../peegeeq-utilities-ui
-npm ci
-npx playwright install
+peegeeq-management-ui/node/node \
+  peegeeq-management-ui/node_modules/@playwright/test/cli.js \
+  install chromium
 ```
 
-When executing these commands outside a Jenkins build, run the non-administrative npm
-and browser-install commands as the same account that runs Jenkins jobs so the browser
-cache is stored in the correct home directory.
+These commands are non-root and run inside Jenkins after Maven has provisioned the pinned
+frontend runtime and dependencies. Do not replace them with a system `npm` or `npx`
+assumption: the verified VM does not need host-level Node. If browser operating-system
+dependencies change, an administrator must update the VM separately; the pipeline must
+not elevate itself.
 
 Both UI end-to-end runners currently request headed browsers. Ubuntu Server has no real
 display, so the complete Maven invocation must run under Xvfb:
@@ -828,12 +834,13 @@ the following verification phase.
 
 ## Repository Jenkinsfile
 
-The canonical pipeline is stored in [`../Jenkinsfile`](../Jenkinsfile) so it is versioned
+The canonical pipeline is stored in [`../../Jenkinsfile`](../../Jenkinsfile) so it is versioned
 and reviewed with the code. Jenkins documents this approach at:
 
 <https://www.jenkins.io/doc/book/pipeline/jenkinsfile/>
 
-The job has a fixed `TEST_SUITE` choice rather than accepting an arbitrary shell command:
+The job uses fixed `TEST_SUITE` and `ALL_TESTS_START_MODULE` choices rather than accepting
+an arbitrary shell command:
 
 | Choice | Maven test command | Intended use |
 |---|---|---|
@@ -843,25 +850,52 @@ The job has a fixed `TEST_SUITE` choice rather than accepting an arbitrary shell
 | `untagged` | `mvn test -Puntagged-tests` | Audit for tests missing a supported tag |
 | `all` | `xvfb-run -a mvn clean test -Pall-tests` | Explicit approximately 90-minute regression gate |
 
+`ALL_TESTS_START_MODULE` applies only when `TEST_SUITE=all`. Its values are `beginning`
+plus each reactor module in build order, from `peegeeq-test-support` through
+`peegeeq-utilities-ui`. `beginning` runs the entire full regression and is mandatory for
+final release acceptance. Selecting a module adds Maven `-rf :<module>` so diagnosis can
+continue at the last failed module. A resumed run proves only the selected module and the
+reactor tail; it is never a whole-repository result. After the tail is green, rerun `all`
+from `beginning` for the release gate.
+
 Every selection first runs `mvn clean install -DskipTests`, which compiles tests and
-installs the complete reactor before verification. The pipeline validates Temurin JDK
-25, the Maven toolchain, Docker socket access, Docker API compatibility, disk, memory,
-and swap.
+installs the complete reactor before verification. This complete rebuild also prepares
+upstream artifacts before a resumed regression. The pipeline then restores executable
+permission on the Maven-provisioned npm/npx launchers and installs Playwright Chromium
+with the pinned module-local Node runtime. It validates Temurin JDK 25, the Maven
+toolchain, Docker socket access, Docker API compatibility, disk, memory, and swap.
 It allows only one build at a time, enforces a 150-minute overall timeout, keeps ten build
 records and five artifact sets, publishes JUnit XML, archives logs and Playwright
 diagnostics, and deletes only its allocated Jenkins workspace during final cleanup.
 
 The `all` choice is never the default. Configure scheduled or protected-branch jobs to
-select it deliberately; ordinary first runs and SCM-triggered runs use `core`.
+select it deliberately; ordinary first runs and SCM-triggered runs use `core`. Scheduled
+and protected release jobs must also select `ALL_TESTS_START_MODULE=beginning`.
 
 The `bash -o pipefail` wrapper is important. Without it, a command piped through `tee`
 can expose the logger's exit status instead of Maven's failure status.
 
 The environment stage treats host-level Node as optional because the Maven frontend
-plugin can provide the pinned runtime. Required build and test commands must not have
+plugin provides the pinned runtime. Required build and test commands must not have
 their errors suppressed. The Docker checks deliberately expect the selected rootful,
 local-socket baseline; a rootless design would need a different, reviewed environment
 contract rather than silently setting `DOCKER_HOST` in this pipeline.
+
+### Verified full-gate snapshot — 2026-08-25
+
+Jenkins build #36 ran `TEST_SUITE=all` and `ALL_TESTS_START_MODULE=beginning` at
+`e8d07e53bf779660a68c47a1df94ec190c3c6665`. It finished `SUCCESS`; the checked-out
+revision matched origin and the final worktree was clean. Published results were:
+
+- Java: 4,022 tests, zero failures, zero errors, zero skipped;
+- management UI unit tests: 95/95;
+- management UI Playwright: 481 passed plus one flaky retry, 482 total;
+- utilities UI unit tests: 836/836; and
+- utilities UI Playwright: 91/91.
+
+The management Playwright retry was `queue-updates-sse.spec.ts:274`. It is registered as
+`NOT REPRODUCED` in the test-integrity remediation plan; the successful retry must not be
+reported as a deterministic fix.
 
 Jenkins' JUnit publisher records test failures, trends, and history:
 
@@ -972,6 +1006,12 @@ bash -o pipefail -c \
 
 Read the saved Maven logs and inspect the per-class `Tests run:` summaries. `BUILD
 SUCCESS` alone does not prove that the expected tests executed.
+
+In Jenkins, the equivalent release invocation is `TEST_SUITE=all` with
+`ALL_TESTS_START_MODULE=beginning`. If a module fails, a manual diagnostic run may select
+that module to avoid repeating the already-green prefix. Once the failing module and
+remaining tail pass, run again from `beginning`; do not promote a resumed result as the
+full gate.
 
 Use the current Maven profile commands rather than assuming older helper scripts remain
 current. The authoritative profile definitions are the root `pom.xml` and the PeeGeeQ
@@ -1138,8 +1178,11 @@ coverage is unknown.
 - [ ] Install Temurin JDK 25 for PeeGeeQ.
 - [ ] Configure Maven Toolchains for JDK 25.
 - [ ] Install Maven 3.9.16 and verify its published SHA-512 checksum.
-- [ ] Install or provision Node 22.12.0 and npm 10.2.4.
-- [ ] Install `xvfb`, `lsof`, Playwright dependencies, and browser binaries.
+- [ ] Let Maven provision the pinned Node 22.12.0 and npm 10.2.4 runtimes; a host Node
+      installation is optional, not a pipeline prerequisite.
+- [ ] Install `xvfb`, `lsof`, and Playwright operating-system dependencies on the VM.
+- [ ] Verify the pipeline restores owner executable permission on both module-local
+      npm/npx launchers and installs Chromium as the Jenkins account without elevation.
 
 ### Repository compatibility
 
@@ -1148,6 +1191,7 @@ coverage is unknown.
 - [ ] Record Docker package, client, server, maximum API, and minimum API versions.
 - [ ] Confirm the daemon accepts API 1.44 without forcing `DOCKER_API_VERSION`.
 - [ ] Confirm headed Playwright runs successfully through `xvfb-run`.
+- [ ] Confirm the browser binary is available in the Jenkins account's Playwright cache.
 - [ ] Verify core tests and inspect their per-class counts.
 - [ ] Verify smoke tests and inspect their per-class counts.
 - [ ] Verify a targeted Testcontainers integration module.
@@ -1170,6 +1214,10 @@ coverage is unknown.
 - [ ] Configure a multibranch pipeline or repository webhook.
 - [ ] Publish JUnit results and archive Playwright diagnostics.
 - [ ] Configure build retention, timeout, and concurrency controls.
+- [ ] Confirm `ALL_TESTS_START_MODULE` is ignored outside `all`, resumes only at fixed
+      reactor module choices, and defaults to `beginning`.
+- [ ] Treat module-resumed builds as diagnostics and require a final `all` run from
+      `beginning` before release acceptance.
 - [ ] Schedule the full suite nightly or invoke it as an explicit release gate.
 - [ ] Configure and test Jenkins backups.
 
