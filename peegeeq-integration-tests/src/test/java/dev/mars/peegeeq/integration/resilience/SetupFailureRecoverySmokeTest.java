@@ -5,7 +5,7 @@ import dev.mars.peegeeq.api.setup.DatabaseSetupRequest;
 import dev.mars.peegeeq.api.setup.SetupNotFoundException;
 import dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService;
 import dev.mars.peegeeq.integration.SmokeTestBase;
-import io.vertx.core.Vertx;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -23,7 +23,11 @@ import static org.junit.jupiter.api.Assertions.*;
 public class SetupFailureRecoverySmokeTest extends SmokeTestBase {
 
     @Test
-    void testInvalidSchemaNameRejected(Vertx vertx, VertxTestContext testContext) {
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService",
+            message = "Schema validation failed: Invalid Schema name: 'invalid-schema-name'. Must start with letter or underscore, followed by alphanumeric characters or underscores only.",
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    void testInvalidSchemaNameRejected(VertxTestContext testContext) {
         String setupId = UUID.randomUUID().toString();
         DatabaseConfig dbConfig = new DatabaseConfig.Builder()
                 .host(postgres.getHost())
@@ -50,7 +54,12 @@ public class SetupFailureRecoverySmokeTest extends SmokeTestBase {
     }
 
     @Test
-    void testPartialSetupCleanup(Vertx vertx, VertxTestContext testContext) {
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService",
+            message = "Failed to create database setup: ",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    void testPartialSetupCleanup(VertxTestContext testContext) {
         String setupId = UUID.randomUUID().toString();
         String dbName = "peegeeq_fail_" + setupId.replace("-", "_");
 
