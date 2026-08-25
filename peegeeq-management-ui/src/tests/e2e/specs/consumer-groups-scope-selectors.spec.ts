@@ -54,11 +54,25 @@ test.describe('Consumer Groups - Setup + Queue Scope Selectors', () => {
 
         await page.waitForTimeout(1000)
 
-        // Publish 1000 messages so a backfill takes long enough to observe IN_PROGRESS
-        for (let i = 0; i < 1000; i++) {
-            await page.request.post(`/api/v1/queues/${SETUP_ID}/${cgQueue}/publish`, {
-                data: { payload: { seq: i } },
-            })
+        // Keep enough messages for meaningful backfill coverage without making the
+        // setup depend on 1000 sequential network round trips on smaller CI VMs.
+        const messageCount = 1000
+        const batchSize = 20
+        for (let batchStart = 0; batchStart < messageCount; batchStart += batchSize) {
+            const batchEnd = Math.min(batchStart + batchSize, messageCount)
+            await Promise.all(Array.from(
+                { length: batchEnd - batchStart },
+                async (_, offset) => {
+                    const seq = batchStart + offset
+                    const response = await page.request.post(
+                        `/api/v1/queues/${SETUP_ID}/${cgQueue}/publish`,
+                        { data: { payload: { seq } } },
+                    )
+                    if (!response.ok()) {
+                        throw new Error(`Publish message ${seq} failed: ${response.status()} ${await response.text()}`)
+                    }
+                },
+            ))
         }
 
         // Create consumer groups
