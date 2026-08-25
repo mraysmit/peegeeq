@@ -105,6 +105,10 @@ pipeline {
                         test -x "$frontend/node/npm"
                         test -x "$frontend/node/npx"
                     done
+
+                    peegeeq-management-ui/node/node \
+                      peegeeq-management-ui/node_modules/@playwright/test/cli.js \
+                      install chromium
                 '''
             }
         }
