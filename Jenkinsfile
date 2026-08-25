@@ -99,6 +99,12 @@ pipeline {
                     bash -o pipefail -c \
                       'mvn --no-transfer-progress clean install -DskipTests \
                       2>&1 | tee logs/rebuild.log'
+
+                    for frontend in peegeeq-management-ui peegeeq-utilities-ui; do
+                        chmod u+x "$frontend/node/npm" "$frontend/node/npx"
+                        test -x "$frontend/node/npm"
+                        test -x "$frontend/node/npx"
+                    done
                 '''
             }
         }
