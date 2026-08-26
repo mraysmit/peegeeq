@@ -1339,8 +1339,8 @@ ConsumerGroup<Event> group = factory.createConsumerGroup(
 ### Related Documentation
 
 - [PeeGeeQ Main README](../../README.md)
-- [Native Queue Documentation](../../peegeeq-native/README.md)
-- [Outbox Pattern Documentation](../../peegeeq-outbox/README.md)
+- [Native Queue Module Guide](../../peegeeq-native/docs/PEEGEEQ_NATIVE_MODULE_GUIDE.md)
+- [Transactional Outbox Patterns Guide](../../docs/PEEGEEQ_TRANSACTIONAL_OUTBOX_PATTERNS_GUIDE.md)
 - [Database Schema Documentation](../../peegeeq-migrations/README.md)
 
 ### Version History
@@ -1356,4 +1356,3 @@ ConsumerGroup<Event> group = factory.createConsumerGroup(
 **Document Status:** ✅ Production Ready
 **Last Reviewed:** 2025-12-23
 **Next Review:** As needed for feature enhancements
-

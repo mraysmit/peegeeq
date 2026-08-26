@@ -1,6 +1,10 @@
 # peegeeq-outbox — Module Audit Findings
 
-## Status: OPEN — found 11 Jun 2026, NOT yet implemented
+## Status: PARTIALLY REMEDIATED — reconciled 26 Aug 2026
+
+Current status: O3 is fixed. O1 remains open, O2 remains open for the
+`start(SubscriptionOptions)` / `startInternal(true)` path, and O4 remains open. The detailed
+findings below retain their original evidence; each heading now carries the reconciled state.
 
 Audit of `peegeeq-outbox/src/main` for the defect classes uncovered the same day in the event-query
 path (see `peegeeq-management-ui/docs/archive/PEEGEEQ_MANAGEMENT_UI_BACKEND_TASKS-06-11-2026.md` and
@@ -16,7 +20,7 @@ Related, pre-existing documents (no overlap with the findings here):
 
 ---
 
-## O1 — HIGH: `OutboxConsumerConfig.consumerThreads` is dead configuration
+## O1 — HIGH — OPEN: `OutboxConsumerConfig.consumerThreads` is dead configuration
 
 - **Evidence**: the field is built, validated, stored, and exposed
   (`OutboxConsumerConfig.java` lines ~32, 40, 48), and **nothing in peegeeq-outbox ever calls
@@ -32,7 +36,7 @@ Related, pre-existing documents (no overlap with the findings here):
 - **TDD**: RED test asserting configured thread count affects observable concurrency (or, for
   option b, that the field no longer exists).
 
-## O2 — HIGH: `OutboxConsumerGroup.startInternal()` reports ACTIVE before/despite subscription
+## O2 — HIGH — PARTIALLY FIXED: `OutboxConsumerGroup.startInternal()` reports ACTIVE before/despite subscription
 
 - **Evidence**: `OutboxConsumerGroup.java` lines ~528–532:
   ```java
@@ -52,9 +56,12 @@ Related, pre-existing documents (no overlap with the findings here):
 - **TDD**: RED test with a subscription forced to fail asserting the group does NOT become ACTIVE
   and `start()` fails.
 
-## O3 — MEDIUM: status-update failures swallowed in `markMessageCompleted` / `resetFilteredMessageToPending`
+## O3 — MEDIUM — FIXED: status-update failures swallowed in `markMessageCompleted` / `resetFilteredMessageToPending`
 
-- **Evidence**: both paths (`OutboxConsumer.java` ~lines 590–602 and ~627–636) end in
+Current implementation returns and composes the status-update Futures. Failures are logged
+without being converted to success, so they propagate to the caller.
+
+- **Original evidence (now fixed)**: both paths (`OutboxConsumer.java` ~lines 590–602 and ~627–636) ended in
   `.onFailure(log).mapEmpty()` — the future returned to the processing pipeline succeeds even when
   the status UPDATE failed. The completion path at least logs `CRITICAL` and records a
   `COMPLETION_FAILURE` metric; the filtered-reset path only WARNs.
@@ -62,14 +69,14 @@ Related, pre-existing documents (no overlap with the findings here):
   the `StuckMessageRecoveryManager` janitor reclaims them and at-least-once semantics make
   redelivery legitimate. The defect is that the pipeline silently depends on the janitor: a failed
   UPDATE looks like success locally, and the redelivery it causes is unattributable.
-- **Fix**: propagate the status-update failure through the returned future (the poll-loop caller
+- **Implemented fix**: propagate the status-update failure through the returned future (the poll-loop caller
   already routes failures to its error path), keeping the metric. Decide explicitly whether the
   completion path's at-least-once contract means "propagate and let the poll cycle log it" or
   "keep swallowing but escalate via consecutive-failure counting" — pick one and document it.
 - **TDD**: RED test forcing the UPDATE to fail (e.g. closed pool) asserting the processing future
   fails rather than succeeding.
 
-## O4 — LOW: duplicate idempotent sends are not observable in metrics
+## O4 — LOW — OPEN: duplicate idempotent sends are not observable in metrics
 
 - **Evidence**: `OutboxProducer.logSendOutcome()` (~lines 487–495): when an idempotency-keyed send
   hits `ON CONFLICT DO NOTHING` (rowCount=0), only a debug log records it. `recordMessageSent` is

@@ -71,7 +71,7 @@ requirements, then follow the detail links.
 - **Option 2 (HAProxy + `pgsql-check`)** — adds TCP-level health checking and automatic re-routing away from a dead node, but cannot distinguish primary from replica.  The standby remains read-only; a DBA must still promote manually.
 - **Option 3 (HAProxy + sidecar)** — adds semantic primary detection (`pg_is_in_recovery()`) without requiring Patroni.  HAProxy routes only to the true write primary.  Correct for production with manual failover.
 - **Option 4 (HAProxy + Patroni)** — full Patroni stack; the industry-standard approach for PostgreSQL HA.  Requires an external DCS.  Provides automatic promotion, fencing, and `pg_rewind` for safe re-join.
-- **Option 5 (Consul monitor)** — the native PeeGeeQ path: re-uses the Consul cluster that `peegeeq-service-manager` already requires.  Avoids introducing Patroni.  The `PgFailoverMonitor` and `PgPrimaryElector` components are **proposed** (see [PEEGEEQ_FAILOVER_CONSUL_DESIGN.md](../peegeeq-service-manager/docs/PEEGEEQ_FAILOVER_CONSUL_DESIGN.md)).
+- **Option 5 (Consul monitor)** — the native PeeGeeQ path: re-uses the Consul cluster that `peegeeq-service-manager` already requires.  Avoids introducing Patroni.  The `PgFailoverMonitor` and `PgPrimaryElector` components are **proposed** (see [PEEGEEQ_FAILOVER_CONSUL_DESIGN.md](../../peegeeq-service-manager/docs/PEEGEEQ_FAILOVER_CONSUL_DESIGN.md)).
 
 In all cases, point `peegeeq.database.host` and `peegeeq.database.port` at the proxy or load-balancer endpoint — never directly at a PostgreSQL node.
 
@@ -621,7 +621,7 @@ docker compose -f scripts/local-infra/docker-compose-failover-local.yml start pg
 
 Five gaps exist between the current implementation and a fully resilient production setup.
 For detailed analysis, recommendations, and a phased implementation plan see
-[PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY_GAPS.md](PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY_GAPS.md).
+[PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY_GAPS.md](../tasks/pending/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY_GAPS.md).
 
 | # | Gap | Risk |
 |---|---|---|

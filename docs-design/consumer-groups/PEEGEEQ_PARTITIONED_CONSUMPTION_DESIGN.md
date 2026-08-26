@@ -3,20 +3,25 @@
 **Purpose**: Design, schema, TDD test plan, and concurrency invariants for OFFSET_WATERMARK partitioned consumption mode.  
 **Created**: 2026-04-09  
 **Source Documents**: Consolidated from `CONSUMER_GROUP_IMPLEMENTATION_TRACKER.md`, `CONSUMER_GROUP_SOURCE_VERIFICATION_FINDINGS.md`, `PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md`, `PEEGEEQ_CONSUMER_GROUP_FANOUT_GUIDE.md`, `PEEGEEQ_CONSUMER_GROUPS_BACKFILL_PERFORMANCE_VALIDATION.md` (all now archived).  
-**Design Reference**: [PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md](../archived/PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md) (archived)
+**Design Reference**: [PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md](PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md)
+**Last Reconciled**: 2026-08-26 against repository commit `09157c82` and Jenkins build #36
 
 ---
 
 ## Summary
 
-2 areas of work remain. Everything else (core fan-out, subscription management, dead consumer detection/cleanup/resurrection, flapping protection, backfill with rate limiting, graceful shutdown, admin force-remove, tracing instrumentation, fan-out trace propagation, fanout retry/DLQ automation, Prometheus metrics, alerting endpoints, monitoring endpoints) is fully implemented and tested.
+The implementation phases in this document are complete. The remaining work is the
+release-readiness load and chaos validation in Task 4, plus the intentionally deferred
+design choices recorded under Dropped Items. Jenkins build #36 verifies the implemented
+regression suite; it does not substitute for the long-duration Task 4 performance gates.
 
 | Area | Priority | Status |
 |------|----------|--------|
 | Fan-Out Trace Branching | LOW | **COMPLETED** (2026-04-11) |
 | Fanout Retry & DLQ Automation | MEDIUM | **COMPLETED** (2026-04-11) |
 | Consumer Group Lifecycle Alignment | HIGH | **COMPLETED** (2026-04-13) |
-| Offset/Watermark Mode + Partitioned Consumption | LOW | Full design complete, no implementation |
+| Offset/Watermark Mode + Partitioned Consumption | LOW | **COMPLETED** (implementation phases 1–6) |
+| Pre-GA load and chaos checkpoints | RELEASE GATE | **OPEN** — Task 4 |
 
 ---
 
@@ -81,10 +86,12 @@ Consumer group retry and dead-letter-queue automation is now fully wired into th
 
 ---
 
-## Task 3: Offset/Watermark Mode + Partitioned Consumption
+## Task 3: Offset/Watermark Mode + Partitioned Consumption COMPLETED
 
-**Priority**: LOW (full design complete, large implementation scope)  
-**Design Reference**: [PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md §19](../archived/PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md) (archived)
+**Priority**: LOW
+**Status**: Implemented in phases 1–6, including schema, offset management, assignment,
+fetching, watermark processing, API/REST exposure, and native/outbox consumer wiring.
+**Design Reference**: [PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md §19](PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md#partitioned-consumer-groups-offsetwatermark-mode)
 
 ### Problem Statement
 
@@ -100,7 +107,7 @@ These are required for: financial transaction processing (per-account ordering),
 
 OFFSET_WATERMARK is a second completion tracking mode alongside the existing REFERENCE_COUNTING mode. Key differences:
 
-| Aspect | Reference Counting (current) | Offset/Watermark (planned) |
+| Aspect | Reference Counting | Offset/Watermark |
 |--------|------------------------------|---------------------------|
 | **Scale** | ≤8-16 consumer groups | 16-100+ consumer groups |
 | **Write amplification** | O(messages × groups) | O(1) per batch (offset commit) |
@@ -177,7 +184,7 @@ CREATE INDEX idx_outbox_topic_msggroup_id
 | **5** | API + REST Surface | `SubscriptionService` additions (join/leave/fetch/commit), REST endpoints, end-to-end REST tests |
 | **6** | Native Consumer Integration | OFFSET_WATERMARK mode in `PgNativeQueueConsumer` and `OutboxConsumerGroup`, auto-join/leave, auto-commit, rebalance callbacks |
 
-### API Surface (planned)
+### API Surface (implemented)
 
 New methods on `SubscriptionService`:
 - `joinPartitionedGroup(topic, groupName, instanceId)` → `Future<PartitionAssignment>`
@@ -446,7 +453,7 @@ Each phase is a separate feature branch merged to master before starting the nex
 ## Task 4: Pre-GA Decision Checkpoints
 
 **Priority**: Must complete before declaring fan-out production-ready  
-**Design Reference**: [PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md §16](../archived/PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md) (archived)
+**Design Reference**: [PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md §16](PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md#pre-ga-decision-checkpoints)
 
 These are mandatory load tests and chaos engineering scenarios, not code features.
 

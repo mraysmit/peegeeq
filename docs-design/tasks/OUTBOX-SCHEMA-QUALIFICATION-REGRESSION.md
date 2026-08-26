@@ -2,8 +2,14 @@
 
 **Date:** 2026-05-24
 **Scope:** `peegeeq-outbox` — all classes with database access
-**Status:** Analysis complete. Remediation pending.
+**Status:** PARTIALLY COMPLETE — reconciled 2026-08-26
 **Linked task:** `OUTBOX-DLQ-FILTER-ERRORS-DEAD-CODE-AUDIT.md` — Step 7 (multi-tenant schema isolation)
+
+Production schema-qualification fixes and `OutboxSchemaIsolationCoverageTest` cases
+TC-S1–TC-S13 are implemented. The separately planned TC-S14 subscription-isolation and
+TC-S15 OFFSET_WATERMARK isolation tests were not found under their specified names and
+remain open until implemented or mapped to equivalent evidence. Historical appendix text
+that says all TC-S1–TC-S15 are unwritten is superseded by this status.
 
 ---
 

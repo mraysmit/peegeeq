@@ -3,12 +3,17 @@
 **Extracted from**: `PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md`  
 **Author**: Mark A Ray-Smith Cityline Ltd.  
 **Date**: May 10, 2026  
-**Status**: PLANNED
+**Status**: OPEN — plan verified against current source 2026-08-26
 
 This document contains the detailed gap analysis and phased implementation plan for
 improving the HAProxy failover stack.  The architectural context, conceptual overview,
 and sidecar usage guide are in
-[PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md](PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md).
+[PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md](../../failover%20and%20resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md).
+
+No implementation evidence was found for the four planned phases: notification proxy
+configuration, circuit-breaker integration in pool operations, streaming-replication
+failover coverage, or PgBouncer transaction-mode validation. The existing
+`HaProxyConnectionFailoverTest` does not close those four gaps.
 
 For an overview of all available resiliency options (from simplest to most complete),
 see the **Resiliency Options at a Glance** grid in the Executive Summary of the main document.
@@ -112,7 +117,7 @@ are two viable paths depending on whether you want to introduce Patroni:
 - **Option 5 (HAProxy + Consul monitor)**: the native PeeGeeQ path — implement
   `PgFailoverMonitor` + `PgPrimaryElector` in `peegeeq-service-manager` to manage promotion
   via Consul session locking.  Re-uses the Consul cluster already required by the service
-  manager.  See [PEEGEEQ_FAILOVER_CONSUL_DESIGN.md](../peegeeq-service-manager/docs/PEEGEEQ_FAILOVER_CONSUL_DESIGN.md).
+  manager. See [PEEGEEQ_FAILOVER_CONSUL_DESIGN.md](../../../peegeeq-service-manager/docs/PEEGEEQ_FAILOVER_CONSUL_DESIGN.md).
 
 For environments that use manual promotion (DBA-driven), HAProxy + `httpchk` + the pg-sidecar
 (Option 3) is sufficient and requires no additional automation.

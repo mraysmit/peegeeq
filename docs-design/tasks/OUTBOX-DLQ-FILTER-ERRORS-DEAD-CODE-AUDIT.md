@@ -4,6 +4,11 @@
 **Scope:** `peegeeq-outbox` dead letter queue abstraction, filter-error handling, and test-contamination in production classes  
 **Status:** Steps 1–7 complete. All tests passing.
 
+**Reconciled 2026-08-26:** COMPLETE. Current outbox and DLQ SQL uses the configured
+schema-qualification path, and the related regression coverage is present. This file is a
+historical audit record; any forward-looking remediation language below describes the
+pre-fix state and is not an active task.
+
 ---
 
 ## Background

@@ -98,7 +98,7 @@ file — absence of matches means no violations in that file.
 Full guidance:
 - [PEEGEEQ_TESTING_STANDARDS_PATTERNS.md](PEEGEEQ_TESTING_STANDARDS_PATTERNS.md)
 - [PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md](PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md)
-- [PEEGEEQ_VERTX_TEST_SAFETY_PATTERNS.md](PEEGEEQ_VERTX_TEST_SAFETY_PATTERNS.md)
+- Vert.x-specific safety rules are consolidated into the two testing-standards documents above.
 
 ## Opting out
 

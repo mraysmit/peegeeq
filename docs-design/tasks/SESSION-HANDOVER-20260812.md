@@ -1,5 +1,10 @@
 # Session Handover — 2026-08-12 (reconciled 2026-08-23)
 
+**Status:** SUPERSEDED by
+[`TEST-INTEGRITY-DEFECT-REMEDIATION-PLAN.md`](TEST-INTEGRITY-DEFECT-REMEDIATION-PLAN.md)
+P12 and Jenkins build #36. This handover is historical context, not the current task list.
+The final release gate has now run successfully from the beginning.
+
 Companion to `TEST-INTEGRITY-DEFECT-REMEDIATION-PLAN.md`, which is the defect register.
 This document covers what happened in this session, what state the working tree is in,
 and what the next person needs to know before touching it.
@@ -35,8 +40,10 @@ remain for audit context.
 - Repository integrity guards pass 10/10: disabled tests 2/2, lifecycle/discarded-Future guards
   7/7, and forbidden async patterns 1/1. The Tier 9 baseline was tightened by deleting the two
   rows remediated in P11. Tier 7 permits zero discarded stop/close Futures repository-wide.
-- The separate Tier 9 ratchet still records 63 pre-existing discarded `subscribe()` Futures in
-  19 other native test files. This is explicit remaining debt, not part of the enumerated D18
+- At this checkpoint, the separate Tier 9 ratchet recorded 63 pre-existing discarded
+  `subscribe()` Futures in 19 other native test files. The current baseline is 98 calls
+  across 31 files overall, including 61 calls across 18 native files. This is explicit
+  remaining debt, not part of the enumerated D18
   lifecycle inventory and not evidence against the completed P11 contracts. It should be handled
   as a new phased backlog if the owner wants the subscribe ratchet driven to zero.
 - Authoritative logs include `p11-d17-red-test-nested-20260823.txt`,
