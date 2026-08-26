@@ -5,6 +5,27 @@
 **Date:** December 22, 2025
 **Author:** Mark Andrew Ray-Smith Cityline Ltd
 
+## Current Implementation Status
+
+**Status:** PROPOSED — NOT IMPLEMENTED
+**Verified:** August 26, 2026 against repository commit `09157c82`
+
+The transactional participation primitives described by this design exist:
+`ConnectionProvider.withTransaction()`, `EventStore.appendInTransaction()`, and
+`OutboxProducer.sendInExistingTransaction()`. The domain-specific REST capability does
+not. The repository currently contains no transactional orders, trades, or inventory
+reservation routes, handlers, OpenAPI operations, or endpoint tests.
+
+All endpoint definitions, handler implementations, examples, schedules, and test cases
+below are therefore proposals unless a section explicitly identifies an existing core
+primitive. In particular, Appendix D previously described the proposed endpoints as
+implemented; that claim was incorrect and has been reconciled here.
+
+Some historical examples in this design predate the current asynchronous coding
+standard and contain prohibited `CompletableFuture`, completion-stage bridge, `.join()`,
+and `.recover()` patterns. They are non-normative and must be rewritten with composable
+Vert.x `Future` chains before any implementation is copied into production or tests.
+
 ---
 
 ## Table of Contents
@@ -4909,17 +4930,17 @@ This appendix shows how the transactional REST API endpoints will be documented 
 
 **Pattern:** Domain-specific endpoints using `ConnectionProvider.withTransaction()` to coordinate multiple operations.
 
-**Status:** All endpoints fully implemented and tested.
+**Status:** Proposed; no endpoints in this grid are implemented or tested.
 
 | REST Endpoint | REST Handler | Interface API | Core Implementation | Module | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `POST /api/v1/transactional/orders` | `TransactionalOrderHandler.createOrder()` | `ConnectionProvider.withTransaction()` + `EventStore.appendInTransaction()` + `OutboxProducer.sendInExistingTransaction()` | `PgConnectionProvider` + `PgBiTemporalEventStore` + `OutboxProducer` | `peegeeq-rest` + `peegeeq-db` + `peegeeq-bitemporal` + `peegeeq-outbox` | **IMPLEMENTED** |
-| `POST /api/v1/transactional/trades` | `TransactionalTradeHandler.createTrade()` | `ConnectionProvider.withTransaction()` + `EventStore.appendInTransaction()` + `OutboxProducer.sendInExistingTransaction()` | `PgConnectionProvider` + `PgBiTemporalEventStore` + `OutboxProducer` | `peegeeq-rest` + `peegeeq-db` + `peegeeq-bitemporal` + `peegeeq-outbox` | **IMPLEMENTED** |
-| `POST /api/v1/transactional/inventory-reservations` | `TransactionalInventoryHandler.reserveInventory()` | `ConnectionProvider.withTransaction()` + `EventStore.appendInTransaction()` + `OutboxProducer.sendInExistingTransaction()` | `PgConnectionProvider` + `PgBiTemporalEventStore` + `OutboxProducer` | `peegeeq-rest` + `peegeeq-db` + `peegeeq-bitemporal` + `peegeeq-outbox` | **IMPLEMENTED** |
+| `POST /api/v1/transactional/orders` | Proposed `TransactionalOrderHandler.createOrder()` | Existing transaction-participation primitives | `PgConnectionProvider` + `PgBiTemporalEventStore` + `OutboxProducer` | Proposed `peegeeq-rest` integration | **NOT IMPLEMENTED** |
+| `POST /api/v1/transactional/trades` | Proposed `TransactionalTradeHandler.createTrade()` | Existing transaction-participation primitives | `PgConnectionProvider` + `PgBiTemporalEventStore` + `OutboxProducer` | Proposed `peegeeq-rest` integration | **NOT IMPLEMENTED** |
+| `POST /api/v1/transactional/inventory-reservations` | Proposed `TransactionalInventoryHandler.reserveInventory()` | Existing transaction-participation primitives | `PgConnectionProvider` + `PgBiTemporalEventStore` + `OutboxProducer` | Proposed `peegeeq-rest` integration | **NOT IMPLEMENTED** |
 
 **Implementation Notes:**
 
-All transactional endpoints follow the same pattern:
+The proposed transactional endpoints would follow this pattern:
 
 1. **Handler Layer** (`peegeeq-rest`)
    - Parse and validate HTTP request
@@ -4966,13 +4987,11 @@ return connectionProvider.withTransaction("peegeeq-main", connection -> {
     // Step 2: Append event to bi-temporal store (if requested)
     .compose(order -> {
         if (request.getOptions().isAppendToEventStore()) {
-            return Future.fromCompletionStage(
-                eventStore.appendInTransaction(
-                    request.getEvent().getEventType(),
-                    request.getEvent().getEventData(),
-                    request.getEvent().getValidFrom(),
-                    connection  // SAME connection
-                )
+            return eventStore.appendInTransaction(
+                request.getEvent().getEventType(),
+                request.getEvent().getEventData(),
+                request.getEvent().getValidFrom(),
+                connection  // SAME connection
             ).map(event -> order);
         }
         return Future.succeededFuture(order);
@@ -4981,11 +5000,9 @@ return connectionProvider.withTransaction("peegeeq-main", connection -> {
     // Step 3: Send to outbox (if requested)
     .compose(order -> {
         if (request.getOptions().isSendToOutbox()) {
-            return Future.fromCompletionStage(
-                outboxProducer.sendInExistingTransaction(
-                    request.getEvent().getEventData(),
-                    connection  // SAME connection
-                )
+            return outboxProducer.sendInExistingTransaction(
+                request.getEvent().getEventData(),
+                connection  // SAME connection
             ).map(v -> order);
         }
         return Future.succeededFuture(order);
@@ -4994,7 +5011,7 @@ return connectionProvider.withTransaction("peegeeq-main", connection -> {
     // Step 4: Build response
     .map(order -> buildResponse(order));
 
-}).toCompletionStage().toCompletableFuture();
+});
 ```
 
 **Relationship to Existing Endpoints:**
@@ -5005,7 +5022,7 @@ This is a **new capability** that extends the existing REST API:
   - `POST /api/v1/queues/:setupId/:queueName/messages` (Section 9.2)
   - `POST /api/v1/eventstores/:setupId/:eventStoreName/events` (Section 9.4)
 
-- **New Transactional Pattern:** Single endpoint for coordinated operations (ACID guarantees via server-side transaction)
+- **Proposed Transactional Pattern:** Single endpoint for coordinated operations (ACID guarantees via server-side transaction)
   - `POST /api/v1/transactional/orders` (Section 9.11)
   - `POST /api/v1/transactional/trades` (Section 9.11)
   - `POST /api/v1/transactional/inventory-reservations` (Section 9.11)
@@ -5014,18 +5031,18 @@ This is a **new capability** that extends the existing REST API:
 
 The Call Propagation Design document (Section 8.2) states that `appendInTransaction()` is "intentionally internal for coordinating with other database operations within a single transaction. Not a REST gap."
 
-This transactional REST API **extends** that capability by:
+If implemented, this transactional REST API would extend that capability by:
 - Creating domain-specific REST endpoints that coordinate transactions server-side
 - Making the transactional pattern accessible to REST clients (JavaScript, Python, Go, etc.)
 - **Not exposing** raw `SqlConnection` objects over HTTP (which would be impossible)
 - Providing the same ACID guarantees to REST clients that SDK users already have
 
-This is a **new capability**, not a gap closure. SDK users continue to use `appendInTransaction()` directly, while REST clients gain equivalent transactional capabilities through these new endpoints.
+This would be a **new capability**, not a gap closure. SDK users can use
+`appendInTransaction()` directly today; REST clients do not yet have equivalent
+transactional endpoints.
 
 ---
 
 **Document Status:** READY FOR REVIEW
 **Next Steps:** Review by stakeholders, approval, implementation
 **Contact:** Mark Andrew Ray-Smith, Cityline Ltd
-
-

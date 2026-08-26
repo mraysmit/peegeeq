@@ -2,7 +2,11 @@
 
 **Author**: Mark Andrew Ray-Smith Cityline Ltd
 **Created**: 2026-07-18
-**Status**: DRAFT — for review
+**Status**: PROPOSED — NOT IMPLEMENTED; reconciled 2026-08-26
+
+No schema-registry service, persistence layer, REST API, or automated registry tests were
+found in the current repository. `peegeeq-management-ui/src/pages/SchemaRegistry.tsx` is an
+explicit “coming soon” placeholder. The remainder of this document is design backlog.
 **Version**: 0.1
 
 ---

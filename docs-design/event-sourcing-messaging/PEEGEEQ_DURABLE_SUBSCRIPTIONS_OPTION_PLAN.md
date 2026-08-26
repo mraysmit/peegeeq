@@ -1,5 +1,14 @@
 # PeeGeeQ Durable Subscriptions Option Plan (Outbox + Bi-Temporal)
 
+**Status:** PARTIAL — schema groundwork implemented; runtime phases open
+**Reconciled:** 2026-08-26 against repository commit `09157c82`
+
+Migration V012 and the base-template `bitemporal_subscriptions` table are implemented and
+covered by migration/schema tests. No durable bitemporal subscription service, public
+factory, restart replay/cursor coordinator, catch-up-to-live handoff, lease coordination,
+or durable-specific end-to-end test suite was found. The implementation phases below must
+therefore remain open; the presence of the schema alone does not complete this plan.
+
 ## 1. Objective
 
 Add a durable subscription option to:

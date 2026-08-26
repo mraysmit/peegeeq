@@ -4,15 +4,23 @@
 **Author**: Mark Andrew Ray-Smith Cityline Ltd
 **Date**: 2025-11-11
 **Version**: 2.0
-**Last Updated**: December 2025
+**Last Updated**: 2026-08-26
 
-> **📖 Looking for the User Guide?** See [PEEGEEQ_CONSUMER_GROUP_FANOUT_GUIDE.md](../../docs/PEEGEEQ_CONSUMER_GROUP_FANOUT_GUIDE.md) for practical usage instructions.
+> **📖 Looking for the User Guide?** See [PEEGEEQ_CONSUMER_GROUP_FANOUT_GUIDE.md](PEEGEEQ_CONSUMER_GROUP_FANOUT_GUIDE.md) for practical usage instructions.
 
 > **Note**: For a comparison of alternative design options considered, see [Design Alternatives Considered](#design-alternatives-considered) below.
 
 ---
 
 ## 📊 Implementation Status
+
+> **Current status (verified 2026-08-26):** Reference-counting and
+> OFFSET_WATERMARK/partitioned consumption are implemented. This includes V017 schema,
+> offset tracking, assignment/rebalance, partitioned fetching, watermark processing,
+> API and REST operations, native/outbox consumer integration, retry/DLQ automation,
+> and the management UI lifecycle operations. Jenkins build #36 passed the complete
+> automated regression gate. The long-duration Pre-GA load and chaos checkpoints remain
+> separate release-readiness work and are not proven merely by the green CI build.
 
 This document describes both **implemented features** and **future enhancements**. Use this legend to identify what's available:
 
@@ -36,10 +44,11 @@ This document describes both **implemented features** and **future enhancements*
 - Backfill Support (service, auto-trigger on FROM_BEGINNING, REST endpoints)
 - Subscribe REST Endpoint (POST creates subscriptions with validation)
 
-**❌ NOT IMPLEMENTED (Future Work):**
-- Offset/Watermark Mode (schema prepared, no implementation)
-- Partition Management (no code for partition-based cleanup)
-- Dead Letter Queue (not implemented)
+**⏳ REMAINING RELEASE-READINESS WORK:**
+- Long-duration fanout write-amplification validation
+- Kill-and-resurrect chaos validation
+- Backfill-versus-OLTP contention validation
+- Recommended multi-tenant isolation and partition-management load scenarios
 
 ### Detailed Feature Status
 
@@ -56,8 +65,9 @@ This document describes both **implemented features** and **future enhancements*
 | Dead Consumer Detection | ✅ | Complete | `DeadConsumerDetector` + `DeadConsumerGroupCleanup` + `DeadConsumerDetectionJob` | Detection, cleanup, scheduled job 40 tests passing |
 | Metrics/Monitoring | ✅ | Complete | `ConsumerGroupMetrics` (MeterBinder, 6 gauges) | Subscription-level gauges: active/paused/dead/cancelled/total/topics 7 tests passing |
 | Backfill Rate Limiting | ✅ | Complete | `BackfillService.batchDelayMs` | Vert.x timer-based inter-batch throttling 17 tests passing |
-| **Offset/Watermark Mode** | ❌ | Partial | Missing | Future enhancement |
-| Partition Management | ❌ | Partial | Missing | Future enhancement |
+| **Offset/Watermark Mode** | ✅ | Complete | Complete | Implemented with partitioned engine and REST/API surface |
+| Partition Management | ✅ | Complete | Complete | Assignment, rebalance, generation fencing and watermark processing |
+| Fanout Retry / DLQ | ✅ | Complete | Complete | Runtime job and integration coverage |
 
 ---
 
@@ -887,7 +897,7 @@ All design gaps have been resolved. The following decisions have been adopted:
 
 ## Completion Tracking Modes
 
-> **Implementation Status**: ✅ Reference Counting IMPLEMENTED | ❌ Offset/Watermark NOT IMPLEMENTED
+> **Implementation Status**: ✅ Reference Counting IMPLEMENTED | ✅ Offset/Watermark IMPLEMENTED
 
 ### Overview
 
@@ -896,11 +906,13 @@ The fan-out design supports **two distinct completion tracking modes** optimized
 | Mode | Fanout Scale | Write Amplification | Cleanup Strategy | Max Groups | Recommended For | Status |
 |------|--------------|---------------------|------------------|------------|-----------------|--------|
 | **Reference Counting** | Low (≤8-16 groups) | High (N updates per message) | Row-level DELETE | 64 (bitmap limit) | Strict all-ack semantics, small fanout | ✅ **IMPLEMENTED** |
-| **Offset/Watermark** | High (>16 groups) | Low (1 update per group) | Partition DROP | Unlimited | High fanout, high throughput | ❌ **NOT IMPLEMENTED** |
+| **Offset/Watermark** | High (>16 groups) | Low (1 update per group) | Watermark sweep / optional partition DROP | Unlimited | High fanout, high throughput | ✅ **IMPLEMENTED** |
 
 **Critical Decision Point**: Choose the mode based on your **maximum expected fanout** per topic, not current fanout. Migration between modes requires schema changes and downtime.
 
-**Current Implementation**: Only Reference Counting mode is implemented. Offset/Watermark mode schema is prepared but has no service layer implementation.
+**Current Implementation**: Both modes are implemented. OFFSET_WATERMARK includes the
+V017 schema, service layer, REST/API operations, partitioned consumer engine, generation
+fencing, offset commits, and watermark processing.
 
 ---
 
@@ -1031,9 +1043,10 @@ LIMIT 10000;
 
 ---
 
-### Mode 2: Offset/Watermark ❌ NOT IMPLEMENTED
+### Mode 2: Offset/Watermark ✅ IMPLEMENTED
 
-> **Implementation Status**: Schema tables exist but no Java service layer implementation. This is a **future enhancement**.
+> **Implementation Status**: Implemented. The detailed design below remains useful as
+> architecture reference; current source and tests are authoritative where names evolved.
 > **Detailed Design**: See [§19. Partitioned Consumer Groups (OFFSET_WATERMARK Mode)](#partitioned-consumer-groups-offsetwatermark-mode) for the full design including partition keys, assignment, rebalance protocol, consumption flow, schema, APIs, implementation phases, and pre-GA checkpoints.
 
 **Use When**: >16 consumer groups per topic, high throughput (>10,000 msg/s), unbounded fanout, or strict per-key ordering required.
@@ -1762,7 +1775,8 @@ public class OutboxCleanupJob {
 
 ### ⚠️ Question 3: Late-Joining Consumers
 
-> **Implementation Status**: ⚠️ PARTIAL - Schema columns exist (`backfill_status`, `backfill_checkpoint_id`, etc.) but no backfill service implementation
+> **Implementation Status**: ✅ IMPLEMENTED - `BackfillService` provides resumable,
+> rate-limited backfill and is wired into subscription lifecycle and management routes.
 
 **Problem**: What happens if a new consumer group subscribes after messages already exist?
 
@@ -2252,7 +2266,8 @@ analyticsGroup.start(SubscriptionOptions.fromNow());
 
 ### ⚠️ Question 4: Dead Consumer Groups
 
-> **Implementation Status**: ⚠️ PARTIAL - SQL function `mark_dead_consumer_groups()` exists but no scheduled job implementation
+> **Implementation Status**: ✅ IMPLEMENTED - detection, cleanup, resurrection handling,
+> and the scheduled runtime job are implemented and covered by automated tests.
 
 **Problem**: Consumer groups that never process messages block cleanup indefinitely.
 
@@ -6231,7 +6246,7 @@ TopicConfiguration config = TopicConfiguration.pubSub("admin.events", Duration.o
 
 ## Database Schema Changes
 
-> **Implementation Status**: ✅ Core tables IMPLEMENTED | ⚠️ Backfill columns PARTIAL | ❌ Offset/Watermark tables NOT IMPLEMENTED
+> **Implementation Status**: ✅ Core tables, backfill schema, and Offset/Watermark tables IMPLEMENTED
 
 ### Summary of All Schema Changes
 
@@ -6471,7 +6486,13 @@ public class OutboxConsumerGroup<T> {
 ## 20. Implementation Plan — REST API Fixes and Management UI
 
 > **Date**: 2026-06-04
-> **Status**: Not started
+> **Status**: ✅ COMPLETED (2026-06-04; verified again by Jenkins build #36)
+
+The remainder of Section 20 is retained as the historical implementation plan. Its
+unchecked pre-work boxes and “current state” defect table describe the state before the
+June 2026 REST/UI changes; they are not an active checklist. The implemented routes now
+cover create, delete, pause, resume, and backfill, and the management UI uses real API
+fields rather than generated values.
 
 This section documents the concrete work required to make the Consumer Groups management REST API and management UI functional, ordered by priority.
 
@@ -8271,5 +8292,4 @@ CREATE INDEX IF NOT EXISTS idx_consumer_groups_lookup
 ---
 
 **End of Document**
-
 

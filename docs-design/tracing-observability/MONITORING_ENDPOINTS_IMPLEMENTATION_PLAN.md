@@ -1,10 +1,15 @@
 # Real-Time Monitoring Endpoints Implementation Plan
 
-**Status:** ✅ Implementation Complete (es Applied)
+**Status:** ✅ COMPLETE — archive-ready; reconciled 2026-08-26
 **Created:** 2025-12-30
 **Reviewed:** 2025-12-30
 **Module:** peegeeq-rest
 **Target Version:** Management UI Enhancement
+
+The WebSocket/SSE handlers, lifecycle cleanup, configurable CORS validation, Prometheus
+scraping, and frontend coverage described here are implemented. Jenkins build #36 passed
+the complete Java and management UI regression gate. Historical defect sections below are
+retained as the implementation record rather than active work.
 
 ---
 
@@ -561,4 +566,3 @@ router.get("/metrics").handler(ctx -> {
 5. **Long-term:** Implement enhanced metrics integration with Micrometer (Prometheus scrape endpoint functional)
 6. **Security:** Regular security audits of CORS configuration
 7. **Monitoring:** Monitor real-time connection metrics in production environment
-

@@ -1,14 +1,22 @@
 # Guard Tiers 4, 5, 7 — Audit and Remediation Plan
 
 **Date:** 2026-05-17  
-**Last updated:** 2026-05-28  
+**Last updated:** 2026-08-26
 **Scope:** All files flagged by `OnSuccessExceptionSwallowingGuardTest` tiers 4, 5, and 7.
 
 ---
 
-## Current Build Status (as of 2026-05-18)
+## Current Build Status
 
-`mvn clean install` fails with **3 guard test failures** in `OnSuccessExceptionSwallowingGuardTest`:
+**COMPLETE.** The table below records the original 2026-05-18 failure state. All 60
+file-level checklist entries in this plan are complete, current repository scans find no
+Tier 4/5/7 patterns, the integrity guards pass, and Jenkins build #36 completed the full
+regression gate with zero Java test skips. This plan is ready to archive.
+
+### Original failure state (2026-05-18)
+
+At discovery time, `mvn clean install` failed with **3 guard test failures** in
+`OnSuccessExceptionSwallowingGuardTest`:
 
 | Tier | Guard test | Violation count | Primary modules |
 |------|-----------|-----------------|----------------|
@@ -32,10 +40,10 @@
 |------|------|-------|-----------|-------|
 | [x] | [OutboxMetricsTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxMetricsTest.java) | T5 | Tag-restore | No blocking patterns present in file — tag not needed; file already uses reactive patterns. No action required. |
 | [x] | [OutboxPerformanceTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxPerformanceTest.java) | T5 | Tag-restore | No blocking patterns present in file — blocking loop already replaced with `vertx.timer()` / composed futures. No action required. |
-| [x] | [AsyncRetryMechanismTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/AsyncRetryMechanismTest.java) | T4 | — | No `.await()` violations found — T4 already fixed. |
-| [x] | [FilterErrorHandlingIntegrationTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/FilterErrorHandlingIntegrationTest.java) | T5 | Cat-C | No T5 or T4 violations found — both already fixed. |
+| [x] | `AsyncRetryMechanismTest.java` (removed or renamed) | T4 | — | No `.await()` violations found — T4 already fixed. |
+| [x] | `FilterErrorHandlingIntegrationTest.java` (removed or renamed) | T5 | Cat-C | No T5 or T4 violations found — both already fixed. |
 | [x] | [JsonbConversionValidationTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/JsonbConversionValidationTest.java) | T4, T7 | — | Fixed 2026-05-27: added `@ExtendWith(VertxExtension.class)`; `setUp(Vertx,VertxTestContext)` reactive; `tearDown(VertxTestContext)` chains `connectionManager.close()` via `.eventually()`; all 3 tests converted to `VertxTestContext` compose chains. |
-| [x] | [MessageReliabilityTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/MessageReliabilityTest.java) | T5 | Cat-C | No T5 or T4 violations found — already fixed. |
+| [x] | `MessageReliabilityTest.java` (removed or renamed) | T5 | Cat-C | No T5 or T4 violations found — already fixed. |
 | [x] | [OutboxBlockingSafetyTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxBlockingSafetyTest.java) | T4 | — | Fixed 2026-05-27: added `@ExtendWith(VertxExtension.class)`; all 3 tests inject `(Vertx, VertxTestContext)`; `invokeOnEventLoop` returns `Future<Throwable>` instead of blocking; try/finally+`vertx.close().await()` removed. |
 | [x] | [OutboxConfigurationIntegrationTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConfigurationIntegrationTest.java) | T4 | — | Fixed 2026-05-27: tearDown reactive via `VertxTestContext`; all 3 tests use `manager.start().compose(...subscribe).compose(...send).onFailure(failNow)`; `vertx.timer().await()` replaced with `new CountDownLatch(1).await(2s)`. |
 | [x] | [OutboxConsumerCoreTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerCoreTest.java) | T7 | — | T7 fixed (2026-05-18): `groupConsumer` local replaced by `this.consumer` reassignment; tearDown closes it. No `.await()` found — T4 tag was incorrect. |
@@ -57,11 +65,11 @@
 | [x] | [OutboxRetryConcurrencyTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxRetryConcurrencyTest.java) | T4, T7 | — | Fixed 2026-05-28: T4 plan notes stale (no `.await()` found). T7: one violation fixed — `outboxFactory.close()` Future was discarded in tearDown try-catch; now chained via `.eventually()` before manager/connectionManager close. |
 | [x] | [OutboxRetryResilienceTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxRetryResilienceTest.java) | T4, T7 | — | Fixed 2026-05-28: T4 plan notes stale (no `.await()` found in test methods). T7: one violation fixed — `queueFactory.close()` (`QueueFactory.close()` returns `Future<Void>`) discarded in tearDown try-catch; chained via reactive `.eventually()` steps with manager/connectionManager. |
 | [x] | [ReactiveOutboxProducerTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/ReactiveOutboxProducerTest.java) | T4, T7 | — | Plan notes stale — `connectionManager.close()` is already inside `.eventually()` at L107 (properly observed). `producer.close()` returns `void` (AutoCloseable). No T4 or T7 violations found. No changes needed. |
-| [x] | [deadletter/DeadLetterQueueManagerCoverageTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/deadletter/DeadLetterQueueManagerCoverageTest.java) | T7 | — | T7 fixed: no bare `manager.close()` or `disabledManager.close()` calls found. |
-| [x] | [resilience/FilterRetryManagerTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/resilience/FilterRetryManagerTest.java) | T4, T5 | Cat-D | No T4 or T5 violations found — both already fixed. |
+| [x] | `deadletter/DeadLetterQueueManagerCoverageTest.java` (removed or renamed) | T7 | — | T7 fixed: no bare `manager.close()` or `disabledManager.close()` calls found. |
+| [x] | `resilience/FilterRetryManagerTest.java` (removed or renamed) | T4, T5 | Cat-D | No T4 or T5 violations found — both already fixed. |
 | [x] | [examples/AutomaticTransactionManagementExampleTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/examples/AutomaticTransactionManagementExampleTest.java) | T5 | Cat-A | T5 fixed: no parkNanos. Only `CountDownLatch.await(30, TimeUnit.SECONDS)` remains — whitelisted form. |
 | [x] | [examples/JdbcIntegrationHybridExampleTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/examples/JdbcIntegrationHybridExampleTest.java) | T5 | Cat-A | T5 fixed: no parkNanos. Only `CountDownLatch.await(30, TimeUnit.SECONDS)` remains — whitelisted form. |
-| [x] | [examples/SystemPropertiesConfigurationExampleTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/examples/SystemPropertiesConfigurationExampleTest.java) | T5 | Cat-C | T5 fixed: no spin-loop. Only `CountDownLatch.await(30, TimeUnit.SECONDS)` remains — whitelisted form. |
+| [x] | `examples/SystemPropertiesConfigurationExampleTest.java` (removed or renamed) | T5 | Cat-C | T5 fixed: no spin-loop. Only `CountDownLatch.await(30, TimeUnit.SECONDS)` remained — whitelisted form. |
 | [x] | [examples/TransactionParticipationAdvancedExampleTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/examples/TransactionParticipationAdvancedExampleTest.java) | T4 | — | Plan notes stale — no `.await()` violations found anywhere in the file. `outboxFactory.close()` observed via `.onFailure()`; `vertxPool.close()` and `vertx.close()` observed post-`awaitCompletion` (no event loop needed). `orderProducer.close()` returns `void`. No changes needed. |
 
 ### `peegeeq-native`
@@ -272,6 +280,6 @@ Files that legitimately keep `@Tag("blocking-exempt")` under the criteria below.
 | [ResourceLeakDetectionTest.java](../../peegeeq-db/src/test/java/dev/mars/peegeeq/db/ResourceLeakDetectionTest.java) | 3 | All sleeps after `closeReactive()`; no reactive runtime |
 | [MemoryAndResourceLeakTest.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/MemoryAndResourceLeakTest.java) | 4 | All sleeps inside `vertx.executeBlocking(...)` on worker thread |
 | [ShutdownTest.java](../../peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/patterns/ShutdownTest.java) | 1 | Tests `ExecutorService` interrupt semantics; sleep is inside `executor.submit(Runnable)` |
-| [FilterErrorHandlingIntegrationTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/FilterErrorHandlingIntegrationTest.java) | 2 | L268 timeout-elapse pattern (tag retained); L154 spin-loop is still fixed separately |
+| `FilterErrorHandlingIntegrationTest.java` (removed or renamed) | 2 | L268 timeout-elapse pattern (tag retained); L154 spin-loop was fixed separately |
 | [SharedTestContainers.java](../../peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/shared/SharedTestContainers.java) | 1 | Testcontainers port-mapping retry infrastructure |
 | [SharedTestContainers.java](../../peegeeq-examples-spring/src/test/java/dev/mars/peegeeq/examples/shared/SharedTestContainers.java) | 1 | Same as above |
