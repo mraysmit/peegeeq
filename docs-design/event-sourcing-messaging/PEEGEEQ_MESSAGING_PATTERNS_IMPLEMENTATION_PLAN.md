@@ -1,5 +1,9 @@
 # Advanced Messaging Patterns Demo Tests Implementation Plan
 
+**Status:** COMPLETE — reconciled 2026-08-26. The ten example scenarios exist (two class
+names evolved from the names proposed below), and Jenkins build #36 exercised the examples
+modules as part of the full Java gate. Any remaining “run tests” wording is historical.
+
 ## 📋 Overview
 
 This document outlines the comprehensive implementation plan for creating demo tests covering all Advanced Messaging Patterns identified in the PeeGeeQ-Complete-Guide.md document. These demo tests will be implemented in the **peegeeq-examples** module to provide practical, executable examples of enterprise messaging patterns.

@@ -1,6 +1,13 @@
 # CRITICAL: Schema Processing Gaps — Findings and Remediation Tasks
 
-## Status: REOPENED (2026-06-16) — moved back to active tasks.
+## Status: CORE REMEDIATION COMPLETE — coverage follow-ups P3/P4 remain
+
+> **Reconciled 2026-08-26.** Jenkins build #36 completed the full management Playwright
+> suite and the Java `all-tests` gate with zero skips. This satisfies the two owner-run
+> verification items identified in the 2026-06-27 update: Phase E UI execution and the
+> unguarded `PgBiTemporalEventStorePerformanceTest`. The only open items in this document
+> are the separately identified multi-setup coverage-plan rows P3 and P4. Historical
+> “reopened” and “owner-run remaining” text below is retained as chronology.
 
 > **Update 2026-06-27 — near-complete.** All conversions and code fixes are DONE and verified GREEN, including
 > the Phase F Vert.x-lifecycle items (F1 resolved, F2 ×3 fixed) and the test-resource `.properties` sweep. **Two

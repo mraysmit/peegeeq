@@ -1,6 +1,12 @@
 # Consumer Groups UI Redesign — Change Plan
 
-## Status: DRAFT — awaiting review
+## Status: COMPLETE — implemented 2026-06-04, verified 2026-08-26
+
+The REST lifecycle operations and management UI redesign described below are implemented.
+Current code uses subscription data returned by the API, exposes create/delete/pause/resume/
+backfill operations, and no longer generates partition, member, or performance values with
+`Math.random()`. Jenkins build #36 exercised the management UI unit and Playwright suites.
+The remainder of this file is retained as the implementation record.
 
 ---
 

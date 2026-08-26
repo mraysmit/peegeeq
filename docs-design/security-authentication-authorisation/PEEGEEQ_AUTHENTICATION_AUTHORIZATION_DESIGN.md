@@ -2,7 +2,11 @@
 
 **Version:** 2.0
 **Date:** 2025-12-27
-**Status:** Design & Implementation Reference
+**Status:** PROPOSED — NOT IMPLEMENTED; reconciled 2026-08-26
+
+No `peegeeq-auth` module, authentication service, JWT middleware, tenant-management
+service, or corresponding security test suite was found in the current repository. The
+unchecked implementation phases in this document remain product-design backlog.
 **Author:** Mark Andrew Ray-Smith Cityline Ltd
 
 ---
@@ -3519,5 +3523,4 @@ The **peegeeq-service-manager** module provides the foundation for enterprise-sc
 ---
 
 **This design provides a complete, production-ready authentication system with a clear path from simple deployment to enterprise scale.**
-
 
