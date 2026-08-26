@@ -790,7 +790,7 @@ PeeGeeQ's Consumer Group Fan-Out provides:
 - ✅ **Self-healing** - DEAD subscriptions automatically resurrect
 - ✅ **Concurrent-safe** - PostgreSQL row-level locking prevents conflicts
 
-For detailed design information, see [PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md](../docs-design/design/PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md).
+For detailed design information, see [PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md](PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md).
 
-For alternative design options, see [CONSUMER_GROUP_FANOUT_DESIGN_OPTIONS.md](../docs-design/design/CONSUMER_GROUP_FANOUT_DESIGN_OPTIONS.md).
-
+Alternative design options are preserved in the “Design Alternatives Considered” section
+of the main fanout design; the former standalone options document is no longer present.

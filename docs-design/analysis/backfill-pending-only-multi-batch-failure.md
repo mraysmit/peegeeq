@@ -345,6 +345,6 @@ The 8000 `markOldestMessagesCompleted` messages have lower IDs than the PENDING 
 | [BackfillService.java](../../peegeeq-db/src/main/java/dev/mars/peegeeq/db/subscription/BackfillService.java) | `fetchBatchIds`, `processFetchedBatch`, `processBatchesRecursively` |
 | [BackfillScopePerformanceTest.java](../../peegeeq-db/src/test/java/dev/mars/peegeeq/db/fanout/BackfillScopePerformanceTest.java) | Failing tests, `setupTopicAndMessages`, `insertMessagesBulk` |
 | [V010__Create_Consumer_Group_Fanout_Tables.sql](../../peegeeq-migrations/src/main/resources/db/migration/V010__Create_Consumer_Group_Fanout_Tables.sql) | `create_consumer_group_entries_for_new_message` trigger (bug), `set_required_consumer_groups` trigger |
-| [CompletionTracker.java](../../peegeeq-db/src/main/java/dev/mars/peegeeq/db/consumer/CompletionTracker.java) | Auto-completion logic that changes message status to COMPLETED |
+| [CompletionTracker.java](../../peegeeq-db/src/test/java/dev/mars/peegeeq/db/consumer/CompletionTracker.java) | Test fixture for auto-completion logic that changes message status to COMPLETED |
 | [DeadConsumerGroupCleanup.java](../../peegeeq-db/src/main/java/dev/mars/peegeeq/db/cleanup/DeadConsumerGroupCleanup.java) | `autoCompleteMessages` a secondary auto-complete path |
-| [logs/peegeeq-db-all-20260504.txt](../../logs/peegeeq-db-all-20260504.txt) | Primary evidence log |
+| `logs/peegeeq-db-all-20260504.txt` | Historical primary evidence log; no longer present in the working tree |

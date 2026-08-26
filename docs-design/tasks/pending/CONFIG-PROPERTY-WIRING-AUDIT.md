@@ -2,7 +2,24 @@
 
 **Date:** 2026-05-28
 **Scope:** All core modules — `peegeeq-native`, `peegeeq-db`, `peegeeq-outbox`, `peegeeq-rest`, `peegeeq-runtime`
-**Status:** Pending
+**Status:** ACTIVE — initial repository reconciliation completed 2026-08-26
+
+### Reconciled findings
+
+- Native queue polling, batch size, consumer threads, visibility timeout, and retry limits
+  are wired into `PgNativeQueueConsumer`; existing non-default tests cover the principal paths.
+- Outbox polling, batch size, and retry limits are wired, but
+  `OutboxConsumerConfig.consumerThreads` remains a dead accepted setting.
+- Pool maximum size, connection timeout, and idle timeout are carried into `PoolOptions`.
+- `peegeeq.database.pool.min-size` is accepted during configuration validation but is not
+  represented in `PgPoolConfig` or applied to Vert.x pool options.
+- Several shipped resource profiles use `peegeeq.database.pool.connection-timeout` and
+  `peegeeq.database.pool.idle-timeout`; the loader reads only the `*-ms` forms, so those
+  profile values are ignored.
+- `SystemInfoCollector` still contains direct system-property fallbacks for pool settings
+  and must be checked against the instance-configuration architecture.
+
+The audit remains open for remediation decisions and non-default behavioral coverage.
 
 ---
 

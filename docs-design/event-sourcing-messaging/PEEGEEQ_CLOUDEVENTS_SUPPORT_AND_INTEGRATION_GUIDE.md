@@ -545,5 +545,4 @@ mapper.registerModule(JsonFormat.getCloudEventJacksonModule());
 - [CloudEvents Specification v1.0](https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md)
 - [CloudEvents Java SDK](https://github.com/cloudevents/sdk-java)
 - [PostgreSQL JSONB Documentation](https://www.postgresql.org/docs/current/datatype-json.html)
-- [PeeGeeQ Bi-Temporal Event Store](../peegeeq-bitemporal/README.md)
-
+- [PeeGeeQ Bi-Temporal Event Causality Guide](PEEGEEQ_BITEMPORAL_EVENT_CAUSALITY_GUIDE.md)

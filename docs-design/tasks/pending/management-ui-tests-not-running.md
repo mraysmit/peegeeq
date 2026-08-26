@@ -1,7 +1,12 @@
 # Task: Fix peegeeq-management-ui Tests Not Running
 
 ## Status
-Open
+RESOLVED — verified by Jenkins build #36 on 2026-08-25
+
+The CI pipeline now restores the npm launcher executable bit, installs Playwright Chromium,
+and reaches the management UI module. Build #36 ran 95/95 management UI unit tests and the
+complete Playwright suite (481 passed plus one flaky retry, 482 total). This document is a
+historical incident record and is no longer an active task.
 
 ## Summary
 The `peegeeq-management-ui` module tests are never executed during `mvn clean test -Pall-tests` runs.

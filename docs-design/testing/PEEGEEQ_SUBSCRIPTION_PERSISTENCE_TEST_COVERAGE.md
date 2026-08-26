@@ -277,9 +277,10 @@ The REST layer tests verify both:
 
 ## Related Documentation
 
-- **[Testing Guide](../../testing/TESTING-GUIDE.md)** - Complete testing guide for developers
-- **[Testing Standards](../../testing/pgq-testing-standards.md)** - Mandatory testing standards
-- **[Feature Documentation](../README.md)** - Overview of all feature documentation
+- **[Test Commands](PEEGEEQ-TEST-COMMANDS.md)** - Current Maven and profile commands
+- **[Testing Patterns](PEEGEEQ_TESTING_STANDARDS_PATTERNS.md)** - Approved test patterns
+- **[Testing Antipatterns](PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md)** - Mandatory prohibited-pattern rules
+- **[Task Index](../tasks/tasks.md)** - Current engineering-task status
 
 ---
 

@@ -821,11 +821,12 @@ Verification after mandatory clean reactor-slice rebuilds:
   `p11-d18-repository-async-guards-green-20260823.txt`.
 
 All green D18 runtime logs above contain zero ERROR or unhandled-exception lines. The Tier 9
-subscribe-Future ratchet was tightened by removing the two remediated stale rows. It still records
-63 pre-existing discarded `subscribe()` calls in 19 other native test files; those are a separate
+subscribe-Future ratchet was tightened by removing the two remediated stale rows. The current
+baseline contains 98 pre-existing discarded `subscribe()` calls across
+31 test files overall, including 61 calls across 18 native test files; those are a separate
 ratcheted backlog and were not part of the enumerated D18 lifecycle inventory. Tier 7 permits zero
-discarded stop/close Futures repository-wide. The approximately 90-minute owner-run `-Pall-tests`
-release gate was not run.
+discarded stop/close Futures repository-wide. At the P11 checkpoint, the approximately 90-minute
+owner-run `-Pall-tests` release gate had not yet run; P12 records its later successful execution.
 
 ### P12 — Full Jenkins gate reconciliation (D19-D23) — COMPLETE; D23 NOT REPRODUCED
 

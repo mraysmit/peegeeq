@@ -1889,7 +1889,8 @@ Goal: Create a TypeScript REST client in the management UI that consumes the `pe
 - [x] Add error handling with custom error classes (`PeeGeeQApiError`, `PeeGeeQNetworkError`)
 - [x] Add retry logic with exponential backoff for server errors
 - [x] Add configurable timeout support
-- [ ] Integrate REST client with existing UI components (future work)
+- [x] Integrate REST client with existing UI components (`CausationTreePage` and
+  `AggregateStreamPage` use the shared client; broader adoption is a separate UI concern)
 - [ ] Add unit tests for REST client (future work)
 - [ ] Add integration tests against running `peegeeq-rest` server (future work)
 
@@ -2686,4 +2687,3 @@ The following unit tests remain in the module (no mocking, pure unit tests):
 | `exception/ExceptionTest.java` | Tests exception class behavior |
 
 These tests verify client construction, configuration validation, and exception handling without making any HTTP calls or using mocks.
-
