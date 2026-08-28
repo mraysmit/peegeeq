@@ -43,6 +43,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import java.util.function.Predicate;
 
 /**
@@ -77,6 +78,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     private final MetricsProvider metrics;
     private final PeeGeeQConfiguration configuration;
     private final String clientId;
+    private final Function<Boolean, MessageConsumer<T>> referenceCountingConsumerFactory;
     private final Instant createdAt;
 
     private final Map<String, OutboxConsumerGroupMember<T>> members = new ConcurrentHashMap<>();
@@ -169,7 +171,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
             }
             return new OutboxConsumerGroup<>(groupName, topic, payloadType,
                     clientFactory, databaseService, objectMapper, metrics, configuration, clientId,
-                    null, null);
+                    null, null, null);
         }
     }
 
@@ -182,14 +184,14 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
                               PgClientFactory clientFactory, ObjectMapper objectMapper, MetricsProvider metrics,
                               PeeGeeQConfiguration configuration) {
         this(groupName, topic, payloadType, clientFactory, null, objectMapper, metrics, configuration, null,
-                null, null);
+                null, null, null);
     }
 
     public OutboxConsumerGroup(String groupName, String topic, Class<T> payloadType,
                               PgClientFactory clientFactory, ObjectMapper objectMapper, MetricsProvider metrics,
                               PeeGeeQConfiguration configuration, String clientId) {
         this(groupName, topic, payloadType, clientFactory, null, objectMapper, metrics, configuration, clientId,
-                null, null);
+                null, null, null);
     }
 
     public OutboxConsumerGroup(String groupName, String topic, Class<T> payloadType,
@@ -197,7 +199,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
                               ObjectMapper objectMapper, MetricsProvider metrics,
                               PeeGeeQConfiguration configuration) {
         this(groupName, topic, payloadType, null, databaseService, objectMapper, metrics, configuration, null,
-                null, null);
+                null, null, null);
     }
 
     public OutboxConsumerGroup(String groupName, String topic, Class<T> payloadType,
@@ -205,7 +207,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
                               ObjectMapper objectMapper, MetricsProvider metrics,
                               PeeGeeQConfiguration configuration, String clientId) {
         this(groupName, topic, payloadType, null, databaseService, objectMapper, metrics, configuration, clientId,
-                null, null);
+                null, null, null);
     }
 
     /**
@@ -220,15 +222,16 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
                               PeeGeeQConfiguration configuration, String clientId,
                               PgConnectionManager connectionManager, String connectionServiceId) {
         this(groupName, topic, payloadType, null, databaseService, objectMapper, metrics, configuration, clientId,
-                connectionManager, connectionServiceId);
+                connectionManager, connectionServiceId, null);
     }
 
-    private OutboxConsumerGroup(String groupName, String topic, Class<T> payloadType,
+    OutboxConsumerGroup(String groupName, String topic, Class<T> payloadType,
                                PgClientFactory clientFactory,
                                dev.mars.peegeeq.api.database.DatabaseService databaseService,
                                ObjectMapper objectMapper, MetricsProvider metrics,
                                PeeGeeQConfiguration configuration, String clientId,
-                               PgConnectionManager connectionManager, String connectionServiceId) {
+                               PgConnectionManager connectionManager, String connectionServiceId,
+                               Function<Boolean, MessageConsumer<T>> referenceCountingConsumerFactory) {
         this.groupName = Objects.requireNonNull(groupName, "groupName");
         this.topic = Objects.requireNonNull(topic, "topic");
         this.payloadType = Objects.requireNonNull(payloadType, "payloadType");
@@ -240,6 +243,9 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
         this.clientId = clientId;
         this.connectionManager = connectionManager;
         this.connectionServiceId = connectionServiceId;
+        this.referenceCountingConsumerFactory = referenceCountingConsumerFactory != null
+                ? referenceCountingConsumerFactory
+                : this::createReferenceCountingConsumer;
         this.createdAt = Instant.now();
         if (databaseService != null) {
             this.vertx = databaseService.getVertx();
@@ -434,35 +440,17 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
                                     if (isOffsetWatermark) {
                                         return startPartitioned();
                                     }
-                                    try {
-                                        startInternal(true);
-                                        return Future.<Void>succeededFuture();
-                                    } catch (Exception e) {
-                                        state.set(State.NEW);
-                                        return Future.<Void>failedFuture(e);
-                                    }
+                                    return startInternal(true);
                                 });
                     }
                     // No connectionManager wired \u2014 always reference counting.
-                    try {
-                        startInternal(true);
-                        return Future.<Void>succeededFuture();
-                    } catch (Exception e) {
-                        state.set(State.NEW);
-                        return Future.failedFuture(e);
-                    }
+                    return startInternal(true);
                 })
-                .onFailure(err -> state.set(State.NEW));
+                .onFailure(err -> state.compareAndSet(State.STARTING, State.NEW));
         } else {
             logger.warn("DatabaseService is null - cannot create subscription. " +
                        "Subscription must be created manually via SubscriptionManager before starting.");
-            try {
-                startInternal(false);
-                return Future.succeededFuture();
-            } catch (Exception e) {
-                state.set(State.NEW);
-                return Future.failedFuture(e);
-            }
+            return startInternal(false);
         }
     }
 
@@ -515,7 +503,82 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
      * Internal start logic assumes state is already STARTING.
      * Transitions to ACTIVE on success.
      */
-    private void startInternal(boolean enforceSubscriptionBounds) {
+    private Future<Void> startInternal(boolean enforceSubscriptionBounds) {
+        MessageConsumer<T> consumer;
+        try {
+            consumer = referenceCountingConsumerFactory.apply(enforceSubscriptionBounds);
+        } catch (Exception error) {
+            state.compareAndSet(State.STARTING, State.NEW);
+            return Future.failedFuture(error);
+        }
+        underlyingConsumer = consumer;
+
+        Future<Void> subscription;
+        try {
+            subscription = consumer.subscribe(this::distributeMessage);
+        } catch (Exception error) {
+            subscription = Future.failedFuture(error);
+        }
+
+        return subscription
+                .compose(v -> {
+                    if (!state.compareAndSet(State.STARTING, State.ACTIVE)) {
+                        return Future.failedFuture(
+                                new IllegalStateException("Consumer group closed during startup"));
+                    }
+                    members.values().forEach(OutboxConsumerGroupMember::start);
+                    logger.info("Outbox consumer group '{}' started with {} members", groupName, members.size());
+                    return Future.<Void>succeededFuture();
+                })
+                .onFailure(err -> logger.error("Failed to subscribe consumer group '{}' for topic '{}': {}",
+                        groupName, topic, err.getMessage(), err))
+                .transform(result -> {
+                    if (result.succeeded()) {
+                        return Future.<Void>succeededFuture();
+                    }
+
+                    Throwable startupError = result.cause();
+                    boolean reset = state.compareAndSet(State.STARTING, State.NEW);
+                    if (!reset) {
+                        reset = state.compareAndSet(State.ACTIVE, State.NEW);
+                    }
+                    if (reset) {
+                        members.values().forEach(OutboxConsumerGroupMember::stop);
+                    }
+
+                    return closeFailedStartupConsumer(consumer)
+                            .compose(v -> Future.<Void>failedFuture(startupError), closeError -> {
+                                startupError.addSuppressed(closeError);
+                                return Future.<Void>failedFuture(startupError);
+                            });
+                });
+    }
+
+    private Future<Void> closeFailedStartupConsumer(MessageConsumer<T> consumer) {
+        if (underlyingConsumer != consumer) {
+            return Future.succeededFuture();
+        }
+        underlyingConsumer = null;
+
+        try {
+            consumer.unsubscribe();
+        } catch (Exception error) {
+            return Future.failedFuture(error);
+        }
+
+        if (consumer instanceof OutboxConsumer<?> outboxConsumer) {
+            return outboxConsumer.closeAsync();
+        }
+
+        try {
+            consumer.close();
+            return Future.succeededFuture();
+        } catch (Exception error) {
+            return Future.failedFuture(error);
+        }
+    }
+
+    private MessageConsumer<T> createReferenceCountingConsumer(boolean enforceSubscriptionBounds) {
         OutboxConsumer<T> outboxConsumer;
         if (clientFactory != null) {
             outboxConsumer = new OutboxConsumer<>(clientFactory, objectMapper, topic, payloadType, metrics, configuration, clientId);
@@ -524,17 +587,11 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
         } else {
             throw new IllegalStateException("Both clientFactory and databaseService are null");
         }
-        underlyingConsumer = outboxConsumer;
         outboxConsumer.setConsumerGroupName(groupName);
         if (enforceSubscriptionBounds) {
             outboxConsumer.enforceSubscriptionBounds();
         }
-        underlyingConsumer.subscribe(this::distributeMessage)
-                .onFailure(err -> logger.error("Failed to subscribe consumer group '{}' for topic '{}': {}",
-                        groupName, topic, err.getMessage(), err));
-        members.values().forEach(OutboxConsumerGroupMember::start);
-        state.set(State.ACTIVE);
-        logger.info("Outbox consumer group '{}' started with {} members", groupName, members.size());
+        return outboxConsumer;
     }
     
     @Override
