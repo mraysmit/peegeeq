@@ -55,6 +55,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Duration;
 import java.time.Instant;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 import java.util.Properties;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -103,7 +106,6 @@ class PerformanceComparisonExampleTest {
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
-                .property("peegeeq.database.pool.min-size", "5")
                 .property("peegeeq.database.pool.max-size", "20")
                 .property("peegeeq.metrics.enabled", "true")
                 .property("peegeeq.migration.enabled", "true")
@@ -251,19 +253,11 @@ class PerformanceComparisonExampleTest {
         // Test all configurations and compare performance
         PerformanceResult singleThreaded = testConfiguration("Single-Threaded", 1, 1, "PT1S", vertx);
 
-        new CountDownLatch(1).await(2, TimeUnit.SECONDS);
-
         PerformanceResult multiThreaded = testConfiguration("Multi-Threaded", 4, 1, "PT1S", vertx);
-
-        new CountDownLatch(1).await(2, TimeUnit.SECONDS);
 
         PerformanceResult batched = testConfiguration("Batched Processing", 2, 25, "PT1S", vertx);
 
-        new CountDownLatch(1).await(2, TimeUnit.SECONDS);
-
         PerformanceResult fastPolling = testConfiguration("Fast Polling", 2, 10, "PT0.1S", vertx);
-
-        new CountDownLatch(1).await(2, TimeUnit.SECONDS);
 
         PerformanceResult optimized = testConfiguration("Optimized", 6, 50, "PT0.2S", vertx);
 
@@ -301,8 +295,9 @@ class PerformanceComparisonExampleTest {
             assertNotNull(nativeFactory, "Native queue factory should be available");
 
             // Create producer and consumer with explicit ConsumerConfig to ensure per-test overrides
+            String topic = "performance-test-" + configName.toLowerCase(Locale.ROOT).replace(' ', '-');
             MessageProducer<PerformanceTestMessage> producer =
-                nativeFactory.createProducer("performance-test", PerformanceTestMessage.class);
+                nativeFactory.createProducer(topic, PerformanceTestMessage.class);
 
             ConsumerConfig consumerConfig = ConsumerConfig.builder()
                 .mode(ConsumerMode.HYBRID)
@@ -312,7 +307,7 @@ class PerformanceComparisonExampleTest {
                 .build();
 
             MessageConsumer<PerformanceTestMessage> consumer =
-                nativeFactory.createConsumer("performance-test", PerformanceTestMessage.class, consumerConfig);
+                nativeFactory.createConsumer(topic, PerformanceTestMessage.class, consumerConfig);
 
             // Performance tracking
             AtomicInteger processedCount = new AtomicInteger(0);
@@ -321,7 +316,7 @@ class PerformanceComparisonExampleTest {
 
             // Start consumer
             Instant consumerStartTime = Instant.now();
-            consumer.subscribe(message -> {
+            Future<Void> subscription = consumer.subscribe(message -> {
                 Instant processingStart = Instant.now();
                 Promise<Void> result = Promise.promise();
 
@@ -345,6 +340,7 @@ class PerformanceComparisonExampleTest {
 
             // Send messages
             Instant sendingStartTime = Instant.now();
+            List<Future<Void>> sends = new ArrayList<>(MESSAGE_COUNT);
             for (int i = 0; i < MESSAGE_COUNT; i++) {
                 PerformanceTestMessage testMessage = new PerformanceTestMessage(
                     "msg-" + i,
@@ -352,13 +348,18 @@ class PerformanceComparisonExampleTest {
                     configName
                 );
 
-                producer.send(testMessage);
-                logger.debug("Sent message {} for config {}", i, configName);
+                int messageIndex = i;
+                sends.add(subscription.compose(v -> producer.send(testMessage))
+                    .onSuccess(v -> logger.debug("Sent message {} for config {}", messageIndex, configName)));
             }
-            Instant sendingEndTime = Instant.now();
-            long sendingTimeMs = Duration.between(sendingStartTime, sendingEndTime).toMillis();
-
-            logger.info(" Sent {} messages in {}ms", MESSAGE_COUNT, sendingTimeMs);
+            AtomicLong sendingTime = new AtomicLong();
+            Future.all(sends)
+                .onSuccess(v -> {
+                    long elapsed = Duration.between(sendingStartTime, Instant.now()).toMillis();
+                    sendingTime.set(elapsed);
+                    logger.info(" Sent {} messages in {}ms", MESSAGE_COUNT, elapsed);
+                })
+                .onFailure(allProcessed::tryFail);
 
             // Wait for processing to complete (with timeout)
             AtomicBoolean succeededRef = new AtomicBoolean(false);
@@ -372,6 +373,7 @@ class PerformanceComparisonExampleTest {
 
             long totalTimeMs = Duration.between(startTime, endTime).toMillis();
             long processingTimeMs = Duration.between(consumerStartTime, endTime).toMillis();
+            long sendingTimeMs = sendingTime.get();
 
             int processed = processedCount.get();
             double throughputMsgPerSec = processed > 0 ? (processed * 1000.0) / totalTimeMs : 0.0;
@@ -398,12 +400,7 @@ class PerformanceComparisonExampleTest {
 
         } catch (Exception e) {
             logger.error("Configuration test failed for {}: {}", configName, e.getMessage(), e);
-
-            long totalTimeMs = Duration.between(startTime, Instant.now()).toMillis();
-            return new PerformanceResult(
-                configName, threads, batchSize, pollingInterval, false,
-                0, totalTimeMs, 0, 0, 0.0, 0.0
-            );
+            throw e;
         }
     }
 
@@ -502,5 +499,3 @@ class PerformanceComparisonExampleTest {
         public long getTimestamp() { return timestamp; }
     }
 }
-
-

@@ -326,7 +326,7 @@ class EnterpriseIntegrationDemoTest {
         MessageConsumer<TransformedMessage> outputConsumer = queueFactory.createConsumer(outputQueue, TransformedMessage.class);
 
         // Input consumer - transforms messages and forwards to output queue
-        inputConsumer.subscribe(message -> {
+        Future<Void> inputSubscription = inputConsumer.subscribe(message -> {
             OrderMessage order = message.getPayload();
             
             logger.info("Transforming order: {} for system integration", order.getOrderId());
@@ -397,7 +397,7 @@ class EnterpriseIntegrationDemoTest {
         });
 
         // Output consumer - collects transformed messages
-        outputConsumer.subscribe(message -> {
+        Future<Void> outputSubscription = outputConsumer.subscribe(message -> {
             TransformedMessage transformed = message.getPayload();
             
             logger.info("Received transformed message for: {}", transformed.targetSystem);
@@ -406,6 +406,7 @@ class EnterpriseIntegrationDemoTest {
             outputCheckpoint.flag();
             return Future.succeededFuture();
         });
+        Future<Void> subscriptions = Future.all(inputSubscription, outputSubscription).mapEmpty();
 
         // Send orders from different regions
         logger.info("Sending orders from different regions for transformation...");
@@ -415,7 +416,7 @@ class EnterpriseIntegrationDemoTest {
             "ORD-US-001", "CUST-001", "PROD-001", 5, 99.99, "USD", "US", "HIGH",
             new JsonObject().put("salesChannel", "ONLINE").put("promotion", "SUMMER2024")
         );
-        inputProducer.send(usOrder)
+        subscriptions.compose(v -> inputProducer.send(usOrder))
                 .onFailure(testContext::failNow);
 
         // EU Order
@@ -423,7 +424,7 @@ class EnterpriseIntegrationDemoTest {
             "ORD-EU-001", "CUST-002", "PROD-002", 3, 149.99, "EUR", "EU", "NORMAL",
             new JsonObject().put("salesChannel", "RETAIL").put("vatIncluded", true)
         );
-        inputProducer.send(euOrder)
+        subscriptions.compose(v -> inputProducer.send(euOrder))
                 .onFailure(testContext::failNow);
 
         // APAC Order
@@ -431,7 +432,7 @@ class EnterpriseIntegrationDemoTest {
             "ORD-APAC-001", "CUST-003", "PROD-003", 10, 79.99, "SGD", "APAC", "LOW",
             new JsonObject().put("salesChannel", "MOBILE").put("loyaltyDiscount", 0.1)
         );
-        inputProducer.send(apacOrder)
+        subscriptions.compose(v -> inputProducer.send(apacOrder))
                 .onFailure(testContext::failNow);
 
         // Wait for all transformations to complete
@@ -488,7 +489,7 @@ class EnterpriseIntegrationDemoTest {
         MessageConsumer<OrderMessage> lowPriorityConsumer = queueFactory.createConsumer(lowPriorityQueue, OrderMessage.class);
 
         // Input consumer - routes messages based on content
-        inputConsumer.subscribe(message -> {
+        Future<Void> inputSubscription = inputConsumer.subscribe(message -> {
             OrderMessage order = message.getPayload();
 
             logger.info("Routing order: {} based on content analysis", order.getOrderId());
@@ -520,7 +521,7 @@ class EnterpriseIntegrationDemoTest {
         });
 
         // Priority queue consumers
-        highPriorityConsumer.subscribe(message -> {
+        Future<Void> highPrioritySubscription = highPriorityConsumer.subscribe(message -> {
             OrderMessage order = message.getPayload();
             routedMessages.computeIfAbsent("HIGH_PRIORITY", k -> new ArrayList<>()).add(order);
             logger.info("HIGH PRIORITY consumer processed: {}", order.getOrderId());
@@ -528,7 +529,7 @@ class EnterpriseIntegrationDemoTest {
             return Future.succeededFuture();
         });
 
-        normalPriorityConsumer.subscribe(message -> {
+        Future<Void> normalPrioritySubscription = normalPriorityConsumer.subscribe(message -> {
             OrderMessage order = message.getPayload();
             routedMessages.computeIfAbsent("NORMAL_PRIORITY", k -> new ArrayList<>()).add(order);
             logger.info("NORMAL PRIORITY consumer processed: {}", order.getOrderId());
@@ -536,13 +537,16 @@ class EnterpriseIntegrationDemoTest {
             return Future.succeededFuture();
         });
 
-        lowPriorityConsumer.subscribe(message -> {
+        Future<Void> lowPrioritySubscription = lowPriorityConsumer.subscribe(message -> {
             OrderMessage order = message.getPayload();
             routedMessages.computeIfAbsent("LOW_PRIORITY", k -> new ArrayList<>()).add(order);
             logger.info("LOW PRIORITY consumer processed: {}", order.getOrderId());
             routingCheckpoint.flag();
             return Future.succeededFuture();
         });
+        Future<Void> subscriptions = Future.all(
+                inputSubscription, highPrioritySubscription, normalPrioritySubscription, lowPrioritySubscription)
+                .mapEmpty();
 
         // Send orders with different characteristics for routing
         logger.info("Sending orders with different characteristics for content-based routing...");
@@ -552,7 +556,7 @@ class EnterpriseIntegrationDemoTest {
             "ORD-VIP-001", "VIP-CUST-001", "PROD-PREMIUM", 50, 999.99, "USD", "US", "CRITICAL",
             new JsonObject().put("customerTier", "VIP").put("expeditedShipping", true)
         );
-        inputProducer.send(vipOrder)
+        subscriptions.compose(v -> inputProducer.send(vipOrder))
                 .onFailure(testContext::failNow);
 
         // High priority: Critical priority flag
@@ -560,7 +564,7 @@ class EnterpriseIntegrationDemoTest {
             "ORD-CRIT-001", "CUST-002", "PROD-URGENT", 1, 49.99, "USD", "US", "CRITICAL",
             new JsonObject().put("customerTier", "STANDARD").put("urgentDelivery", true)
         );
-        inputProducer.send(criticalOrder)
+        subscriptions.compose(v -> inputProducer.send(criticalOrder))
                 .onFailure(testContext::failNow);
 
         // Normal priority: Standard order
@@ -568,7 +572,7 @@ class EnterpriseIntegrationDemoTest {
             "ORD-STD-001", "CUST-003", "PROD-STANDARD", 3, 199.99, "USD", "US", "NORMAL",
             new JsonObject().put("customerTier", "STANDARD").put("standardShipping", true)
         );
-        inputProducer.send(standardOrder1)
+        subscriptions.compose(v -> inputProducer.send(standardOrder1))
                 .onFailure(testContext::failNow);
 
         // Normal priority: Medium amount
@@ -576,7 +580,7 @@ class EnterpriseIntegrationDemoTest {
             "ORD-STD-002", "CUST-004", "PROD-REGULAR", 5, 149.99, "EUR", "EU", "NORMAL",
             new JsonObject().put("customerTier", "BRONZE").put("promotion", "SPRING2024")
         );
-        inputProducer.send(standardOrder2)
+        subscriptions.compose(v -> inputProducer.send(standardOrder2))
                 .onFailure(testContext::failNow);
 
         // Low priority: Small order amount
@@ -584,7 +588,7 @@ class EnterpriseIntegrationDemoTest {
             "ORD-LOW-001", "CUST-005", "PROD-BASIC", 1, 19.99, "USD", "US", "LOW",
             new JsonObject().put("customerTier", "BASIC").put("freeShipping", false)
         );
-        inputProducer.send(lowOrder1)
+        subscriptions.compose(v -> inputProducer.send(lowOrder1))
                 .onFailure(testContext::failNow);
 
         // Low priority: Bulk order with low unit price
@@ -592,7 +596,7 @@ class EnterpriseIntegrationDemoTest {
             "ORD-BULK-001", "CUST-006", "PROD-BULK", 100, 2.99, "USD", "US", "LOW",
             new JsonObject().put("customerTier", "BULK").put("bulkDiscount", 0.2)
         );
-        inputProducer.send(lowOrder2)
+        subscriptions.compose(v -> inputProducer.send(lowOrder2))
                 .onFailure(testContext::failNow);
 
         // Wait for all routing to complete
@@ -674,5 +678,3 @@ class EnterpriseIntegrationDemoTest {
 
 
 }
-
-

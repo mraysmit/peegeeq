@@ -101,7 +101,6 @@ class NativeVsOutboxComparisonExampleTest {
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
-                .property("peegeeq.database.pool.min-size", "5")
                 .property("peegeeq.database.pool.max-size", "20")
                 .property("peegeeq.metrics.enabled", "true")
                 .property("peegeeq.migration.enabled", "true")
@@ -517,5 +516,4 @@ class NativeVsOutboxComparisonExampleTest {
         logger.info("    Monitor and measure actual performance in your environment");
     }
 }
-
 

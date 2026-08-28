@@ -155,7 +155,6 @@ class PeeGeeQExampleTest {
             // Configure database connection properties
             Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
-                    .property("peegeeq.database.pool.min-size", "2")
                     .property("peegeeq.database.pool.max-size", "10")
                     .property("peegeeq.metrics.enabled", "true")
                     .property("peegeeq.health.enabled", "true")
@@ -213,9 +212,7 @@ class PeeGeeQExampleTest {
             config.getString("peegeeq.database.name"));
         logger.info("Username: {}", config.getString("peegeeq.database.username"));
         logger.info("SSL Enabled: {}", config.getBoolean("peegeeq.database.ssl.enabled", false));
-        logger.info("Pool Min/Max: {}/{}",
-            config.getInt("peegeeq.database.pool.min-size", 2),
-            config.getInt("peegeeq.database.pool.max-size", 10));
+        logger.info("Pool Max: {}", config.getInt("peegeeq.database.pool.max-size", 10));
         logger.info("Metrics Enabled: {}", config.getMetricsConfig().isEnabled());
         logger.info("Circuit Breaker Enabled: {}", config.getCircuitBreakerConfig().isEnabled());
         logger.info("Dead Letter Enabled: {}", config.getQueueConfig().isDeadLetterEnabled());

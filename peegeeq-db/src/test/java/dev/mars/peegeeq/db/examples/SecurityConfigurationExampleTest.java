@@ -57,7 +57,7 @@ public class SecurityConfigurationExampleTest {
         containerProps.setProperty("peegeeq.database.username", postgres.getUsername());
         containerProps.setProperty("peegeeq.database.password", postgres.getPassword());
         containerProps.setProperty("peegeeq.database.ssl.enabled", "false");
-        containerProps.setProperty("peegeeq.database.schema", PostgreSQLTestConstants.TEST_SCHEMA);containerProps.setProperty("peegeeq.database.pool.min-size", "1");
+        containerProps.setProperty("peegeeq.database.schema", PostgreSQLTestConstants.TEST_SCHEMA);
         containerProps.setProperty("peegeeq.database.pool.max-size", "3");
         containerProps.setProperty("peegeeq.database.pool.shared", "false");
         containerProps.setProperty("peegeeq.database.pool.idle-timeout-ms", "5000");
@@ -244,5 +244,4 @@ public class SecurityConfigurationExampleTest {
         return merged;
     }
 }
-
 

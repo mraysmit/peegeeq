@@ -352,6 +352,7 @@ class ConsumerGroupLoadBalancingDemoTest {
 
         // Create weighted consumers
         List<MessageConsumer<WorkItem>> consumers = new ArrayList<>();
+        List<Future<Void>> subscriptions = new ArrayList<>();
         for (int i = 0; i < weights.length; i++) {
             String consumerId = "weighted-consumer-" + (i + 1);
             ConsumerMetrics metrics = new ConsumerMetrics(consumerId, weights[i]);
@@ -362,7 +363,7 @@ class ConsumerGroupLoadBalancingDemoTest {
 
             // Subscribe with capacity-based processing
             final int consumerIndex = i;
-            consumer.subscribe(message -> {
+            subscriptions.add(consumer.subscribe(message -> {
                 WorkItem work = message.getPayload();
                 long startTime = System.currentTimeMillis();
 
@@ -378,22 +379,26 @@ class ConsumerGroupLoadBalancingDemoTest {
                     processedCheckpoint.flag();
                     return null;
                 });
-            });
+            }));
         }
 
         // Send work items for weighted distribution
         logger.info("Sending {} work items for weighted distribution...", numMessages);
 
-        for (int i = 0; i < numMessages; i++) {
-            Map<String, Object> workData = new HashMap<>();
-            workData.put("taskType", "weighted-task");
-            workData.put("sequence", i + 1);
-            workData.put("complexity", "medium");
+        Future.all(subscriptions)
+            .onSuccess(v -> {
+                for (int i = 0; i < numMessages; i++) {
+                    Map<String, Object> workData = new HashMap<>();
+                    workData.put("taskType", "weighted-task");
+                    workData.put("sequence", i + 1);
+                    workData.put("complexity", "medium");
 
-            WorkItem work = new WorkItem("weighted-work-" + (i + 1), "session-" + (i % 5),
-                                       300, 5, workData);
-            producer.send(work).onFailure(testContext::failNow);
-        }
+                    WorkItem work = new WorkItem("weighted-work-" + (i + 1), "session-" + (i % 5),
+                                               300, 5, workData);
+                    producer.send(work).onFailure(testContext::failNow);
+                }
+            })
+            .onFailure(testContext::failNow);
 
         // Wait for all work items to be processed
         assertTrue(testContext.awaitCompletion(45, TimeUnit.SECONDS), "Should process all work items");
@@ -583,6 +588,7 @@ class ConsumerGroupLoadBalancingDemoTest {
 
         // Create consumers with different performance characteristics
         List<MessageConsumer<WorkItem>> consumers = new ArrayList<>();
+        List<Future<Void>> subscriptions = new ArrayList<>();
         int[] processingDelays = {50, 150, 300}; // Fast, medium, slow consumers
 
         for (int i = 0; i < numConsumers; i++) {
@@ -595,7 +601,7 @@ class ConsumerGroupLoadBalancingDemoTest {
 
             // Subscribe with performance-based processing
             final int consumerIndex = i;
-            consumer.subscribe(message -> {
+            subscriptions.add(consumer.subscribe(message -> {
                 WorkItem work = message.getPayload();
                 long startTime = System.currentTimeMillis();
 
@@ -617,22 +623,26 @@ class ConsumerGroupLoadBalancingDemoTest {
                     processedCheckpoint.flag();
                     return null;
                 });
-            });
+            }));
         }
 
         // Send work items for dynamic distribution
         logger.info("Sending {} work items for dynamic distribution...", numMessages);
 
-        for (int i = 0; i < numMessages; i++) {
-            Map<String, Object> workData = new HashMap<>();
-            workData.put("taskType", "dynamic-task");
-            workData.put("sequence", i + 1);
-            workData.put("adaptiveRouting", true);
+        Future.all(subscriptions)
+            .onSuccess(v -> {
+                for (int i = 0; i < numMessages; i++) {
+                    Map<String, Object> workData = new HashMap<>();
+                    workData.put("taskType", "dynamic-task");
+                    workData.put("sequence", i + 1);
+                    workData.put("adaptiveRouting", true);
 
-            WorkItem work = new WorkItem("dynamic-work-" + (i + 1), "session-" + (i % 4),
-                                       100, 5, workData);
-            producer.send(work).onFailure(testContext::failNow);
-        }
+                    WorkItem work = new WorkItem("dynamic-work-" + (i + 1), "session-" + (i % 4),
+                                               100, 5, workData);
+                    producer.send(work).onFailure(testContext::failNow);
+                }
+            })
+            .onFailure(testContext::failNow);
 
         // Wait for all work items to be processed
         assertTrue(testContext.awaitCompletion(45, TimeUnit.SECONDS), "Should process all work items");
@@ -671,5 +681,4 @@ class ConsumerGroupLoadBalancingDemoTest {
         logger.info("Total work items processed: {}", totalProcessed);
     }
 }
-
 

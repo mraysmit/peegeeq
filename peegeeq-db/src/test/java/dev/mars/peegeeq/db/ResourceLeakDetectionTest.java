@@ -51,11 +51,6 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-10-02
  */
 @Tag(TestCategories.INTEGRATION)
-// BLOCKING-EXEMPT: All Thread.sleep calls occur AFTER closeReactive() has completed
-// and no Vert.x reactive runtime is active at the point of the delays. The sleeps
-// are post-shutdown JVM-level quiescence waits (criterion 3: JVM-thread diagnostics
-// with no reactive runtime), not reactive-handler delays.
-@Tag("blocking-exempt")
 @DisplayName("Resource Leak Detection Tests")
 @ExtendWith({SharedPostgresTestExtension.class, VertxExtension.class})
 @Isolated("Resource leak detection must run in complete isolation")
@@ -81,7 +76,6 @@ public class ResourceLeakDetectionTest {
         Properties testProps = PeeGeeQTestConfig.builder()
             .from(getPostgres())
             .schema(PostgreSQLTestConstants.TEST_SCHEMA)
-            .property("peegeeq.database.pool.min-size", "1")
             .property("peegeeq.database.pool.max-size", "3")
             .property("peegeeq.database.pool.shared", "false")
             .property("peegeeq.database.pool.idle-timeout-ms", "5000")
@@ -429,9 +423,7 @@ public class ResourceLeakDetectionTest {
     }
 
     /**
-     * Recursively starts, closes, and waits between PeeGeeQManager instances.
-     * Replaces a blocking loop that used {@code manager.start().await()},
-     * {@code manager.closeReactive().await()}, and {@code Thread.sleep(2000)}.
+     * Recursively starts, closes, and waits reactively between PeeGeeQManager instances.
      */
     private Future<Void> runManagerIteration(Vertx vertx, int i, int total) {
         if (i >= total) {
@@ -451,8 +443,6 @@ public class ResourceLeakDetectionTest {
         T value;
     }
 }
-
-
 
 
 

@@ -64,5 +64,8 @@ class BiTemporalTxConfigTest {
             "The bitemporal Spring properties must bind the isolated-pool test setting");
         assertFalse(manager.getConfiguration().getPoolConfig().isShared(),
             "Spring Boot bitemporal transaction tests must use an isolated Vert.x pool");
+        assertFalse(manager.getConfiguration().getProperties()
+                .containsKey("peegeeq.database.pool.min-size"),
+            "Bi-temporal Spring configuration must not advertise unsupported pool minimum size");
     }
 }

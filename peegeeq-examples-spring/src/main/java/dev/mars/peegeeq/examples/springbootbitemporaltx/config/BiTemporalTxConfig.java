@@ -311,7 +311,6 @@ public class BiTemporalTxConfig {
         props.setProperty("peegeeq.database.password", properties.getDatabase().getPassword());
         props.setProperty("peegeeq.database.schema", properties.getDatabase().getSchema());
         props.setProperty("peegeeq.database.pool.max-size", String.valueOf(properties.getPool().getMaxSize()));
-        props.setProperty("peegeeq.database.pool.min-size", String.valueOf(properties.getPool().getMinSize()));
         props.setProperty("peegeeq.database.pool.shared", String.valueOf(properties.getPool().isShared()));
         props.setProperty("peegeeq.transaction.timeout", properties.getTransaction().getTimeout().toString());
         props.setProperty("peegeeq.transaction.retry-attempts", String.valueOf(properties.getTransaction().getRetryAttempts()));

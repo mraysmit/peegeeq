@@ -143,16 +143,15 @@ class OutboxMetricsSpringBootTest {
         
         // Set up consumer
         Checkpoint checkpoint = testContext.checkpoint(messageCount);
-        consumer.subscribe(message -> {
+        Future<Void> subscription = consumer.subscribe(message -> {
             logger.debug("Processing message: {}", message.getPayload());
             checkpoint.flag();
             return Future.succeededFuture(null);
         });
         
         // Send messages
-        for (int i = 0; i < messageCount; i++) {
-            producer.send("Metrics test message " + i).onFailure(testContext::failNow);
-        }
+        subscription.compose(v -> sendMessages(producer, "Metrics test message ", messageCount))
+            .onFailure(testContext::failNow);
         
         // Wait for processing
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
@@ -203,7 +202,7 @@ class OutboxMetricsSpringBootTest {
         // are retried by the outbox, causing the handler to be invoked more than errorCount times.
         AtomicInteger errorsSeen = new AtomicInteger(0);
         Promise<Void> errorsComplete = Promise.promise();
-        consumer.subscribe(message -> {
+        Future<Void> subscription = consumer.subscribe(message -> {
             logger.info("INTENTIONAL FAILURE: Processing message that will fail: {}", message.getPayload());
             if (errorsSeen.incrementAndGet() == errorCount) {
                 errorsComplete.complete();
@@ -213,9 +212,8 @@ class OutboxMetricsSpringBootTest {
         });
         
         // Send messages that will fail
-        for (int i = 0; i < errorCount; i++) {
-            producer.send("Error test message " + i).onFailure(testContext::failNow);
-        }
+        subscription.compose(v -> sendMessages(producer, "Error test message ", errorCount))
+            .onFailure(testContext::failNow);
 
         // Wait for the first errorCount errors, then poll the observable metric until it changes.
         errorsComplete.future()
@@ -253,7 +251,7 @@ class OutboxMetricsSpringBootTest {
         
         // Set up consumer with deliberate processing delay
         Checkpoint checkpoint = testContext.checkpoint(messageCount);
-        consumer.subscribe(message -> {
+        Future<Void> subscription = consumer.subscribe(message -> {
             Promise<Void> result = Promise.promise();
             vertx.setTimer(processingDelayMs, id -> {
                 logger.debug("Processing message with {}ms delay: {}", 
@@ -265,9 +263,8 @@ class OutboxMetricsSpringBootTest {
         });
         
         // Send messages
-        for (int i = 0; i < messageCount; i++) {
-            producer.send("Timing test message " + i).onFailure(testContext::failNow);
-        }
+        subscription.compose(v -> sendMessages(producer, "Timing test message ", messageCount))
+            .onFailure(testContext::failNow);
         
         // Wait for processing
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
@@ -279,6 +276,14 @@ class OutboxMetricsSpringBootTest {
             "Should have processed messages with timing metrics");
         
         logger.info("Processing time metrics collected successfully");
+    }
+
+    private Future<Void> sendMessages(MessageProducer<String> producer, String prefix, int count) {
+        List<Future<Void>> sends = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            sends.add(producer.send(prefix + i));
+        }
+        return Future.all(sends).mapEmpty();
     }
 
     private Future<Double> awaitFailedMetricIncrease(Vertx vertx, double initialErrors, long deadlineNanos) {

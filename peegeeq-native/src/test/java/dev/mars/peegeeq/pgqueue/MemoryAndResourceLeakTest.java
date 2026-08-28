@@ -164,7 +164,7 @@ class MemoryAndResourceLeakTest {
         AtomicLong totalProcessingTime = new AtomicLong(0);
 
         // Set up consumer - synchronous processing on event loop (no blocking I/O)
-        consumer.subscribe(message -> {
+        Future<Void> subscription = consumer.subscribe(message -> {
             long startTime = System.nanoTime();
             String payload = message.getPayload();
             StringBuilder sb = new StringBuilder(payload);
@@ -183,7 +183,7 @@ class MemoryAndResourceLeakTest {
         logger.info("Starting sustained high-load test with {} messages in batches of {}", messageCount, batchSize);
 
         // Chain sends sequentially to avoid connection pool exhaustion
-        Future<Void> sendChain = Future.succeededFuture();
+        Future<Void> sendChain = subscription;
         for (int batch = 0; batch < messageCount / batchSize; batch++) {
             if (batch % 5 == 0) {
                 final int batchCapture = batch;
@@ -306,7 +306,7 @@ class MemoryAndResourceLeakTest {
                         Promise<Void> cycleDone = Promise.promise();
 
                         // Subscribe consumer - synchronous processing (no blocking I/O)
-                        cycleCons.subscribe(message -> {
+                        Future<Void> subscription = cycleCons.subscribe(message -> {
                             cycleProcessedCount.incrementAndGet();
                             totalProcessedCount.incrementAndGet();
                             cycleDone.tryComplete();
@@ -316,7 +316,7 @@ class MemoryAndResourceLeakTest {
 
                         long timeoutId = vertx.setTimer(10000, id -> cycleDone.tryFail("Timeout for cycle " + cycleNum));
 
-                        return cycleDone.future()
+                        return subscription.compose(subscriptionReady -> cycleDone.future())
                             .transform(ar -> {
                                 vertx.cancelTimer(timeoutId);
                                 if (ar.failed()) {
@@ -431,7 +431,7 @@ class MemoryAndResourceLeakTest {
             final int resourceId = i;
 
             // Subscribe consumer - synchronous processing on event loop (no blocking I/O)
-            consumer.subscribe(message -> {
+            Future<Void> subscription = consumer.subscribe(message -> {
                 byte[] data = new byte[1024];
                 for (int j = 0; j < data.length; j++) {
                     data[j] = (byte) (j % 256);
@@ -442,7 +442,9 @@ class MemoryAndResourceLeakTest {
 
             // Send messages rapidly (fire-and-forget)
             for (int j = 0; j < messagesPerResource; j++) {
-                producer.send("Stress test message " + j + " from resource " + i);
+                String payload = "Stress test message " + j + " from resource " + i;
+                subscription.compose(v -> producer.send(payload))
+                    .onFailure(testContext::failNow);
             }
         }
 
@@ -527,7 +529,7 @@ class MemoryAndResourceLeakTest {
         List<Long> memorySnapshots = new ArrayList<>();
 
         // Set up consumer - synchronous memory-intensive processing on event loop
-        consumer.subscribe(message -> {
+        Future<Void> subscription = consumer.subscribe(message -> {
             List<String> tempData = new ArrayList<>();
             for (int i = 0; i < 1000; i++) {
                 tempData.add("Memory intensive data " + i + " for message " + message.getPayload());
@@ -549,7 +551,7 @@ class MemoryAndResourceLeakTest {
         logger.info("Sending {} messages with memory monitoring every {} messages", messageCount, monitoringInterval);
 
         // Chain sends sequentially to avoid connection pool exhaustion
-        Future<Void> sendChain = Future.succeededFuture();
+        Future<Void> sendChain = subscription;
         for (int i = 0; i < messageCount; i++) {
             final int msgNum = i;
             if (i % monitoringInterval == 0) {
@@ -622,5 +624,3 @@ class MemoryAndResourceLeakTest {
             "Test should complete within 120 seconds");
     }
 }
-
-

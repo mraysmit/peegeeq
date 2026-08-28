@@ -893,7 +893,6 @@ public class PeeGeeQConfig {
 
         // Optional: Configure pool settings
         System.setProperty("peegeeq.database.pool.max-size", String.valueOf(properties.getPool().getMaxSize()));
-        System.setProperty("peegeeq.database.pool.min-size", String.valueOf(properties.getPool().getMinSize()));
     }
 
     @PreDestroy
@@ -1690,7 +1689,6 @@ logging.level.io.vertx.sqlclient=DEBUG
 - **Developer Experience**: Clean APIs with three complementary approaches
 - **Production Ready**: Comprehensive testing, monitoring, and error handling
 - **Future Proof**: Built on official Vert.x 5.0.4 APIs with TransactionPropagation support
-
 
 
 

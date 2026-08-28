@@ -232,7 +232,6 @@ public class PeeGeeQConfig {
         props.setProperty("peegeeq.database.password", properties.getDatabase().getPassword());
         props.setProperty("peegeeq.database.schema", properties.getDatabase().getSchema());
         props.setProperty("peegeeq.database.pool.max-size", String.valueOf(properties.getPool().getMaxSize()));
-        props.setProperty("peegeeq.database.pool.min-size", String.valueOf(properties.getPool().getMinSize()));
         props.setProperty("peegeeq.database.pool.max-wait-queue-size", String.valueOf(properties.getPool().getMaxWaitQueueSize()));
         props.setProperty("peegeeq.database.pool.shared", String.valueOf(properties.getPool().isShared()));
         props.setProperty("peegeeq.queue.max-retries", String.valueOf(properties.getQueue().getMaxRetries()));

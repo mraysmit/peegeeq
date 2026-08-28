@@ -21,6 +21,9 @@ import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.db.PeeGeeQManager;
+import dev.mars.peegeeq.db.config.PgConnectionConfig;
+import dev.mars.peegeeq.db.config.PgPoolConfig;
+import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.examples.springbootconsumer.config.PeeGeeQConsumerProperties;
 import dev.mars.peegeeq.examples.springbootconsumer.events.OrderEvent;
 import dev.mars.peegeeq.examples.springbootconsumer.service.OrderConsumerService;
@@ -32,6 +35,7 @@ import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -55,6 +59,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -123,21 +128,39 @@ public class OrderConsumerServiceTest {
     }
 
     @BeforeAll
-    static void initializeSchema() {
+    static void initializeSchema(Vertx vertx, VertxTestContext testContext) {
         log.info("Initializing database schema for Spring Boot consumer service test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
         log.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
-        try (java.sql.Connection connection = java.sql.DriverManager.getConnection(
-                postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
-             java.sql.Statement statement = connection.createStatement()) {
-            statement.execute(CREATE_ORDERS_TABLE);
-            statement.execute(CREATE_CONSUMER_STATUS_TABLE);
-            log.info("Application-specific consumer tables created before Spring context startup");
-        } catch (java.sql.SQLException error) {
-            log.error("Failed to create application-specific consumer tables before startup", error);
-            throw new IllegalStateException("Failed to create application-specific consumer tables before startup", error);
-        }
+        PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
+            .host(postgres.getHost())
+            .port(postgres.getFirstMappedPort())
+            .database(postgres.getDatabaseName())
+            .username(postgres.getUsername())
+            .password(postgres.getPassword())
+            .schema(PostgreSQLTestConstants.TEST_SCHEMA)
+            .build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder()
+            .maxSize(1)
+            .shared(false)
+            .idleTimeout(Duration.ofSeconds(2))
+            .connectionTimeout(Duration.ofSeconds(5))
+            .build();
+        PgConnectionManager connectionManager = new PgConnectionManager(vertx);
+        Pool pool = connectionManager.getOrCreateReactivePool("consumer-schema-init", connectionConfig, poolConfig);
+
+        pool.query(CREATE_ORDERS_TABLE).execute()
+            .compose(ignored -> pool.query(CREATE_CONSUMER_STATUS_TABLE).execute())
+            .eventually(connectionManager::close)
+            .onSuccess(ignored -> {
+                log.info("Application-specific consumer tables created before Spring context startup");
+                testContext.completeNow();
+            })
+            .onFailure(error -> {
+                log.error("Failed to create application-specific consumer tables before startup", error);
+                testContext.failNow(error);
+            });
     }
 
     @BeforeEach
@@ -321,6 +344,9 @@ public class OrderConsumerServiceTest {
             "Shared test properties must bind the non-shared pool setting");
         assertFalse(manager.getConfiguration().getPoolConfig().isShared(),
             "Spring integration tests must create non-shared reactive pools");
+        assertFalse(manager.getConfiguration().getProperties()
+                .containsKey("peegeeq.database.pool.min-size"),
+            "Consumer Spring configuration must not advertise unsupported pool minimum size");
         
         log.info("Consumer Service Bean Injection test passed");
     }

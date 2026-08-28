@@ -248,7 +248,6 @@ public class PerformanceTuningExampleTest {
         props.setProperty("peegeeq.database.ssl.enabled", "false");
         
         // Performance optimization properties
-        props.setProperty("peegeeq.database.pool.min-size", "1");
         props.setProperty("peegeeq.database.pool.max-size", "3");
         props.setProperty("peegeeq.database.pool.shared", "false");
         props.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
@@ -478,5 +477,4 @@ public class PerformanceTuningExampleTest {
         }
     }
 }
-
 

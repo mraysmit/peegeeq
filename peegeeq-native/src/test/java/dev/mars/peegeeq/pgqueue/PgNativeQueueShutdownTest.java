@@ -129,16 +129,15 @@ class PgNativeQueueShutdownTest {
         logger.info("Test: basic shutdown without errors");
         // Step 1: Send a simple message
         String testMessage = "Basic shutdown test";
-        producer.send(testMessage).onFailure(testContext::failNow);
-
         // Step 2: Process the message
         AtomicBoolean messageReceived = new AtomicBoolean(false);
 
-        consumer.subscribe(message -> {
+        Future<Void> subscription = consumer.subscribe(message -> {
             messageReceived.set(true);
             testContext.completeNow();
             return Future.succeededFuture();
         });
+        subscription.compose(v -> producer.send(testMessage)).onFailure(testContext::failNow);
 
         // Step 3: Wait for processing
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
@@ -153,12 +152,10 @@ class PgNativeQueueShutdownTest {
         logger.info("Test: shutdown during message processing");
         // Step 1: Send a message
         String testMessage = "Shutdown during processing test";
-        producer.send(testMessage).onFailure(testContext::failNow);
-
         // Step 2: Set up consumer that will trigger shutdown during processing
         AtomicBoolean messageReceived = new AtomicBoolean(false);
 
-        consumer.subscribe(message -> {
+        Future<Void> subscription = consumer.subscribe(message -> {
             messageReceived.set(true);
 
             // Initiate shutdown immediately after receiving message
@@ -167,12 +164,14 @@ class PgNativeQueueShutdownTest {
                     consumer.close();
                     testContext.completeNow();
                 } catch (Exception e) {
-                    // Ignore
+                    logger.error("Consumer close failed during message processing", e);
+                    testContext.failNow(e);
                 }
             });
 
             return Future.succeededFuture();
         });
+        subscription.compose(v -> producer.send(testMessage)).onFailure(testContext::failNow);
 
         // Step 3: Wait for shutdown
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
@@ -182,7 +181,8 @@ class PgNativeQueueShutdownTest {
     @Test
     void testFactoryCloseClosesCreatedConsumers(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Test: factory close closes created consumers");
-        consumer.subscribe(message -> Future.succeededFuture());
+        Future<Void> subscription = consumer.subscribe(message -> Future.succeededFuture());
+        subscription.onFailure(testContext::failNow);
 
         PgNativeQueueConsumer<?> concrete = (PgNativeQueueConsumer<?>) consumer;
 
@@ -231,5 +231,4 @@ class PgNativeQueueShutdownTest {
         return field.getLong(consumer);
     }
 }
-
 

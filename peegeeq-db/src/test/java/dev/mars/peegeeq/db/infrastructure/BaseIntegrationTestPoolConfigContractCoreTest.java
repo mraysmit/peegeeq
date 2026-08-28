@@ -40,7 +40,6 @@ class BaseIntegrationTestPoolConfigContractCoreTest {
     @BeforeEach
     void setUp() {
         testProps = new Properties();
-        testProps.setProperty("peegeeq.database.pool.min-size", "1");
         testProps.setProperty("peegeeq.database.pool.max-size", "3");
         testProps.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
         testProps.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");

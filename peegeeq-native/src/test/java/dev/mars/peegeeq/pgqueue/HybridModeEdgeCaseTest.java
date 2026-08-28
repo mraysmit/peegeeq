@@ -127,20 +127,18 @@ class HybridModeEdgeCaseTest {
         AtomicInteger messageCount = new AtomicInteger(0);
         Checkpoint messagesReceived = testContext.checkpoint(3);
 
-        consumer.subscribe(message -> {
+        Future<Void> subscription = consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             logger.info(" Received HYBRID message {}: {}", count, message.getPayload());
             messagesReceived.flag();
             return Future.succeededFuture();
         });
 
-        // Wait for LISTEN/NOTIFY setup, then send
-        vertx.setTimer(500, id -> {
-            producer.send("HYBRID message 1")
+        subscription
+            .compose(v -> producer.send("HYBRID message 1"))
                 .compose(v -> producer.send("HYBRID message 2"))
                 .compose(v -> producer.send("HYBRID message 3"))
-                .onFailure(testContext::failNow);
-        });
+            .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive all 3 messages quickly via LISTEN/NOTIFY");
         assertEquals(3, messageCount.get(), "Should have processed exactly 3 messages");
@@ -176,7 +174,7 @@ class HybridModeEdgeCaseTest {
             logger.info(" Received existing message {}: {}", count, message.getPayload());
             messagesReceived.flag();
             return Future.succeededFuture();
-        });
+        }).onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive existing messages via polling fallback");
         assertEquals(2, messageCount.get(), "Should have processed exactly 2 existing messages");
@@ -207,20 +205,20 @@ class HybridModeEdgeCaseTest {
         AtomicInteger messageCount = new AtomicInteger(0);
         Checkpoint allMessages = testContext.checkpoint(5);
 
-        consumer.subscribe(message -> {
+        Future<Void> subscription = consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             logger.info(" Received hybrid message {}: {}", count, message.getPayload());
             allMessages.flag();
             return Future.succeededFuture();
         });
 
-        // Wait for existing messages to be polled, then send new messages via LISTEN/NOTIFY
-        vertx.setTimer(5000, id -> {
-            producer.send("New message 1")
+        // Give polling time to process the existing messages before exercising LISTEN/NOTIFY.
+        subscription
+            .compose(v -> vertx.timer(5000))
+            .compose(v -> producer.send("New message 1"))
                 .compose(v -> producer.send("New message 2"))
                 .compose(v -> producer.send("New message 3"))
-                .onFailure(testContext::failNow);
-        });
+            .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Should receive all 5 messages via both mechanisms");
         assertEquals(5, messageCount.get(), "Should have processed exactly 5 messages");
@@ -248,7 +246,7 @@ class HybridModeEdgeCaseTest {
         AtomicReference<String> lastMessage = new AtomicReference<>();
         Checkpoint messageReceived = testContext.checkpoint();
 
-        consumer.subscribe(message -> {
+        Future<Void> subscription = consumer.subscribe(message -> {
             messageCount.incrementAndGet();
             lastMessage.set(message.getPayload());
             logger.info(" Received cleanup test message: {}", message.getPayload());
@@ -257,7 +255,9 @@ class HybridModeEdgeCaseTest {
         });
 
         // Send a message to verify consumer is working
-        producer.send("Cleanup test message").onFailure(testContext::failNow);
+        subscription
+            .compose(v -> producer.send("Cleanup test message"))
+            .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
 
@@ -288,7 +288,7 @@ class HybridModeEdgeCaseTest {
         AtomicInteger messageCount = new AtomicInteger(0);
         Checkpoint messagesReceived = testContext.checkpoint(6);
 
-        consumer.subscribe(message -> {
+        Future<Void> sendChain = consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             logger.info(" Received ordered message {}: {}", count, message.getPayload());
             messagesReceived.flag();
@@ -297,8 +297,10 @@ class HybridModeEdgeCaseTest {
 
         // Send messages in sequence
         for (int i = 1; i <= 6; i++) {
-            producer.send("Message " + i).onFailure(testContext::failNow);
+            String payload = "Message " + i;
+            sendChain = sendChain.compose(v -> producer.send(payload));
         }
+        sendChain.onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive all 6 messages");
         assertEquals(6, messageCount.get(), "Should have processed exactly 6 messages");
@@ -326,7 +328,7 @@ class HybridModeEdgeCaseTest {
         AtomicInteger messageCount = new AtomicInteger(0);
         Checkpoint messagesReceived = testContext.checkpoint(15);
 
-        consumer.subscribe(message -> {
+        Future<Void> sendChain = consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             if (count % 3 == 0) {
                 logger.info(" Processed {} messages so far", count);
@@ -337,8 +339,10 @@ class HybridModeEdgeCaseTest {
 
         // Send messages
         for (int i = 1; i <= 15; i++) {
-            producer.send("Performance test message " + i).onFailure(testContext::failNow);
+            String payload = "Performance test message " + i;
+            sendChain = sendChain.compose(v -> producer.send(payload));
         }
+        sendChain.onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Should handle moderate load efficiently");
         assertEquals(15, messageCount.get(), "Should have processed exactly 15 messages");
@@ -348,5 +352,4 @@ class HybridModeEdgeCaseTest {
         logger.info("HYBRID mode handles moderate load efficiently");
     }
 }
-
 

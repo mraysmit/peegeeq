@@ -138,10 +138,8 @@ class OutboxErrorHandlingSpringBootTest {
                 successCheckpoint.flag();
                 return Future.succeededFuture();
             }
-        });
-        
-        // Send message
-        producer.send("Transient error test message").onFailure(testContext::failNow);
+        }).compose(v -> producer.send("Transient error test message"))
+          .onFailure(testContext::failNow);
         
         // Wait for eventual success
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
@@ -180,10 +178,8 @@ class OutboxErrorHandlingSpringBootTest {
             attemptCheckpoint.flag();
             return Future.failedFuture(
                 new RuntimeException("Simulated permanent error"));
-        });
-        
-        // Send message
-        producer.send("Permanent error test message").onFailure(testContext::failNow);
+        }).compose(v -> producer.send("Permanent error test message"))
+          .onFailure(testContext::failNow);
 
         // Wait for all retry attempts
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
@@ -242,11 +238,10 @@ class OutboxErrorHandlingSpringBootTest {
                 return Future.failedFuture(
                     new RuntimeException("Permanent error"));
             }
-        });
-        
-        // Send both types of messages
-        producer.send("transient error message").onFailure(testContext::failNow);
-        producer.send("permanent error message").onFailure(testContext::failNow);
+        }).compose(v -> Future.all(
+                producer.send("transient error message"),
+                producer.send("permanent error message")))
+          .onFailure(testContext::failNow);
         
         // Wait for outcomes
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 

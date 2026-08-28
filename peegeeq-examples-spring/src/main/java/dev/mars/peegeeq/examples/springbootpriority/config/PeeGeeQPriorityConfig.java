@@ -257,7 +257,6 @@ public class PeeGeeQPriorityConfig {
         props.setProperty("peegeeq.database.ssl.enabled", String.valueOf(properties.getDatabase().getSsl().isEnabled()));
         props.setProperty("peegeeq.database.schema", properties.getDatabase().getSchema());
         props.setProperty("peegeeq.database.pool.max-size", String.valueOf(properties.getDatabase().getPool().getMaxSize()));
-        props.setProperty("peegeeq.database.pool.min-size", String.valueOf(properties.getDatabase().getPool().getMinSize()));
         props.setProperty("peegeeq.database.pool.shared", String.valueOf(properties.getDatabase().getPool().isShared()));
         props.setProperty("peegeeq.queue.polling-interval", properties.getQueue().getPollingInterval());
         props.setProperty("peegeeq.queue.max-retries", String.valueOf(properties.getQueue().getMaxRetries()));

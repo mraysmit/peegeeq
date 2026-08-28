@@ -102,41 +102,34 @@ public class TracePropagationTest {
                     throw new AssertionError("MDC mismatch in worker! Expected: " + expectedTraceId + ", Found: " + mdcTrace);
                 }
                 return "done";
-            }).onComplete(ar -> {
-                if (ar.succeeded()) {
-                    // 6. Log on EventLoop (Phase 3)
-                    log.info("Phase 3: EventLoop End");
+            }).onSuccess(result -> {
+                // 6. Log on EventLoop (Phase 3)
+                log.info("Phase 3: EventLoop End");
 
-                    // Assertions
-                    try {
-                        List<String> logs = traceAppender.getCapturedLogs();
+                testContext.verify(() -> {
+                    List<String> logs = traceAppender.getCapturedLogs();
 
-                        boolean foundPhase1 = false;
-                        boolean foundPhase2 = false;
-                        boolean foundPhase3 = false;
+                    boolean foundPhase1 = false;
+                    boolean foundPhase2 = false;
+                    boolean foundPhase3 = false;
 
-                        for (String line : logs) {
-                            if (line.contains("Phase 1") && line.contains("captured-trace=" + expectedTraceId)) foundPhase1 = true;
-                            if (line.contains("Phase 2") && line.contains("captured-trace=" + expectedTraceId)) foundPhase2 = true;
-                            if (line.contains("Phase 3") && line.contains("captured-trace=" + expectedTraceId)) foundPhase3 = true;
-                        }
-
-                        if (!foundPhase1) logger.warn("FAILED: Phase 1 trace missing. Logs: {}", logs);
-                        if (!foundPhase2) logger.warn("FAILED: Phase 2 trace missing. Logs: {}", logs);
-                        if (!foundPhase3) logger.warn("FAILED: Phase 3 trace missing. Logs: {}", logs);
-
-                        if (foundPhase1 && foundPhase2 && foundPhase3) {
-                            testContext.completeNow();
-                        } else {
-                            testContext.failNow(new AssertionError("Trace ID propagation failed. See stderr."));
-                        }
-                    } catch (Throwable t) {
-                        testContext.failNow(t);
+                    for (String line : logs) {
+                        if (line.contains("Phase 1") && line.contains("captured-trace=" + expectedTraceId)) foundPhase1 = true;
+                        if (line.contains("Phase 2") && line.contains("captured-trace=" + expectedTraceId)) foundPhase2 = true;
+                        if (line.contains("Phase 3") && line.contains("captured-trace=" + expectedTraceId)) foundPhase3 = true;
                     }
-                } else {
-                    testContext.failNow(ar.cause());
-                }
-            });
+
+                    if (!foundPhase1) logger.warn("FAILED: Phase 1 trace missing. Logs: {}", logs);
+                    if (!foundPhase2) logger.warn("FAILED: Phase 2 trace missing. Logs: {}", logs);
+                    if (!foundPhase3) logger.warn("FAILED: Phase 3 trace missing. Logs: {}", logs);
+
+                    if (foundPhase1 && foundPhase2 && foundPhase3) {
+                        testContext.completeNow();
+                    } else {
+                        throw new AssertionError("Trace ID propagation failed. See stderr.");
+                    }
+                });
+            }).onFailure(testContext::failNow);
         });
     }
     

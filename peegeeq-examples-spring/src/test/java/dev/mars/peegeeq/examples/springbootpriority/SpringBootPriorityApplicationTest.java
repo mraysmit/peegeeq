@@ -18,6 +18,9 @@ package dev.mars.peegeeq.examples.springbootpriority;
 
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.PeeGeeQManager;
+import dev.mars.peegeeq.db.config.PgConnectionConfig;
+import dev.mars.peegeeq.db.config.PgPoolConfig;
+import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springbootpriority.config.PeeGeeQPriorityProperties;
 import dev.mars.peegeeq.examples.springbootpriority.controller.TradeProducerController;
@@ -30,6 +33,8 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
+import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -56,9 +61,9 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.util.Map;
-import io.vertx.junit5.VertxTestContext;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -104,65 +109,71 @@ public class SpringBootPriorityApplicationTest {
     }
 
     @BeforeAll
-    static void initializeSchema() {
+    static void initializeSchema(Vertx vertx, VertxTestContext testContext) {
         log.info("Initializing database schema for Spring Boot priority test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
         log.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
-        // Create application-specific tables that are needed during Spring Boot startup
-        log.info("Creating application-specific tables for priority test");
-        try {
-            String jdbcUrl = postgres.getJdbcUrl();
-            String username = postgres.getUsername();
-            String password = postgres.getPassword();
+        String createTradeSettlementsTable = """
+            CREATE TABLE IF NOT EXISTS trade_settlements (
+                id VARCHAR(255) PRIMARY KEY,
+                trade_id VARCHAR(255) NOT NULL,
+                counterparty VARCHAR(255) NOT NULL,
+                amount DECIMAL(19, 4) NOT NULL,
+                currency VARCHAR(3) NOT NULL,
+                settlement_date DATE NOT NULL,
+                status VARCHAR(50) NOT NULL,
+                priority VARCHAR(20) NOT NULL,
+                failure_reason TEXT,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                processed_at TIMESTAMP,
+                processed_by VARCHAR(255)
+            )
+            """;
+        String createPriorityConsumerMetricsTable = """
+            CREATE TABLE IF NOT EXISTS priority_consumer_metrics (
+                consumer_id VARCHAR(255) PRIMARY KEY,
+                consumer_type VARCHAR(50) NOT NULL,
+                priority_filter VARCHAR(20),
+                messages_processed BIGINT NOT NULL DEFAULT 0,
+                critical_processed BIGINT NOT NULL DEFAULT 0,
+                high_processed BIGINT NOT NULL DEFAULT 0,
+                normal_processed BIGINT NOT NULL DEFAULT 0,
+                messages_filtered BIGINT NOT NULL DEFAULT 0,
+                last_message_at TIMESTAMP,
+                started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                status VARCHAR(50) NOT NULL
+            )
+            """;
+        PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
+            .host(postgres.getHost())
+            .port(postgres.getFirstMappedPort())
+            .database(postgres.getDatabaseName())
+            .username(postgres.getUsername())
+            .password(postgres.getPassword())
+            .schema(PostgreSQLTestConstants.TEST_SCHEMA)
+            .build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder()
+            .maxSize(1)
+            .shared(false)
+            .idleTimeout(Duration.ofSeconds(2))
+            .connectionTimeout(Duration.ofSeconds(5))
+            .build();
+        PgConnectionManager connectionManager = new PgConnectionManager(vertx);
+        Pool pool = connectionManager.getOrCreateReactivePool("priority-schema-init", connectionConfig, poolConfig);
 
-            try (java.sql.Connection connection = java.sql.DriverManager.getConnection(jdbcUrl, username, password)) {
-                // Create trade_settlements table
-                String createTradeSettlementsTable = """
-                    CREATE TABLE IF NOT EXISTS trade_settlements (
-                        id VARCHAR(255) PRIMARY KEY,
-                        trade_id VARCHAR(255) NOT NULL,
-                        counterparty VARCHAR(255) NOT NULL,
-                        amount DECIMAL(19, 4) NOT NULL,
-                        currency VARCHAR(3) NOT NULL,
-                        settlement_date DATE NOT NULL,
-                        status VARCHAR(50) NOT NULL,
-                        priority VARCHAR(20) NOT NULL,
-                        failure_reason TEXT,
-                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                        processed_at TIMESTAMP,
-                        processed_by VARCHAR(255)
-                    )
-                    """;
-
-                // Create priority_consumer_metrics table
-                String createPriorityConsumerMetricsTable = """
-                    CREATE TABLE IF NOT EXISTS priority_consumer_metrics (
-                        consumer_id VARCHAR(255) PRIMARY KEY,
-                        consumer_type VARCHAR(50) NOT NULL,
-                        priority_filter VARCHAR(20),
-                        messages_processed BIGINT NOT NULL DEFAULT 0,
-                        critical_processed BIGINT NOT NULL DEFAULT 0,
-                        high_processed BIGINT NOT NULL DEFAULT 0,
-                        normal_processed BIGINT NOT NULL DEFAULT 0,
-                        messages_filtered BIGINT NOT NULL DEFAULT 0,
-                        last_message_at TIMESTAMP,
-                        started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                        status VARCHAR(50) NOT NULL
-                    )
-                    """;
-
-                try (java.sql.Statement statement = connection.createStatement()) {
-                    statement.execute(createTradeSettlementsTable);
-                    statement.execute(createPriorityConsumerMetricsTable);
-                    log.info("Application-specific tables created successfully");
-                }
-            }
-        } catch (Exception e) {
-            log.error("Failed to create application-specific tables", e);
-            throw new RuntimeException("Failed to create application-specific tables", e);
-        }
+        pool.query(createTradeSettlementsTable).execute()
+            .compose(ignored -> pool.query(createPriorityConsumerMetricsTable).execute())
+            .eventually(connectionManager::close)
+            .onSuccess(ignored -> {
+                log.info("Application-specific tables created successfully");
+                testContext.completeNow();
+            })
+            .onFailure(error -> {
+                log.error("Failed to create application-specific tables", error);
+                testContext.failNow(error);
+            });
     }
 
 
@@ -201,6 +212,9 @@ public class SpringBootPriorityApplicationTest {
             "Shared test properties must bind the non-shared pool setting");
         assertFalse(manager.getConfiguration().getPoolConfig().isShared(),
             "Spring integration tests must create non-shared reactive pools");
+        assertFalse(manager.getConfiguration().getProperties()
+                .containsKey("peegeeq.database.pool.min-size"),
+            "Priority Spring configuration must not advertise unsupported pool minimum size");
         log.info("Application starts test passed");
     }
     

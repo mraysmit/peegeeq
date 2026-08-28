@@ -94,7 +94,6 @@ class PeeGeeQReactiveConnectionPoolPerformanceTest {
         testProps.setProperty("peegeeq.database.ssl.enabled", "false");
         testProps.setProperty("peegeeq.database.schema", PostgreSQLTestConstants.TEST_SCHEMA);
 
-        testProps.setProperty("peegeeq.database.pool.min-size", "10");
         testProps.setProperty("peegeeq.database.pool.max-size", "20");
         // Unlimited wait queue required: 2000 requests against pool size 20 means up to
         // 1980 requests must queue. The production default cap of 128 would reject the

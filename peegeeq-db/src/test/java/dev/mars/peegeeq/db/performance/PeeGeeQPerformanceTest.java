@@ -115,7 +115,6 @@ class PeeGeeQPerformanceTest {
         testProps.setProperty("peegeeq.database.schema", PostgreSQLTestConstants.TEST_SCHEMA);
 
         // Performance optimized settings
-        testProps.setProperty("peegeeq.database.pool.min-size", "10");
         testProps.setProperty("peegeeq.database.pool.max-size", "20");
         testProps.setProperty("peegeeq.database.pool.shared", "false");
         testProps.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");

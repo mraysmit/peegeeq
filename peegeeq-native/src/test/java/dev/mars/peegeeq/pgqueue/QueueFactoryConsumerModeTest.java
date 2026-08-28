@@ -131,7 +131,7 @@ class QueueFactoryConsumerModeTest {
         AtomicInteger messageCount = new AtomicInteger(0);
         Checkpoint messageReceived = testContext.checkpoint();
 
-        consumer.subscribe(message -> {
+        Future<Void> subscription = consumer.subscribe(message -> {
             messageCount.incrementAndGet();
             logger.info("\ud83d\udce8 Received factory test message: {}", message.getPayload());
             messageReceived.flag();
@@ -139,7 +139,9 @@ class QueueFactoryConsumerModeTest {
         });
 
         // Send test message
-        producer.send("Factory test message").onFailure(testContext::failNow);
+        subscription
+            .compose(v -> producer.send("Factory test message"))
+            .onFailure(testContext::failNow);
 
         // Verify message received
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message via factory-created consumer");
@@ -167,7 +169,7 @@ class QueueFactoryConsumerModeTest {
         AtomicInteger messageCount = new AtomicInteger(0);
         Checkpoint messageReceived = testContext.checkpoint();
 
-        consumer.subscribe(message -> {
+        Future<Void> subscription = consumer.subscribe(message -> {
             messageCount.incrementAndGet();
             logger.info("\ud83d\udce8 Received null config test message: {}", message.getPayload());
             messageReceived.flag();
@@ -175,7 +177,9 @@ class QueueFactoryConsumerModeTest {
         });
 
         // Send test message
-        producer.send("Null config test message").onFailure(testContext::failNow);
+        subscription
+            .compose(v -> producer.send("Null config test message"))
+            .onFailure(testContext::failNow);
 
         // Verify message received
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message via consumer created with null config");
@@ -274,7 +278,7 @@ class QueueFactoryConsumerModeTest {
         AtomicInteger messageCount = new AtomicInteger(0);
         Checkpoint messageReceived = testContext.checkpoint();
 
-        consumer.subscribe(message -> {
+        Future<Void> subscription = consumer.subscribe(message -> {
             messageCount.incrementAndGet();
             logger.info("\ud83d\udce8 Received backward compatibility test message: {}", message.getPayload());
             messageReceived.flag();
@@ -282,7 +286,9 @@ class QueueFactoryConsumerModeTest {
         });
 
         // Send test message
-        producer.send("Backward compatibility test message").onFailure(testContext::failNow);
+        subscription
+            .compose(v -> producer.send("Backward compatibility test message"))
+            .onFailure(testContext::failNow);
 
         // Verify message received
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message via backward compatible consumer");

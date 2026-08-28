@@ -59,7 +59,6 @@ public class ReactiveOutboxProducerTest {
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
-                .property("peegeeq.database.pool.min-size", "1")
                 .property("peegeeq.database.pool.max-size", "3")
                 .build();
 
@@ -258,4 +257,3 @@ public class ReactiveOutboxProducerTest {
         ).map(count -> count != null && count > 0);
     }
 }
-

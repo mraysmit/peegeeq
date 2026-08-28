@@ -208,9 +208,7 @@ class JsonbConversionValidationTest {
         MessageProducer<String> producer = factory.createProducer(topic, String.class);
         MessageConsumer<String> consumer = factory.createConsumer(topic, String.class);
 
-        producer.send(testMessage, headers).onFailure(testContext::failNow);
-
-        consumer.subscribe(message -> {
+        Future<Void> subscription = consumer.subscribe(message -> {
             testContext.verify(() -> {
                 String receivedMessage = message.getPayload();
                 assertNotNull(receivedMessage, "Payload should not be null");
@@ -226,10 +224,11 @@ class JsonbConversionValidationTest {
             });
             return Future.succeededFuture();
         });
+        subscription.compose(v -> producer.send(testMessage, headers))
+                .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS),
                 "Message should be processed within 10 seconds");
     }
 }
-
 
