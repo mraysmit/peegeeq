@@ -12,7 +12,6 @@ peegeeq:
     schema: public
   pool:
     max-size: 20
-    min-size: 5
   queue:
     max-retries: 3
     visibility-timeout: PT30S

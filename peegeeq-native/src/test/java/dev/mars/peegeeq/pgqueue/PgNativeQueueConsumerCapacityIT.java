@@ -82,7 +82,6 @@ class PgNativeQueueConsumerCapacityIT {
         Properties testProperties = PeeGeeQTestConfig.builder()
                 .from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
-                .property("peegeeq.database.pool.min-size", "1")
                 .property("peegeeq.database.pool.max-size", "1")
                 .property("peegeeq.queue.visibility-timeout", "PT30S")
                 .property("peegeeq.metrics.enabled", "false")

@@ -1043,7 +1043,6 @@ peegeeq.database.password=your_password
 
 # Connection pool
 peegeeq.database.pool.maxSize=10
-peegeeq.database.pool.minSize=2
 
 # Queue settings
 peegeeq.queue.visibilityTimeoutSeconds=30
@@ -4236,7 +4235,6 @@ peegeeq.database.password=your_password
 
 # Connection pool
 peegeeq.database.pool.maxSize=20
-peegeeq.database.pool.minSize=5
 
 # Queue settings
 peegeeq.queue.visibilityTimeoutSeconds=30
@@ -4374,7 +4372,6 @@ peegeeq.database.password=${DB_PASSWORD}
 
 # Production-optimized settings
 peegeeq.database.pool.maxSize=20
-peegeeq.database.pool.minSize=5
 peegeeq.queue.visibilityTimeoutSeconds=300
 peegeeq.queue.maxRetries=5
 peegeeq.health.intervalSeconds=30
@@ -5130,7 +5127,6 @@ peegeeq.database.ssl.mode=require
 
 # Connection pool
 peegeeq.database.pool.maxSize=20
-peegeeq.database.pool.minSize=5
 peegeeq.database.pool.connectionTimeoutMs=30000
 peegeeq.database.pool.idleTimeoutMs=600000
 peegeeq.database.pool.maxLifetimeMs=1800000
@@ -11999,13 +11995,10 @@ public class PeeGeeQProperties {
 
     public static class Pool {
         private int maxSize = 20;
-        private int minSize = 5;
 
         public int getMaxSize() { return maxSize; }
         public void setMaxSize(int maxSize) { this.maxSize = maxSize; }
 
-        public int getMinSize() { return minSize; }
-        public void setMinSize(int minSize) { this.minSize = minSize; }
     }
 
     public static class Queue {
@@ -12128,7 +12121,6 @@ public class PeeGeeQConfig {
 
         // Configure pool settings
         System.setProperty("peegeeq.database.pool.max-size", String.valueOf(properties.getPool().getMaxSize()));
-        System.setProperty("peegeeq.database.pool.min-size", String.valueOf(properties.getPool().getMinSize()));
 
         // Configure queue settings
         System.setProperty("peegeeq.queue.max-retries", String.valueOf(properties.getQueue().getMaxRetries()));

@@ -362,7 +362,7 @@ class MicroservicesCommunicationDemoTest {
         MessageConsumer<ServiceMessage> responseConsumer = queueFactory.createConsumer(responseQueue, ServiceMessage.class);
 
         // Request handler - simulates service processing
-        requestConsumer.subscribe(message -> {
+        Future<Void> requestSubscription = requestConsumer.subscribe(message -> {
             ServiceMessage request = message.getPayload();
 
             logger.info("Processing request: {} for service: {}", request.messageType, request.targetService);
@@ -385,7 +385,7 @@ class MicroservicesCommunicationDemoTest {
         });
 
         // Response handler - collects responses
-        responseConsumer.subscribe(message -> {
+        Future<Void> responseSubscription = responseConsumer.subscribe(message -> {
             ServiceMessage response = message.getPayload();
 
             logger.info("Received response: {} from service: {}", response.messageType, response.sourceService);
@@ -395,6 +395,7 @@ class MicroservicesCommunicationDemoTest {
             responseCheckpoint.flag();
             return Future.succeededFuture();
         });
+        Future<Void> subscriptions = Future.all(requestSubscription, responseSubscription).mapEmpty();
 
         // Send requests to different services
         logger.info("Sending requests to microservices...");
@@ -411,7 +412,7 @@ class MicroservicesCommunicationDemoTest {
             "req-001", correlationId1, "order-service", "inventory-service",
             "InventoryCheckRequest", inventoryPayload, responseQueue
         );
-        requestProducer.send(inventoryRequest)
+        subscriptions.compose(v -> requestProducer.send(inventoryRequest))
                 .onFailure(testContext::failNow);
 
         // Request 2: Process payment
@@ -422,7 +423,7 @@ class MicroservicesCommunicationDemoTest {
             "req-002", correlationId2, "order-service", "payment-service",
             "PaymentProcessRequest", paymentPayload, responseQueue
         );
-        requestProducer.send(paymentRequest)
+        subscriptions.compose(v -> requestProducer.send(paymentRequest))
                 .onFailure(testContext::failNow);
 
         // Request 3: Schedule shipping
@@ -433,7 +434,7 @@ class MicroservicesCommunicationDemoTest {
             "req-003", correlationId3, "order-service", "shipping-service",
             "ShippingScheduleRequest", shippingPayload, responseQueue
         );
-        requestProducer.send(shippingRequest)
+        subscriptions.compose(v -> requestProducer.send(shippingRequest))
                 .onFailure(testContext::failNow);
 
         // Wait for all requests and responses
@@ -475,5 +476,4 @@ class MicroservicesCommunicationDemoTest {
         logger.info("Request-Response Pattern test completed successfully");
     }
 }
-
 

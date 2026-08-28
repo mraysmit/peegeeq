@@ -56,6 +56,7 @@ class PgNativeQueueConcurrentClaimIT {
     private VertxPoolAdapter adapter;
     private Pool pool;
     private ObjectMapper mapper;
+    private PeeGeeQConfiguration config;
 
     @BeforeAll
     static void beforeAll() {
@@ -72,7 +73,7 @@ class PgNativeQueueConcurrentClaimIT {
                 .build();
 
         // Initialize PeeGeeQ Manager
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
+        config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start()
                 .onSuccess(v -> {
@@ -124,25 +125,26 @@ class PgNativeQueueConcurrentClaimIT {
             .batchSize(1)
             .build();
 
-        PgNativeQueueConsumer<String> c1 = new PgNativeQueueConsumer<>(adapter, mapper, TOPIC, String.class, null, null, cfg);
-        PgNativeQueueConsumer<String> c2 = new PgNativeQueueConsumer<>(adapter, mapper, TOPIC, String.class, null, null, cfg);
+        PgNativeQueueConsumer<String> c1 = new PgNativeQueueConsumer<>(adapter, mapper, TOPIC, String.class, null, config, cfg);
+        PgNativeQueueConsumer<String> c2 = new PgNativeQueueConsumer<>(adapter, mapper, TOPIC, String.class, null, config, cfg);
 
         AtomicInteger processed = new AtomicInteger();
         Set<String> payloads = Collections.synchronizedSet(new HashSet<>());
         Checkpoint bothDone = testContext.checkpoint(2);
 
-        c1.subscribe(msg -> {
+        Future<Void> c1Subscription = c1.subscribe(msg -> {
             payloads.add(msg.getPayload());
             processed.incrementAndGet();
             bothDone.flag();
             return Future.succeededFuture();
         });
-        c2.subscribe(msg -> {
+        Future<Void> c2Subscription = c2.subscribe(msg -> {
             payloads.add(msg.getPayload());
             processed.incrementAndGet();
             bothDone.flag();
             return Future.succeededFuture();
         });
+        Future.all(c1Subscription, c2Subscription).onFailure(testContext::failNow);
 
         // Wait up to 10s for both messages to be processed exactly once
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
@@ -153,6 +155,4 @@ class PgNativeQueueConcurrentClaimIT {
         c2.close();
     }
 }
-
-
 

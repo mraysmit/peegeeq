@@ -4,192 +4,66 @@ import dev.mars.peegeeq.api.database.DatabaseConfig;
 import dev.mars.peegeeq.api.setup.DatabaseSetupRequest;
 import dev.mars.peegeeq.integration.SmokeTestBase;
 import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
-
-import org.junit.jupiter.api.Tag;
-import org.junit.jupiter.api.extension.ExtendWith;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
+import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import io.vertx.junit5.VertxTestContext;
+import io.vertx.junit5.Timeout;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+
 import java.util.Collections;
 import java.util.UUID;
-
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Resilience smoke tests that verify system behaviour when PostgreSQL becomes
  * unavailable and subsequently recovers.
  *
- * <h2>Intentional Design: Main-Thread CountDownLatch + {@code throws Exception}</h2>
- *
- * <p>These tests deliberately use {@code CountDownLatch} and run on the main JUnit
- * thread rather than adopting the {@code VertxTestContext} + {@code Checkpoint} pattern
- * used elsewhere in the suite. This is not a violation of the project antipattern guide;
- * it is the correct architecture for this specific test concern. The reasons are:
- *
- * <h3>1. Synchronous Docker container lifecycle calls</h3>
- * <p>The core test operations  {@code pauseContainerCmd(...).exec()} and
- * {@code unpauseContainerCmd(...).exec()}  are synchronous blocking Docker API calls.
- * Placing them inside a {@code Future} pipeline that runs on the Vert.x event loop would
- * block the event loop thread, which is forbidden. Wrapping each in
- * {@code vertx.executeBlocking(...)} would add substantial boilerplate while providing
- * no correctness benefit, because the pause/unpause sequence is inherently synchronous
- * and sequential  there is no meaningful parallelism to gain.
- *
- * <h3>2. Retry polling loops require inter-attempt delays</h3>
- * <p>The tests poll the health endpoint up to 10 times waiting for the system to
- * detect connection loss (503) or recover (200). Each iteration needs a ~1 second
- * pause. Blocking fixed delays are forbidden by the project rules. The pattern used
- * {@code vertx.timer(1000).onComplete(ar -> timerLatch.countDown())} on the main
- * JUnit thread  is the correct substitute: it delegates the timer to Vert.x (which
- * fires on the event loop) and the main thread waits on the latch without blocking
- * any Vert.x thread.
- *
- * <h3>3. All latches are on the main JUnit thread, never inside event-loop callbacks</h3>
- * <p>The antipattern guide prohibits {@code latch.await()} <em>inside</em>
- * {@code onSuccess} / {@code onComplete} callbacks because it blocks the Vert.x event
- * loop and causes deadlocks. That pattern does not appear here. Every
- * {@code latch.await()} call is on the main thread ({@code throws Exception} test
- * method), which is a normal blocking thread. The {@code CountDownLatch} callbacks
- * ({@code onSuccess}, {@code onFailure}) are side-effect-only: they store a result in
- * an {@code AtomicReference} or {@code AtomicInteger} and call {@code countDown()}.
- * No assertions run inside any event-loop callback.
- *
- * <h3>4. All latches count down in both success and failure paths</h3>
- * <p>Every latch has paired {@code onSuccess} and {@code onFailure} handlers that both
- * call {@code countDown()}, preventing the main thread from hanging indefinitely if an
- * async operation fails. Errors are captured in an {@code AtomicReference} and
- * re-thrown on the main thread after the latch completes.
- *
- * <h3>Why not VertxTestContext?</h3>
- * <p>{@code VertxTestContext} is the right tool when the test is structured as a single
- * linear Future chain or a set of independent concurrent operations. It is poorly suited
- * to tests that interleave blocking external operations (Docker calls) with async Vert.x
- * calls in a loop, because {@code VertxTestContext.awaitCompletion()} cannot be called
- * mid-test to synchronise between loop iterations.
+ * <p>Docker pause and unpause calls run on a Vert.x worker. Health transitions
+ * are observed through bounded Future polling, and the test context owns the
+ * terminal success or failure signal.</p>
  */
 @DisplayName("System Resilience Smoke Tests")
 @Tag("integration")
 @ExtendWith(VertxExtension.class)
 public class ResilienceSmokeTest extends SmokeTestBase {
 
-    private static final Logger log = LoggerFactory.getLogger(ResilienceSmokeTest.class);
+    private static final int HEALTH_POLL_ATTEMPTS = 10;
+    private static final long HEALTH_POLL_DELAY_MS = 1_000;
 
     @Test
     @DisplayName("Verify 503 Service Unavailable when DB connection is lost")
-    void testDatabaseConnectionLossReturns503() throws Exception {
+    void testDatabaseConnectionLossReturns503(Vertx vertx, VertxTestContext testContext) {
         String setupId = UUID.randomUUID().toString();
-            String dbName = "peegeeq_resilience_" + setupId.replace("-", "_");
+        DatabaseSetupRequest request = setupRequest(
+                setupId,
+                "peegeeq_resilience_" + setupId.replace("-", "_"),
+                "resilience_schema");
 
-            DatabaseConfig dbConfig = new DatabaseConfig.Builder()
-                    .host(postgres.getHost())
-                    .port(postgres.getFirstMappedPort())
-                    .databaseName(dbName)
-                    .username(postgres.getUsername())
-                    .password(postgres.getPassword())
-                    .schema("resilience_schema")
-                    .build();
-
-            DatabaseSetupRequest request = new DatabaseSetupRequest(setupId, dbConfig, Collections.emptyList(), Collections.emptyList(), Collections.emptyMap());
-
-            // 1. Create setup
-            CountDownLatch setupLatch = new CountDownLatch(1);
-            AtomicReference<Throwable> setupError = new AtomicReference<>();
-            setupService.createCompleteSetup(request)
-                    .onSuccess(v -> setupLatch.countDown())
-                    .onFailure(e -> { setupError.set(e); setupLatch.countDown(); });
-            assertTrue(setupLatch.await(10, TimeUnit.SECONDS), "Setup creation timed out");
-            if (setupError.get() != null) throw new RuntimeException("Setup failed", setupError.get());
-
-            // 2. Verify Health is UP
-            CountDownLatch healthLatch = new CountDownLatch(1);
-            AtomicInteger healthStatus = new AtomicInteger(-1);
-            webClient.get("/api/v1/setups/" + setupId + "/health")
-                    .send()
-                    .onSuccess(res -> { healthStatus.set(res.statusCode()); healthLatch.countDown(); })
-                    .onFailure(e -> healthLatch.countDown());
-            assertTrue(healthLatch.await(5, TimeUnit.SECONDS), "Health check timed out");
-            assertEquals(200, healthStatus.get());
-
-            // 3. Pause DB
-            postgres.getDockerClient().pauseContainerCmd(postgres.getContainerId()).exec();
-
-            try {
-                // 4. Verify Health is DOWN (503)
-                boolean serviceUnavailable = false;
-                for (int i = 0; i < 10; i++) { // Retry for up to 10 seconds
-                    CountDownLatch checkLatch = new CountDownLatch(1);
-                    AtomicInteger checkStatus = new AtomicInteger(-1);
-                    webClient.get("/api/v1/setups/" + setupId + "/health")
-                            .timeout(2000)
-                            .send()
-                            .onSuccess(res -> { checkStatus.set(res.statusCode()); checkLatch.countDown(); })
-                            .onFailure(err -> { checkStatus.set(503); checkLatch.countDown(); }); // Treat timeout/error as 503
-
-                    checkLatch.await(3, TimeUnit.SECONDS);
-                    int status = checkStatus.get();
-                    if (status == 503) {
-                        serviceUnavailable = true;
-                        break;
-                    }
-                    CountDownLatch timerLatch = new CountDownLatch(1);
-                    vertx.timer(1000)
-                            .onSuccess(v -> timerLatch.countDown())
-                            .onFailure(err -> timerLatch.countDown());
-                    timerLatch.await(5, TimeUnit.SECONDS);
-                }
-                assertTrue(serviceUnavailable, "Service should return 503 when DB is paused");
-
-            } finally {
-                // 5. Unpause DB
-                postgres.getDockerClient().unpauseContainerCmd(postgres.getContainerId()).exec();
-            }
-            
-            // 6. Verify Health recovers
-            boolean recovered = false;
-            for (int i = 0; i < 10; i++) {
-                CountDownLatch recoverLatch = new CountDownLatch(1);
-                AtomicInteger recoverStatus = new AtomicInteger(-1);
-                webClient.get("/api/v1/setups/" + setupId + "/health")
-                        .send()
-                        .onSuccess(res -> { recoverStatus.set(res.statusCode()); recoverLatch.countDown(); })
-                        .onFailure(err -> { recoverStatus.set(500); recoverLatch.countDown(); });
-
-                try {
-                    recoverLatch.await(3, TimeUnit.SECONDS);
-                    int status = recoverStatus.get();
-                    if (status == 200) {
-                        recovered = true;
-                        break;
-                    }
-                } catch (Exception e) {
-                    log.warn("Interrupted during recovery poll wait", e);
-                    Thread.currentThread().interrupt();
-                    break;
-                }
-                CountDownLatch timerLatch = new CountDownLatch(1);
-                vertx.timer(1000)
-                        .onSuccess(v -> timerLatch.countDown())
-                        .onFailure(err -> timerLatch.countDown());
-                timerLatch.await(5, TimeUnit.SECONDS);
-            }
-            assertTrue(recovered, "Service should recover (200 OK) after DB is unpaused");
-
-            // Cleanup
-            CountDownLatch destroyLatch = new CountDownLatch(1);
-            setupService.destroySetup(setupId)
-                    .onSuccess(v -> destroyLatch.countDown())
-                    .onFailure(err -> { log.warn("destroySetup failed for {}", setupId, err); destroyLatch.countDown(); });
-            destroyLatch.await(10, TimeUnit.SECONDS);
+        setupService.createCompleteSetup(request)
+                .compose(v -> expectHealthStatus(setupId, 200, 500))
+                .compose(v -> pauseDatabase(vertx)
+                        .compose(ignored -> pollHealthUntil(
+                                vertx, setupId, 503, 503, HEALTH_POLL_ATTEMPTS,
+                                "Service should return 503 when DB is paused"))
+                        .eventually(() -> unpauseDatabase(vertx)))
+                .compose(v -> pollHealthUntil(
+                        vertx, setupId, 200, 500, HEALTH_POLL_ATTEMPTS,
+                        "Service should recover with 200 after DB is unpaused"))
+                .eventually(() -> setupService.destroySetup(setupId))
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @Test
+    @Timeout(value = 60, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Verify Circuit Breaker opens under load/failure")
     @ExpectedErrorLog(
             logger = "io.vertx.ext.web.handler.LoggerHandler",
@@ -198,90 +72,118 @@ public class ResilienceSmokeTest extends SmokeTestBase {
             throwable = ExpectedErrorLog.ThrowablePolicy.NONE,
             minOccurrences = 5,
             maxOccurrences = 13)
-    void testCircuitBreakerOpen() throws Exception {
+    void testCircuitBreakerOpen(Vertx vertx, VertxTestContext testContext) {
         String setupId = UUID.randomUUID().toString();
-            String dbName = "peegeeq_cb_" + setupId.replace("-", "_");
+        DatabaseSetupRequest request = setupRequest(
+                setupId,
+                "peegeeq_cb_" + setupId.replace("-", "_"),
+                "cb_schema");
 
-            DatabaseConfig dbConfig = new DatabaseConfig.Builder()
-                    .host(postgres.getHost())
-                    .port(postgres.getFirstMappedPort())
-                    .databaseName(dbName)
-                    .username(postgres.getUsername())
-                    .password(postgres.getPassword())
-                    .schema("cb_schema")
-                    .build();
+        setupService.createCompleteSetup(request)
+                .compose(v -> pauseDatabase(vertx)
+                        .compose(ignored -> triggerCircuitBreakerChecks(vertx, setupId, 12))
+                        .compose(ignored -> verifyFastFailure(setupId))
+                        .eventually(() -> unpauseDatabase(vertx)))
+                .eventually(() -> setupService.destroySetup(setupId))
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+    }
 
-            DatabaseSetupRequest request = new DatabaseSetupRequest(setupId, dbConfig, Collections.emptyList(), Collections.emptyList(), Collections.emptyMap());
+    private DatabaseSetupRequest setupRequest(String setupId, String databaseName, String schema) {
+        DatabaseConfig dbConfig = new DatabaseConfig.Builder()
+                .host(postgres.getHost())
+                .port(postgres.getFirstMappedPort())
+                .databaseName(databaseName)
+                .username(postgres.getUsername())
+                .password(postgres.getPassword())
+                .schema(schema)
+                .build();
 
-            // 1. Create setup
-            CountDownLatch setupLatch = new CountDownLatch(1);
-            AtomicReference<Throwable> setupError = new AtomicReference<>();
-            setupService.createCompleteSetup(request)
-                    .onSuccess(v -> setupLatch.countDown())
-                    .onFailure(e -> { setupError.set(e); setupLatch.countDown(); });
-            assertTrue(setupLatch.await(10, TimeUnit.SECONDS), "Setup creation timed out");
-            if (setupError.get() != null) throw new RuntimeException("Setup failed", setupError.get());
+        return new DatabaseSetupRequest(
+                setupId,
+                dbConfig,
+                Collections.emptyList(),
+                Collections.emptyList(),
+                Collections.emptyMap());
+    }
 
-            // 2. Pause DB to cause failures
+    private Future<Void> pauseDatabase(Vertx vertx) {
+        return vertx.<Void>executeBlocking(() -> {
             postgres.getDockerClient().pauseContainerCmd(postgres.getContainerId()).exec();
+            return null;
+        });
+    }
 
-            try {
-                // 3. Trigger failures to open circuit breaker
-                // Default config: minimumNumberOfCalls=5, health-check timeout=PT5S.
-                // Each getOverallHealthAsync() call chains onto an in-flight probe cycle
-                // (~5s each), so two iterations share each probe. We need at least
-                // 5 completed probe cycles (5 failures) before the fast check.
-                // 12 iterations at ~3.1s each = ~37s, yielding 6 probe completions.
-                for (int i = 0; i < 12; i++) {
-                    CountDownLatch checkLatch = new CountDownLatch(1);
-                    webClient.get("/api/v1/setups/" + setupId + "/health")
-                            .timeout(2000)
-                            .send()
-                            .onSuccess(res -> checkLatch.countDown())
-                            .onFailure(err -> checkLatch.countDown());
-                    
-                    try {
-                        checkLatch.await(3, TimeUnit.SECONDS);
-                    } catch (Exception e) {
-                        log.warn("Interrupted while waiting for circuit breaker check", e);
-                        Thread.currentThread().interrupt();
-                    }
-                    
-                    // Wait for health check cache to expire (interval is 1s)
-                    CountDownLatch timerLatch = new CountDownLatch(1);
-                    vertx.timer(1100)
-                            .onSuccess(v -> timerLatch.countDown())
-                            .onFailure(err -> timerLatch.countDown());
-                    timerLatch.await(5, TimeUnit.SECONDS);
-                }
+    private Future<Void> unpauseDatabase(Vertx vertx) {
+        return vertx.<Void>executeBlocking(() -> {
+            postgres.getDockerClient().unpauseContainerCmd(postgres.getContainerId()).exec();
+            return null;
+        });
+    }
 
-                // 4. Verify Circuit Breaker is OPEN (Fast failure)
-                long startTime = System.currentTimeMillis();
-                CountDownLatch fastLatch = new CountDownLatch(1);
-                AtomicInteger fastStatus = new AtomicInteger(-1);
-                webClient.get("/api/v1/setups/" + setupId + "/health")
-                        .send()
-                        .onSuccess(res -> { fastStatus.set(res.statusCode()); fastLatch.countDown(); })
-                        .onFailure(err -> { fastStatus.set(503); fastLatch.countDown(); });
-                
-                assertTrue(fastLatch.await(5, TimeUnit.SECONDS), "Fast check timed out");
-                int status = fastStatus.get();
-                long duration = System.currentTimeMillis() - startTime;
-                
-                // If CB is open, it should fail immediately, much faster than the 1000ms connection timeout
-                // We use 800ms as a safe upper bound for "fast failure" vs 1000ms timeout
-                assertTrue(duration < 800, "Circuit breaker should fail fast (took " + duration + "ms)");
-                assertEquals(503, status);
-
-            } finally {
-                postgres.getDockerClient().unpauseContainerCmd(postgres.getContainerId()).exec();
+    private Future<Void> expectHealthStatus(String setupId, int expectedStatus, int failureStatus) {
+        return healthStatus(setupId, failureStatus).compose(status -> {
+            if (status == expectedStatus) {
+                return Future.succeededFuture();
             }
-            
-            // Cleanup
-            CountDownLatch destroyLatch = new CountDownLatch(1);
-            setupService.destroySetup(setupId)
-                    .onSuccess(v -> destroyLatch.countDown())
-                    .onFailure(err -> { log.warn("destroySetup failed for {}", setupId, err); destroyLatch.countDown(); });
-            destroyLatch.await(10, TimeUnit.SECONDS);
+            return Future.failedFuture(new AssertionError(
+                    "Expected health status " + expectedStatus + " but received " + status));
+        });
+    }
+
+    private Future<Integer> pollHealthUntil(
+            Vertx vertx,
+            String setupId,
+            int expectedStatus,
+            int failureStatus,
+            int attemptsRemaining,
+            String failureMessage) {
+        return healthStatus(setupId, failureStatus).compose(status -> {
+            if (status == expectedStatus) {
+                return Future.succeededFuture(status);
+            }
+            if (attemptsRemaining <= 1) {
+                return Future.failedFuture(new AssertionError(
+                        failureMessage + "; last status was " + status));
+            }
+            return vertx.timer(HEALTH_POLL_DELAY_MS)
+                    .compose(ignored -> pollHealthUntil(
+                            vertx,
+                            setupId,
+                            expectedStatus,
+                            failureStatus,
+                            attemptsRemaining - 1,
+                            failureMessage));
+        });
+    }
+
+    private Future<Void> triggerCircuitBreakerChecks(Vertx vertx, String setupId, int checksRemaining) {
+        if (checksRemaining == 0) {
+            return Future.succeededFuture();
+        }
+        return healthStatus(setupId, 503)
+                .compose(status -> vertx.timer(1_100))
+                .compose(ignored -> triggerCircuitBreakerChecks(vertx, setupId, checksRemaining - 1));
+    }
+
+    private Future<Void> verifyFastFailure(String setupId) {
+        long startNanos = System.nanoTime();
+        return healthStatus(setupId, 503).compose(status -> {
+            long durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
+            assertTrue(durationMs < 800,
+                    "Circuit breaker should fail fast (took " + durationMs + "ms)");
+            assertEquals(503, status);
+            return Future.succeededFuture();
+        });
+    }
+
+    private Future<Integer> healthStatus(String setupId, int failureStatus) {
+        Promise<Integer> result = Promise.promise();
+        webClient.get("/api/v1/setups/" + setupId + "/health")
+                .timeout(2_000)
+                .send()
+                .onSuccess(response -> result.complete(response.statusCode()))
+                .onFailure(error -> result.complete(failureStatus));
+        return result.future();
     }
 }

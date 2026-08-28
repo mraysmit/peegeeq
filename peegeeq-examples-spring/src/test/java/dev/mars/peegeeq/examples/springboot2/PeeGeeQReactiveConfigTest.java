@@ -151,6 +151,9 @@ class PeeGeeQReactiveConfigTest {
             "Shared test properties must bind the non-shared pool setting");
         assertFalse(manager.getConfiguration().getPoolConfig().isShared(),
             "Spring integration tests must create non-shared reactive pools");
+        assertFalse(manager.getConfiguration().getProperties()
+                .containsKey("peegeeq.database.pool.min-size"),
+            "Reactive Spring configuration must not advertise unsupported pool minimum size");
         logger.info(" PeeGeeQManager is properly configured");
         logger.info(" PeeGeeQ lifecycle management is working");
 

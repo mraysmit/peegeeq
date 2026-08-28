@@ -90,7 +90,6 @@ public abstract class BaseIntegrationTest {
         Properties props = PeeGeeQTestConfig.builder()
                 .from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
-                .property("peegeeq.database.pool.min-size", "1")
                 .property("peegeeq.database.pool.max-size", "3")
                 .property("peegeeq.database.pool.connection-timeout-ms", "30000")
                 .property("peegeeq.database.pool.idle-timeout-ms", "5000")
@@ -173,4 +172,3 @@ public abstract class BaseIntegrationTest {
     }
 
 }
-

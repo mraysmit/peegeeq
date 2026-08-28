@@ -132,6 +132,7 @@ class MultiConsumerModeTest {
         int totalMessages = consumerCount * messagesPerConsumer;
 
         List<MessageConsumer<String>> consumers = new ArrayList<>();
+        List<Future<Void>> subscriptions = new ArrayList<>();
         Checkpoint messagesReceived = testContext.checkpoint(totalMessages);
         AtomicInteger totalProcessed = new AtomicInteger(0);
 
@@ -144,19 +145,19 @@ class MultiConsumerModeTest {
                         .pollingInterval(Duration.ofSeconds(1))
                         .build());
 
-                consumer.subscribe(message -> {
+                subscriptions.add(consumer.subscribe(message -> {
                     int processed = totalProcessed.incrementAndGet();
                     logger.info(" Consumer {} processed message: {} (Total: {})",
                         consumerId, message.getPayload(), processed);
                     messagesReceived.flag();
                     return Future.succeededFuture();
-                });
+                }));
 
                 consumers.add(consumer);
             }
 
             // Send messages after consumer setup
-            vertx.timer(2000).onSuccess(v -> testContext.verify(() -> {
+            Future.all(subscriptions).onSuccess(v -> testContext.verify(() -> {
                 MessageProducer<String> producer = factory.createProducer(topicName, String.class);
                 for (int i = 0; i < totalMessages; i++) {
                     producer.send("Multi-same-mode message " + (i + 1))
@@ -212,21 +213,21 @@ class MultiConsumerModeTest {
 
         try {
             // Setup message handlers
-            listenConsumer.subscribe(message -> {
+            Future<Void> listenSubscription = listenConsumer.subscribe(message -> {
                 int processed = listenNotifyProcessed.incrementAndGet();
                 logger.info(" LISTEN_NOTIFY consumer processed: {} (Count: {})", message.getPayload(), processed);
                 messagesReceived.flag();
                 return Future.succeededFuture();
             });
 
-            pollingConsumer.subscribe(message -> {
+            Future<Void> pollingSubscription = pollingConsumer.subscribe(message -> {
                 int processed = pollingProcessed.incrementAndGet();
                 logger.info(" POLLING consumer processed: {} (Count: {})", message.getPayload(), processed);
                 messagesReceived.flag();
                 return Future.succeededFuture();
             });
 
-            hybridConsumer.subscribe(message -> {
+            Future<Void> hybridSubscription = hybridConsumer.subscribe(message -> {
                 int processed = hybridProcessed.incrementAndGet();
                 logger.info(" HYBRID consumer processed: {} (Count: {})", message.getPayload(), processed);
                 messagesReceived.flag();
@@ -234,7 +235,8 @@ class MultiConsumerModeTest {
             });
 
             // Send messages after consumer setup
-            vertx.timer(2000).onSuccess(v -> testContext.verify(() -> {
+            Future.all(List.of(listenSubscription, pollingSubscription, hybridSubscription))
+                .onSuccess(v -> testContext.verify(() -> {
                 MessageProducer<String> listenProducer = factory.createProducer(topicName + "-listen", String.class);
                 MessageProducer<String> pollingProducer = factory.createProducer(topicName + "-polling", String.class);
                 MessageProducer<String> hybridProducer = factory.createProducer(topicName + "-hybrid", String.class);
@@ -246,7 +248,7 @@ class MultiConsumerModeTest {
                 listenProducer.close();
                 pollingProducer.close();
                 hybridProducer.close();
-            })).onFailure(testContext::failNow);
+                })).onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "All messages should be processed by consumers with different modes");
 
@@ -294,14 +296,14 @@ class MultiConsumerModeTest {
 
         try {
             // Setup message handlers
-            pollingConsumer.subscribe(message -> {
+            Future<Void> pollingSubscription = pollingConsumer.subscribe(message -> {
                 int processed = pollingProcessed.incrementAndGet();
                 logger.info(" POLLING consumer processed: {} (Count: {})", message.getPayload(), processed);
                 messagesReceived.flag();
                 return Future.succeededFuture();
             });
 
-            hybridConsumer.subscribe(message -> {
+            Future<Void> hybridSubscription = hybridConsumer.subscribe(message -> {
                 int processed = hybridProcessed.incrementAndGet();
                 logger.info(" HYBRID consumer processed: {} (Count: {})", message.getPayload(), processed);
                 messagesReceived.flag();
@@ -309,14 +311,15 @@ class MultiConsumerModeTest {
             });
 
             // Send messages after consumer setup
-            vertx.timer(2000).onSuccess(v -> testContext.verify(() -> {
+            Future.all(List.of(pollingSubscription, hybridSubscription))
+                .onSuccess(v -> testContext.verify(() -> {
                 MessageProducer<String> producer = factory.createProducer(topicName, String.class);
                 for (int i = 0; i < messagesPerMode; i++) {
                     producer.send("Isolation test message " + (i + 1))
                         .onFailure(testContext::failNow);
                 }
                 producer.close();
-            })).onFailure(testContext::failNow);
+                })).onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Messages should be processed by competing consumers");
 
@@ -346,6 +349,7 @@ class MultiConsumerModeTest {
         int totalMessages = consumerCount * messagesPerConsumer;
 
         List<MessageConsumer<String>> consumers = new ArrayList<>();
+        List<Future<Void>> subscriptions = new ArrayList<>();
         Checkpoint messagesReceived = testContext.checkpoint(totalMessages);
         AtomicInteger totalProcessed = new AtomicInteger(0);
 
@@ -361,7 +365,7 @@ class MultiConsumerModeTest {
                         .consumerThreads(1 + (i % 2))
                         .build());
 
-                consumer.subscribe(message -> {
+                subscriptions.add(consumer.subscribe(message -> {
                     // Simulate some processing time to test thread safety
                     Promise<Void> promise = Promise.promise();
                     vertx.setTimer(50 + (int)(Math.random() * 100), tid -> {
@@ -372,13 +376,13 @@ class MultiConsumerModeTest {
                         promise.complete();
                     });
                     return promise.future();
-                });
+                }));
 
                 consumers.add(consumer);
             }
 
             // Send messages to each consumer's topic after setup
-            vertx.timer(3000).onSuccess(v -> {
+            Future.all(subscriptions).onSuccess(v -> {
                 for (int i = 0; i < consumerCount; i++) {
                     MessageProducer<String> producer = factory.createProducer(topicName + "-" + i, String.class);
                     for (int j = 0; j < messagesPerConsumer; j++) {
@@ -432,7 +436,7 @@ class MultiConsumerModeTest {
 
         try {
             // Setup fast message handler
-            fastConsumer.subscribe(message -> {
+            Future<Void> fastSubscription = fastConsumer.subscribe(message -> {
                 int processed = fastProcessed.incrementAndGet();
                 logger.info(" FAST consumer processed: {} (Count: {})", message.getPayload(), processed);
                 allMessagesReceived.flag();
@@ -440,7 +444,7 @@ class MultiConsumerModeTest {
             });
 
             // Setup slow message handler
-            slowConsumer.subscribe(message -> {
+            Future<Void> slowSubscription = slowConsumer.subscribe(message -> {
                 int processed = slowProcessed.incrementAndGet();
                 logger.info(" SLOW consumer processed: {} (Count: {})", message.getPayload(), processed);
                 allMessagesReceived.flag();
@@ -448,7 +452,8 @@ class MultiConsumerModeTest {
             });
 
             // Send messages after consumer setup
-            vertx.timer(2000).onSuccess(v -> testContext.verify(() -> {
+            Future.all(List.of(fastSubscription, slowSubscription))
+                .onSuccess(v -> testContext.verify(() -> {
                 MessageProducer<String> fastProducer = factory.createProducer(topicName + "-fast", String.class);
                 MessageProducer<String> slowProducer = factory.createProducer(topicName + "-slow", String.class);
                 for (int i = 0; i < fastMessages; i++) {
@@ -461,7 +466,7 @@ class MultiConsumerModeTest {
                 }
                 fastProducer.close();
                 slowProducer.close();
-            })).onFailure(testContext::failNow);
+                })).onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(25, TimeUnit.SECONDS));
             assertEquals(fastMessages, fastProcessed.get(), "Fast consumer should process all fast messages");
@@ -475,5 +480,4 @@ class MultiConsumerModeTest {
         logger.info("Consumer mode performance isolation test completed successfully");
     }
 }
-
 

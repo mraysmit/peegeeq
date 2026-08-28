@@ -79,7 +79,6 @@ public class PeeGeeQManagerIntegrationTest {
         testProps.setProperty("peegeeq.database.schema", PostgreSQLTestConstants.TEST_SCHEMA);
 
         // Set valid pool configuration
-        testProps.setProperty("peegeeq.database.pool.min-size", "2");
         testProps.setProperty("peegeeq.database.pool.max-size", "3");
         testProps.setProperty("peegeeq.database.pool.shared", "false");
         testProps.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");

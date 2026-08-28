@@ -55,9 +55,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import io.vertx.core.Future;
 
+import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
-import java.util.concurrent.CountDownLatch;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -138,7 +138,6 @@ class MessagePriorityExampleTest {
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
-                .property("peegeeq.database.pool.min-size", "5")
                 .property("peegeeq.database.pool.max-size", "20")
                 .property("peegeeq.queue.priority.enabled", "true")
                 .property("peegeeq.queue.priority.index-optimization", "true")
@@ -188,7 +187,7 @@ class MessagePriorityExampleTest {
     }
 
     @Test
-    void testBasicPriorityOrdering() throws Exception {
+    void testBasicPriorityOrdering(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Basic Priority Ordering ===");
 
         // Create producer and consumer for priority queue
@@ -197,29 +196,30 @@ class MessagePriorityExampleTest {
 
             // Track processing order
             AtomicInteger processedCount = new AtomicInteger(0);
-            CountDownLatch allDone = new CountDownLatch(5);
+            Checkpoint allDone = testContext.checkpoint(5);
 
             // Set up consumer to track processing order
-            consumer.subscribe(message -> {
+            Future<Void> sendChain = consumer.subscribe(message -> {
                 int order = processedCount.incrementAndGet();
                 PriorityMessage payload = message.getPayload();
                 logger.info("Processed #{}: {} (Priority: {})",
                     order, payload.getContent(), payload.getPriorityLabel());
-                allDone.countDown();
+                allDone.flag();
                 return Future.succeededFuture();
             });
 
             // Send messages in reverse priority order to demonstrate reordering
             logger.info("Sending messages in reverse priority order...");
 
-            sendPriorityMessage(producer, "msg-1", "BULK", "Bulk processing task", PRIORITY_BULK);
-            sendPriorityMessage(producer, "msg-2", "LOW", "Background cleanup", PRIORITY_LOW);
-            sendPriorityMessage(producer, "msg-3", "NORMAL", "Regular business operation", PRIORITY_NORMAL);
-            sendPriorityMessage(producer, "msg-4", "HIGH", "Important notification", PRIORITY_HIGH);
-            sendPriorityMessage(producer, "msg-5", "CRITICAL", "Security alert", PRIORITY_CRITICAL);
+            sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "msg-1", "BULK", "Bulk processing task", PRIORITY_BULK));
+            sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "msg-2", "LOW", "Background cleanup", PRIORITY_LOW));
+            sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "msg-3", "NORMAL", "Regular business operation", PRIORITY_NORMAL));
+            sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "msg-4", "HIGH", "Important notification", PRIORITY_HIGH));
+            sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "msg-5", "CRITICAL", "Security alert", PRIORITY_CRITICAL));
+            sendChain.onFailure(testContext::failNow);
 
             // Wait for processing
-            boolean completed = allDone.await(30, TimeUnit.SECONDS);
+            boolean completed = testContext.awaitCompletion(30, TimeUnit.SECONDS);
             assertTrue(completed, "All messages should be processed within timeout");
             assertEquals(5, processedCount.get(), "Should have processed exactly 5 messages");
 
@@ -228,36 +228,37 @@ class MessagePriorityExampleTest {
     }
 
     @Test
-    void testPriorityLevels() throws Exception {
+    void testPriorityLevels(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Priority Levels ===");
 
         try (MessageProducer<PriorityMessage> producer = factory.createProducer("priority-levels", PriorityMessage.class);
              MessageConsumer<PriorityMessage> consumer = factory.createConsumer("priority-levels", PriorityMessage.class)) {
 
             AtomicInteger processedCount = new AtomicInteger(0);
-            CountDownLatch allDone = new CountDownLatch(5);
+            Checkpoint allDone = testContext.checkpoint(5);
 
             // Consumer that shows priority level handling
-            consumer.subscribe(message -> {
+            Future<Void> sendChain = consumer.subscribe(message -> {
                 int order = processedCount.incrementAndGet();
                 PriorityMessage payload = message.getPayload();
                 logger.info("Processed #{}: [{}] {} - {}",
                     order, payload.getPriorityLabel(), payload.getMessageType(), payload.getContent());
-                allDone.countDown();
+                allDone.flag();
                 return Future.succeededFuture();
             });
 
             // Send messages with different priority levels
             logger.info("Sending messages with different priority levels...");
 
-            sendPriorityMessage(producer, "critical-1", "SECURITY", "Security breach detected", PRIORITY_CRITICAL);
-            sendPriorityMessage(producer, "high-1", "ALERT", "System overload warning", PRIORITY_HIGH);
-            sendPriorityMessage(producer, "normal-1", "ORDER", "New order received", PRIORITY_NORMAL);
-            sendPriorityMessage(producer, "low-1", "CLEANUP", "Cleanup old logs", PRIORITY_LOW);
-            sendPriorityMessage(producer, "bulk-1", "ANALYTICS", "Generate daily report", PRIORITY_BULK);
+            sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "critical-1", "SECURITY", "Security breach detected", PRIORITY_CRITICAL));
+            sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "high-1", "ALERT", "System overload warning", PRIORITY_HIGH));
+            sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "normal-1", "ORDER", "New order received", PRIORITY_NORMAL));
+            sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "low-1", "CLEANUP", "Cleanup old logs", PRIORITY_LOW));
+            sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "bulk-1", "ANALYTICS", "Generate daily report", PRIORITY_BULK));
+            sendChain.onFailure(testContext::failNow);
 
             // Wait for processing
-            boolean completed = allDone.await(30, TimeUnit.SECONDS);
+            boolean completed = testContext.awaitCompletion(30, TimeUnit.SECONDS);
             assertTrue(completed, "All messages should be processed within timeout");
             assertEquals(5, processedCount.get(), "Should have processed exactly 5 messages");
 
@@ -266,22 +267,22 @@ class MessagePriorityExampleTest {
     }
 
     @Test
-    void testECommerceScenario() throws Exception {
+    void testECommerceScenario(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing E-Commerce Order Processing Scenario ===");
 
         try (MessageProducer<PriorityMessage> producer = factory.createProducer("ecommerce-orders", PriorityMessage.class);
              MessageConsumer<PriorityMessage> consumer = factory.createConsumer("ecommerce-orders", PriorityMessage.class)) {
 
             AtomicInteger processedCount = new AtomicInteger(0);
-            CountDownLatch allDone = new CountDownLatch(8);
+            Checkpoint allDone = testContext.checkpoint(8);
 
             // Consumer that processes e-commerce orders
-            consumer.subscribe(message -> {
+            Future<Void> sendChain = consumer.subscribe(message -> {
                 int order = processedCount.incrementAndGet();
                 PriorityMessage payload = message.getPayload();
                 logger.info("Processing Order #{}: [{}] {} - {}",
                     order, payload.getPriorityLabel(), payload.getMessageType(), payload.getContent());
-                allDone.countDown();
+                allDone.flag();
                 return Future.succeededFuture();
             });
 
@@ -289,23 +290,24 @@ class MessagePriorityExampleTest {
             logger.info("Sending e-commerce order messages...");
 
             // VIP customer orders (highest priority)
-            sendPriorityMessage(producer, "vip-001", "VIP_ORDER", "VIP customer premium order", PRIORITY_CRITICAL);
-            sendPriorityMessage(producer, "vip-002", "VIP_ORDER", "VIP customer express delivery", PRIORITY_CRITICAL);
+            sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "vip-001", "VIP_ORDER", "VIP customer premium order", PRIORITY_CRITICAL));
+            sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "vip-002", "VIP_ORDER", "VIP customer express delivery", PRIORITY_CRITICAL));
 
             // Urgent orders (high priority)
-            sendPriorityMessage(producer, "urgent-001", "URGENT_ORDER", "Same-day delivery request", PRIORITY_HIGH);
-            sendPriorityMessage(producer, "urgent-002", "URGENT_ORDER", "Stock shortage alert", PRIORITY_HIGH);
+            sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "urgent-001", "URGENT_ORDER", "Same-day delivery request", PRIORITY_HIGH));
+            sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "urgent-002", "URGENT_ORDER", "Stock shortage alert", PRIORITY_HIGH));
 
             // Regular orders (normal priority)
-            sendPriorityMessage(producer, "regular-001", "REGULAR_ORDER", "Standard customer order", PRIORITY_NORMAL);
-            sendPriorityMessage(producer, "regular-002", "REGULAR_ORDER", "Regular shipping order", PRIORITY_NORMAL);
+            sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "regular-001", "REGULAR_ORDER", "Standard customer order", PRIORITY_NORMAL));
+            sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "regular-002", "REGULAR_ORDER", "Regular shipping order", PRIORITY_NORMAL));
 
             // Bulk processing (low priority)
-            sendPriorityMessage(producer, "bulk-001", "BULK_ORDER", "Inventory reconciliation", PRIORITY_LOW);
-            sendPriorityMessage(producer, "analytics-001", "ANALYTICS", "Daily sales report", PRIORITY_BULK);
+            sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "bulk-001", "BULK_ORDER", "Inventory reconciliation", PRIORITY_LOW));
+            sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "analytics-001", "ANALYTICS", "Daily sales report", PRIORITY_BULK));
+            sendChain.onFailure(testContext::failNow);
 
             // Wait for processing
-            boolean completed = allDone.await(30, TimeUnit.SECONDS);
+            boolean completed = testContext.awaitCompletion(30, TimeUnit.SECONDS);
             assertTrue(completed, "All e-commerce messages should be processed within timeout");
             assertEquals(8, processedCount.get(), "Should have processed exactly 8 messages");
 
@@ -314,22 +316,22 @@ class MessagePriorityExampleTest {
     }
 
     @Test
-    void testFinancialScenario() throws Exception {
+    void testFinancialScenario(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Financial Transaction Processing Scenario ===");
 
         try (MessageProducer<PriorityMessage> producer = factory.createProducer("financial-transactions", PriorityMessage.class);
              MessageConsumer<PriorityMessage> consumer = factory.createConsumer("financial-transactions", PriorityMessage.class)) {
 
             AtomicInteger processedCount = new AtomicInteger(0);
-            CountDownLatch allDone = new CountDownLatch(7);
+            Checkpoint allDone = testContext.checkpoint(7);
 
             // Consumer that processes financial transactions
-            consumer.subscribe(message -> {
+            Future<Void> sendChain = consumer.subscribe(message -> {
                 int order = processedCount.incrementAndGet();
                 PriorityMessage payload = message.getPayload();
                 logger.info("Processing Transaction #{}: [{}] {} - {}",
                     order, payload.getPriorityLabel(), payload.getMessageType(), payload.getContent());
-                allDone.countDown();
+                allDone.flag();
                 return Future.succeededFuture();
             });
 
@@ -337,22 +339,23 @@ class MessagePriorityExampleTest {
             logger.info("Sending financial transaction messages...");
 
             // Critical security alerts
-            sendPriorityMessage(producer, "fraud-001", "FRAUD_ALERT", "Suspicious transaction detected", PRIORITY_CRITICAL);
-            sendPriorityMessage(producer, "security-001", "SECURITY_ALERT", "Multiple failed login attempts", PRIORITY_CRITICAL);
+            sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "fraud-001", "FRAUD_ALERT", "Suspicious transaction detected", PRIORITY_CRITICAL));
+            sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "security-001", "SECURITY_ALERT", "Multiple failed login attempts", PRIORITY_CRITICAL));
 
             // High-value transactions
-            sendPriorityMessage(producer, "high-value-001", "HIGH_VALUE_TX", "Large wire transfer", PRIORITY_HIGH);
-            sendPriorityMessage(producer, "urgent-001", "URGENT_TX", "Time-sensitive payment", PRIORITY_HIGH);
+            sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "high-value-001", "HIGH_VALUE_TX", "Large wire transfer", PRIORITY_HIGH));
+            sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "urgent-001", "URGENT_TX", "Time-sensitive payment", PRIORITY_HIGH));
 
             // Regular transactions
-            sendPriorityMessage(producer, "regular-001", "REGULAR_TX", "Standard payment processing", PRIORITY_NORMAL);
-            sendPriorityMessage(producer, "regular-002", "REGULAR_TX", "Account balance update", PRIORITY_NORMAL);
+            sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "regular-001", "REGULAR_TX", "Standard payment processing", PRIORITY_NORMAL));
+            sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "regular-002", "REGULAR_TX", "Account balance update", PRIORITY_NORMAL));
 
             // Batch processing
-            sendPriorityMessage(producer, "batch-001", "BATCH_TX", "End-of-day reconciliation", PRIORITY_BULK);
+            sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "batch-001", "BATCH_TX", "End-of-day reconciliation", PRIORITY_BULK));
+            sendChain.onFailure(testContext::failNow);
 
             // Wait for processing
-            boolean completed = allDone.await(30, TimeUnit.SECONDS);
+            boolean completed = testContext.awaitCompletion(30, TimeUnit.SECONDS);
             assertTrue(completed, "All financial messages should be processed within timeout");
             assertEquals(7, processedCount.get(), "Should have processed exactly 7 messages");
 
@@ -361,22 +364,22 @@ class MessagePriorityExampleTest {
     }
 
     @Test
-    void testMonitoringScenario() throws Exception {
+    void testMonitoringScenario(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing System Monitoring and Alerts Scenario ===");
 
         try (MessageProducer<PriorityMessage> producer = factory.createProducer("system-monitoring", PriorityMessage.class);
              MessageConsumer<PriorityMessage> consumer = factory.createConsumer("system-monitoring", PriorityMessage.class)) {
 
             AtomicInteger processedCount = new AtomicInteger(0);
-            CountDownLatch allDone = new CountDownLatch(6);
+            Checkpoint allDone = testContext.checkpoint(6);
 
             // Consumer that processes monitoring alerts
-            consumer.subscribe(message -> {
+            Future<Void> sendChain = consumer.subscribe(message -> {
                 int order = processedCount.incrementAndGet();
                 PriorityMessage payload = message.getPayload();
                 logger.info("Processing Alert #{}: [{}] {} - {}",
                     order, payload.getPriorityLabel(), payload.getMessageType(), payload.getContent());
-                allDone.countDown();
+                allDone.flag();
                 return Future.succeededFuture();
             });
 
@@ -384,21 +387,22 @@ class MessagePriorityExampleTest {
             logger.info("Sending system monitoring messages...");
 
             // Critical system alerts
-            sendPriorityMessage(producer, "critical-001", "SYSTEM_DOWN", "Database server offline", PRIORITY_CRITICAL);
-            sendPriorityMessage(producer, "critical-002", "SECURITY_BREACH", "Unauthorized access detected", PRIORITY_CRITICAL);
+            sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "critical-001", "SYSTEM_DOWN", "Database server offline", PRIORITY_CRITICAL));
+            sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "critical-002", "SECURITY_BREACH", "Unauthorized access detected", PRIORITY_CRITICAL));
 
             // High priority warnings
-            sendPriorityMessage(producer, "warning-001", "HIGH_CPU", "CPU usage above 90%", PRIORITY_HIGH);
-            sendPriorityMessage(producer, "warning-002", "DISK_SPACE", "Disk space critically low", PRIORITY_HIGH);
+            sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "warning-001", "HIGH_CPU", "CPU usage above 90%", PRIORITY_HIGH));
+            sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "warning-002", "DISK_SPACE", "Disk space critically low", PRIORITY_HIGH));
 
             // Regular monitoring
-            sendPriorityMessage(producer, "info-001", "HEALTH_CHECK", "System health check passed", PRIORITY_NORMAL);
+            sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "info-001", "HEALTH_CHECK", "System health check passed", PRIORITY_NORMAL));
 
             // Background analytics
-            sendPriorityMessage(producer, "analytics-001", "METRICS", "Generate performance metrics", PRIORITY_BULK);
+            sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "analytics-001", "METRICS", "Generate performance metrics", PRIORITY_BULK));
+            sendChain.onFailure(testContext::failNow);
 
             // Wait for processing
-            boolean completed = allDone.await(30, TimeUnit.SECONDS);
+            boolean completed = testContext.awaitCompletion(30, TimeUnit.SECONDS);
             assertTrue(completed, "All monitoring messages should be processed within timeout");
             assertEquals(6, processedCount.get(), "Should have processed exactly 6 messages");
 
@@ -407,7 +411,7 @@ class MessagePriorityExampleTest {
     }
 
     @Test
-    void testPriorityPerformance() throws Exception {
+    void testPriorityPerformance(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Priority Queue Performance ===");
 
         try (MessageProducer<PriorityMessage> producer = factory.createProducer("priority-performance", PriorityMessage.class);
@@ -415,18 +419,18 @@ class MessagePriorityExampleTest {
 
             int messageCount = 50; // Reduced for test environment
             AtomicInteger processedCount = new AtomicInteger(0);
-            CountDownLatch allDone = new CountDownLatch(messageCount);
+            Checkpoint allDone = testContext.checkpoint(messageCount);
             long startTime = System.currentTimeMillis();
 
             // Consumer that tracks performance
-            consumer.subscribe(message -> {
+            Future<Void> sendChain = consumer.subscribe(message -> {
                 int order = processedCount.incrementAndGet();
                 PriorityMessage payload = message.getPayload();
                 if (order % 10 == 0) { // Log every 10th message
                     logger.info("Processed {} messages - Current: [{}] {}",
                         order, payload.getPriorityLabel(), payload.getMessageType());
                 }
-                allDone.countDown();
+                allDone.flag();
                 return Future.succeededFuture();
             });
 
@@ -437,11 +441,13 @@ class MessagePriorityExampleTest {
                 int priority = (i % 5) * 2; // Mix of priorities: 0, 2, 4, 6, 8
                 String messageType = "PERF_TEST_" + priority;
                 String content = "Performance test message " + i;
-                sendPriorityMessage(producer, "perf-" + i, messageType, content, priority);
+                String messageId = "perf-" + i;
+                sendChain = sendChain.compose(v -> sendPriorityMessage(producer, messageId, messageType, content, priority));
             }
+            sendChain.onFailure(testContext::failNow);
 
             // Wait for processing
-            boolean completed = allDone.await(60, TimeUnit.SECONDS);
+            boolean completed = testContext.awaitCompletion(60, TimeUnit.SECONDS);
             assertTrue(completed, "All performance messages should be processed within timeout");
             assertEquals(messageCount, processedCount.get(), "Should have processed exactly " + messageCount + " messages");
 
@@ -459,7 +465,7 @@ class MessagePriorityExampleTest {
         }
     }
 
-    private void sendPriorityMessage(MessageProducer<PriorityMessage> producer, String messageId,
+    private Future<Void> sendPriorityMessage(MessageProducer<PriorityMessage> producer, String messageId,
                                    String messageType, String content, int priority) {
         PriorityMessage message = new PriorityMessage(messageId, messageType, content, priority,
                                                     System.currentTimeMillis(), new HashMap<>());
@@ -469,9 +475,8 @@ class MessagePriorityExampleTest {
             "messageType", messageType
         );
 
-        producer.send(message, headers, messageId, String.valueOf(priority))
-                .onFailure(err -> logger.warn("Failed to send message {}: {}", messageId, err.getMessage()));
-        logger.debug("Sent message: {} with priority {}", messageId, priority);
+        return producer.send(message, headers, messageId, String.valueOf(priority))
+                .onSuccess(v -> logger.debug("Sent message: {} with priority {}", messageId, priority));
     }
 
     /**
@@ -537,5 +542,3 @@ class MessagePriorityExampleTest {
         }
     }
 }
-
-

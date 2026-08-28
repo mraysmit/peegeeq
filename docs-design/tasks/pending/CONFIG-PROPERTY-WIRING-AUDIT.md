@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-28
 **Scope:** All core modules — `peegeeq-native`, `peegeeq-db`, `peegeeq-outbox`, `peegeeq-rest`, `peegeeq-runtime`
-**Status:** ACTIVE — initial repository reconciliation completed 2026-08-26
+**Status:** ACTIVE — pool property remediation completed 2026-08-28
 
 ### Reconciled findings
 
@@ -11,11 +11,11 @@
 - Outbox polling, batch size, and retry limits are wired, but
   `OutboxConsumerConfig.consumerThreads` remains a dead accepted setting.
 - Pool maximum size, connection timeout, and idle timeout are carried into `PoolOptions`.
-- `peegeeq.database.pool.min-size` is accepted during configuration validation but is not
-  represented in `PgPoolConfig` or applied to Vert.x pool options.
-- Several shipped resource profiles use `peegeeq.database.pool.connection-timeout` and
-  `peegeeq.database.pool.idle-timeout`; the loader reads only the `*-ms` forms, so those
-  profile values are ignored.
+- The unsupported pool minimum-size property was removed from configuration validation,
+  shipped profiles, adapters, examples, and live documentation. Focused contracts assert that
+  it is not forwarded or exposed.
+- Shipped resource profiles now use the canonical `connection-timeout-ms` and
+  `idle-timeout-ms` keys, with parameterized binding coverage for every bundled profile.
 - `SystemInfoCollector` still contains direct system-property fallbacks for pool settings
   and must be checked against the instance-configuration architecture.
 
@@ -92,7 +92,6 @@ Systematically audit every `peegeeq.queue.*`, `peegeeq.database.*`, `peegeeq.out
 
 | Property | Where parsed | Where used | Status |
 |----------|-------------|------------|--------|
-| `peegeeq.database.pool.min-size` | `PeeGeeQConfiguration` | `PgPoolAdapter` pool options | Verify |
 | `peegeeq.database.pool.max-size` | `PeeGeeQConfiguration` | `PgPoolAdapter` pool options | Verify |
 | `peegeeq.database.pool.connection-timeout-ms` | `PeeGeeQConfiguration` | `PgPoolAdapter` pool options | Verify |
 | `peegeeq.database.pool.idle-timeout-ms` | `PeeGeeQConfiguration` | `PgPoolAdapter` pool options | Verify |

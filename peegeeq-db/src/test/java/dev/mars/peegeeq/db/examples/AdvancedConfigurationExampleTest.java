@@ -67,7 +67,7 @@ public class AdvancedConfigurationExampleTest {
         containerProps.setProperty("peegeeq.database.username", postgres.getUsername());
         containerProps.setProperty("peegeeq.database.password", postgres.getPassword());
         containerProps.setProperty("peegeeq.database.ssl.enabled", "false");
-        containerProps.setProperty("peegeeq.database.schema", PostgreSQLTestConstants.TEST_SCHEMA);containerProps.setProperty("peegeeq.database.pool.min-size", "1");
+        containerProps.setProperty("peegeeq.database.schema", PostgreSQLTestConstants.TEST_SCHEMA);
         containerProps.setProperty("peegeeq.database.pool.max-size", "3");
         containerProps.setProperty("peegeeq.database.pool.shared", "false");
         containerProps.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
@@ -126,21 +126,19 @@ public class AdvancedConfigurationExampleTest {
             logger.info("   Host: {}, Port: {}, Name: {}, SSL: {}", dbHost, dbPort, dbName, sslEnabled);
 
             // Test pool configuration
-            int minPoolSize = getMinPoolSize(environment);
             int maxPoolSize = getMaxPoolSize(environment);
             int connectionTimeout = getConnectionTimeout(environment);
             int idleTimeout = getIdleTimeout(environment);
             int maxLifetime = getMaxLifetime(environment);
 
-            assertTrue(minPoolSize > 0, "Min pool size should be positive for " + environment);
-            assertTrue(maxPoolSize >= minPoolSize, "Max pool size should be >= min pool size for " + environment);
+            assertTrue(maxPoolSize > 0, "Max pool size should be positive for " + environment);
             assertTrue(connectionTimeout > 0, "Connection timeout should be positive for " + environment);
             assertTrue(idleTimeout > 0, "Idle timeout should be positive for " + environment);
             assertTrue(maxLifetime > 0, "Max lifetime should be positive for " + environment);
 
             logger.info("Pool Configuration for {}:", environment);
-            logger.info("   Min: {}, Max: {}, ConnTimeout: {}ms, IdleTimeout: {}ms, MaxLifetime: {}ms",
-                minPoolSize, maxPoolSize, connectionTimeout, idleTimeout, maxLifetime);
+            logger.info("   Max: {}, ConnTimeout: {}ms, IdleTimeout: {}ms, MaxLifetime: {}ms",
+                maxPoolSize, connectionTimeout, idleTimeout, maxLifetime);
 
             // Test queue configuration
             int maxRetries = getMaxRetries(environment);
@@ -240,7 +238,6 @@ public class AdvancedConfigurationExampleTest {
 
                 Properties envProps = new Properties();
                 containerProps.forEach((k, val) -> envProps.setProperty(k.toString(), val.toString()));
-                envProps.setProperty("peegeeq.database.pool.min-size", String.valueOf(getMinPoolSize(environment)));
                 envProps.setProperty("peegeeq.database.pool.max-size", String.valueOf(getMaxPoolSize(environment)));
                 envProps.setProperty("peegeeq.database.pool.connection-timeout", String.valueOf(getConnectionTimeout(environment)));
                 envProps.setProperty("peegeeq.database.pool.idle-timeout", String.valueOf(getIdleTimeout(environment)));
@@ -256,7 +253,6 @@ public class AdvancedConfigurationExampleTest {
                         });
 
                         logger.info("{} Pool Configuration validated:", environment);
-                        logger.info("   Min Pool Size: {}", getMinPoolSize(environment));
                         logger.info("   Max Pool Size: {}", getMaxPoolSize(environment));
                         logger.info("   Connection Timeout: {}ms", getConnectionTimeout(environment));
                         logger.info("   Idle Timeout: {}ms", getIdleTimeout(environment));
@@ -333,7 +329,7 @@ public class AdvancedConfigurationExampleTest {
         logger.info("--- Testing Valid Configurations ---");
         assertTrue(validateDatabaseConfiguration("localhost", 5432, "peegeeq_test"),
             "Valid database configuration should pass validation");
-        assertTrue(validatePoolConfiguration(2, 10, 5000, 30000, 1800000),
+        assertTrue(validatePoolConfiguration(10, 5000, 30000, 1800000),
             "Valid pool configuration should pass validation");
         assertTrue(validateQueueConfiguration(3, 30000, 10, 1000),
             "Valid queue configuration should pass validation");
@@ -343,8 +339,8 @@ public class AdvancedConfigurationExampleTest {
         logger.info("--- Testing Invalid Configurations ---");
         assertFalse(validateDatabaseConfiguration("", 5432, "peegeeq_test"),
             "Empty database host should fail validation");
-        assertFalse(validatePoolConfiguration(10, 5, 5000, 30000, 1800000),
-            "Min pool size > max pool size should fail validation");
+        assertFalse(validatePoolConfiguration(0, 5000, 30000, 1800000),
+            "Non-positive max pool size should fail validation");
         assertFalse(validateQueueConfiguration(-1, 30000, 10, 1000),
             "Negative max retries should fail validation");
 
@@ -507,15 +503,6 @@ public class AdvancedConfigurationExampleTest {
         }
     }
 
-    private int getMinPoolSize(String environment) {
-        switch (environment) {
-            case "development": return 2;
-            case "staging": return 5;
-            case "production": return 10;
-            default: return 2;
-        }
-    }
-
     private int getMaxPoolSize(String environment) {
         switch (environment) {
             case "development": return 10;
@@ -642,14 +629,10 @@ public class AdvancedConfigurationExampleTest {
         return true;
     }
 
-    private boolean validatePoolConfiguration(int minSize, int maxSize, int connectionTimeout,
+    private boolean validatePoolConfiguration(int maxSize, int connectionTimeout,
                                             int idleTimeout, int maxLifetime) {
-        if (minSize < 0) {
-            logger.warn("Min pool size cannot be negative");
-            return false;
-        }
-        if (maxSize < minSize) {
-            logger.warn("Max pool size cannot be less than min pool size");
+        if (maxSize <= 0) {
+            logger.warn("Max pool size must be positive");
             return false;
         }
         if (connectionTimeout <= 0) {
@@ -688,5 +671,4 @@ public class AdvancedConfigurationExampleTest {
         return true;
     }
 }
-
 

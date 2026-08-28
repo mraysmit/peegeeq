@@ -96,7 +96,6 @@ class NativeQueueIntegrationTest {
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
-                .property("peegeeq.database.pool.min-size", "2")
                 .property("peegeeq.database.pool.max-size", "5")
                 .property("peegeeq.database.pool.connection-timeout-ms", "10000")
                 .property("peegeeq.database.pool.idle-timeout-ms", "60000")

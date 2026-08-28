@@ -569,11 +569,9 @@ class EventSourcingCQRSDemoTest {
      *  IMPORTANT: This test includes several workarounds for demo purposes that would NOT
      * be used in production systems:
      *
-     * - Thread.sleep() calls to ensure command ordering (production would use proper ordering mechanisms)
      * - Manual event sorting by version (production event stores handle this automatically)
      * - Simplified aggregate lifecycle management (production would use proper repositories)
      * - In-memory storage (production would use persistent event stores)
-     * - CountDownLatch for test coordination (production would use proper async handling)
      */
     @Test
     @DisplayName("Event Sourcing - Storing State Changes as Events")
@@ -607,7 +605,7 @@ class EventSourcingCQRSDemoTest {
 
         // Command handler - processes commands and generates events
         // This simulates a command handler in an event-sourced system
-        commandConsumer.subscribe(message -> {
+        Future<Void> commandSubscription = commandConsumer.subscribe(message -> {
             Command command = message.getPayload();
 
             logger.info("Processing command: {} for aggregate: {}", command.commandType, command.aggregateId);
@@ -685,7 +683,7 @@ class EventSourcingCQRSDemoTest {
 
         // Event store - stores events for replay (the heart of event sourcing)
         // This simulates an event store that persists all domain events
-        eventConsumer.subscribe(message -> {
+        Future<Void> eventSubscription = eventConsumer.subscribe(message -> {
             DomainEvent event = message.getPayload();
 
             logger.info("Storing event: {} v{} for aggregate: {}", event.eventType.eventName, event.version, event.aggregateId);
@@ -703,6 +701,7 @@ class EventSourcingCQRSDemoTest {
             eventCheckpoint.flag();
             return Future.succeededFuture();
         });
+        Future<Void> subscriptions = Future.all(commandSubscription, eventSubscription).mapEmpty();
 
         // Send commands to demonstrate event sourcing
         logger.info("Sending commands for event sourcing demonstration...");
@@ -771,8 +770,8 @@ class EventSourcingCQRSDemoTest {
         //
         // openAccount is sent as a separate fire-start (not inside the timer chain) so
         // that the immediate initial poll can process it while the timer chain waits.
-        commandProducer.send(openAccount).onFailure(testContext::failNow);
-        vertx.timer(700).compose(v -> commandProducer.send(deposit1))
+        subscriptions.compose(v -> commandProducer.send(openAccount)).onFailure(testContext::failNow);
+        subscriptions.compose(v -> vertx.timer(700)).compose(v -> commandProducer.send(deposit1))
             .compose(v -> vertx.timer(700)).compose(v -> commandProducer.send(withdraw1))
             .compose(v -> vertx.timer(700)).compose(v -> commandProducer.send(deposit2))
             .compose(v -> vertx.timer(700)).compose(v -> commandProducer.send(freezeAccount))
@@ -904,7 +903,7 @@ class EventSourcingCQRSDemoTest {
                 eventGroupName, eventQueue, DomainEvent.class);
 
         // WRITE SIDE - Command processing
-        commandConsumer.subscribe(message -> {
+        Future<Void> commandSubscription = commandConsumer.subscribe(message -> {
             Command command = message.getPayload();
             logger.info("WRITE SIDE - Processing command: {}", command.getCommandType());
 
@@ -1020,7 +1019,7 @@ class EventSourcingCQRSDemoTest {
         Command withdraw1 = new Command("cqrs-cmd-004", "Withdraw", accountId, withdraw1Data, "user-002");
 
         // Send the OpenAccount command first so the partition exists.
-        commandProducer.send(openAccount).onFailure(testContext::failNow);
+        commandSubscription.compose(v -> commandProducer.send(openAccount)).onFailure(testContext::failNow);
 
         // Once the open event is persisted, start the partitioned consumer group so it
         // discovers the partition, then send the remaining commands.
@@ -1158,7 +1157,7 @@ class EventSourcingCQRSDemoTest {
                 eventGroupName, eventQueue, DomainEvent.class);
 
         // WRITE SIDE
-        commandConsumer.subscribe(message -> {
+        Future<Void> commandSubscription = commandConsumer.subscribe(message -> {
             Command command = message.getPayload();
             logger.info("WRITE SIDE - Processing command: {} for {}",
                     command.getCommandType(), command.getAggregateId());
@@ -1260,8 +1259,10 @@ class EventSourcingCQRSDemoTest {
         for (String accountId : accountIds) {
             Map<String, Object> openData = new HashMap<>();
             openData.put("initialDeposit", 1000.0);
-            commandProducer.send(new Command(
-                "cqrs-multi-cmd-open-" + openIdx++, "OpenAccount", accountId, openData, "user-multi"));
+            Command openCommand = new Command(
+                "cqrs-multi-cmd-open-" + openIdx++, "OpenAccount", accountId, openData, "user-multi");
+            commandSubscription.compose(v -> commandProducer.send(openCommand))
+                .onFailure(testContext::failNow);
         }
 
         // Once every Open event is persisted, start the consumer group (it discovers
@@ -1278,17 +1279,20 @@ class EventSourcingCQRSDemoTest {
                         Map<String, Object> dep1 = new HashMap<>();
                         dep1.put("amount", 200.0);
                         commandProducer.send(new Command(
-                            "cqrs-multi-cmd-dep1-" + seq, "Deposit", accountId, dep1, "user-multi"));
+                            "cqrs-multi-cmd-dep1-" + seq, "Deposit", accountId, dep1, "user-multi"))
+                            .onFailure(testContext::failNow);
 
                         Map<String, Object> dep2 = new HashMap<>();
                         dep2.put("amount", 300.0);
                         commandProducer.send(new Command(
-                            "cqrs-multi-cmd-dep2-" + seq, "Deposit", accountId, dep2, "user-multi"));
+                            "cqrs-multi-cmd-dep2-" + seq, "Deposit", accountId, dep2, "user-multi"))
+                            .onFailure(testContext::failNow);
 
                         Map<String, Object> wd1 = new HashMap<>();
                         wd1.put("amount", 100.0);
                         commandProducer.send(new Command(
-                            "cqrs-multi-cmd-wd1-" + seq, "Withdraw", accountId, wd1, "user-multi"));
+                            "cqrs-multi-cmd-wd1-" + seq, "Withdraw", accountId, wd1, "user-multi"))
+                            .onFailure(testContext::failNow);
                         seq++;
                     }
                 })
@@ -1360,5 +1364,3 @@ class EventSourcingCQRSDemoTest {
     }
 
 }
-
-
