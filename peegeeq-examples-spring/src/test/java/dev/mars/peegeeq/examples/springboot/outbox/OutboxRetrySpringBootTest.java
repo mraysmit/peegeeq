@@ -192,11 +192,10 @@ class OutboxRetrySpringBootTest {
                 testContext.completeNow();
             });
             return Future.succeededFuture();
-        });
-
-        // Send message
-        logger.info(" Sending message that will fail twice before succeeding");
-        producer.send("test-message").onFailure(testContext::failNow);
+        }).compose(v -> {
+            logger.info(" Sending message that will fail twice before succeeding");
+            return producer.send("test-message");
+        }).onFailure(testContext::failNow);
     }
     
     /**
@@ -238,11 +237,10 @@ class OutboxRetrySpringBootTest {
             }
             return Future.failedFuture(
                 new RuntimeException("Simulated persistent failure"));
-        });
-
-        // Send message
-        logger.info(" Sending message that will always fail");
-        producer.send("failing-message").onFailure(testContext::failNow);
+        }).compose(v -> {
+            logger.info(" Sending message that will always fail");
+            return producer.send("failing-message");
+        }).onFailure(testContext::failNow);
 
         // Wait for retries to settle, then a small grace period to ensure no extra retries fire.
         retriesDone.future()

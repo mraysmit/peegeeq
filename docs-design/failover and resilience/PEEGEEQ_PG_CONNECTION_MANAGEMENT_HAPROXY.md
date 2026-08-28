@@ -147,7 +147,6 @@ peegeeq.database.schema=public
 peegeeq.database.ssl.enabled=false
 
 # Pool
-peegeeq.database.pool.min-size=8
 peegeeq.database.pool.max-size=32
 peegeeq.database.pool.shared=true
 peegeeq.database.pool.connection-timeout-ms=30000

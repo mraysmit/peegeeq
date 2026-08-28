@@ -111,7 +111,6 @@ public class OutboxRetryResilienceTest {
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.max-retries", "3")
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
-                .property("peegeeq.database.pool.min-size", "1")
                 .property("peegeeq.database.pool.max-size", Integer.toString(APPLICATION_POOL_SIZE))
                 .property("peegeeq.database.pool.max-wait-queue-size", "0")
                 .property("peegeeq.database.pool.connection-timeout-ms", "2000")

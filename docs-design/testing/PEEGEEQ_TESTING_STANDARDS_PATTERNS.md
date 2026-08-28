@@ -257,8 +257,7 @@ class SpringBootTest {
 >
 > `System.setProperty` writes to the global JVM property map. In a parallel test run, any
 > other test constructing a `PeeGeeQConfiguration` while properties are only partially written
-> (e.g. `pool.max-size` set but `pool.min-size` not yet set) will read an inconsistent view
-> and can fail with `"Maximum pool size must be greater than or equal to minimum pool size"`.
+> can read an inconsistent configuration view and fail unpredictably.
 > The `PeeGeeQTestConfig.builder()` helper produces a `Properties` object that is passed
 > directly to `new PeeGeeQConfiguration("default", props)` — it never touches
 > `System.getProperties()`, so there is no race window.
@@ -268,7 +267,6 @@ class SpringBootTest {
 Properties testProps = PeeGeeQTestConfig.builder()
     .from(postgres)          // extracts host, port, db, user, password
     .schema("public")        // optional; defaults to "public"
-    .property("peegeeq.database.pool.min-size", "1")
     .property("peegeeq.database.pool.max-size", "3")
     .property("peegeeq.migration.enabled", "false")
     .build();
@@ -366,9 +364,8 @@ void setUp() {
 }
 
 // Setting pool properties via System.setProperty in parallel tests
-// (race window: another thread reads an inconsistent min/max state)
-System.setProperty("peegeeq.database.pool.min-size", "1");
-System.setProperty("peegeeq.database.pool.max-size", "3");  // NOT atomic
+// (race window: another thread reads a partially updated global configuration)
+System.setProperty("peegeeq.database.pool.max-size", "3");  // NOT isolated
 
 // Inconsistent property names
 System.setProperty("db.host", postgres.getHost());        // Wrong
@@ -392,7 +389,6 @@ static PostgreSQLContainer<?> postgres = ...
 // Use PeeGeeQTestConfig.builder() for pool/connection config — zero System.setProperty needed
 Properties testProps = PeeGeeQTestConfig.builder()
     .from(postgres)
-    .property("peegeeq.database.pool.min-size", "1")
     .property("peegeeq.database.pool.max-size", "3")
     .build();
 PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);

@@ -106,14 +106,11 @@ public class PeeGeeQPriorityProperties {
     
     public static class PoolProperties {
         private int maxSize = 10;
-        private int minSize = 2;
         private boolean shared = true;
         
         public int getMaxSize() { return maxSize; }
         public void setMaxSize(int maxSize) { this.maxSize = maxSize; }
         
-        public int getMinSize() { return minSize; }
-        public void setMinSize(int minSize) { this.minSize = minSize; }
 
         public boolean isShared() { return shared; }
         public void setShared(boolean shared) { this.shared = shared; }

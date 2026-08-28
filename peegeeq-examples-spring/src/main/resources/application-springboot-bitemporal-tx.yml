@@ -39,7 +39,6 @@ peegeeq:
     # Connection Pool Configuration
     pool:
       max-size: ${POOL_MAX_SIZE:20}
-      min-size: ${POOL_MIN_SIZE:5}
       connection-timeout: ${POOL_CONNECTION_TIMEOUT:PT30S}
       idle-timeout: ${POOL_IDLE_TIMEOUT:PT10M}
       max-lifetime: ${POOL_MAX_LIFETIME:PT30M}
@@ -123,7 +122,6 @@ peegeeq:
       name: peegeeq_bitemporal_dev
     pool:
       max-size: 10
-      min-size: 2
     transaction:
       timeout: PT2M
 
@@ -144,7 +142,6 @@ peegeeq:
       ssl-enabled: true
     pool:
       max-size: 50
-      min-size: 10
     transaction:
       timeout: PT10M
       retry-attempts: 5
@@ -170,7 +167,6 @@ peegeeq:
       name: peegeeq_bitemporal_test
     pool:
       max-size: 5
-      min-size: 1
     transaction:
       timeout: PT30S
     event-store:

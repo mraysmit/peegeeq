@@ -12,7 +12,6 @@ peegeeq:
     schema: public
   pool:
     max-size: 20
-    min-size: 5
   queue:
     max-retries: 3
     visibility-timeout: PT30S
@@ -169,4 +168,3 @@ logging:
     dev.mars.peegeeq: DEBUG
     org.springframework.test: DEBUG
     org.springframework.data.r2dbc: DEBUG
-

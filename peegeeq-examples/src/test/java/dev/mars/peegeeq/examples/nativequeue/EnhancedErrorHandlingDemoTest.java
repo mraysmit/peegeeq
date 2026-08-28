@@ -158,7 +158,7 @@ class EnhancedErrorHandlingDemoTest {
         MessageConsumer<OrderEvent> dlqConsumer = queueFactory.createConsumer("error-orders-dlq", OrderEvent.class);
         
         // Subscribe main consumer with error handling
-        consumer.subscribe(message -> {
+        Future<Void> consumerSubscription = consumer.subscribe(message -> {
             OrderEvent order = message.getPayload();
             ErrorType errorType = ErrorType.valueOf(message.getHeaders().getOrDefault("error_type", "RECOVERABLE"));
 
@@ -168,7 +168,7 @@ class EnhancedErrorHandlingDemoTest {
         });
         
         // Subscribe DLQ consumer
-        dlqConsumer.subscribe(message -> {
+        Future<Void> dlqSubscription = dlqConsumer.subscribe(message -> {
             OrderEvent order = message.getPayload();
             logger.warn(" Processing DLQ message: {} (reason: {})",
                 order.getOrderId(), message.getHeaders().get("dlq_reason"));
@@ -176,6 +176,7 @@ class EnhancedErrorHandlingDemoTest {
             dlqMessages.incrementAndGet();
             return Future.succeededFuture();
         });
+        Future<Void> subscriptions = Future.all(consumerSubscription, dlqSubscription).mapEmpty();
         
         // Produce messages with different error scenarios
         List<Future<Void>> producerTasks = new ArrayList<>();
@@ -189,7 +190,7 @@ class EnhancedErrorHandlingDemoTest {
             headers.put("error_type", ErrorType.TRANSIENT_NETWORK.name());
             headers.put("simulate_failure", "true");
             
-            producerTasks.add(producer.send(order, headers).onSuccess(v -> {
+            producerTasks.add(subscriptions.compose(v -> producer.send(order, headers)).onSuccess(v -> {
                 totalMessagesProduced.incrementAndGet();
                 logger.debug(" Sent order with TRANSIENT_NETWORK error: {}", order.getOrderId());
             }));
@@ -204,7 +205,7 @@ class EnhancedErrorHandlingDemoTest {
             headers.put("error_type", ErrorType.INVALID_DATA.name());
             headers.put("simulate_failure", "true");
             
-            producerTasks.add(producer.send(order, headers).onSuccess(v -> {
+            producerTasks.add(subscriptions.compose(v -> producer.send(order, headers)).onSuccess(v -> {
                 totalMessagesProduced.incrementAndGet();
                 logger.debug(" Sent order with INVALID_DATA error: {}", order.getOrderId());
             }));
@@ -219,7 +220,7 @@ class EnhancedErrorHandlingDemoTest {
             headers.put("error_type", ErrorType.EXTERNAL_SERVICE.name());
             headers.put("simulate_failure", "true");
             
-            producerTasks.add(producer.send(order, headers).onSuccess(v -> {
+            producerTasks.add(subscriptions.compose(v -> producer.send(order, headers)).onSuccess(v -> {
                 totalMessagesProduced.incrementAndGet();
                 logger.debug(" Sent order with EXTERNAL_SERVICE error: {}", order.getOrderId());
             }));
@@ -234,7 +235,7 @@ class EnhancedErrorHandlingDemoTest {
             headers.put("error_type", ErrorType.RECOVERABLE.name());
             headers.put("simulate_failure", "true");
             
-            producerTasks.add(producer.send(order, headers).onSuccess(v -> {
+            producerTasks.add(subscriptions.compose(v -> producer.send(order, headers)).onSuccess(v -> {
                 totalMessagesProduced.incrementAndGet();
                 logger.debug(" Sent order with RECOVERABLE error: {}", order.getOrderId());
             }));
@@ -249,7 +250,7 @@ class EnhancedErrorHandlingDemoTest {
             headers.put("error_type", ErrorType.RECOVERABLE.name());
             headers.put("simulate_failure", "false");
             
-            producerTasks.add(producer.send(order, headers).onSuccess(v -> {
+            producerTasks.add(subscriptions.compose(v -> producer.send(order, headers)).onSuccess(v -> {
                 totalMessagesProduced.incrementAndGet();
                 logger.debug(" Sent successful order: {}", order.getOrderId());
             }));
@@ -402,5 +403,3 @@ class EnhancedErrorHandlingDemoTest {
 
 
 }
-
-

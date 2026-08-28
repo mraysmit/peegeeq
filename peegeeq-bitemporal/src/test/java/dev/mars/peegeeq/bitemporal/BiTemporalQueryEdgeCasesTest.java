@@ -92,7 +92,6 @@ class BiTemporalQueryEdgeCasesTest {
                 .from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.database.pool.max-size", "10")
-                .property("peegeeq.database.pool.min-size", "2")
                 .build();
 
         // Initialize database schema using centralized schema initializer
@@ -220,6 +219,5 @@ class BiTemporalQueryEdgeCasesTest {
             })));
     }
 }
-
 
 

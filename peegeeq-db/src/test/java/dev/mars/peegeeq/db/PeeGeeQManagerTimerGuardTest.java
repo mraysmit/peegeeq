@@ -356,7 +356,6 @@ public class PeeGeeQManagerTimerGuardTest {
         props.setProperty("peegeeq.database.password", postgres.getPassword());
         props.setProperty("peegeeq.database.ssl.enabled", "false");
         props.setProperty("peegeeq.database.schema", PostgreSQLTestConstants.TEST_SCHEMA);
-        props.setProperty("peegeeq.database.pool.min-size", "1");
         props.setProperty("peegeeq.database.pool.max-size", "3");
         props.setProperty("peegeeq.database.pool.shared", "false");
         props.setProperty("peegeeq.health-check.interval", "PT30S");
@@ -456,7 +455,6 @@ public class PeeGeeQManagerTimerGuardTest {
         props.setProperty("peegeeq.database.password", container.getPassword());
         props.setProperty("peegeeq.database.ssl.enabled", "false");
         props.setProperty("peegeeq.database.schema", PostgreSQLTestConstants.TEST_SCHEMA);
-        props.setProperty("peegeeq.database.pool.min-size", "1");
         props.setProperty("peegeeq.database.pool.max-size", "3");
         props.setProperty("peegeeq.database.pool.shared", "false");
         props.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");

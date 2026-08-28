@@ -18,7 +18,6 @@ peegeeq:
     schema: public
     pool:
       max-size: 10
-      min-size: 2
   
   queue:
     polling-interval: PT0.5S
@@ -52,4 +51,3 @@ logging:
     dev.mars.peegeeq.examples.springbootconsumer: DEBUG
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
-

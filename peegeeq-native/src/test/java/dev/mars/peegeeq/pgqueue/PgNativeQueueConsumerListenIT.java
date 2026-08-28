@@ -26,6 +26,8 @@ import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
+import io.vertx.sqlclient.Tuple;
 
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent.*;
@@ -111,9 +113,10 @@ class PgNativeQueueConsumerListenIT {
             adapter, mapper, TOPIC, String.class, null, config, consumerConfig
         );
 
-        consumer.subscribe(msg -> {
+        Promise<Void> received = Promise.promise();
+        Future<Void> subscription = consumer.subscribe(msg -> {
             testContext.verify(() -> assertEquals("hello", msg.getPayload()));
-            testContext.completeNow();
+            received.tryComplete();
             return Future.succeededFuture();
         });
 
@@ -121,7 +124,11 @@ class PgNativeQueueConsumerListenIT {
         PgNativeQueueProducer<String> producer = new PgNativeQueueProducer<>(
             adapter, mapper, TOPIC, String.class, null, config
         );
-        producer.send("hello", Map.of());
+        subscription.compose(v -> producer.send("hello", Map.of()))
+            .compose(v -> received.future())
+            .compose(v -> waitUntilMessageDeleted(vertx, 100))
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
 
         // Assert: message is received within timeout
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
@@ -130,7 +137,22 @@ class PgNativeQueueConsumerListenIT {
         consumer.close();
         producer.close();
     }
+
+    private Future<Void> waitUntilMessageDeleted(Vertx vertx, int remainingAttempts) {
+        return adapter.getPool()
+            .preparedQuery("SELECT COUNT(*) AS message_count FROM queue_messages WHERE topic = $1")
+            .execute(Tuple.of(TOPIC))
+            .compose(rows -> {
+                long messageCount = rows.iterator().next().getLong("message_count");
+                if (messageCount == 0) {
+                    return Future.succeededFuture();
+                }
+                if (remainingAttempts == 0) {
+                    return Future.failedFuture("Timed out waiting for consumed message deletion");
+                }
+                return vertx.timer(50)
+                    .compose(v -> waitUntilMessageDeleted(vertx, remainingAttempts - 1));
+            });
+    }
 }
-
-
 

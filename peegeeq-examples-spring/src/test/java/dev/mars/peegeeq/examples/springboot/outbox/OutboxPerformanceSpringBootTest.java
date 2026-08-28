@@ -130,7 +130,7 @@ public class OutboxPerformanceSpringBootTest {
         MessageConsumer<PerformanceMessage> consumer = outboxFactory.createConsumer(topic, PerformanceMessage.class);
         activeConsumers.add(consumer);
         
-        consumer.subscribe(message -> {
+        Future<Void> subscription = consumer.subscribe(message -> {
             PerformanceMessage msg = message.getPayload();
             long processingTime = System.currentTimeMillis() - msg.getSentAt();
             totalProcessingTime.addAndGet(processingTime);
@@ -151,24 +151,14 @@ public class OutboxPerformanceSpringBootTest {
         logger.info(" Sending {} messages", messageCount);
         Instant sendStart = Instant.now();
         
-        for (int i = 1; i <= messageCount; i++) {
-            PerformanceMessage message = new PerformanceMessage(
-                "msg-" + i, 
-                "High volume test message " + i,
-                System.currentTimeMillis()
-            );
-            producer.send(message).onFailure(testContext::failNow);
-            
-            if (i % 100 == 0) {
-                logger.info("   Sent {} messages", i);
-            }
-        }
-        
-        Instant sendEnd = Instant.now();
-        long sendDuration = Duration.between(sendStart, sendEnd).toMillis();
-        
-        logger.info("All messages sent in {} ms", sendDuration);
-        logger.info("   Send throughput: {} msg/sec", (messageCount * 1000L) / sendDuration);
+        subscription.compose(v -> sendPerformanceMessages(producer, messageCount, "High volume test message "))
+            .onSuccess(v -> {
+                long sendDuration = Duration.between(sendStart, Instant.now()).toMillis();
+                logger.info("All messages sent in {} ms", sendDuration);
+                logger.info("   Send throughput: {} msg/sec",
+                    (messageCount * 1000L) / Math.max(1, sendDuration));
+            })
+            .onFailure(testContext::failNow);
         
         // Wait for all messages to be processed (allow 0.5 sec per message + overhead)
         boolean completed = testContext.awaitCompletion(150, TimeUnit.SECONDS);
@@ -218,6 +208,7 @@ public class OutboxPerformanceSpringBootTest {
         
         // Create multiple consumers
         logger.info(" Creating {} consumers", consumerCount);
+        List<Future<Void>> subscriptions = new ArrayList<>();
         for (int i = 1; i <= consumerCount; i++) {
             String consumerId = "consumer-" + i;
             consumerCounts.put(consumerId, new AtomicInteger(0));
@@ -225,7 +216,7 @@ public class OutboxPerformanceSpringBootTest {
             MessageConsumer<PerformanceMessage> consumer = outboxFactory.createConsumer(topic, PerformanceMessage.class);
             activeConsumers.add(consumer);
             
-            consumer.subscribe(message -> {
+            subscriptions.add(consumer.subscribe(message -> {
                 consumerCounts.get(consumerId).incrementAndGet();
                 int count = totalProcessed.incrementAndGet();
                 if (count % 50 == 0) {
@@ -233,7 +224,7 @@ public class OutboxPerformanceSpringBootTest {
                 }
                 checkpoint.flag();
                 return Future.succeededFuture();
-            });
+            }));
             
             logger.info("   Created {}", consumerId);
         }
@@ -246,14 +237,9 @@ public class OutboxPerformanceSpringBootTest {
         logger.info(" Sending {} messages", messageCount);
         Instant start = Instant.now();
         
-        for (int i = 1; i <= messageCount; i++) {
-            PerformanceMessage message = new PerformanceMessage(
-                "msg-" + i,
-                "Concurrent test message " + i,
-                System.currentTimeMillis()
-            );
-            producer.send(message).onFailure(testContext::failNow);
-        }
+        Future.all(subscriptions)
+            .compose(v -> sendPerformanceMessages(producer, messageCount, "Concurrent test message "))
+            .onFailure(testContext::failNow);
         
         // Wait for all messages to be processed (allow 0.5 sec per message + overhead)
         boolean completed = testContext.awaitCompletion(120, TimeUnit.SECONDS);
@@ -317,7 +303,7 @@ public class OutboxPerformanceSpringBootTest {
         MessageConsumer<PerformanceMessage> consumer = outboxFactory.createConsumer(topic, PerformanceMessage.class);
         activeConsumers.add(consumer);
         
-        consumer.subscribe(message -> {
+        Future<Void> subscription = consumer.subscribe(message -> {
             int count = processedCount.incrementAndGet();
             int batch = batchCount.incrementAndGet();
             
@@ -339,19 +325,8 @@ public class OutboxPerformanceSpringBootTest {
         logger.info(" Sending {} messages in bursts", messageCount);
         Instant start = Instant.now();
         
-        for (int i = 1; i <= messageCount; i++) {
-            PerformanceMessage message = new PerformanceMessage(
-                "msg-" + i,
-                "Batch test message " + i,
-                System.currentTimeMillis()
-            );
-            producer.send(message).onFailure(testContext::failNow);
-            
-            // Small burst pattern
-            if (i % 50 == 0) {
-                logger.info("   Sent {} messages", i);
-            }
-        }
+        subscription.compose(v -> sendPerformanceMessages(producer, messageCount, "Batch test message "))
+            .onFailure(testContext::failNow);
         
         // Wait for all messages to be processed (allow 0.5 sec per message + overhead)
         boolean completed = testContext.awaitCompletion(90, TimeUnit.SECONDS);
@@ -381,6 +356,18 @@ public class OutboxPerformanceSpringBootTest {
     /**
      * Simple performance message for testing
      */
+    private Future<Void> sendPerformanceMessages(
+            MessageProducer<PerformanceMessage> producer, int count, String prefix) {
+        List<Future<Void>> sends = new ArrayList<>();
+        for (int i = 1; i <= count; i++) {
+            sends.add(producer.send(new PerformanceMessage(
+                    "msg-" + i,
+                    prefix + i,
+                    System.currentTimeMillis())));
+        }
+        return Future.all(sends).mapEmpty();
+    }
+
     public static class PerformanceMessage {
         private String messageId;
         private String content;

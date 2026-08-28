@@ -126,7 +126,7 @@ public class OutboxMessageOrderingSpringBootTest {
         MessageConsumer<OrderMessage> consumer = outboxFactory.createConsumer(topic, OrderMessage.class);
         activeConsumers.add(consumer);
         
-        consumer.subscribe(message -> {
+        Future<Void> sendChain = consumer.subscribe(message -> {
             OrderMessage order = message.getPayload();
             processedOrder.add(order.getSequence());
             logger.info(" Processed message sequence: {}", order.getSequence());
@@ -142,7 +142,6 @@ public class OutboxMessageOrderingSpringBootTest {
         // 50ms between sends: with millisecond DB precision and async commits, 2ms is too small
         // and can produce duplicate timestamps within the same poll batch, breaking FIFO order.
         logger.info(" Sending 10 messages in sequence");
-        Future<Void> sendChain = Future.succeededFuture();
         for (int i = 1; i <= 10; i++) {
             final int seq = i;
             sendChain = sendChain.compose(v -> {
@@ -195,7 +194,7 @@ public class OutboxMessageOrderingSpringBootTest {
         MessageConsumer<OrderMessage> consumer = outboxFactory.createConsumer(topic, OrderMessage.class);
         activeConsumers.add(consumer);
         
-        consumer.subscribe(message -> {
+        Future<Void> sendChain = consumer.subscribe(message -> {
             OrderMessage order = message.getPayload();
             String group = order.getCustomerId();
             groupOrders.computeIfAbsent(group, k -> Collections.synchronizedList(new ArrayList<>()))
@@ -214,7 +213,6 @@ public class OutboxMessageOrderingSpringBootTest {
         String[] customers = {"customer-A", "customer-B", "customer-C"};
         final int[] sequenceHolder = {1};
 
-        Future<Void> sendChain = Future.succeededFuture();
         for (int round = 1; round <= 5; round++) {
             for (String customer : customers) {
                 final int seq = sequenceHolder[0]++;
@@ -276,7 +274,7 @@ public class OutboxMessageOrderingSpringBootTest {
         MessageConsumer<OrderMessage> consumer = outboxFactory.createConsumer(topic, OrderMessage.class);
         activeConsumers.add(consumer);
         
-        consumer.subscribe(message -> {
+        Future<Void> subscription = consumer.subscribe(message -> {
             OrderMessage order = message.getPayload();
             String group = order.getCustomerId();
             groupCounts.computeIfAbsent(group, k -> new AtomicInteger(0)).incrementAndGet();
@@ -294,12 +292,16 @@ public class OutboxMessageOrderingSpringBootTest {
         logger.info(" Sending 20 messages across 4 groups rapidly");
         String[] groups = {"group-1", "group-2", "group-3", "group-4"};
         
-        for (int i = 1; i <= 20; i++) {
-            String group = groups[i % groups.length];
-            OrderMessage message = new OrderMessage("order-" + i, i, "Item " + i);
-            message.setCustomerId(group);
-            producer.send(message, null, null, group).onFailure(testContext::failNow);
-        }
+        subscription.compose(v -> {
+            List<Future<Void>> sends = new ArrayList<>();
+            for (int i = 1; i <= 20; i++) {
+                String group = groups[i % groups.length];
+                OrderMessage message = new OrderMessage("order-" + i, i, "Item " + i);
+                message.setCustomerId(group);
+                sends.add(producer.send(message, null, null, group));
+            }
+            return Future.all(sends).mapEmpty();
+        }).onFailure(testContext::failNow);
         
         // Wait for all messages to be processed
         assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "All messages should be processed within 20 seconds");

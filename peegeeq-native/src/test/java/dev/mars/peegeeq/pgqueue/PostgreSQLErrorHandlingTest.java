@@ -32,6 +32,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -131,7 +132,7 @@ class PostgreSQLErrorHandlingTest {
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         // Send initial message to create the topic
-        producer.send("Initial message").onFailure(err -> logger.warn("Initial send failed: {}", err.getMessage()));
+        Future<Void> initialSend = producer.send("Initial message");
 
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicInteger failureCount = new AtomicInteger(0);
@@ -144,7 +145,7 @@ class PostgreSQLErrorHandlingTest {
         MessageConsumer<String> consumer2 = factory.createConsumer(topicName, String.class);
 
         // Consumer 1: Simulate long-running transaction that could cause serialization conflicts
-        consumer1.subscribe(message -> {
+        Future<Void> consumer1Subscription = consumer1.subscribe(message -> {
             logger.info("Consumer 1 processing message: {}", message.getPayload());
             Promise<Void> promise = Promise.promise();
             vertx.setTimer(100, timerId -> {
@@ -156,10 +157,10 @@ class PostgreSQLErrorHandlingTest {
                 promise.complete();
             });
             return promise.future();
-        });
+        }).onFailure(testContext::failNow);
 
         // Consumer 2: Competing consumer
-        consumer2.subscribe(message -> {
+        Future<Void> consumer2Subscription = consumer2.subscribe(message -> {
             logger.info("Consumer 2 processing message: {}", message.getPayload());
             Promise<Void> promise = Promise.promise();
             vertx.setTimer(50, timerId -> {
@@ -174,8 +175,10 @@ class PostgreSQLErrorHandlingTest {
         });
 
         // Send messages that will trigger competition
-        producer.send("Competing message 1").onFailure(err -> logger.warn("Send failed: {}", err.getMessage()));
-        producer.send("Competing message 2").onFailure(err -> logger.warn("Send failed: {}", err.getMessage()));
+        Future.all(List.of(initialSend, consumer1Subscription, consumer2Subscription))
+            .compose(v -> producer.send("Competing message 1"))
+            .compose(v -> producer.send("Competing message 2"))
+            .onFailure(testContext::failNow);
 
         // Wait for processing to complete
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
@@ -217,9 +220,11 @@ class PostgreSQLErrorHandlingTest {
         MessageConsumer<String> consumer3 = factory.createConsumer(topicName, String.class);
 
         // Configure consumers to potentially cause deadlock scenarios
-        configureConsumerForDeadlockTesting(vertx, consumer1, "Consumer-1", processedCount, deadlockCount, completionCheckpoint);
-        configureConsumerForDeadlockTesting(vertx, consumer2, "Consumer-2", processedCount, deadlockCount, completionCheckpoint);
-        configureConsumerForDeadlockTesting(vertx, consumer3, "Consumer-3", processedCount, deadlockCount, completionCheckpoint);
+        Future.all(List.of(
+            configureConsumerForDeadlockTesting(vertx, consumer1, "Consumer-1", processedCount, deadlockCount, completionCheckpoint),
+            configureConsumerForDeadlockTesting(vertx, consumer2, "Consumer-2", processedCount, deadlockCount, completionCheckpoint),
+            configureConsumerForDeadlockTesting(vertx, consumer3, "Consumer-3", processedCount, deadlockCount, completionCheckpoint)
+        )).onFailure(testContext::failNow);
 
         // Wait for all messages to be processed
         boolean completed = testContext.awaitCompletion(20, TimeUnit.SECONDS);
@@ -244,10 +249,10 @@ class PostgreSQLErrorHandlingTest {
             processedCount.get(), deadlockCount.get());
     }
 
-    private void configureConsumerForDeadlockTesting(Vertx vertx, MessageConsumer<String> consumer, String consumerName,
+    private Future<Void> configureConsumerForDeadlockTesting(Vertx vertx, MessageConsumer<String> consumer, String consumerName,
                                                    AtomicInteger processedCount, AtomicInteger deadlockCount,
                                                    Checkpoint completionCheckpoint) {
-        consumer.subscribe(message -> {
+        return consumer.subscribe(message -> {
             logger.info("{} processing message: {}", consumerName, message.getPayload());
             Promise<Void> promise = Promise.promise();
             vertx.setTimer(50, timerId -> {
@@ -292,7 +297,7 @@ class PostgreSQLErrorHandlingTest {
                 promise.complete();
             });
             return promise.future();
-        });
+        }).onFailure(testContext::failNow);
 
         // Wait for processing to complete or timeout to be handled
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
@@ -344,7 +349,7 @@ class PostgreSQLErrorHandlingTest {
                 logger.info("Message processed successfully: {}", message.getPayload());
             }
             return Future.succeededFuture();
-        });
+        }).onFailure(testContext::failNow);
 
         // Wait for processing to complete
         boolean completed = testContext.awaitCompletion(15, TimeUnit.SECONDS);
@@ -391,7 +396,7 @@ class PostgreSQLErrorHandlingTest {
             completionCheckpoint.flag();
             logger.info("Message processed successfully");
             return Future.succeededFuture();
-        });
+        }).onFailure(testContext::failNow);
 
         // Wait for processing to complete
         assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS),
@@ -405,5 +410,3 @@ class PostgreSQLErrorHandlingTest {
         producer.close();
     }
 }
-
-
