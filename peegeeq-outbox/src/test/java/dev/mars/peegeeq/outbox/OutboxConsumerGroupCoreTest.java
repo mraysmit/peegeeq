@@ -20,8 +20,11 @@ import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.messaging.ConsumerGroupMember;
 import dev.mars.peegeeq.api.messaging.ConsumerGroupStats;
 import dev.mars.peegeeq.api.messaging.Message;
+import dev.mars.peegeeq.api.messaging.MessageConsumer;
+import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.api.messaging.RejectedMessageException;
 import dev.mars.peegeeq.api.messaging.SimpleMessage;
+import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.api.tracing.TraceContextUtil;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
@@ -291,6 +294,33 @@ class OutboxConsumerGroupCoreTest {
             assertInstanceOf(IllegalStateException.class, result.cause());
             assertEquals(OutboxConsumerGroup.State.NEW, group.getState(),
                     "State should roll back to NEW after failed start()");
+        }
+
+        @Test
+        @ExpectedErrorLog(
+                logger = "dev.mars.peegeeq.outbox.OutboxConsumerGroup",
+                message = "Failed to subscribe consumer group 'subscription-failure-group' for topic 'test-topic': controlled subscription failure",
+                throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+                throwableType = IllegalStateException.class)
+        @DisplayName("start(SubscriptionOptions) propagates subscription failure and restores NEW")
+        void startWithOptionsPropagatesSubscriptionFailure(VertxTestContext testContext) {
+            TestMessageConsumer<String> consumer = new TestMessageConsumer<>(
+                    Future.failedFuture(new IllegalStateException("controlled subscription failure")));
+            group = createGroup("subscription-failure-group", "test-topic", consumer);
+            ConsumerGroupMember<String> member =
+                    group.addConsumer("c1", message -> Future.succeededFuture());
+
+            group.start(SubscriptionOptions.defaults())
+                    .onSuccess(v -> testContext.failNow("Startup unexpectedly succeeded"))
+                    .onFailure(error -> testContext.verify(() -> {
+                        assertInstanceOf(IllegalStateException.class, error);
+                        assertEquals("controlled subscription failure", error.getMessage());
+                        assertEquals(OutboxConsumerGroup.State.NEW, group.getState());
+                        assertFalse(group.isActive());
+                        assertFalse(member.isActive());
+                        assertEquals(0, group.getActiveConsumerCount());
+                        testContext.completeNow();
+                    }));
         }
     }
 
@@ -1117,7 +1147,38 @@ class OutboxConsumerGroupCoreTest {
                 databaseService, null, null, config);
     }
 
+    private OutboxConsumerGroup<String> createGroup(
+            String groupName, String topic, TestMessageConsumer<String> consumer) {
+        return new OutboxConsumerGroup<>(
+                groupName, topic, String.class,
+                null, databaseService, null, null, config, null,
+                null, null, enforceSubscriptionBounds -> consumer);
+    }
+
     private Future<Void> invokeDistributeMessage(OutboxConsumerGroup<String> group, Message<String> message) {
         return group.distributeMessage(message);
+    }
+
+    private static final class TestMessageConsumer<T> implements MessageConsumer<T> {
+        private final Future<Void> subscribeResult;
+
+        private TestMessageConsumer(Future<Void> subscribeResult) {
+            this.subscribeResult = subscribeResult;
+        }
+
+        @Override
+        public Future<Void> subscribe(MessageHandler<T> handler) {
+            return subscribeResult;
+        }
+
+        @Override
+        public void unsubscribe() {
+            // This controlled lifecycle consumer has no external subscription.
+        }
+
+        @Override
+        public void close() {
+            // This controlled lifecycle consumer owns no external resources.
+        }
     }
 }

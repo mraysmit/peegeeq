@@ -8,11 +8,14 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
+import java.time.Duration;
+import java.util.Properties;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
 
 /**
@@ -52,6 +55,38 @@ class PgPoolConfigPropertyBindingTest {
             arguments("peegeeq.database.pool.idle-timeout-ms",       "5678",  (Function<PgPoolConfig, Object>) c -> c.getIdleTimeout().toMillis(),         5678L),
             arguments("peegeeq.database.pool.shared",                "false", (Function<PgPoolConfig, Object>) PgPoolConfig::isShared,                     false),
             arguments("peegeeq.database.pool.max-wait-queue-size",   "9",     (Function<PgPoolConfig, Object>) PgPoolConfig::getMaxWaitQueueSize,          9)
+        );
+    }
+
+    @ParameterizedTest(name = "[{index}] {0}: connection={1}ms, idle={2}ms")
+    @MethodSource("bundledProfileTimeouts")
+    void bundledProfilesBindCanonicalTimeoutProperties(String profile,
+                                                        long expectedConnectionTimeoutMs,
+                                                        long expectedIdleTimeoutMs) {
+        PeeGeeQConfiguration cfg = new PeeGeeQConfiguration(profile, new Properties());
+
+        assertEquals(Duration.ofMillis(expectedConnectionTimeoutMs),
+                cfg.getPoolConfig().getConnectionTimeout());
+        assertEquals(Duration.ofMillis(expectedIdleTimeoutMs),
+                cfg.getPoolConfig().getIdleTimeout());
+        assertEquals(Long.toString(expectedConnectionTimeoutMs),
+                cfg.getString("peegeeq.database.pool.connection-timeout-ms"));
+        assertEquals(Long.toString(expectedIdleTimeoutMs),
+                cfg.getString("peegeeq.database.pool.idle-timeout-ms"));
+        assertFalse(cfg.getProperties().containsKey("peegeeq.database.pool.connection-timeout"));
+        assertFalse(cfg.getProperties().containsKey("peegeeq.database.pool.idle-timeout"));
+    }
+
+    static Stream<Arguments> bundledProfileTimeouts() {
+        return Stream.of(
+            arguments("bitemporal-optimized", 30_000L, 600_000L),
+            arguments("extreme-performance", 30_000L, 600_000L),
+            arguments("high-performance", 10_000L, 1_800_000L),
+            arguments("high-throughput", 30_000L, 300_000L),
+            arguments("low-latency", 5_000L, 60_000L),
+            arguments("parallel-test", 20_000L, 600_000L),
+            arguments("reliable", 60_000L, 600_000L),
+            arguments("vertx5-optimized", 30_000L, 600_000L)
         );
     }
 }
