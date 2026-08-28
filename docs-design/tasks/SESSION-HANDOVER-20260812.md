@@ -12,6 +12,70 @@ Companion to `TEST-INTEGRITY-DEFECT-REMEDIATION-PLAN.md`, which is the defect re
 This document covers what happened in this session, what state the working tree is in,
 and what the next person needs to know before touching it.
 
+## 2026-08-28 continuation (priorities 1-6 complete)
+
+This section supersedes the status of items 1-6 in the 2026-08-27 queue below. The work
+was completed in bounded phases with a clean affected-reactor rebuild before each focused
+test run. `-Pall-tests` was not run; it remains the owner/release gate.
+
+1. **Outbox consumer-group startup failure propagation: COMPLETE.**
+   `OutboxConsumerGroup.startInternal(boolean)` now returns and composes the subscription
+   Future. Members start and the group enters `ACTIVE` only after subscription readiness;
+   startup failure restores `NEW` and reaches the public start Future. The full nested
+   `OutboxConsumerGroupCoreTest` contract passed 64/64.
+
+2. **Bundled pool timeout properties: COMPLETE.**
+   Bundled profiles use `connection-timeout-ms` and `idle-timeout-ms` with deliberately
+   converted numeric values. `PgPoolConfigPropertyBindingTest` passed 28/28 across the
+   bundled profiles and expected timeout values.
+
+3. **Dead `pool.min-size` contract: COMPLETE (removed).**
+   The unsupported property was removed from production configuration surfaces, bundled
+   resources, examples, Spring configuration bindings, and documentation. Remaining
+   tracked references are negative contract assertions proving the key is absent or
+   rejected. Focused verification passed: DB core 32/32, examples core 21/21, DB example
+   2/2, bitemporal 1/1, native 1/1, outbox 1/1, and five Spring configuration classes 1/1
+   each.
+
+4. **Known async test-standard violations: COMPLETE.**
+   `TracePropagationTest` now uses terminal success/failure handlers and passed 2/2.
+   `ResilienceSmokeTest` now uses composed Futures and Vert.x test-context completion
+   instead of blocking latches and passed 2/2.
+
+5. **Discarded-subscription Future ratchet: COMPLETE at zero.**
+   The baseline moved from 98 violations across 31 files to a header-only CSV. Subscription
+   readiness now gates dependent sends, multi-consumer readiness is combined, and failures
+   are terminally observed. During the final native phase, `RetryableErrorIT` was also made
+   discoverable under the integration profile and its raw JDBC fixture was replaced with a
+   Vert.x SQL client plus a deterministic sequence-backed `40P01` trigger.
+
+   Focused final evidence: integration-tests 2/2; Spring integration 11/11 and performance
+   3/3; examples 18/18; native groups 12/12, 7/7, 17/17, 18/18, and 13/13. The final
+   zero-baseline `noDiscardedFuturesFromSubscribeInTestSources` guard passed 1/1.
+
+6. **Remaining schema and instance-isolation coverage: COMPLETE.**
+   TC-S14 is implemented by `OutboxSchemaSubscriptionIsolationTest`: two schemas use the
+   same topic and subscription names without sharing delivery or subscription state. The
+   clean five-module outbox reactor build passed, the targeted integration contract passed
+   1/1, and the applicable async guard scope passed 7/7.
+
+   TC-S15 is implemented by `OutboxOffsetWatermarkSchemaIsolationTest`: two schemas using
+   the same topic and consumer-group names retain independent `OFFSET_WATERMARK` offsets and
+   watermarks. The clean five-module outbox reactor build passed, the targeted integration
+   contract passed 1/1, and the applicable async guard scope passed 7/7.
+
+   The P3 negative multi-setup contract is implemented by
+   `MultiSetupNativeCrossIsolationTest`. Both `LISTEN_NOTIFY_ONLY` consumers subscribe before
+   production begins; setup A receives its own marker, setup B never observes that marker,
+   and setup B's original live consumer receives a later setup B marker after setup A is
+   destroyed. The clean 11-module integration-test reactor build passed, the targeted
+   integration contract passed 1/1, and `VertxAsyncForbiddenPatternsGuardTest` passed 1/1.
+   All three contracts passed against the existing runtime, so this priority required no
+   production change.
+
+**Next implementation item:** priority 7 below, replacing the D23 UI SSE fixed timing
+assumption with observed readiness and verifying the focused real-backend Playwright scope.
+
 ## 2026-08-27 continuation (prioritized outstanding implementation work)
 
 This queue comes from static source and configuration review at the current HEAD. It identifies

@@ -40,7 +40,6 @@ import java.time.Duration;
  *     password: secret
  *   pool:
  *     max-size: 20
- *     min-size: 5
  *     shared: true
  *   queue:
  *     max-retries: 3
@@ -115,7 +114,6 @@ public class PeeGeeQProperties {
      */
     public static class Pool {
         private int maxSize = 20;
-        private int minSize = 5;
         private int maxWaitQueueSize = 128;
         private boolean shared = true;
 
@@ -123,8 +121,6 @@ public class PeeGeeQProperties {
         public int getMaxSize() { return maxSize; }
         public void setMaxSize(int maxSize) { this.maxSize = maxSize; }
 
-        public int getMinSize() { return minSize; }
-        public void setMinSize(int minSize) { this.minSize = minSize; }
 
         public int getMaxWaitQueueSize() { return maxWaitQueueSize; }
         public void setMaxWaitQueueSize(int maxWaitQueueSize) { this.maxWaitQueueSize = maxWaitQueueSize; }

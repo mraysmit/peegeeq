@@ -29,6 +29,7 @@ import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent.*;
@@ -54,6 +55,7 @@ class PgNativeQueueConsumerCleanupIT {
     private Pool pool;
     private ObjectMapper mapper;
     private PgNativeQueueConsumer<String> consumer;
+    private PeeGeeQConfiguration config;
 
     @BeforeAll
     static void beforeAll() {
@@ -70,7 +72,7 @@ class PgNativeQueueConsumerCleanupIT {
                 .build();
 
         // Initialize PeeGeeQ Manager
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
+        config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start()
                 .onSuccess(v -> {
@@ -116,12 +118,13 @@ class PgNativeQueueConsumerCleanupIT {
             .build();
 
         consumer = new PgNativeQueueConsumer<>(
-            adapter, mapper, TOPIC, String.class, null, null, consumerConfig
+            adapter, mapper, TOPIC, String.class, null, config, consumerConfig
         );
 
-        consumer.subscribe(msg -> {
+        Promise<Void> received = Promise.promise();
+        Future<Void> subscription = consumer.subscribe(msg -> {
             testContext.verify(() -> assertEquals("locked-msg", msg.getPayload()));
-            testContext.completeNow();
+            received.tryComplete();
             return Future.succeededFuture();
         });
 
@@ -133,17 +136,33 @@ class PgNativeQueueConsumerCleanupIT {
         """;
         JsonObject payload = new JsonObject().put("value", "locked-msg");
         JsonObject headers = new JsonObject();
-        pool.preparedQuery(insertLocked)
-            .execute(Tuple.of(TOPIC, payload, headers, "c-lock"))
+        subscription.compose(v -> pool.preparedQuery(insertLocked)
+            .execute(Tuple.of(TOPIC, payload, headers, "c-lock")))
             // Notify to expedite wakeup (though polling will also run)
             .compose(v -> pool.preparedQuery("SELECT pg_notify($1, $2)")
-                .execute(Tuple.of("queue_" + TOPIC, "test")))
+                .execute(Tuple.of(PostgreSQLTestConstants.TEST_SCHEMA + "_queue_" + TOPIC, "test")))
+            .compose(v -> received.future())
+            .compose(v -> waitUntilMessageDeleted(vertx, 100))
+            .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
 
         // Wait up to 20s for the 10s cleanup periodic to run and processing to occur
         assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS));
     }
+
+    private Future<Void> waitUntilMessageDeleted(Vertx vertx, int remainingAttempts) {
+        return pool.preparedQuery("SELECT COUNT(*) AS message_count FROM queue_messages WHERE topic = $1")
+            .execute(Tuple.of(TOPIC))
+            .compose(rows -> {
+                long messageCount = rows.iterator().next().getLong("message_count");
+                if (messageCount == 0) {
+                    return Future.succeededFuture();
+                }
+                if (remainingAttempts == 0) {
+                    return Future.failedFuture("Timed out waiting for cleaned-up message deletion");
+                }
+                return vertx.timer(50)
+                    .compose(v -> waitUntilMessageDeleted(vertx, remainingAttempts - 1));
+            });
+    }
 }
-
-
-

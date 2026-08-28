@@ -78,7 +78,6 @@ peegeeq:
       password: peegeeq
     pool:
       max-size: 20
-      min-size: 5
     transaction:
       timeout: PT5M
       retry-attempts: 3
@@ -406,7 +405,6 @@ peegeeq:
   bitemporal:
     pool:
       max-size: 50
-      min-size: 10
 ```
 
 ### Debug Logging
@@ -454,7 +452,6 @@ peegeeq:
       ssl-enabled: true
     pool:
       max-size: 50
-      min-size: 10
     transaction:
       timeout: PT10M
       retry-attempts: 5

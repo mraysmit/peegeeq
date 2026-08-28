@@ -90,17 +90,18 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
                     AtomicInteger consumedCount = new AtomicInteger(0);
                     Set<String> consumedIds = Collections.newSetFromMap(new ConcurrentHashMap<>());
                     Promise<Void> allConsumedPromise = Promise.promise();
+                    List<Future<Void>> subscriptionFutures = new ArrayList<>();
 
                     for (int i = 0; i < consumerCount; i++) {
                         MessageConsumer<Object> consumer = factory.createConsumer(queueName, Object.class);
                         activeConsumers.add(consumer);
-                        consumer.subscribe(msg -> {
+                        subscriptionFutures.add(consumer.subscribe(msg -> {
                             consumedIds.add(msg.getId());
                             if (consumedCount.incrementAndGet() >= messageCount) {
                                 allConsumedPromise.tryComplete();
                             }
                             return Future.succeededFuture();
-                        });
+                        }));
                     }
 
                     // Publish all messages; failures are logged but do not block publishing
@@ -114,8 +115,9 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
                                 .mapEmpty()
                         );
                     }
-                    Future.all(publishFutures)
-                        .onFailure(err -> logger.warn("Some messages failed to publish: {}", err.getMessage()));
+                    Future.all(subscriptionFutures)
+                        .compose(v -> Future.all(publishFutures))
+                        .onFailure(testContext::failNow);
 
                     // Guard against infinite wait: fail after 60 s if not all consumed
                     long timerId = vertx.setTimer(60_000, ignored ->
@@ -166,11 +168,11 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
                     consumer1.subscribe(msg -> {
                         msg1Promise.tryComplete();
                         return Future.succeededFuture();
-                    });
-
-                    // 2. Publish Message 1, then wait for it via the promise
-                    webClient.post("/api/v1/queues/" + setupId + "/" + queueName + "/messages")
+                    })
+                    // 2. Publish Message 1 only after the subscription is active, then wait for it.
+                    .compose(v -> webClient.post("/api/v1/queues/" + setupId + "/" + queueName + "/messages")
                         .sendJsonObject(new JsonObject().put("payload", new JsonObject().put("data", "msg-1")))
+                    )
                         .compose(r -> {
                             if (r.statusCode() != 200) {
                                 return Future.failedFuture(new AssertionError("Failed to publish msg-1: " + r.statusCode()));
@@ -194,13 +196,12 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
                             MessageConsumer<Object> consumer2 = factory.createConsumer(queueName, Object.class);
                             activeConsumers.add(consumer2);
                             Promise<Void> msg2Promise = Promise.promise();
-                            consumer2.subscribe(msg -> {
+                            return consumer2.subscribe(msg -> {
                                 if (msg.getPayload().toString().contains("msg-2")) {
                                     msg2Promise.tryComplete();
                                 }
                                 return Future.succeededFuture();
-                            });
-                            return msg2Promise.future();
+                            }).compose(ignored -> msg2Promise.future());
                         })
                         .onSuccess(v -> {
                             webClient.delete("/api/v1/database-setup/" + setupId).send();

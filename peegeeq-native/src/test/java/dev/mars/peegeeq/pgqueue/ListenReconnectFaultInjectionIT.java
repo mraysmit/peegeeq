@@ -105,11 +105,12 @@ public class ListenReconnectFaultInjectionIT {
 
     @Test
     void testListenReconnectAfterForcedDisconnect(Vertx vertx, VertxTestContext testContext) throws Exception {
-        consumer.subscribe(msg -> {
+        Future<Void> subscription = consumer.subscribe(msg -> {
         logger.info("Test: listen reconnect after forced disconnect");
             testContext.completeNow();
             return Future.succeededFuture();
         });
+        subscription.onFailure(testContext::failNow);
 
         // Wait for LISTEN connection to establish
         vertx.setPeriodic(100, waitId -> {
@@ -143,7 +144,8 @@ public class ListenReconnectFaultInjectionIT {
 
     @Test
     void testUnsubscribeDoesNotReestablishListenConnection(Vertx vertx, VertxTestContext testContext) throws Exception {
-        consumer.subscribe(msg -> Future.succeededFuture());
+        Future<Void> subscription = consumer.subscribe(msg -> Future.succeededFuture());
+        subscription.onFailure(testContext::failNow);
 
         PgNativeQueueConsumer<?> concrete = (PgNativeQueueConsumer<?>) consumer;
 
@@ -207,4 +209,3 @@ public class ListenReconnectFaultInjectionIT {
     }
 
 }
-

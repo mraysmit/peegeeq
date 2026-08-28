@@ -80,7 +80,6 @@ class MultiConfigurationIntegrationTest {
 
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
-                .property("peegeeq.database.pool.min-size", "2")
                 .property("peegeeq.database.pool.max-size", "10")
                 .property("peegeeq.metrics.enabled", "true")
                 .property("peegeeq.health.enabled", "true")

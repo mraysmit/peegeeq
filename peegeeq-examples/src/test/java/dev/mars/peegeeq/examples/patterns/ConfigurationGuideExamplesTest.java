@@ -67,7 +67,6 @@ public class ConfigurationGuideExamplesTest {
         p.setProperty("peegeeq.database.name",                       "peegeeq_test");
         p.setProperty("peegeeq.database.username",                   "peegeeq");
         p.setProperty("peegeeq.database.password",                   "peegeeq");
-        p.setProperty("peegeeq.database.pool.min-size",              "1");
         p.setProperty("peegeeq.database.pool.max-size",              "5");
         p.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
         return p;
@@ -372,24 +371,6 @@ public class ConfigurationGuideExamplesTest {
         assertTrue(msg.contains("Database name is required"),     "Should report empty name");
         assertTrue(msg.contains("Database username is required"), "Should report empty username");
         assertTrue(msg.contains("Database port must be between"), "Should report invalid port");
-    }
-
-    /**
-     * Pool {@code max-size} less than {@code min-size} is rejected.
-     *
-     * <p>Guide reference: "pool.max-size  pool.min-size"</p>
-     */
-    @Test
-    void validation_poolMaxSizeLessThanMinSize_rejected() {
-        Properties bad = validBase();
-        bad.setProperty("peegeeq.database.pool.min-size", "10");
-        bad.setProperty("peegeeq.database.pool.max-size", "5");
-
-        IllegalStateException ex = assertThrows(IllegalStateException.class,
-            () -> new PeeGeeQConfiguration("default", bad));
-
-        assertTrue(ex.getMessage().contains(
-            "Maximum pool size must be greater than or equal to minimum pool size"));
     }
 
     /**

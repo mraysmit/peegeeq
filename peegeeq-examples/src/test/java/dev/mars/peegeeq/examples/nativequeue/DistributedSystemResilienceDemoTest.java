@@ -33,7 +33,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Instant;
 import java.util.*;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -231,7 +230,6 @@ class DistributedSystemResilienceDemoTest {
         public final AtomicInteger failureCount = new AtomicInteger(0);
         public final AtomicInteger timeoutCount = new AtomicInteger(0);
         public volatile double failureRate = 0.0; // Configurable failure rate for testing
-        public volatile long processingDelayMs = 100; // Configurable processing delay
 
         public ResilientService(String serviceId, int failureThreshold, long circuitTimeoutMs) {
             this.serviceId = serviceId;
@@ -251,45 +249,30 @@ class DistributedSystemResilienceDemoTest {
                 );
             }
             
-            try {
-                // Simulate processing delay
-                new CountDownLatch(1).await(processingDelayMs, TimeUnit.MILLISECONDS);
-                
-                // Simulate failures based on failure rate
-                boolean shouldFail = Math.random() < failureRate;
-                
-                if (shouldFail) {
-                    failureCount.incrementAndGet();
-                    circuitBreaker.recordFailure();
-                    return new ServiceResponse(
-                        request.requestId, serviceId, false, null,
-                        "Simulated service failure", System.currentTimeMillis() - startTime
-                    );
-                } else {
-                    successCount.incrementAndGet();
-                    circuitBreaker.recordSuccess();
-                    
-                    Map<String, Object> result = new HashMap<>();
-                    result.put("processed", true);
-                    result.put("operation", request.operation);
-                    result.put("serviceId", serviceId);
-                    result.put("processingTime", System.currentTimeMillis() - startTime);
+            boolean shouldFail = Math.random() < failureRate;
 
-                    return new ServiceResponse(
-                        request.requestId, serviceId, true, result, null,
-                        System.currentTimeMillis() - startTime
-                    );
-                }
-                
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                timeoutCount.incrementAndGet();
+            if (shouldFail) {
+                failureCount.incrementAndGet();
                 circuitBreaker.recordFailure();
                 return new ServiceResponse(
                     request.requestId, serviceId, false, null,
-                    "Request interrupted", System.currentTimeMillis() - startTime
+                    "Simulated service failure", System.currentTimeMillis() - startTime
                 );
             }
+
+            successCount.incrementAndGet();
+            circuitBreaker.recordSuccess();
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("processed", true);
+            result.put("operation", request.operation);
+            result.put("serviceId", serviceId);
+            result.put("processingTime", System.currentTimeMillis() - startTime);
+
+            return new ServiceResponse(
+                request.requestId, serviceId, true, result, null,
+                System.currentTimeMillis() - startTime
+            );
         }
 
         public JsonObject getMetrics() {
@@ -320,18 +303,6 @@ class DistributedSystemResilienceDemoTest {
             ServiceResponse lastResponse = null;
 
             for (int attempt = 0; attempt <= maxRetries; attempt++) {
-                if (attempt > 0) {
-                    // Calculate exponential backoff delay
-                    long delay = (long) (baseDelayMs * Math.pow(backoffMultiplier, attempt - 1));
-
-                    try {
-                        new CountDownLatch(1).await(delay, TimeUnit.MILLISECONDS);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
-                }
-
                 lastResponse = service.processRequest(request);
 
                 if (lastResponse.success) {
@@ -400,8 +371,6 @@ class DistributedSystemResilienceDemoTest {
 
         // Set high failure rate to trigger circuit breaker
         service.failureRate = 0.7; // 70% failure rate
-        service.processingDelayMs = 50; // Fast processing
-
         // Create producers and consumers
         MessageProducer<ServiceRequest> requestProducer = queueFactory.createProducer(requestQueue, ServiceRequest.class);
         MessageConsumer<ServiceRequest> requestConsumer = queueFactory.createConsumer(requestQueue, ServiceRequest.class);
@@ -409,21 +378,21 @@ class DistributedSystemResilienceDemoTest {
         MessageConsumer<ServiceResponse> responseConsumer = queueFactory.createConsumer(responseQueue, ServiceResponse.class);
 
         // Request processor with circuit breaker
-        requestConsumer.subscribe(message -> {
+        Future<Void> requestSubscription = requestConsumer.subscribe(message -> {
             ServiceRequest request = message.getPayload();
 
             logger.info("Processing request: {} (Circuit state: {})", request.requestId, service.circuitBreaker.state);
 
             ServiceResponse response = service.processRequest(request);
-            responseProducer.send(response);
-
-            requestsProcessed.incrementAndGet();
-            requestCheckpoint.flag();
-            return Future.succeededFuture();
+            return responseProducer.send(response)
+                    .onSuccess(v -> {
+                        requestsProcessed.incrementAndGet();
+                        requestCheckpoint.flag();
+                    });
         });
 
         // Response collector
-        responseConsumer.subscribe(message -> {
+        Future<Void> responseSubscription = responseConsumer.subscribe(message -> {
             ServiceResponse response = message.getPayload();
 
             logger.info("Received response: {} (Success: {}, Error: {})", response.requestId, response.success, response.errorMessage);
@@ -433,6 +402,7 @@ class DistributedSystemResilienceDemoTest {
             responseCheckpoint.flag();
             return Future.succeededFuture();
         });
+        Future<Void> subscriptions = Future.all(requestSubscription, responseSubscription).mapEmpty();
 
         // Send requests to trigger circuit breaker
         logger.info("Sending requests to trigger circuit breaker...");
@@ -452,7 +422,7 @@ class DistributedSystemResilienceDemoTest {
                 1000, // 1 second timeout
                 2     // 2 retries
             );
-            sendTasks.add(requestProducer.send(request));
+            sendTasks.add(subscriptions.compose(v -> requestProducer.send(request)));
         }
 
         // Wait for all sends to complete
@@ -493,5 +463,3 @@ class DistributedSystemResilienceDemoTest {
 
 
 }
-
-

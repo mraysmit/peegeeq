@@ -102,7 +102,6 @@ class PeeGeeQExampleTest {
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
-                .property("peegeeq.database.pool.min-size", "5")
                 .property("peegeeq.database.pool.max-size", "20")
                 .property("peegeeq.metrics.enabled", "true")
                 .property("peegeeq.migration.enabled", "true")
@@ -244,7 +243,6 @@ class PeeGeeQExampleTest {
         logger.info("> Port: {}", config.getInt("peegeeq.database.port", 5432));
         logger.info("> Database: {}", config.getString("peegeeq.database.name", "peegeeq"));
         logger.info("> Schema: {}", config.getString("peegeeq.database.schema", PostgreSQLTestConstants.TEST_SCHEMA));
-        logger.info("> Pool Min Size: {}", config.getInt("peegeeq.database.pool.min-size", 5));
         logger.info("> Pool Max Size: {}", config.getInt("peegeeq.database.pool.max-size", 20));
 
         logger.info("Feature Configuration:");

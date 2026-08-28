@@ -127,7 +127,7 @@ class PollingOnlyEdgeCaseTest {
         AtomicInteger messageCount = new AtomicInteger(0);
         Checkpoint messagesReceived = testContext.checkpoint(5);
 
-        consumer.subscribe(message -> {
+        Future<Void> sendChain = consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             logger.info(" Received fast polling message {}: {}", count, message.getPayload());
             messagesReceived.flag();
@@ -136,8 +136,10 @@ class PollingOnlyEdgeCaseTest {
 
         // Send messages rapidly
         for (int i = 1; i <= 5; i++) {
-            producer.send("Fast polling message " + i).onFailure(testContext::failNow);
+            String payload = "Fast polling message " + i;
+            sendChain = sendChain.compose(v -> producer.send(payload));
         }
+        sendChain.onFailure(testContext::failNow);
 
         // Wait for all messages to be processed
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive all 5 messages with fast polling");
@@ -166,7 +168,7 @@ class PollingOnlyEdgeCaseTest {
         AtomicInteger messageCount = new AtomicInteger(0);
         Checkpoint messagesReceived = testContext.checkpoint(2);
 
-        consumer.subscribe(message -> {
+        Future<Void> subscription = consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             logger.info(" Received slow polling message {}: {}", count, message.getPayload());
             messagesReceived.flag();
@@ -174,8 +176,10 @@ class PollingOnlyEdgeCaseTest {
         });
 
         // Send messages before polling kicks in
-        producer.send("Slow polling message 1").onFailure(testContext::failNow);
-        producer.send("Slow polling message 2").onFailure(testContext::failNow);
+        subscription
+            .compose(v -> producer.send("Slow polling message 1"))
+            .compose(v -> producer.send("Slow polling message 2"))
+            .onFailure(testContext::failNow);
 
         // Wait for polling to pick up messages (need to wait longer than polling interval)
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive all 2 messages with slow polling");
@@ -205,7 +209,7 @@ class PollingOnlyEdgeCaseTest {
         AtomicInteger messageCount = new AtomicInteger(0);
         Checkpoint messagesReceived = testContext.checkpoint(10);
 
-        consumer.subscribe(message -> {
+        Future<Void> sendChain = consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             logger.info(" Received concurrent message {}: {} on thread {}",
                 count, message.getPayload(), Thread.currentThread().getName());
@@ -215,8 +219,10 @@ class PollingOnlyEdgeCaseTest {
 
         // Send messages sequentially to avoid overwhelming the system
         for (int i = 1; i <= 10; i++) {
-            producer.send("Concurrent message " + i).onFailure(testContext::failNow);
+            String payload = "Concurrent message " + i;
+            sendChain = sendChain.compose(v -> producer.send(payload));
         }
+        sendChain.onFailure(testContext::failNow);
 
         // Wait for all messages to be processed
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive all 10 messages with high concurrency");
@@ -246,7 +252,7 @@ class PollingOnlyEdgeCaseTest {
         AtomicInteger messageCount = new AtomicInteger(0);
         Checkpoint messagesReceived = testContext.checkpoint(10);
 
-        consumer.subscribe(message -> {
+        Future<Void> sendChain = consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             logger.info(" Processed batch message {}: {}", count, message.getPayload());
             messagesReceived.flag();
@@ -256,8 +262,10 @@ class PollingOnlyEdgeCaseTest {
         // Send messages before consumer starts polling
         logger.info("Sending 10 messages for batch processing...");
         for (int i = 1; i <= 10; i++) {
-            producer.send("Batch message " + i).onFailure(testContext::failNow);
+            String payload = "Batch message " + i;
+            sendChain = sendChain.compose(v -> producer.send(payload));
         }
+        sendChain.onFailure(testContext::failNow);
 
         // Wait for all messages to be processed in batches
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive all 10 messages in batches");
@@ -286,7 +294,7 @@ class PollingOnlyEdgeCaseTest {
         AtomicReference<String> lastMessage = new AtomicReference<>();
         Checkpoint messageReceived = testContext.checkpoint();
 
-        consumer.subscribe(message -> {
+        Future<Void> subscription = consumer.subscribe(message -> {
             messageCount.incrementAndGet();
             lastMessage.set(message.getPayload());
             logger.info(" Received message: {}", message.getPayload());
@@ -295,7 +303,7 @@ class PollingOnlyEdgeCaseTest {
         });
 
         // Let it poll empty queue for a while, then send a message
-        vertx.setTimer(3000, id -> {
+        subscription.compose(v -> vertx.timer(3000)).onSuccess(id -> {
             // Verify no messages were processed from empty queue
             if (messageCount.get() != 0) {
                 testContext.failNow(new AssertionError("Should not process any messages from empty queue"));
@@ -305,12 +313,13 @@ class PollingOnlyEdgeCaseTest {
             // Now send a message and verify it gets processed
             try {
                 MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-                producer.send("Message after empty polling").onFailure(testContext::failNow);
-                producer.close();
+                producer.send("Message after empty polling")
+                    .onSuccess(v -> producer.close())
+                    .onFailure(testContext::failNow);
             } catch (Exception e) {
                 testContext.failNow(e);
             }
-        });
+        }).onFailure(testContext::failNow);
 
         // Wait for the message to be processed
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive the message after empty polling");
@@ -338,7 +347,7 @@ class PollingOnlyEdgeCaseTest {
         AtomicInteger messageCount = new AtomicInteger(0);
         Checkpoint messagesReceived = testContext.checkpoint(3);
 
-        consumer.subscribe(message -> {
+        Future<Void> subscription = consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             logger.info(" Received resilient message {}: {}", count, message.getPayload());
             messagesReceived.flag();
@@ -346,9 +355,11 @@ class PollingOnlyEdgeCaseTest {
         });
 
         // Send messages sequentially
-        producer.send("Message 1 - resilience test").onFailure(testContext::failNow);
-        producer.send("Message 2 - resilience test").onFailure(testContext::failNow);
-        producer.send("Message 3 - resilience test").onFailure(testContext::failNow);
+        subscription
+            .compose(v -> producer.send("Message 1 - resilience test"))
+            .compose(v -> producer.send("Message 2 - resilience test"))
+            .compose(v -> producer.send("Message 3 - resilience test"))
+            .onFailure(testContext::failNow);
 
         // Wait for messages to be processed (consumer should handle normal operations)
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive all messages in normal operation");
@@ -359,5 +370,4 @@ class PollingOnlyEdgeCaseTest {
         logger.info("POLLING_ONLY handles normal database operations correctly");
     }
 }
-
 

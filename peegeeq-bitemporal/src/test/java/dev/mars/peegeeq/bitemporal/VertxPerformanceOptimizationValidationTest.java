@@ -87,7 +87,6 @@ class VertxPerformanceOptimizationValidationTest {
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.health-check.queue-checks-enabled", "false")
                 .property("peegeeq.database.pool.max-size", "20")
-                .property("peegeeq.database.pool.min-size", "5")
                 .property("peegeeq.database.pipelining.limit", "1024")
                 .property("peegeeq.database.event.loop.size", "8")
                 .property("peegeeq.database.worker.pool.size", "16")
@@ -359,5 +358,4 @@ class VertxPerformanceOptimizationValidationTest {
         public void setMessage(String message) { this.message = message; }
     }
 }
-
 

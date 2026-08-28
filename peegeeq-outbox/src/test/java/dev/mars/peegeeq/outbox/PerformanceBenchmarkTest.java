@@ -62,7 +62,6 @@ public class PerformanceBenchmarkTest {
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
-                .property("peegeeq.database.pool.min-size", "5")
                 .property("peegeeq.database.pool.max-size", "10")
                 .property("peegeeq.database.pool.max-wait-queue-size", "5000")
                 .build();

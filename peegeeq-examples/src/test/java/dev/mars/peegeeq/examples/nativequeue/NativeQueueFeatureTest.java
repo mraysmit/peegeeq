@@ -184,7 +184,7 @@ class NativeQueueFeatureTest {
         long sendTime = System.currentTimeMillis();
 
         // Subscribe to messages
-        consumer.subscribe(message -> {
+        Future<Void> subscription = consumer.subscribe(message -> {
             try {
                 receivedMessages.add(message.getPayload());
                 receiveTime.set(System.currentTimeMillis());
@@ -200,7 +200,7 @@ class NativeQueueFeatureTest {
         });
 
         // Send message
-        producer.send("Real-time test message")
+        subscription.compose(v -> producer.send("Real-time test message"))
                 .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received within 10 seconds");
@@ -287,7 +287,7 @@ class NativeQueueFeatureTest {
         List<String> receivedMessages = new CopyOnWriteArrayList<>();
 
         // Subscribe with concurrent processing
-        consumer.subscribe(message -> {
+        Future<Void> subscription = consumer.subscribe(message -> {
             try {
                 receivedMessages.add(message.getPayload());
                 processedCount.incrementAndGet();
@@ -303,7 +303,8 @@ class NativeQueueFeatureTest {
         List<Future<Void>> futures = new ArrayList<>();
 
         for (int i = 0; i < messageCount; i++) {
-            futures.add(producer.send("Concurrent message " + i));
+            String payload = "Concurrent message " + i;
+            futures.add(subscription.compose(v -> producer.send(payload)));
         }
 
         // Wait for all sends to complete (fail the context if any send fails)
@@ -388,5 +389,3 @@ class NativeQueueFeatureTest {
         public void setData(String data) { this.data = data; }
     }
 }
-
-

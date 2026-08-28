@@ -239,7 +239,7 @@ public class ConsumerModeMetricsTest {
                 .pollingInterval(Duration.ofMillis(100))
                 .build());
 
-        consumer.subscribe(message -> {
+        Future<Void> subscription = consumer.subscribe(message -> {
             if (processedCount.incrementAndGet() >= messageCount) {
                 allProcessed.tryComplete();
             }
@@ -248,7 +248,7 @@ public class ConsumerModeMetricsTest {
 
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        return vertx.timer(3000)
+        return subscription.compose(v -> vertx.timer(3000))
             .compose(v -> {
                 for (int i = 0; i < messageCount; i++) {
                     producer.send("Metrics test message " + i)
@@ -302,7 +302,7 @@ public class ConsumerModeMetricsTest {
                 .consumerThreads(messageCount)
                 .build());
 
-        consumer.subscribe(message -> {
+        Future<Void> subscription = consumer.subscribe(message -> {
             Promise<Void> promise = Promise.promise();
             vertx.setTimer(10, timerId -> {
                 if (processed.incrementAndGet() >= messageCount) {
@@ -315,7 +315,7 @@ public class ConsumerModeMetricsTest {
 
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        return vertx.timer(3000)
+        return subscription.compose(v -> vertx.timer(3000))
             .compose(v -> {
                 for (int i = 0; i < messageCount; i++) {
                     producer.send("Processing time test message " + i)
@@ -334,5 +334,4 @@ public class ConsumerModeMetricsTest {
             });
     }
 }
-
 

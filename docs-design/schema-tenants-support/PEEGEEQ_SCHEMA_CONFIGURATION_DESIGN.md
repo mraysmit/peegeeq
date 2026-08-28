@@ -1019,7 +1019,6 @@ peegeeq.database.schema=myapp,peegeeq,bitemporal,public
 
 # Connection pool
 peegeeq.database.pool.max-size=32
-peegeeq.database.pool.min-size=5
 ```
 
 **Loaded by**: `PeeGeeQConfiguration.getDatabaseConfig()` returns `PgConnectionConfig` instance
