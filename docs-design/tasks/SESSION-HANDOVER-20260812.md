@@ -1,13 +1,98 @@
-# Session Handover — 2026-08-12 (reconciled 2026-08-23)
+# Session Handover — 2026-08-12 (reconciled 2026-08-27)
 
 **Status:** SUPERSEDED by
 [`TEST-INTEGRITY-DEFECT-REMEDIATION-PLAN.md`](TEST-INTEGRITY-DEFECT-REMEDIATION-PLAN.md)
 P12 and Jenkins build #36. This handover is historical context, not the current task list.
 The final release gate has now run successfully from the beginning.
 
+The dated continuation below records the current implementation review snapshot.
+[`tasks.md`](tasks.md) remains authoritative as work is reproduced, implemented, and verified.
+
 Companion to `TEST-INTEGRITY-DEFECT-REMEDIATION-PLAN.md`, which is the defect register.
 This document covers what happened in this session, what state the working tree is in,
 and what the next person needs to know before touching it.
+
+## 2026-08-27 continuation (prioritized outstanding implementation work)
+
+This queue comes from static source and configuration review at the current HEAD. It identifies
+contracts that need implementation or focused coverage; it does not claim untested runtime
+behavior as fact. Execute one numbered item as one phase, perform the mandatory reactor rebuild
+after any Java or Maven change, and run the smallest applicable test scope before moving on.
+
+1. **Fix outbox consumer-group startup failure propagation (highest priority, known fix).**
+   `OutboxConsumerGroup.startInternal()` currently initiates the subscription from
+   `OutboxConsumerGroup.java:532`, attaches only failure logging, starts members immediately,
+   and marks the group active without composing subscription settlement into the returned
+   startup contract. Make `startInternal()` return `Future<Void>`, compose subscription first,
+   start members and enter `ACTIVE` only after subscription success, and restore `NEW` on
+   failure. Add a controlled failure-path contract that proves the public start Future fails and
+   no member becomes active. This is the first implementation phase to take.
+
+2. **Canonicalize the bundled pool timeout properties (high priority, known fix).**
+   `PeeGeeQConfiguration.java:451` reads `connection-timeout-ms` and `idle-timeout-ms`, while
+   eight bundled profiles still declare the older names without the `-ms` suffix:
+   `bitemporal-optimized`, `extreme-performance`, `high-performance`, `high-throughput`,
+   `low-latency`, `parallel-test`, `reliable`, and `vertx5-optimized`. Correct each resource
+   value deliberately because some profiles use ISO-8601 durations such as `PT10S`; do not use
+   a blind key rename. Add one parameterized contract that loads every bundled profile and
+   asserts both timeout values bind to the expected pool settings.
+
+3. **Remove or deliberately implement the dead `pool.min-size` contract (high priority).**
+   The property is accepted and validated in `PeeGeeQConfiguration.java:269` but is not applied
+   to `PgPoolConfig`. Local inspection of the configured Vert.x 5.0.8 `PoolOptions` API found no
+   minimum-size setting. Prefer removing the advertised property, validation, and bundled
+   resource entries unless the owner explicitly chooses a separate connection pre-warming
+   design. Pin the selected public configuration contract with a focused test.
+
+4. **Correct the two known async test-standard violations (high priority).**
+   `ResilienceSmokeTest.java:29` justifies latch-based blocking waits even though the testing
+   standard requires `VertxTestContext`-driven Future completion in extension-managed tests.
+   `TracePropagationTest.java:105` uses a legacy completion callback with an explicit success
+   branch instead of terminal success and failure handlers. Rewrite each class as its own phase,
+   preserving its existing assertions and using composed Futures and terminal failure
+   propagation. These are known conformance fixes, not new production behavior.
+
+5. **Drive the discarded-subscription Future ratchet down in bounded phases.**
+   The current Tier 9 baseline is 98 discarded `subscribe()` Futures across 31 files: native
+   61/18, examples 20/7, examples-spring 14/5, and integration-tests 3/1. Remediate one file or
+   tightly related class group per phase, make startup ordering explicit, surface every failure,
+   rebuild the affected reactor slice, run that class's tagged scope, and lower the baseline in
+   the same change. Do not treat the aggregate count as one mechanical edit.
+
+6. **Complete the remaining schema and instance-isolation coverage.**
+   Add TC-S14 for `OutboxConsumerGroup.start(SubscriptionOptions)` across two schemas and TC-S15
+   for full `OFFSET_WATERMARK` offset and watermark isolation. Add the P3 negative multi-setup
+   contract and prove that destroying setup A does not disturb setup B's live consumer. Treat the
+   proposed P4 direct distinct-Vert.x guard as optional: prefer P1/P3 behavior contracts unless a
+   production accessor is independently justified rather than exposed only for a test.
+
+7. **Replace the D23 UI SSE timing assumption with observed readiness.**
+   `queue-updates-sse.spec.ts:297` currently relies on a fixed one-second wait. Observe the SSE
+   response or an equivalent readiness signal before publishing, then retain the end-to-end
+   assertion on the received update. Verify the focused Playwright project against the real
+   backend and report its exact test count.
+
+8. **Decide and enforce `OutboxConsumerConfig.consumerThreads` semantics.**
+   The production getter is currently unused. Decide whether to remove the option or define its
+   concurrency and ordering guarantees. If retained, first add contracts for per-key ordering,
+   handler concurrency, and overlapping poll cycles; then implement against those contracts.
+   Do not imply parallel delivery merely by retaining an inert setting.
+
+9. **Remove the remaining instance-scoping leak in diagnostics.**
+   `SystemInfoCollector.java:198` falls back to PeeGeeQ-wide system properties when its
+   configuration is null. This is lower-risk diagnostic code, but it conflicts with the
+   instance-scoped configuration direction. Pass the owning instance configuration explicitly
+   or define a truthful no-configuration result, with a focused multi-instance contract.
+
+10. **Finish the low-risk observability and documentation cleanup.**
+    Add the O4 duplicate/idempotency metric with its contract, then correct the outbox audit's
+    stale O3 summary so it agrees with the body and task index that already mark O3 fixed. Keep
+    the metric implementation and documentation correction as separate phases.
+
+The following are deliberately **not** in the implementation-fix queue: durable subscriptions,
+transactional REST, schema registry, authentication, and automated HA are product initiatives;
+partitioned-consumption load and chaos scenarios are release-qualification work. Scope and fund
+those independently rather than mixing them into the known-fix phases above.
 
 ## 2026-08-23 P11 completion (D17 and D18 fixed)
 
@@ -318,7 +403,7 @@ This section supersedes the repository state and open-work statements in the his
   container, empty lifecycle methods, and raw JDBC verification were removed. A new workspace
   guard prevents schema-initializer tests from reintroducing raw JDBC verification or directly
   constructed PostgreSQL containers.
-- The schema-isolation polling helper's pre-existing `Supplier.get()` rule violation was
+- The schema-isolation polling helper's pre-existing `Supplier` accessor rule violation was
   replaced with a purpose-built asynchronous condition interface.
 - D1, D2, D4/D4-A, D5, D6, D8, D9, and D13 are closed. The tracked Java-source scan for
   pass-on-failure expression handlers returns zero. The six disabled native subscription
