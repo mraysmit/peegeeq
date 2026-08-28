@@ -321,9 +321,6 @@ public class PeeGeeQConfigurationTest {
         invalidProps.setProperty("peegeeq.database.port", "70000"); // Invalid port range
         invalidProps.setProperty("peegeeq.database.name", ""); // Empty name (invalid)
         invalidProps.setProperty("peegeeq.database.username", ""); // Empty username (invalid)
-        invalidProps.setProperty("peegeeq.database.pool.min-size", "0"); // Invalid min pool size
-        invalidProps.setProperty("peegeeq.database.pool.max-size", "2"); // Valid but will be less than default min
-
         // This should throw an IllegalStateException due to validation failures
         Exception exception = assertThrows(IllegalStateException.class,
             () -> new PeeGeeQConfiguration(TEST_PROFILE, invalidProps));
@@ -333,8 +330,7 @@ public class PeeGeeQConfigurationTest {
         assertTrue(exceptionMessage.contains("Database host is required") ||
                    exceptionMessage.contains("Database name is required") ||
                    exceptionMessage.contains("Database username is required") ||
-                   exceptionMessage.contains("Database port must be between 1 and 65535") ||
-                   exceptionMessage.contains("Minimum pool size must be at least 1"),
+                   exceptionMessage.contains("Database port must be between 1 and 65535"),
                    "Should contain at least one validation error");
     }
 

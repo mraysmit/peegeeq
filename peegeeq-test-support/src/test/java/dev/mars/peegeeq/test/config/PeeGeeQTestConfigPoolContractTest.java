@@ -25,6 +25,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 /**
  * Contract tests for the deterministic pool defaults supplied by
@@ -44,8 +45,8 @@ class PeeGeeQTestConfigPoolContractTest {
     }
 
     @Test
-    void testPoolMinSizeAvoidsUnusedIdleConnections() {
-        assertEquals("1", buildProperties().getProperty("peegeeq.database.pool.min-size"));
+    void testUnsupportedPoolMinSizeIsNotAdvertised() {
+        assertFalse(buildProperties().containsKey("peegeeq.database.pool.min-size"));
     }
 
     @Test

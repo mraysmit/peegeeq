@@ -265,18 +265,6 @@ public class PeeGeeQConfiguration {
             logger.warn("Database password is empty ensure PostgreSQL is configured for trust/peer authentication");
         }
         
-        // Connection pool validation
-        int minPoolSize = getInt("peegeeq.database.pool.min-size", 5);
-        int maxPoolSize = getInt("peegeeq.database.pool.max-size", 10);
-        
-        if (minPoolSize < 1) {
-            errors.add("Minimum pool size must be at least 1");
-        }
-        
-        if (maxPoolSize < minPoolSize) {
-            errors.add("Maximum pool size must be greater than or equal to minimum pool size");
-        }
-
         long connectionTimeoutMs = getLong("peegeeq.database.pool.connection-timeout-ms", 30000);
         if (connectionTimeoutMs <= 0) {
             errors.add("Connection timeout must be greater than 0ms");

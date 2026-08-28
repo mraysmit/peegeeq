@@ -299,7 +299,7 @@ it lists; everything else falls through to `peegeeq-default.properties`.
 
 | Setting | `default` | `development` | `production` | `reliable` | `low-latency` | `high-performance` |
 |---|---|---|---|---|---|---|
-| pool min / max | 8 / 32 | 2 / 5 | 10 / 50 | 10 / 50 | 5 / 20 | 8 / 32 |
+| pool max | 32 | 5 | 50 | 50 | 20 | 32 |
 | batch-size | 10 | 5 | 50 | 10 | 1 | 100 |
 | polling-interval | PT5S | PT2S | PT0.5S | PT1S | PT0.01S | PT0.1S |
 | max-retries | 3 | 2 | 5 | 10 | 1 | 3 |
@@ -333,8 +333,7 @@ Timeout properties use the `-ms` suffix and are in milliseconds.
 
 | Property | Default | Description |
 |---|---|---|
-| `peegeeq.database.pool.min-size` | `8` | Minimum idle connections. Must be ≥ 1. |
-| `peegeeq.database.pool.max-size` | `32` | Maximum connections. Must be ≥ `min-size`. |
+| `peegeeq.database.pool.max-size` | `32` | Maximum connections. |
 | `peegeeq.database.pool.shared` | `true` | Use a shared Vert.x pool keyed by pool name. |
 | `peegeeq.database.pool.name` | — | Named-pool identifier (metrics and shared pool lookup). |
 | `peegeeq.database.pool.connection-timeout-ms` | `30000` | Maximum wait (ms) for a connection. Must be > 0. |
@@ -528,8 +527,6 @@ Controls how PostgreSQL NOTICE messages (e.g. from idempotent `IF NOT EXISTS` DD
 - `port` must be 1–65535
 - `name` must not be empty
 - `username` must not be empty
-- `pool.min-size` ≥ 1
-- `pool.max-size` ≥ `pool.min-size`
 - `pool.connection-timeout-ms` > 0
 - `pool.idle-timeout-ms` ≥ 0
 
@@ -643,11 +640,10 @@ relevant properties are:
 
 | Property | Effect on PgPool |
 |---|---|
-| `peegeeq.database.pool.min-size` | `PgPoolOptions.setMinSize` |
-| `peegeeq.database.pool.max-size` | `PgPoolOptions.setMaxSize` |
-| `peegeeq.database.pool.connection-timeout` | `PgPoolOptions.setConnectionTimeout` (ms) |
-| `peegeeq.database.pool.idle-timeout` | `PgPoolOptions.setIdleTimeout` (ms) |
-| `peegeeq.database.pool.shared` | `PgPoolOptions.setShared` — pool is keyed by name |
+| `peegeeq.database.pool.max-size` | `PoolOptions.setMaxSize` |
+| `peegeeq.database.pool.connection-timeout-ms` | `PoolOptions.setConnectionTimeout` (ms) |
+| `peegeeq.database.pool.idle-timeout-ms` | `PoolOptions.setIdleTimeout` (ms) |
+| `peegeeq.database.pool.shared` | `PoolOptions.setShared` — pool is keyed by name |
 | `peegeeq.database.pool.name` | Pool name when `shared=true` |
 | `peegeeq.database.pipelining.enabled` | `PgConnectOptions.setPipeliningLimit > 1` |
 | `peegeeq.database.pipelining.max-commands` | Maximum pipelined commands per connection |
@@ -678,9 +674,8 @@ manager.start()
     .onFailure(err -> log.error("lifecycle error", err));
 ```
 
-Do **not** block on these futures with `.get()`, `.join()`, or
-`.toCompletionStage().toCompletableFuture().get()`. All three are forbidden in PeeGeeQ code —
-they block the event-loop thread and cause pool starvation under load.
+Do **not** introduce synchronous completion bridges for these futures. Blocking the event-loop
+thread causes pool starvation under load; keep lifecycle sequencing in composed Future chains.
 
 ### Choosing the right profile for your Vert.x deployment
 
@@ -754,7 +749,6 @@ peegeeq:
     password: ${DB_PASSWORD:}
     schema: ${DB_SCHEMA:public}
   pool:
-    min-size: 10
     max-size: 50
 ```
 
@@ -800,7 +794,6 @@ test execution.
 Properties props = PeeGeeQTestConfig.builder()
     .from(postgres)                                      // host, port, db, user, password from container
     .schema("test_schema")                               // optional schema override
-    .property("peegeeq.database.pool.min-size", "1")    // any additional overrides
     .property("peegeeq.database.pool.max-size", "3")
     .property("peegeeq.migration.enabled", "false")
     .build();
@@ -842,14 +835,6 @@ Any other test that touches `System.setProperty("peegeeq.*", ...)` is a violatio
 ---
 
 ## Troubleshooting
-
-### `IllegalStateException: Maximum pool size must be greater than or equal to minimum pool size`
-
-`pool.min-size` resolved to a larger value than `pool.max-size`. Most commonly caused by two
-configurations being mixed via System property races. Fix: use the 2-arg constructor with
-explicit pool properties — see [Multi-Tenant pattern](#multi-tenant--multi-instance-in-one-jvm).
-
----
 
 ### `IllegalStateException: Recovery check interval should be longer than processing timeout`
 
