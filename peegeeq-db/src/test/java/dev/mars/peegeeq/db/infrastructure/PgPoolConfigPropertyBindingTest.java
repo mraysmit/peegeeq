@@ -89,14 +89,10 @@ class PgPoolConfigPropertyBindingTest {
                                                         long expectedIdleTimeoutMs) {
         PeeGeeQConfiguration cfg = new PeeGeeQConfiguration(profile, validDatabaseOverrides());
 
-        assertEquals(Duration.ofMillis(expectedConnectionTimeoutMs),
-                cfg.getPoolConfig().getConnectionTimeout());
-        assertEquals(Duration.ofMillis(expectedIdleTimeoutMs),
-                cfg.getPoolConfig().getIdleTimeout());
-        assertEquals(Long.toString(expectedConnectionTimeoutMs),
-                cfg.getString("peegeeq.database.pool.connection-timeout-ms"));
-        assertEquals(Long.toString(expectedIdleTimeoutMs),
-                cfg.getString("peegeeq.database.pool.idle-timeout-ms"));
+        assertEquals(Duration.ofMillis(expectedConnectionTimeoutMs),cfg.getPoolConfig().getConnectionTimeout());
+        assertEquals(Duration.ofMillis(expectedIdleTimeoutMs), cfg.getPoolConfig().getIdleTimeout());
+        assertEquals(Long.toString(expectedConnectionTimeoutMs), cfg.getString("peegeeq.database.pool.connection-timeout-ms"));
+        assertEquals(Long.toString(expectedIdleTimeoutMs), cfg.getString("peegeeq.database.pool.idle-timeout-ms"));
         assertFalse(cfg.getProperties().containsKey("peegeeq.database.pool.connection-timeout"));
         assertFalse(cfg.getProperties().containsKey("peegeeq.database.pool.idle-timeout"));
     }
