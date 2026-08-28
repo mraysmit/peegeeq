@@ -156,7 +156,6 @@ public final class PeeGeeQTestConfig {
             // Safe test pool defaults: small pools preserve parallel execution headroom,
             // short timeouts fail and tear down quickly, and shared=false makes close()
             // deterministically release the underlying database connections.
-            props.setProperty("peegeeq.database.pool.min-size", "1");
             props.setProperty("peegeeq.database.pool.max-size", "3");
             props.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
             props.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");

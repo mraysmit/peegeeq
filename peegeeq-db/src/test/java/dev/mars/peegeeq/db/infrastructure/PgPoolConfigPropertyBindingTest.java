@@ -45,6 +45,7 @@ class PgPoolConfigPropertyBindingTest {
 
     private static final String PROFILE_PREFIX = "peegeeq-";
     private static final String PROPERTIES_SUFFIX = ".properties";
+    private static final String UNSUPPORTED_MIN_SIZE_PROPERTY = "peegeeq.database.pool.min-size";
 
     private static final List<BundledProfileTimeout> BUNDLED_PROFILE_TIMEOUTS = List.of(
         new BundledProfileTimeout("bitemporal-optimized", 30_000L, 600_000L),
@@ -97,6 +98,15 @@ class PgPoolConfigPropertyBindingTest {
         assertFalse(cfg.getProperties().containsKey("peegeeq.database.pool.idle-timeout"));
     }
 
+    @ParameterizedTest(name = "[{index}] {0}")
+    @MethodSource("bundledProfiles")
+    void bundledProfilesDoNotAdvertiseUnsupportedMinimumSize(String profile) {
+        PeeGeeQConfiguration cfg = new PeeGeeQConfiguration(profile, validDatabaseOverrides());
+
+        assertFalse(cfg.getProperties().containsKey(UNSUPPORTED_MIN_SIZE_PROPERTY),
+                () -> profile + " must not advertise unsupported property " + UNSUPPORTED_MIN_SIZE_PROPERTY);
+    }
+
     @Test
     void everyBundledProfileHasTimeoutExpectations() throws Exception {
         var defaultProfile = PgPoolConfigPropertyBindingTest.class.getClassLoader()
@@ -135,6 +145,10 @@ class PgPoolConfigPropertyBindingTest {
     static Stream<Arguments> bundledProfileTimeouts() {
         return BUNDLED_PROFILE_TIMEOUTS.stream()
                 .map(timeout -> arguments(timeout.profile(), timeout.connectionTimeoutMs(), timeout.idleTimeoutMs()));
+    }
+
+    static Stream<String> bundledProfiles() {
+        return BUNDLED_PROFILE_TIMEOUTS.stream().map(BundledProfileTimeout::profile);
     }
 
     private record BundledProfileTimeout(String profile, long connectionTimeoutMs, long idleTimeoutMs) {
