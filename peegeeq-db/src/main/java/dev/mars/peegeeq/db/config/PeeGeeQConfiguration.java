@@ -40,6 +40,15 @@ import java.util.regex.Pattern;
  */
 public class PeeGeeQConfiguration {
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQConfiguration.class);
+    private static final Map<String, String> COMPATIBILITY_ALIASES = Map.of(
+        "peegeeq.circuit-breaker.failure-threshold", "peegeeq.circuit-breaker.minimum-number-of-calls",
+        "peegeeq.circuit-breaker.wait-duration", "peegeeq.circuit-breaker.wait-duration-in-open-state",
+        "peegeeq.circuit-breaker.ring-buffer-size", "peegeeq.circuit-breaker.sliding-window-size",
+        "peegeeq.health-check.enabled", "peegeeq.health.enabled",
+        "peegeeq.health-check.queue-checks-enabled", "peegeeq.health.queue-checks-enabled",
+        "peegeeq.health-check.interval", "peegeeq.health.check-interval",
+        "peegeeq.health-check.timeout", "peegeeq.health.timeout"
+    );
     
     private final Properties properties;
     private final String profile;
@@ -53,7 +62,7 @@ public class PeeGeeQConfiguration {
     /**
      * Constructor for programmatic configuration with arbitrary property overrides.
      *
-     * <p>Loads the profile defaults (resource files, env vars, system properties) and
+     * <p>Loads the profile defaults (resource files and environment variables) and
      * then applies every entry in {@code overrides} on top, without writing anything
      * back to {@code System.getProperties()}. This is the correct pattern for tests
      * that run concurrently: each test instance holds its own isolated property set
@@ -65,12 +74,23 @@ public class PeeGeeQConfiguration {
     public PeeGeeQConfiguration(String profile, Properties overrides) {
         this.profile = profile;
         this.properties = loadProperties(profile);
-        overrides.forEach((key, value) -> properties.setProperty(key.toString(), value.toString()));
+        Properties normalizedOverrides = new Properties();
+        normalizedOverrides.putAll(overrides);
+        promoteCompatibilityAliasesInSource(normalizedOverrides);
+        normalizedOverrides.forEach((key, value) -> properties.setProperty(key.toString(), value.toString()));
         resolvePlaceholders(this.properties);
         this.instanceId = getString("peegeeq.metrics.instance-id",
             "peegeeq-" + UUID.randomUUID().toString().substring(0, 8));
         validateConfiguration();
         logger.info("Loaded PeeGeeQ configuration for profile: {} with programmatic overrides", profile);
+    }
+
+    private static void promoteCompatibilityAliasesInSource(Properties source) {
+        COMPATIBILITY_ALIASES.forEach((aliasKey, canonicalKey) -> {
+            if (!source.containsKey(canonicalKey) && source.containsKey(aliasKey)) {
+                source.setProperty(canonicalKey, source.getProperty(aliasKey));
+            }
+        });
     }
 
     /**
@@ -122,17 +142,22 @@ public class PeeGeeQConfiguration {
         
         // Load profile-specific properties
         if (!"default".equals(profile)) {
-            loadPropertiesFromResource(props, "/peegeeq-" + profile + ".properties");
+            Properties profileProperties = new Properties();
+            loadPropertiesFromResource(profileProperties, "/peegeeq-" + profile + ".properties");
+            promoteCompatibilityAliasesInSource(profileProperties);
+            props.putAll(profileProperties);
         }
 
         // Override with environment variables (convert to property format)
-        // Note: Apply env first, then apply system properties AFTER so that test code can override via -D
+        Properties environmentProperties = new Properties();
         System.getenv().forEach((key, value) -> {
             if (key.startsWith("PEEGEEQ_")) {
                 String propKey = resolveEnvVarKey(key, props);
-                props.setProperty(propKey, value);
+                environmentProperties.setProperty(propKey, value);
             }
         });
+        promoteCompatibilityAliasesInSource(environmentProperties);
+        props.putAll(environmentProperties);
 
         return props;
     }
@@ -163,7 +188,7 @@ public class PeeGeeQConfiguration {
      * </ul>
      *
      * <p>This is called after all property sources (resource files, env-var sweep,
-     * system properties, and programmatic overrides) have been merged, so that
+     * environment variables and programmatic overrides) have been merged, so that
      * placeholders in any source are resolved uniformly.</p>
      */
     private static void resolvePlaceholders(Properties props) {
@@ -212,6 +237,11 @@ public class PeeGeeQConfiguration {
         for (String knownKey : knownProps.stringPropertyNames()) {
             if (knownKey.replace("-", ".").equals(normalized)) {
                 return knownKey;
+            }
+        }
+        for (String aliasKey : COMPATIBILITY_ALIASES.keySet()) {
+            if (aliasKey.replace("-", ".").equals(normalized)) {
+                return aliasKey;
             }
         }
         return directConversion;
@@ -347,14 +377,49 @@ public class PeeGeeQConfiguration {
     private void validateCircuitBreakerConfig(List<String> errors) {
         boolean circuitBreakerEnabled = getBoolean("peegeeq.circuit-breaker.enabled", true);
         if (circuitBreakerEnabled) {
-            int failureThreshold = getInt("peegeeq.circuit-breaker.failure-threshold", 5);
-            if (failureThreshold < 1) {
-                errors.add("Circuit breaker failure threshold must be at least 1");
+            int minimumNumberOfCalls = getIntWithAlias(
+                "peegeeq.circuit-breaker.minimum-number-of-calls",
+                "peegeeq.circuit-breaker.failure-threshold", 5);
+            if (minimumNumberOfCalls < 1) {
+                errors.add("Circuit breaker minimum number of calls must be at least 1");
             }
-            
-            Duration waitDuration = getDuration("peegeeq.circuit-breaker.wait-duration", Duration.ofMinutes(1));
-            if (waitDuration.toMillis() < 1000) {
-                errors.add("Circuit breaker wait duration must be at least 1000ms");
+
+            int slidingWindowSize = getIntWithAlias(
+                "peegeeq.circuit-breaker.sliding-window-size",
+                "peegeeq.circuit-breaker.ring-buffer-size", 100);
+            if (slidingWindowSize < minimumNumberOfCalls) {
+                errors.add("Circuit breaker sliding window size must be at least the minimum number of calls");
+            }
+
+            Duration waitDurationInOpenState = getDurationWithAlias(
+                "peegeeq.circuit-breaker.wait-duration-in-open-state",
+                "peegeeq.circuit-breaker.wait-duration", Duration.ofMinutes(1));
+            if (waitDurationInOpenState.toMillis() < 1000) {
+                errors.add("Circuit breaker wait duration in open state must be at least 1000ms");
+            }
+
+            int permittedCallsInHalfOpenState = getInt(
+                "peegeeq.circuit-breaker.permitted-calls-in-half-open-state", 3);
+            if (permittedCallsInHalfOpenState < 1) {
+                errors.add("Circuit breaker permitted calls in half-open state must be at least 1");
+            }
+
+            double failureRateThreshold = getDouble(
+                "peegeeq.circuit-breaker.failure-rate-threshold", 50.0);
+            if (failureRateThreshold <= 0.0 || failureRateThreshold > 100.0) {
+                errors.add("Circuit breaker failure rate threshold must be greater than 0 and at most 100");
+            }
+
+            double slowCallRateThreshold = getDouble(
+                "peegeeq.circuit-breaker.slow-call-rate-threshold", 100.0);
+            if (slowCallRateThreshold <= 0.0 || slowCallRateThreshold > 100.0) {
+                errors.add("Circuit breaker slow call rate threshold must be greater than 0 and at most 100");
+            }
+
+            Duration slowCallDurationThreshold = getDuration(
+                "peegeeq.circuit-breaker.slow-call-duration-threshold", Duration.ofSeconds(60));
+            if (slowCallDurationThreshold.isZero() || slowCallDurationThreshold.isNegative()) {
+                errors.add("Circuit breaker slow call duration threshold must be greater than 0");
             }
         }
     }
@@ -476,8 +541,6 @@ public class PeeGeeQConfiguration {
             getBoolean("peegeeq.metrics.enabled", true),
             getDuration("peegeeq.metrics.reporting-interval", Duration.ofMinutes(1)),
             getDuration("peegeeq.metrics.depth-cache-interval", Duration.ofSeconds(5)),
-            getBoolean("peegeeq.metrics.jvm.enabled", true),
-            getBoolean("peegeeq.metrics.database.enabled", true),
             instanceId
         );
     }
@@ -485,19 +548,28 @@ public class PeeGeeQConfiguration {
     public CircuitBreakerConfig getCircuitBreakerConfig() {
         return new CircuitBreakerConfig(
             getBoolean("peegeeq.circuit-breaker.enabled", true),
-            getInt("peegeeq.circuit-breaker.failure-threshold", 5),
-            getDuration("peegeeq.circuit-breaker.wait-duration", Duration.ofMinutes(1)),
-            getInt("peegeeq.circuit-breaker.ring-buffer-size", 100),
-            getDouble("peegeeq.circuit-breaker.failure-rate-threshold", 50.0)
+            getIntWithAlias("peegeeq.circuit-breaker.minimum-number-of-calls",
+                "peegeeq.circuit-breaker.failure-threshold", 5),
+            getDurationWithAlias("peegeeq.circuit-breaker.wait-duration-in-open-state",
+                "peegeeq.circuit-breaker.wait-duration", Duration.ofMinutes(1)),
+            getIntWithAlias("peegeeq.circuit-breaker.sliding-window-size",
+                "peegeeq.circuit-breaker.ring-buffer-size", 100),
+            getDouble("peegeeq.circuit-breaker.failure-rate-threshold", 50.0),
+            getDouble("peegeeq.circuit-breaker.slow-call-rate-threshold", 100.0),
+            getDuration("peegeeq.circuit-breaker.slow-call-duration-threshold", Duration.ofSeconds(60)),
+            getInt("peegeeq.circuit-breaker.permitted-calls-in-half-open-state", 3)
         );
     }
 
     public HealthCheckConfig getHealthCheckConfig() {
         return new HealthCheckConfig(
-            getBoolean("peegeeq.health-check.enabled", true),
-            getBoolean("peegeeq.health-check.queue-checks-enabled", true),
-            getDuration("peegeeq.health-check.interval", Duration.ofSeconds(30)),
-            getDuration("peegeeq.health-check.timeout", Duration.ofSeconds(5))
+            getBooleanWithAlias("peegeeq.health.enabled", "peegeeq.health-check.enabled", true),
+            getBooleanWithAlias("peegeeq.health.queue-checks-enabled",
+                "peegeeq.health-check.queue-checks-enabled", true),
+            getDurationWithAlias("peegeeq.health.check-interval",
+                "peegeeq.health-check.interval", Duration.ofSeconds(30)),
+            getDurationWithAlias("peegeeq.health.timeout",
+                "peegeeq.health-check.timeout", Duration.ofSeconds(5))
         );
     }
     
@@ -512,6 +584,24 @@ public class PeeGeeQConfiguration {
             logger.warn("Invalid double value for {}: {}, using default: {}", key, value, defaultValue);
             return defaultValue;
         }
+    }
+
+    private int getIntWithAlias(String canonicalKey, String aliasKey, int defaultValue) {
+        return properties.containsKey(canonicalKey)
+            ? getInt(canonicalKey, defaultValue)
+            : getInt(aliasKey, defaultValue);
+    }
+
+    private Duration getDurationWithAlias(String canonicalKey, String aliasKey, Duration defaultValue) {
+        return properties.containsKey(canonicalKey)
+            ? getDuration(canonicalKey, defaultValue)
+            : getDuration(aliasKey, defaultValue);
+    }
+
+    private boolean getBooleanWithAlias(String canonicalKey, String aliasKey, boolean defaultValue) {
+        return properties.containsKey(canonicalKey)
+            ? getBoolean(canonicalKey, defaultValue)
+            : getBoolean(aliasKey, defaultValue);
     }
     
     // Configuration data classes
@@ -573,49 +663,73 @@ public class PeeGeeQConfiguration {
         private final boolean enabled;
         private final Duration reportingInterval;
         private final Duration depthCacheInterval;
-        private final boolean jvmMetricsEnabled;
-        private final boolean databaseMetricsEnabled;
         private final String instanceId;
         
-        public MetricsConfig(boolean enabled, Duration reportingInterval, Duration depthCacheInterval,
-                           boolean jvmMetricsEnabled, boolean databaseMetricsEnabled, String instanceId) {
+        public MetricsConfig(boolean enabled, Duration reportingInterval,
+                           Duration depthCacheInterval, String instanceId) {
             this.enabled = enabled;
             this.reportingInterval = reportingInterval;
             this.depthCacheInterval = depthCacheInterval;
-            this.jvmMetricsEnabled = jvmMetricsEnabled;
-            this.databaseMetricsEnabled = databaseMetricsEnabled;
             this.instanceId = instanceId;
         }
         
         public boolean isEnabled() { return enabled; }
         public Duration getReportingInterval() { return reportingInterval; }
         public Duration getDepthCacheInterval() { return depthCacheInterval; }
-        public boolean isJvmMetricsEnabled() { return jvmMetricsEnabled; }
-        public boolean isDatabaseMetricsEnabled() { return databaseMetricsEnabled; }
         public String getInstanceId() { return instanceId; }
     }
     
     public static class CircuitBreakerConfig {
         private final boolean enabled;
-        private final int failureThreshold;
-        private final Duration waitDuration;
-        private final int ringBufferSize;
+        private final int minimumNumberOfCalls;
+        private final Duration waitDurationInOpenState;
+        private final int slidingWindowSize;
         private final double failureRateThreshold;
+        private final double slowCallRateThreshold;
+        private final Duration slowCallDurationThreshold;
+        private final int permittedCallsInHalfOpenState;
         
         public CircuitBreakerConfig(boolean enabled, int failureThreshold, Duration waitDuration,
                                   int ringBufferSize, double failureRateThreshold) {
+            this(enabled, failureThreshold, waitDuration, ringBufferSize, failureRateThreshold,
+                100.0, Duration.ofSeconds(60), 3);
+        }
+
+        public CircuitBreakerConfig(boolean enabled, int minimumNumberOfCalls,
+                                  Duration waitDurationInOpenState, int slidingWindowSize,
+                                  double failureRateThreshold, double slowCallRateThreshold,
+                                  Duration slowCallDurationThreshold,
+                                  int permittedCallsInHalfOpenState) {
             this.enabled = enabled;
-            this.failureThreshold = failureThreshold;
-            this.waitDuration = waitDuration;
-            this.ringBufferSize = ringBufferSize;
+            this.minimumNumberOfCalls = minimumNumberOfCalls;
+            this.waitDurationInOpenState = waitDurationInOpenState;
+            this.slidingWindowSize = slidingWindowSize;
             this.failureRateThreshold = failureRateThreshold;
+            this.slowCallRateThreshold = slowCallRateThreshold;
+            this.slowCallDurationThreshold = slowCallDurationThreshold;
+            this.permittedCallsInHalfOpenState = permittedCallsInHalfOpenState;
         }
         
         public boolean isEnabled() { return enabled; }
-        public int getFailureThreshold() { return failureThreshold; }
-        public Duration getWaitDuration() { return waitDuration; }
-        public int getRingBufferSize() { return ringBufferSize; }
+        public int getMinimumNumberOfCalls() { return minimumNumberOfCalls; }
+        public Duration getWaitDurationInOpenState() { return waitDurationInOpenState; }
+        public int getSlidingWindowSize() { return slidingWindowSize; }
         public double getFailureRateThreshold() { return failureRateThreshold; }
+        public double getSlowCallRateThreshold() { return slowCallRateThreshold; }
+        public Duration getSlowCallDurationThreshold() { return slowCallDurationThreshold; }
+        public int getPermittedCallsInHalfOpenState() { return permittedCallsInHalfOpenState; }
+
+        /** @deprecated use {@link #getMinimumNumberOfCalls()} */
+        @Deprecated
+        public int getFailureThreshold() { return minimumNumberOfCalls; }
+
+        /** @deprecated use {@link #getWaitDurationInOpenState()} */
+        @Deprecated
+        public Duration getWaitDuration() { return waitDurationInOpenState; }
+
+        /** @deprecated use {@link #getSlidingWindowSize()} */
+        @Deprecated
+        public int getRingBufferSize() { return slidingWindowSize; }
     }
 
     public static class HealthCheckConfig {

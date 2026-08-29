@@ -107,6 +107,7 @@ public class PeeGeeQManager {
     private long depthCacheTimerId = 0;
     private long dlqTimerId = 0;
     private long recoveryTimerId = 0;
+    private volatile boolean metricsCollectionRunning = false;
 
     // Saturation sampling (telemetry §4 G3). The manager samples its OWN resources — the Vert.x
     // loop that carries this setup's queue work, and its own connection pool — as a property of
@@ -214,7 +215,10 @@ public class PeeGeeQManager {
             this.workerExecutor = this.vertx.createSharedWorkerExecutor("peegeeq-worker-pool", 20);
 
             // Initialize client factory with Vert.x support and notice handling
-            this.clientFactory = new PgClientFactory(this.vertx, this.meterRegistry, configuration.getNoticeHandlerConfig());
+            this.clientFactory = new PgClientFactory(
+                this.vertx,
+                configuration.getMetricsConfig().isEnabled() ? this.meterRegistry : null,
+                configuration.getNoticeHandlerConfig());
 
             // Log and create the client to ensure configuration is stored in the factory
             var dbConfig = configuration.getDatabaseConfig();
@@ -237,7 +241,8 @@ public class PeeGeeQManager {
             this.metrics = new PeeGeeQMetrics(pool, configuration.getMetricsConfig().getInstanceId());
 
             this.circuitBreakerManager = new CircuitBreakerManager(
-                configuration.getCircuitBreakerConfig(), meterRegistry);
+                configuration.getCircuitBreakerConfig(),
+                configuration.getMetricsConfig().isEnabled() ? meterRegistry : null);
 
             // Initialize health check manager with configuration
             PeeGeeQConfiguration.HealthCheckConfig healthCheckConfig = configuration.getHealthCheckConfig();
@@ -619,6 +624,8 @@ public class PeeGeeQManager {
     /** Returns the consumer group retry job, or {@code null} if not configured/started. */
     ConsumerGroupRetryJob getConsumerGroupRetryJob() { return consumerGroupRetryJob; }
 
+    boolean isMetricsCollectionRunning() { return metricsCollectionRunning; }
+
     /**
      * Gets the queue factory registrar for registering new factory implementations.
      * This allows implementation modules to register themselves without circular dependencies.
@@ -833,6 +840,10 @@ public class PeeGeeQManager {
      */
     private Future<Void> startHealthChecks() {
         return AsyncTraceUtils.traceAsyncAction(vertx, "manager.start_health_checks", () -> {
+            if (!configuration.getHealthCheckConfig().isEnabled()) {
+                logger.info("Health checks disabled by configuration");
+                return Future.succeededFuture();
+            }
             logger.debug(": Starting health check manager reactively");
             return healthCheckManager.start()
                 .onSuccess(v -> logger.debug(": Health check manager started successfully"))
@@ -917,6 +928,7 @@ public class PeeGeeQManager {
             });
 
             logger.info("Started metrics sampling (depth cache, event-loop lag, acquisition canary)");
+            metricsCollectionRunning = true;
             logger.debug(": Metrics collection started successfully");
             return Future.succeededFuture();
         });
@@ -1034,6 +1046,7 @@ public class PeeGeeQManager {
      * Returns a Future that completes when any in-flight background operations finish.
      */
     private Future<Void> stopBackgroundTasks() {
+        metricsCollectionRunning = false;
         if (dlqTimerId != 0) {
             vertx.cancelTimer(dlqTimerId);
             dlqTimerId = 0;

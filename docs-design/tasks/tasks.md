@@ -56,97 +56,59 @@ an unimplemented proposal exists or replace explicitly planned load, chaos, or f
 ### 1. Configuration property/runtime reconciliation
 
 **Priority:** High
-**Status:** ACTIVE
+**Status:** COMPLETE — 2026-08-29
 **Objective:** every shipped or publicly documented property must be classified as supported,
 unsupported, or intentionally external metadata. Supported properties require a production
 consumer and non-default behavioral evidence.
 
-#### 1.1 Build the authoritative property inventory
+#### 1.1 Build the authoritative property inventory — COMPLETE
 
-- Enumerate every `peegeeq.*` key from shipped main-resource profiles and public configuration
-  documentation.
-- Map each key to its parser, production call site, precedence, and non-default test.
-- Classify each as `OK`, `BROKEN WIRING`, `UNSUPPORTED`, or `EXTERNAL/TEST METADATA`.
-- Do not infer support merely because a property appears in a `.properties` file.
-- Update or remove shipped profiles and documentation in the same phase as each decision.
+- `ShippedConfigurationPropertyContractTest` is the executable whitelist for all 11 bundled
+  profiles and fails if an unowned or compatibility-only key is shipped.
+- `docs/PEEGEEQ_CONFIGURATION_GUIDE.md` records every retained key's classification, parser or
+  explicit external owner, production use, precedence, and behavioral evidence.
+- All unsupported profile-only families were removed, including backpressure, migration,
+  maintenance, generic performance toggles, bitemporal feature toggles, queue prefetch/buffer/
+  retention keys, extended metrics flags, and parser-only settings presented as live controls.
+- Public property snippets in the complete guide were canonicalized against the same inventory.
 
-Known supported core families include database coordinates, core pool sizing/timeouts, queue
-retry/visibility/batch/polling settings, recovery jobs, canonical consumer threads, core
-metrics enablement, notice handling, and the canonical circuit-breaker settings.
+#### 1.2 Resolve the circuit-breaker property contract — COMPLETE
 
-Known profile families with no direct production consumer found in the 2026-08-29 source scan:
+- Canonical names now map all eight settings to Resilience4j, including slow-call thresholds and
+  configurable half-open calls.
+- Historical `failure-threshold`, `wait-duration`, and `ring-buffer-size` spellings are
+  compatibility aliases. Merge-source precedence applies first; canonical wins within one source.
+- Bundled profiles use canonical spellings only. Configuration and manager tests cover
+  non-default values and precedence.
 
-- `peegeeq.backpressure.*` — `BackpressureManager` was deleted because it guarded no operation.
-- `peegeeq.migration.*` and `peegeeq.maintenance.*`.
-- `peegeeq.performance.async.*`, `performance.batch.*`, and `performance.monitoring.*`.
-- `peegeeq.bitemporal.*.enabled` feature toggles.
-- Queue prefetch, concurrent-consumer, buffer, and retention keys.
-- Extended metrics collection/export/detail keys.
+#### 1.3 Unify and honor health configuration — COMPLETE
 
-The literal scan is discovery evidence, not proof against dynamically constructed keys. Confirm
-each family against production source and behavior before removing it.
+- `peegeeq.health.*` is canonical for manager and API adapter enablement, queue checks, interval,
+  and timeout. The four `health-check.*` spellings are lower-layer compatibility aliases.
+- Disabled startup is proven against real PostgreSQL; non-default interval/timeout and canonical
+  precedence are covered by focused configuration tests.
+- Unsupported failure/recovery threshold keys were removed from profiles and active docs.
 
-#### 1.2 Resolve the circuit-breaker property contract
+#### 1.4 Complete metrics property behavior — COMPLETE
 
-The runtime currently consumes:
+- A real-PostgreSQL contract proves `metrics.enabled=false` prevents core, notice, and
+  Resilience4j registry binding and prevents all periodic metrics samplers.
+- Ineffective JVM/database flags were removed from `MetricsConfig` and all bundled profiles.
+- Extended collection/export/sampling/detail keys and the parser-only reporting interval were
+  classified unsupported and removed from shipped/public active configuration.
 
-- `enabled`
-- `failure-rate-threshold`
-- `wait-duration`
-- `ring-buffer-size`
-- `failure-threshold`, which is actually mapped to Resilience4j `minimumNumberOfCalls`
+#### 1.5 Close remaining small configuration gaps — COMPLETE
 
-The following advertised/profile keys are ignored:
+- Native expired-lock cleanup intentionally remains a fixed internal 10-second housekeeping
+  cadence; it is not exposed as a workload property.
+- Both stale consumer-thread keys now use `peegeeq.consumer.threads`; the outbox test asserts the
+  non-default parsed value and passes against real PostgreSQL.
+- Source review and existing real-database contracts confirm per-consumer > global > local-default
+  precedence for native and outbox consumers.
+- Public docs state that outbox uses canonical queue settings, has no `peegeeq.outbox.*` property
+  namespace or native visibility lock, and uses recovery processing timeout for stale work.
 
-- `minimum-number-of-calls`
-- `sliding-window-size`
-- `wait-duration-in-open-state`
-- `slow-call-rate-threshold`
-- `slow-call-duration-threshold`
-- `permitted-calls-in-half-open-state`
-
-Half-open permitted calls are hardcoded to `3`. Choose canonical names, define alias precedence
-if compatibility is required, correct the misleading `failure-threshold` semantics, and add
-non-default behavior contracts for every retained setting.
-
-#### 1.3 Unify and honor health configuration
-
-- `PeeGeeQManager` constructs `HealthCheckManager` from `peegeeq.health-check.*`.
-- The parsed `peegeeq.health-check.enabled` flag is not consulted; health checks always start.
-- `PgQueueConfiguration` separately exposes `peegeeq.health.enabled` and
-  `peegeeq.health.check-interval`.
-- Most profiles use `peegeeq.health.*`, so their interval/timeout settings do not configure the
-  manager timer.
-- `health.timeout`, `health.failure-threshold`, and `health.recovery-threshold` have no confirmed
-  production consumer.
-
-Select one namespace, implement or remove aliases deliberately, prove disabled startup behavior,
-and add non-default interval/timeout contracts.
-
-#### 1.4 Complete metrics property behavior
-
-- Add a focused contract proving `peegeeq.metrics.enabled=false` prevents registry binding and
-  periodic metrics collection.
-- Decide whether `peegeeq.metrics.jvm.enabled` and `peegeeq.metrics.database.enabled` remain in
-  the API. They are parsed into `MetricsConfig` but currently have no consumer.
-- Classify/remove the extended collection, export, sampling, bitemporal, and detail keys unless
-  a real monitoring consumer is identified.
-
-#### 1.5 Close remaining small configuration gaps
-
-- Decide whether the native expired-lock cleanup timer remains intentionally fixed at 10 seconds
-  or becomes configurable. A fixed internal cadence is not automatically a bug.
-- Replace the ineffective `peegeeq.queue.consumer-threads` key with the canonical
-  `peegeeq.consumer.threads` in:
-  - `OutboxConsumerSurgicalCoverageTest`
-  - `peegeeq-bitemporal/src/test/resources/peegeeq-development.properties`
-- Confirm per-consumer precedence remains: consumer config > global configuration > local default.
-- Outbox uses canonical `peegeeq.queue.*` settings; do not invent a separate
-  `peegeeq.outbox.*` namespace.
-- Outbox has no native-style visibility lock. Stale PROCESSING recovery is governed separately by
-  `peegeeq.queue.recovery.processing-timeout`.
-
-#### Configuration completion criteria
+#### Configuration completion criteria — MET
 
 - Every shipped key has a recorded classification and no ambiguous `Verify`/`Unknown` status.
 - Shipped profiles and public documentation contain no silently ignored setting presented as live.

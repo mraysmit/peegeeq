@@ -288,8 +288,6 @@ public class PeeGeeQConfigurationTest {
         assertNotNull(metricsConfig);
         assertTrue(metricsConfig.isEnabled());
         assertEquals(Duration.ofSeconds(30), metricsConfig.getReportingInterval());
-        assertTrue(metricsConfig.isJvmMetricsEnabled());
-        assertTrue(metricsConfig.isDatabaseMetricsEnabled());
         assertEquals("test-instance", metricsConfig.getInstanceId());
     }
 
@@ -304,6 +302,45 @@ public class PeeGeeQConfigurationTest {
         assertEquals(Duration.ofMinutes(2), cbConfig.getWaitDuration());
         assertEquals(50, cbConfig.getRingBufferSize());
         assertEquals(40.0, cbConfig.getFailureRateThreshold(), 0.001);
+    }
+
+    @Test
+    void canonicalCircuitBreakerPropertiesTakePrecedenceOverHistoricalAliases() {
+        Properties overrides = new Properties();
+        overrides.setProperty("peegeeq.circuit-breaker.minimum-number-of-calls", "7");
+        overrides.setProperty("peegeeq.circuit-breaker.failure-threshold", "2");
+        overrides.setProperty("peegeeq.circuit-breaker.sliding-window-size", "41");
+        overrides.setProperty("peegeeq.circuit-breaker.ring-buffer-size", "11");
+        overrides.setProperty("peegeeq.circuit-breaker.wait-duration-in-open-state", "PT17S");
+        overrides.setProperty("peegeeq.circuit-breaker.wait-duration", "PT3S");
+
+        PeeGeeQConfiguration.CircuitBreakerConfig cbConfig =
+            new PeeGeeQConfiguration(TEST_PROFILE, overrides).getCircuitBreakerConfig();
+
+        assertEquals(7, cbConfig.getFailureThreshold());
+        assertEquals(41, cbConfig.getRingBufferSize());
+        assertEquals(Duration.ofSeconds(17), cbConfig.getWaitDuration());
+    }
+
+    @Test
+    void canonicalHealthPropertiesTakePrecedenceOverHistoricalAliases() {
+        Properties overrides = new Properties();
+        overrides.setProperty("peegeeq.health.enabled", "false");
+        overrides.setProperty("peegeeq.health-check.enabled", "true");
+        overrides.setProperty("peegeeq.health.queue-checks-enabled", "false");
+        overrides.setProperty("peegeeq.health-check.queue-checks-enabled", "true");
+        overrides.setProperty("peegeeq.health.check-interval", "PT17S");
+        overrides.setProperty("peegeeq.health-check.interval", "PT3S");
+        overrides.setProperty("peegeeq.health.timeout", "PT4S");
+        overrides.setProperty("peegeeq.health-check.timeout", "PT1S");
+
+        PeeGeeQConfiguration.HealthCheckConfig healthConfig =
+            new PeeGeeQConfiguration(TEST_PROFILE, overrides).getHealthCheckConfig();
+
+        assertFalse(healthConfig.isEnabled());
+        assertFalse(healthConfig.isQueueChecksEnabled());
+        assertEquals(Duration.ofSeconds(17), healthConfig.getInterval());
+        assertEquals(Duration.ofSeconds(4), healthConfig.getTimeout());
     }
 
     @Test
