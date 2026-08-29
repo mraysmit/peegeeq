@@ -15,7 +15,7 @@ prioritised. Each links to where it is tracked in detail.
    done/green; ~59 files remain across `peegeeq-rest` (B), `peegeeq-db`/`peegeeq-integration-tests`/
    `peegeeq-runtime`/`peegeeq-rest-client` (C), `peegeeq-examples`/`peegeeq-native`/`peegeeq-outbox` (D),
    and the frontend e2e/TS create flows + fixtures (E). Run each module separately — moving off `public`
-   may surface masked `search_path` defects. **Phase B (`peegeeq-rest`) converted 2026-06-18 — pending its integration run.** *Tracked: `docs-design/tasks/SCHEMA-PROCESSING-GAPS-CRITICAL-17-Jun-2026.md` → "Follow-up: no `public` in any test".*
+   may surface masked `search_path` defects. **Phase B (`peegeeq-rest`) converted 2026-06-18 — pending its integration run.** *Historical record: `docs-design/tasks/archive/SCHEMA-PROCESSING-GAPS-CRITICAL-17-Jun-2026.md` → "Follow-up: no `public` in any test"; current status is in `docs-design/tasks/tasks.md`.*
 2. ✅ **DONE (2026-06-18) — real-consumer leg added to the observe-≠-consume test (native + outbox).**
    Test 1 now proves "still browsable" via `browse()` **and** that a real `createConsumer().subscribe()`
    still receives the message — green for both `PgNativeQueueBrowserTailIntegrationTest` and

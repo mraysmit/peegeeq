@@ -60,11 +60,12 @@ public class SystemInfoCollector {
     }
 
     /**
-     * Collects comprehensive system information, reading peegeeq.* values from
-     * the supplied configuration when non-null, falling back to System properties
-     * when null (acceptable for diagnostics invoked outside a manager context).
+     * Collects comprehensive system information, reading peegeeq.* values only from
+     * the supplied configuration. When no configuration is supplied, the snapshot
+     * reports that configuration is unavailable rather than consulting process-wide
+     * PeeGeeQ properties.
      *
-     * @param config optional PeeGeeQConfiguration; null enables System-property fallback
+     * @param config optional instance-scoped PeeGeeQConfiguration
      * @return Typed system information snapshot organized by category
      */
     public static SystemInfoSnapshot collectSystemInfo(PeeGeeQConfiguration config) {
@@ -198,12 +199,16 @@ public class SystemInfoCollector {
     private static Map<String, String> collectDatabaseConfiguration(PeeGeeQConfiguration config) {
         Map<String, String> info = new LinkedHashMap<>();
 
+        if (config == null) {
+            info.put("Database", "Configuration not supplied");
+            info.put("Connection Status", "Configuration not supplied");
+            info.put("Pool Configuration", "Configuration not supplied");
+            info.put("Pipelining", "Configuration not supplied");
+            return info;
+        }
+
         try {
-            // Try to get database information from configuration, system properties, or environment
-            String dbUrl = (config != null)
-                    ? config.getString("peegeeq.database.url", null)
-                    : System.getProperty("peegeeq.database.url",
-                      System.getenv("PEEGEEQ_DATABASE_URL"));
+            String dbUrl = config.getString("peegeeq.database.url", null);
 
             if (dbUrl != null) {
                 if (dbUrl.contains("postgresql")) {
@@ -228,15 +233,11 @@ public class SystemInfoCollector {
             }
 
             // Pool configuration
-            String poolSize = (config != null)
-                    ? String.valueOf(config.getInt("peegeeq.database.pool.max-size", 100))
-                    : System.getProperty("peegeeq.database.pool.max-size", "100");
-            String waitQueue = (config != null)
-                    ? String.valueOf(config.getInt("peegeeq.database.pool.wait-queue-multiplier", 10))
-                    : System.getProperty("peegeeq.database.pool.wait-queue-multiplier", "10");
-            String pipelining = (config != null)
-                    ? String.valueOf(config.getInt("peegeeq.database.pipelining.limit", 1024))
-                    : System.getProperty("peegeeq.database.pipelining.limit", "1024");
+            String poolSize = String.valueOf(config.getInt("peegeeq.database.pool.max-size", 100));
+            String waitQueue = String.valueOf(
+                config.getInt("peegeeq.database.pool.wait-queue-multiplier", 10));
+            String pipelining = String.valueOf(
+                config.getInt("peegeeq.database.pipelining.limit", 1024));
 
             info.put("Pool Configuration", String.format("Optimized (%s connections, %s wait queue)",
                 poolSize, Integer.parseInt(poolSize) * Integer.parseInt(waitQueue)));
@@ -258,14 +259,17 @@ public class SystemInfoCollector {
     private static Map<String, String> collectPeeGeeQConfiguration(PeeGeeQConfiguration config) {
         Map<String, String> info = new LinkedHashMap<>();
 
+        if (config == null) {
+            info.put("Configuration", "Not supplied");
+            info.put("Profile", "Not available");
+            return info;
+        }
+
         try {
-            if (config != null) {
-                // Read from the isolated configuration instance
-                Properties configProps = config.getProperties();
-                for (String key : configProps.stringPropertyNames()) {
-                    if (key.startsWith("peegeeq.")) {
-                        info.put(key, configProps.getProperty(key));
-                    }
+            Properties configProps = config.getProperties();
+            for (String key : configProps.stringPropertyNames()) {
+                if (key.startsWith("peegeeq.")) {
+                    info.put(key, configProps.getProperty(key));
                 }
             }
 

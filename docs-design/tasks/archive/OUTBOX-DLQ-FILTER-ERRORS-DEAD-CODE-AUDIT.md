@@ -1,3 +1,5 @@
+> **ARCHIVED 2026-08-29:** Historical evidence only. Current tasks and status are maintained exclusively in [the consolidated register](../tasks.md).
+
 # Outbox DLQ / Filter-Error Dead Code Audit
 
 **Date:** 2026-05-24  

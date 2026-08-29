@@ -6620,14 +6620,14 @@ The fixed method must:
 - [ ] Read `docs-design/dev/pgq-coding-principles.md`
 - [ ] Read `docs-design/testing/PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md`
 - [ ] Read `peegeeq-management-ui/src/pages/ConsumerGroups.tsx` in full
-- [ ] Read `docs-design/tasks/CONSUMER-GROUPS-UI-REDESIGN-PLAN.md` in full (the authoritative spec)
+- [x] Historical UI-redesign pre-work completed; current status is in `docs-design/tasks/tasks.md` and the implementation record is archived at `docs-design/tasks/archive/CONSUMER-GROUPS-UI-REDESIGN-PLAN.md`
 - [ ] Read existing Playwright tests in `peegeeq-management-ui/tests/` for the consumer groups scope — follow their established selector and assertion patterns exactly
 - [ ] Confirm Phase 1 is complete and passing before starting Phase 2
 
 **File changed**:
 - `peegeeq-management-ui/src/pages/ConsumerGroups.tsx`
 
-See `docs-design/tasks/CONSUMER-GROUPS-UI-REDESIGN-PLAN.md` for the full spec. Summary of changes required:
+See `docs-design/tasks/archive/CONSUMER-GROUPS-UI-REDESIGN-PLAN.md` for the historical implementation record. Current task status is maintained only in `docs-design/tasks/tasks.md`. Summary of the original changes:
 
 | Problem | Fix |
 |---|---|
@@ -8292,4 +8292,3 @@ CREATE INDEX IF NOT EXISTS idx_consumer_groups_lookup
 ---
 
 **End of Document**
-
