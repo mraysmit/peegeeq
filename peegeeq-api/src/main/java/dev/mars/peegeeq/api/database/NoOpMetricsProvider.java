@@ -50,6 +50,11 @@ public final class NoOpMetricsProvider implements MetricsProvider {
     public void recordMessageSent(String topic, long durationMs) {
         // No-op
     }
+
+    @Override
+    public void recordMessageDuplicate(String topic) {
+        // No-op
+    }
     
     @Override
     public void recordMessageReceived(String topic) {
@@ -76,4 +81,3 @@ public final class NoOpMetricsProvider implements MetricsProvider {
         return "noop";
     }
 }
-

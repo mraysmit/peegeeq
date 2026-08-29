@@ -504,6 +504,7 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
         if (rows.rowCount() == 0 && idempotencyKey != null) {
             logger.debug("Duplicate idempotency key for outbox topic {}: {} (correlationId: {}) - message already exists",
                     topic, idempotencyKey, correlationId);
+            metrics.recordMessageDuplicate(topic);
         } else {
             logger.debug("Message sent to outbox for topic {} (correlationId: {}, idempotencyKey: {})",
                     topic, correlationId, idempotencyKey);

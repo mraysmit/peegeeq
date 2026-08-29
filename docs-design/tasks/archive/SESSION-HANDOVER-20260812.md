@@ -1,4 +1,6 @@
-# Session Handover — 2026-08-12 (reconciled 2026-08-27)
+> **ARCHIVED 2026-08-29:** Historical evidence only. Current tasks and status are maintained exclusively in [the consolidated register](../tasks.md).
+
+# Session Handover — 2026-08-12 (reconciled 2026-08-29)
 
 **Status:** SUPERSEDED by
 [`TEST-INTEGRITY-DEFECT-REMEDIATION-PLAN.md`](TEST-INTEGRITY-DEFECT-REMEDIATION-PLAN.md)
@@ -12,9 +14,10 @@ Companion to `TEST-INTEGRITY-DEFECT-REMEDIATION-PLAN.md`, which is the defect re
 This document covers what happened in this session, what state the working tree is in,
 and what the next person needs to know before touching it.
 
-## 2026-08-28 continuation (priorities 1-6 complete)
+## 2026-08-29 continuation (priorities 1-11 complete)
 
-This section supersedes the status of items 1-6 in the 2026-08-27 queue below. The work
+This section supersedes the status of items 1-10 in the 2026-08-27 queue below and records the
+final outbox-audit reconciliation as item 11. The work
 was completed in bounded phases with a clean affected-reactor rebuild before each focused
 test run. `-Pall-tests` was not run; it remains the owner/release gate.
 
@@ -73,10 +76,76 @@ test run. `-Pall-tests` was not run; it remains the owner/release gate.
    All three contracts passed against the existing runtime, so this priority required no
    production change.
 
-**Next implementation item:** priority 7 below, replacing the D23 UI SSE fixed timing
-assumption with observed readiness and verifying the focused real-backend Playwright scope.
+7. **D23 UI SSE observed readiness: COMPLETE.**
+   A new quality guard failed 2/2 against the fixed one-second readiness delay and missing
+   response observation, then passed 2/2 after the E2E scenario was corrected. The scenario
+   now registers an observer before queue-page navigation and awaits the exact setup-specific
+   HTTP 200 `text/event-stream` response before publishing. TypeScript checking passed, and
+   the focused real-backend Playwright project passed 36/36 in 1.7 minutes with no retry.
 
-## 2026-08-27 continuation (prioritized outstanding implementation work)
+8. **Outbox `consumerThreads` semantics: COMPLETE.**
+   The retained option now bounds atomic claim admission and concurrent handler plus terminal
+   persistence pipelines. Per-consumer configuration takes precedence over the queue-wide value.
+   Claims are serialized and ordered by creation time then ID; within one consumer instance,
+   rows with the same non-null `message_group` are chained while different groups can use the
+   configured parallelism. Ungrouped messages can execute concurrently.
+
+   Strict TDD first produced three deterministic real-PostgreSQL failures: both configured
+   capacities claimed all eight available rows, and a later same-group handler entered before
+   the held earlier handler. After implementation the three contracts passed 3/3. The final
+   focused scope passed 6/6 (`OutboxConsumerConcurrencyIT` 3/3 and the pre-existing
+   `OutboxParallelProcessingTest` 3/3), the async forbidden-pattern guard passed 1/1, and both
+   final logs contained zero ERROR or unhandled-exception lines. The mandatory clean five-module
+   reactor rebuild passed.
+
+9. **Diagnostics instance scoping: COMPLETE.**
+   `SystemInfoCollector` no longer reads process-wide `peegeeq.*` system properties or the
+   PeeGeeQ database URL environment variable when called without an owning configuration.
+   That path now reports `Configuration not supplied`; the configured overload continues to
+   report values from the supplied `PeeGeeQConfiguration` instance only.
+
+   Strict TDD first produced one focused failure with four assertions exposing ambient URL,
+   pool, pipeline, and default-label leakage. After the change, `SystemInfoCollectorTest`
+   passed 8/8, including two distinct configured snapshots plus a poisoned ambient-state
+   negative contract. `VertxAsyncForbiddenPatternsGuardTest` passed 1/1, the mandatory clean
+   four-project DB reactor rebuild passed, and the post-change scan found zero direct ambient
+   PeeGeeQ reads in the collector.
+
+10. **O4 duplicate observability and audit reconciliation: COMPLETE.**
+    The metric sub-phase added `recordMessageDuplicate(topic)` through the established provider
+    boundary. `PeeGeeQMetrics` now publishes aggregate and topic-tagged duplicate counters, and
+    `OutboxProducer` records them only for a non-null idempotency conflict while leaving the sent
+    count unchanged.
+
+    Strict TDD first completed both real-PostgreSQL sends and errored because the duplicate meter
+    was absent. After implementation, `OutboxDuplicateMetricsIntegrationTest` passed 1/1, the
+    async forbidden-pattern guard passed 1/1, the mandatory clean five-module reactor rebuild
+    passed, and final logs contained zero ERROR or unhandled-exception lines. This separate
+    documentation sub-phase reconciled the audit's stale O3 summary with its fixed heading and
+    marked O4 fixed across the audit and task index; it changed no Java or Maven file.
+
+11. **O2 options-start lifecycle reconciliation: COMPLETE.**
+    The remaining task entry was stale. Commit `99166fb9` had already made
+    `start(SubscriptionOptions)` compose `startInternal(true)` and made `startInternal(boolean)`
+    return and compose the underlying subscription Future, although the commit subject only
+    described timeout-property refactoring. The implementation starts members and enters
+    `ACTIVE` only after subscription success; failure restores `NEW`, closes the failed startup
+    consumer, and reaches the public Future.
+
+    Current real-PostgreSQL verification ran
+    `OutboxConsumerGroupCoreTest$LifecycleStateMachine#startWithOptionsPropagatesSubscriptionFailure`
+    and passed 1/1. The controlled failure reached the caller, state returned to `NEW`, and the
+    member remained inactive. Evidence: `logs/o2-options-start-lifecycle-targeted-20260829.txt`.
+    No Java or Maven file changed in this reconciliation phase.
+
+**Next implementation item:** the numbered queue below is complete. Return to the authoritative
+[`tasks.md`](tasks.md) register. The outbox module audit now has no remaining item.
+
+## 2026-08-27 continuation (historical queue — all items completed or reconciled)
+
+> **Do not use this numbered queue as the current task list.** It records the implementation
+> plan as it stood on 2026-08-27. The completion record above and [`tasks.md`](tasks.md) are
+> authoritative as of 2026-08-29.
 
 This queue comes from static source and configuration review at the current HEAD. It identifies
 contracts that need implementation or focused coverage; it does not claim untested runtime
@@ -123,12 +192,10 @@ after any Java or Maven change, and run the smallest applicable test scope befor
    rebuild the affected reactor slice, run that class's tagged scope, and lower the baseline in
    the same change. Do not treat the aggregate count as one mechanical edit.
 
-6. **Complete the remaining schema and instance-isolation coverage.**
-   Add TC-S14 for `OutboxConsumerGroup.start(SubscriptionOptions)` across two schemas and TC-S15
-   for full `OFFSET_WATERMARK` offset and watermark isolation. Add the P3 negative multi-setup
-   contract and prove that destroying setup A does not disturb setup B's live consumer. Treat the
-   proposed P4 direct distinct-Vert.x guard as optional: prefer P1/P3 behavior contracts unless a
-   production accessor is independently justified rather than exposed only for a test.
+6. **Complete the remaining schema and instance-isolation coverage — DONE.**
+   TC-S14, TC-S15, and the P3 negative multi-setup contract were added in commit `32ab0371`;
+   their focused contracts each passed 1/1. P4 was declined because P1/P3 prove observable
+   behavior without adding a test-only production accessor.
 
 7. **Replace the D23 UI SSE timing assumption with observed readiness.**
    `queue-updates-sse.spec.ts:297` currently relies on a fixed one-second wait. Observe the SSE

@@ -5,6 +5,7 @@
 *Author: Mark Andrew Ray-Smith Cityline Ltd*  
 *Version: 1.0*  
 *Date: May 9, 2026*  
+*Runtime-property reconciliation: August 29, 2026*
 
 ---
 
@@ -315,6 +316,15 @@ it lists; everything else falls through to `peegeeq-default.properties`.
 
 Duration values use ISO-8601 notation: `PT30S` = 30 seconds, `PT5M` = 5 minutes, `P30D` = 30 days.
 
+> **Runtime-support warning (reconciled 2026-08-29):** historical profile files contain more
+> keys than the current production runtime consumes. A property-file entry alone is not evidence
+> that a setting has an effect. Rows explicitly marked “not consumed” below have no production
+> reader at revision `32ab0371`; do not rely on them. The active
+> [consolidated task register](../docs-design/tasks/tasks.md#1-configuration-propertyruntime-reconciliation)
+> is classifying the remaining profile-only families. The core database, queue, recovery,
+> metrics-enable, notice, and canonical circuit-breaker keys described without a warning remain
+> the supported surface.
+
 ### Database Connection
 
 | Property | Default | Description |
@@ -335,12 +345,12 @@ Timeout properties use the `-ms` suffix and are in milliseconds.
 |---|---|---|
 | `peegeeq.database.pool.max-size` | `32` | Maximum connections. |
 | `peegeeq.database.pool.shared` | `true` | Use a shared Vert.x pool keyed by pool name. |
-| `peegeeq.database.pool.name` | — | Named-pool identifier (metrics and shared pool lookup). |
+| `peegeeq.database.pool.name` | — | **Not consumed by the current core pool builder.** |
 | `peegeeq.database.pool.connection-timeout-ms` | `30000` | Maximum wait (ms) for a connection. Must be > 0. |
 | `peegeeq.database.pool.idle-timeout-ms` | `600000` | Idle eviction timeout (ms). `0` disables. |
-| `peegeeq.database.pool.max-lifetime-ms` | `1800000` | Maximum connection lifetime (ms). |
-| `peegeeq.database.pool.auto-commit` | `true` | Default auto-commit. Set `false` for explicit transaction control. |
-| `peegeeq.database.pool.wait-queue-multiplier` | `10` | `max-wait-queue-size = max-size × multiplier`. |
+| `peegeeq.database.pool.max-lifetime-ms` | `1800000` | **Not consumed by the current core pool builder.** |
+| `peegeeq.database.pool.auto-commit` | `true` | **Not consumed by the current core pool builder.** Transaction behavior is selected by the operation API. |
+| `peegeeq.database.pool.wait-queue-multiplier` | `10` | Used by the bitemporal optimized-pool path; the core pool uses `max-wait-queue-size` directly. |
 | `peegeeq.database.pool.max-wait-queue-size` | — | Explicit override for wait queue size (overrides multiplier). |
 
 ### Database Tuning
@@ -353,7 +363,7 @@ Timeout properties use the `-ms` suffix and are in milliseconds.
 | `peegeeq.database.worker.pool.size` | `0` | Vert.x worker-thread count. `0` = Vert.x default (`availableProcessors × 4`). |
 | `peegeeq.database.use.event.bus.distribution` | `false` | Distribute messages across event loops via the Vert.x event bus. Enable for `extreme-performance` only. |
 | `peegeeq.verticle.instances` | `0` | PeeGeeQ verticle instance count. `0` = 1. Set to `availableProcessors` for multi-core throughput. |
-| `peegeeq.database.batch.size` | — | Internal SQL batch size (extreme-performance: 2000). |
+| `peegeeq.database.batch.size` | — | **Not consumed by the current runtime.** |
 
 ### Queue Behaviour
 
@@ -366,10 +376,10 @@ Timeout properties use the `-ms` suffix and are in milliseconds.
 | `peegeeq.queue.dead-letter.enabled` | `true` | Move exhausted messages to the dead-letter queue. |
 | `peegeeq.queue.priority.default` | `5` | Default priority assigned to new messages (1 = lowest, 10 = highest). |
 | `peegeeq.consumer.threads` | `1` | Processing threads per manager instance. Increase for CPU-bound workloads. |
-| `peegeeq.queue.prefetch-count` | — | Messages pre-fetched per consumer (profile-specific). |
-| `peegeeq.queue.concurrent-consumers` | — | Concurrent consumer goroutines (profile-specific). |
-| `peegeeq.queue.buffer-size` | — | In-memory buffer depth (profile-specific). |
-| `peegeeq.queue.retention-period` | — | How long processed messages are retained before pruning (e.g. `P30D`). |
+| `peegeeq.queue.prefetch-count` | — | **Not consumed by the current runtime.** |
+| `peegeeq.queue.concurrent-consumers` | — | **Not consumed by the current runtime.** Use the supported consumer APIs and `peegeeq.consumer.threads` semantics. |
+| `peegeeq.queue.buffer-size` | — | **Not consumed by the current runtime.** |
+| `peegeeq.queue.retention-period` | — | **Not consumed by the current runtime.** |
 
 ### Stuck Message Recovery
 
@@ -406,14 +416,14 @@ Controls retry scheduling for consumer groups that have failed.
 | `peegeeq.metrics.enabled` | `true` | Enable metrics collection. |
 | `peegeeq.metrics.reporting-interval` | `PT1M` | How often metrics snapshots are published. Must be ≥ 1 s. |
 | `peegeeq.metrics.depth-cache-interval` | `PT5S` | Queue-depth cache refresh rate. Must be ≥ 1 s. |
-| `peegeeq.metrics.jvm.enabled` | `true` | Include JVM metrics (heap, GC, threads). Disable in `high-performance` to reduce overhead. |
-| `peegeeq.metrics.database.enabled` | `true` | Include database pool metrics. |
+| `peegeeq.metrics.jvm.enabled` | `true` | Parsed into `MetricsConfig` but **not consumed by the current metrics implementation**. |
+| `peegeeq.metrics.database.enabled` | `true` | Parsed into `MetricsConfig` but **not consumed by the current metrics implementation**. |
 | `peegeeq.metrics.instance-id` | `peegeeq-<random-8>` | Unique identifier for this manager in metrics output. Set a stable value in production. |
-| `peegeeq.metrics.collection.enabled` | — | Enable internal metrics collection (profile-specific). |
-| `peegeeq.metrics.collection.async-save` | — | Persist metrics snapshots asynchronously. |
-| `peegeeq.metrics.collection.sampling-rate` | — | Fraction of operations sampled (0.0–1.0). |
-| `peegeeq.metrics.bitemporal.enabled` | `false` | Include bitemporal-specific metrics. |
-| `peegeeq.metrics.detailed.enabled` | `false` | Include extended per-queue detail metrics. |
+| `peegeeq.metrics.collection.enabled` | — | **Not consumed by the current core runtime.** |
+| `peegeeq.metrics.collection.async-save` | — | **Not consumed by the current core runtime.** |
+| `peegeeq.metrics.collection.sampling-rate` | — | **Not consumed by the current core runtime.** |
+| `peegeeq.metrics.bitemporal.enabled` | `false` | **Not consumed by the current core runtime.** |
+| `peegeeq.metrics.detailed.enabled` | `false` | **Not consumed by the current core runtime.** |
 
 ### Circuit Breaker
 
@@ -422,31 +432,45 @@ Guards health-check queries against a degraded database. Does not gate business 
 | Property | Default | Description |
 |---|---|---|
 | `peegeeq.circuit-breaker.enabled` | `true` | Enable the circuit breaker. Set `false` in `development` to simplify debugging. |
-| `peegeeq.circuit-breaker.failure-threshold` | `5` | Consecutive failures before the breaker opens. Must be ≥ 1. |
+| `peegeeq.circuit-breaker.failure-threshold` | `5` | Currently mapped to Resilience4j `minimumNumberOfCalls`; despite the historical name, it is not a consecutive-failure counter. Must be ≥ 1. |
 | `peegeeq.circuit-breaker.wait-duration` | `PT1M` | How long the breaker stays open before probing (half-open). Must be ≥ 1 s. |
 | `peegeeq.circuit-breaker.ring-buffer-size` | `100` | Sliding-window size for failure-rate calculation. |
 | `peegeeq.circuit-breaker.failure-rate-threshold` | `50.0` | Failure percentage that opens the breaker. |
-| `peegeeq.circuit-breaker.slow-call-rate-threshold` | — | Percentage of slow calls that opens the breaker. |
-| `peegeeq.circuit-breaker.slow-call-duration-threshold` | — | Duration above which a call is considered slow. |
-| `peegeeq.circuit-breaker.permitted-calls-in-half-open-state` | — | Probe calls allowed while half-open. |
-| `peegeeq.circuit-breaker.sliding-window-size` | — | Explicit sliding-window size (parallel-test profile). |
-| `peegeeq.circuit-breaker.minimum-number-of-calls` | — | Minimum calls before failure rate is evaluated. |
-| `peegeeq.circuit-breaker.wait-duration-in-open-state` | — | Alias for `wait-duration` (some profiles). |
+| `peegeeq.circuit-breaker.slow-call-rate-threshold` | — | **Not consumed by the current runtime.** Do not rely on this shipped-profile key; tracked by the configuration wiring audit. |
+| `peegeeq.circuit-breaker.slow-call-duration-threshold` | — | **Not consumed by the current runtime.** Do not rely on this shipped-profile key; tracked by the configuration wiring audit. |
+| `peegeeq.circuit-breaker.permitted-calls-in-half-open-state` | — | **Not consumed by the current runtime.** Half-open probe calls are currently fixed at `3`. |
+| `peegeeq.circuit-breaker.sliding-window-size` | — | **Not consumed by the current runtime.** Use `ring-buffer-size`, which currently maps to Resilience4j `slidingWindowSize`. |
+| `peegeeq.circuit-breaker.minimum-number-of-calls` | — | **Not consumed by the current runtime.** `failure-threshold` currently supplies Resilience4j `minimumNumberOfCalls`. |
+| `peegeeq.circuit-breaker.wait-duration-in-open-state` | — | **Not consumed by the current runtime.** Use `wait-duration`. |
+
+> The `high-performance` and `parallel-test` bundled profiles still contain unsupported keys
+> marked above. They currently have
+> no runtime effect. The active
+> [consolidated task register](../docs-design/tasks/tasks.md#1-configuration-propertyruntime-reconciliation)
+> tracks the decision to remove them or implement explicit aliases and precedence rules.
 
 ### Health Check
 
 | Property | Default | Description |
 |---|---|---|
-| `peegeeq.health.enabled` | `true` | Enable periodic health checks. |
-| `peegeeq.health.check-interval` | `PT30S` | Frequency of health-check queries. |
-| `peegeeq.health.timeout` | `PT5S` | Maximum time allowed for a health-check query. |
-| `peegeeq.health.failure-threshold` | — | Consecutive failures before status is `DOWN`. |
-| `peegeeq.health.recovery-threshold` | — | Consecutive successes needed to return to `UP`. |
+| `peegeeq.health-check.enabled` | `true` | Parsed, but **not currently honored**: `PeeGeeQManager` starts its health manager regardless. |
+| `peegeeq.health-check.interval` | `PT30S` | Frequency used by `HealthCheckManager`. |
+| `peegeeq.health-check.timeout` | `PT5S` | Query timeout used by `HealthCheckManager`. |
 | `peegeeq.health-check.queue-checks-enabled` | `false` | Include per-queue depth checks in health output. |
+| `peegeeq.health.enabled` | `true` | Exposed through `PgQueueConfiguration`, but does not disable manager health startup. |
+| `peegeeq.health.check-interval` | `PT30S` | Exposed through `PgQueueConfiguration`, but does not set the manager timer. |
+| `peegeeq.health.timeout` | `PT5S` | **Not consumed by the current runtime.** Use `health-check.timeout` for the manager until the namespaces are reconciled. |
+| `peegeeq.health.failure-threshold` | — | **Not consumed by the current runtime.** |
+| `peegeeq.health.recovery-threshold` | — | **Not consumed by the current runtime.** |
 
-> The `development` profile uses `peegeeq.health-check.*` key variants. Both forms are recognised. Prefer `peegeeq.health.*` in new deployments.
+> The two namespaces are not aliases. For the current manager timer and query timeout, use
+> `peegeeq.health-check.interval` and `peegeeq.health-check.timeout`. Enablement is a known wiring
+> defect tracked by the configuration audit.
 
-### Backpressure
+### Backpressure — historical profile metadata, not currently consumed
+
+`BackpressureManager` was removed on 2026-08-09 because it did not guard any operation. The
+following retained profile keys have no runtime effect and must not be used for capacity control.
 
 | Property | Default | Description |
 |---|---|---|
@@ -458,7 +482,7 @@ Guards health-check queries against a degraded database. Does not gate business 
 | `peegeeq.backpressure.max-concurrent-operations` | `50` | Maximum simultaneous in-flight operations (parallel-test profile). |
 | `peegeeq.backpressure.timeout` | `PT30S` | Maximum wait for an available slot. |
 
-### Bitemporal Features
+### Bitemporal Features — historical profile metadata, not currently consumed
 
 | Property | Default | Description |
 |---|---|---|
@@ -467,9 +491,9 @@ Guards health-check queries against a degraded database. Does not gate business 
 | `peegeeq.bitemporal.versioning.enabled` | `false` | Enable bitemporal version-chain management. |
 | `peegeeq.bitemporal.bulk.operations.enabled` | `false` | Enable bulk bitemporal write optimisations. |
 
-Enable these via the `bitemporal-optimized` or `extreme-performance` profile, or via overrides.
+These keys are present in historical profiles but do not currently gate bitemporal behavior.
 
-### Migration
+### Migration — historical profile metadata, no production Java consumer found
 
 | Property | Default | Description |
 |---|---|---|
@@ -478,7 +502,7 @@ Enable these via the `bitemporal-optimized` or `extreme-performance` profile, or
 | `peegeeq.migration.auto-migrate` | `false` | Apply pending migrations automatically at startup. Set `true` in `development`. **Never `true` in production.** |
 | `peegeeq.migration.validate-on-migrate` | — | Run schema validation after migration (profile-specific). |
 
-### Performance Tuning
+### Performance Tuning — historical profile metadata, not core runtime controls
 
 | Property | Default | Description |
 |---|---|---|
@@ -508,7 +532,7 @@ Controls how PostgreSQL NOTICE messages (e.g. from idempotent `IF NOT EXISTS` DD
 | `peegeeq.notices.other.level` | `DEBUG` | Log level for other notices. |
 | `peegeeq.notices.metrics.enabled` | `true` | Track notice counts in metrics. |
 
-### Maintenance
+### Maintenance — historical profile metadata, not currently consumed
 
 | Property | Default | Description |
 |---|---|---|
@@ -646,7 +670,7 @@ relevant properties are:
 | `peegeeq.database.pool.shared` | `PoolOptions.setShared` — pool is keyed by name |
 | `peegeeq.database.pool.name` | Pool name when `shared=true` |
 | `peegeeq.database.pipelining.enabled` | `PgConnectOptions.setPipeliningLimit > 1` |
-| `peegeeq.database.pipelining.max-commands` | Maximum pipelined commands per connection |
+| `peegeeq.database.pipelining.limit` | Maximum pipelined commands per connection |
 
 Pipelining is enabled by default. Disable it (`peegeeq.database.pipelining.enabled=false`) when
 connecting through a proxy that does not support the PostgreSQL extended query protocol (e.g.

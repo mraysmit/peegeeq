@@ -43,6 +43,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -52,6 +53,7 @@ import java.util.Set;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Outbox pattern message consumer implementation.
@@ -78,6 +80,8 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     private final OutboxConsumerConfig consumerConfig;
     private final AtomicBoolean subscribed = new AtomicBoolean(false);
     private final AtomicBoolean closed = new AtomicBoolean(false);
+    private final AtomicBoolean claimInProgress = new AtomicBoolean(false);
+    private final AtomicInteger processingInFlight = new AtomicInteger(0);
 
     // Client ID for pool lookup - null means use default pool (resolved by
     // PgClientFactory)
@@ -101,6 +105,8 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     // update before the owning factory allows the shared database pool to close.
     private final Object lifecycleLock = new Object();
     private final Set<Future<Void>> inFlightProcessing = new HashSet<>();
+    private final Object groupOrderingLock = new Object();
+    private final Map<String, Future<Void>> groupProcessingTails = new HashMap<>();
     private Future<Void> closeFuture;
 
     public OutboxConsumer(PgClientFactory clientFactory, ObjectMapper objectMapper,
@@ -301,8 +307,26 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
         logger.debug("OUTBOX-DEBUG: Consumer is active, proceeding with message processing for topic: {}", topic);
 
+        int reservedCapacity = 0;
         try {
             int batchSize = getEffectiveBatchSize();
+            int maxThreads = getEffectiveConsumerThreads();
+
+            // Only one claim query may select the next ordered rows at a time. Handler
+            // pipelines may still overlap up to consumerThreads after the claim settles.
+            if (!claimInProgress.compareAndSet(false, true)) {
+                logger.debug("A message claim is already in progress for topic {}; skipping this poll", topic);
+                return Future.succeededFuture();
+            }
+
+            reservedCapacity = reserveProcessingCapacity(maxThreads, batchSize);
+            if (reservedCapacity == 0) {
+                claimInProgress.set(false);
+                logger.debug("No remaining handler capacity for topic {} ({}/{})",
+                        topic, processingInFlight.get(), maxThreads);
+                return Future.succeededFuture();
+            }
+            int admittedCapacity = reservedCapacity;
 
             // Build one atomic claim statement. Subscription bounds and payload
             // filters must both be applied inside the locked subquery so excluded
@@ -312,7 +336,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             List<Object> queryParams = new ArrayList<>();
             queryParams.add(OffsetDateTime.now());
             queryParams.add(topic);
-            queryParams.add(batchSize);
+            queryParams.add(admittedCapacity);
 
             StringBuilder additionalConditions = new StringBuilder();
             int nextParameter = 4;
@@ -349,7 +373,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                         FROM %s outbox_message
                         WHERE outbox_message.topic = $2
                           AND outbox_message.status = 'PENDING'
-                    %s    ORDER BY outbox_message.created_at ASC
+                    %s    ORDER BY outbox_message.created_at ASC, outbox_message.id ASC
                         LIMIT $3
                         FOR UPDATE SKIP LOCKED
                     )
@@ -360,21 +384,40 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
             return getReactivePoolFuture()
                     .compose(pool -> pool.preparedQuery(sql).execute(params))
-                    .compose(rowSet -> {
+                    .transform(claimResult -> {
+                        claimInProgress.set(false);
+                        if (claimResult.failed()) {
+                            releaseProcessingCapacity(admittedCapacity);
+                            return Future.<Void>failedFuture(claimResult.cause());
+                        }
+
+                        var rowSet = claimResult.result();
+                        int claimedMessages = rowSet.size();
+                        if (claimedMessages > admittedCapacity) {
+                            releaseProcessingCapacity(admittedCapacity);
+                            return Future.<Void>failedFuture(new IllegalStateException(
+                                    "Claim returned " + claimedMessages + " rows after reserving "
+                                            + admittedCapacity + " handler slots for topic " + topic));
+                        }
+                        releaseProcessingCapacity(admittedCapacity - claimedMessages);
                         if (rowSet.size() == 0) {
                             logger.debug("No pending messages found for topic {}", topic);
-                            return Future.succeededFuture();
+                            return Future.<Void>succeededFuture();
                         }
 
                         logger.debug("Found {} messages to process for topic {}", rowSet.size(), topic);
 
-                        // Process each message
-                        Future<Void> processingChain = Future.succeededFuture();
+                        List<Row> orderedRows = new ArrayList<>(claimedMessages);
                         for (Row row : rowSet) {
-                            processingChain = processingChain.compose(v -> processRow(row));
+                            orderedRows.add(row);
                         }
+                        orderedRows.sort(Comparator.comparingLong(row -> row.getLong("id")));
 
-                        return processingChain;
+                        List<Future<Void>> messagePipelines = new ArrayList<>(claimedMessages);
+                        for (Row row : orderedRows) {
+                            messagePipelines.add(processReservedRow(row));
+                        }
+                        return Future.join(messagePipelines).mapEmpty();
                     })
                     .onFailure(error -> {
                         if (isShutdownRelatedError(error)) {
@@ -385,6 +428,10 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                     });
 
         } catch (Exception e) {
+            claimInProgress.set(false);
+            if (reservedCapacity > 0) {
+                releaseProcessingCapacity(reservedCapacity);
+            }
             if (isShutdownRelatedError(e)) {
                 logger.debug("Expected error during shutdown for topic {}: {}", topic, e.getMessage());
                 if (!closed.get()) {
@@ -395,6 +442,85 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             }
             return Future.failedFuture(e);
         }
+    }
+
+    private int reserveProcessingCapacity(int maxThreads, int batchSize) {
+        while (true) {
+            int current = processingInFlight.get();
+            int remaining = maxThreads - current;
+            if (remaining <= 0) {
+                return 0;
+            }
+
+            int reservation = Math.min(batchSize, remaining);
+            if (processingInFlight.compareAndSet(current, current + reservation)) {
+                return reservation;
+            }
+        }
+    }
+
+    private void releaseProcessingCapacity(int capacity) {
+        if (capacity == 0) {
+            return;
+        }
+        if (capacity < 0) {
+            throw new IllegalArgumentException("Handler capacity release cannot be negative: " + capacity);
+        }
+
+        while (true) {
+            int current = processingInFlight.get();
+            if (current < capacity) {
+                throw new IllegalStateException(
+                        "Cannot release " + capacity + " handler slots when only " + current
+                                + " are reserved for topic " + topic);
+            }
+            if (processingInFlight.compareAndSet(current, current - capacity)) {
+                return;
+            }
+        }
+    }
+
+    private Future<Void> processReservedRow(Row row) {
+        Future<Void> processing;
+        try {
+            processing = processRowInGroupOrder(row);
+            if (processing == null) {
+                processing = Future.failedFuture(
+                        new IllegalStateException("Reserved row processing returned null Future"));
+            }
+        } catch (Exception error) {
+            processing = Future.failedFuture(error);
+        }
+
+        return processing.eventually(() -> {
+            releaseProcessingCapacity(1);
+            return Future.succeededFuture();
+        });
+    }
+
+    private Future<Void> processRowInGroupOrder(Row row) {
+        String messageGroup = row.getString("message_group");
+        if (messageGroup == null) {
+            return processRow(row);
+        }
+
+        Future<Void> orderedProcessing;
+        synchronized (groupOrderingLock) {
+            Future<Void> previous = groupProcessingTails.get(messageGroup);
+            orderedProcessing = previous == null
+                    ? processRow(row)
+                    : previous.transform(ignored -> processRow(row));
+            groupProcessingTails.put(messageGroup, orderedProcessing);
+        }
+
+        return orderedProcessing.eventually(() -> {
+            synchronized (groupOrderingLock) {
+                if (groupProcessingTails.get(messageGroup) == orderedProcessing) {
+                    groupProcessingTails.remove(messageGroup);
+                }
+            }
+            return Future.succeededFuture();
+        });
     }
 
     private static String quoteIdentifier(String identifier) {
@@ -1061,6 +1187,16 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
         }
         if (configuration != null) {
             return configuration.getQueueConfig().getBatchSize();
+        }
+        return 1; // default
+    }
+
+    private int getEffectiveConsumerThreads() {
+        if (consumerConfig != null) {
+            return consumerConfig.getConsumerThreads();
+        }
+        if (configuration != null) {
+            return configuration.getQueueConfig().getConsumerThreads();
         }
         return 1; // default
     }

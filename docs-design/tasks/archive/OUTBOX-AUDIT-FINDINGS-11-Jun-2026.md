@@ -1,10 +1,11 @@
+> **ARCHIVED 2026-08-29:** Historical evidence only. Current tasks and status are maintained exclusively in [the consolidated register](../tasks.md).
+
 # peegeeq-outbox — Module Audit Findings
 
-## Status: PARTIALLY REMEDIATED — reconciled 26 Aug 2026
+## Status: COMPLETE — reconciled 29 Aug 2026
 
-Current status: O3 is fixed. O1 remains open, O2 remains open for the
-`start(SubscriptionOptions)` / `startInternal(true)` path, and O4 remains open. The detailed
-findings below retain their original evidence; each heading now carries the reconciled state.
+Current status: O1 through O4 are fixed. The detailed findings below retain their original
+evidence; each heading now carries the reconciled state.
 
 Audit of `peegeeq-outbox/src/main` for the defect classes uncovered the same day in the event-query
 path (see `peegeeq-management-ui/docs/archive/PEEGEEQ_MANAGEMENT_UI_BACKEND_TASKS-06-11-2026.md` and
@@ -20,7 +21,23 @@ Related, pre-existing documents (no overlap with the findings here):
 
 ---
 
-## O1 — HIGH — OPEN: `OutboxConsumerConfig.consumerThreads` is dead configuration
+## O1 — HIGH — FIXED: `OutboxConsumerConfig.consumerThreads` bounded concurrency contract
+
+The option was retained and implemented on 29 Aug 2026. `OutboxConsumer` now reserves capacity
+atomically before each claim, uses that reservation as the SQL limit, releases unused capacity,
+and retains each claimed slot until the handler and terminal persistence settle. Claim queries are
+serialized and ordered by creation time then ID. Within one consumer instance, rows sharing a
+non-null `message_group` are chained in publication order; different groups and ungrouped rows may
+execute concurrently up to the effective consumer-thread limit. Per-consumer configuration takes
+precedence over the queue-wide setting.
+
+Strict TDD evidence: the unchanged runtime failed all three real-PostgreSQL contracts (8 rows
+claimed with configured limits 1 and 3, plus same-group overlap). The final focused scope passed
+6/6: `OutboxConsumerConcurrencyIT` 3/3 and `OutboxParallelProcessingTest` 3/3. The mandatory clean
+five-module reactor rebuild and `VertxAsyncForbiddenPatternsGuardTest` 1/1 also passed; final logs
+contained zero ERROR or unhandled-exception lines.
+
+Original finding:
 
 - **Evidence**: the field is built, validated, stored, and exposed
   (`OutboxConsumerConfig.java` lines ~32, 40, 48), and **nothing in peegeeq-outbox ever calls
@@ -36,7 +53,23 @@ Related, pre-existing documents (no overlap with the findings here):
 - **TDD**: RED test asserting configured thread count affects observable concurrency (or, for
   option b, that the field no longer exists).
 
-## O2 — HIGH — PARTIALLY FIXED: `OutboxConsumerGroup.startInternal()` reports ACTIVE before/despite subscription
+## O2 — HIGH — FIXED: `OutboxConsumerGroup.startInternal()` reports ACTIVE before/despite subscription
+
+The options-start path was already corrected in commit `99166fb9` even though that commit's
+subject only described timeout-property refactoring. `start(SubscriptionOptions)` composes the
+database subscription with `startInternal(true)`, and `startInternal(boolean)` returns and
+composes the underlying consumer's subscription Future. It changes `STARTING` to `ACTIVE` and
+starts members only after subscription success. On failure it restores `NEW`, stops any members
+that were activated during a startup race, closes the failed startup consumer, and preserves the
+original failure on the public start Future.
+
+Focused current-worktree verification on 29 Aug 2026 ran the real-PostgreSQL contract
+`OutboxConsumerGroupCoreTest$LifecycleStateMachine#startWithOptionsPropagatesSubscriptionFailure`.
+It passed 1/1 and proved that a controlled subscription failure reaches the caller, restores
+`NEW`, leaves the group inactive, and leaves the member inactive. Evidence:
+`logs/o2-options-start-lifecycle-targeted-20260829.txt`.
+
+Original finding:
 
 - **Evidence**: `OutboxConsumerGroup.java` lines ~528–532:
   ```java
@@ -76,7 +109,23 @@ without being converted to success, so they propagate to the caller.
 - **TDD**: RED test forcing the UPDATE to fail (e.g. closed pool) asserting the processing future
   fails rather than succeeding.
 
-## O4 — LOW — OPEN: duplicate idempotent sends are not observable in metrics
+## O4 — LOW — FIXED: duplicate idempotent sends are observable in metrics
+
+Implemented on 29 Aug 2026. `MetricsProvider` now exposes `recordMessageDuplicate(topic)`,
+`PgMetricsProvider` delegates it to `PeeGeeQMetrics`, and the no-op provider preserves the
+disabled-metrics contract. `PeeGeeQMetrics` publishes both `peegeeq.messages.duplicates` and
+the topic-tagged `peegeeq.messages.duplicates.by.topic`. `OutboxProducer.logSendOutcome()`
+records the duplicate only when a non-null idempotency key produces `rowCount=0`; the existing
+sent counter remains limited to inserts.
+
+Strict TDD evidence: the real-PostgreSQL contract first completed both sends and errored because
+`peegeeq.messages.duplicates` did not exist. After implementation,
+`OutboxDuplicateMetricsIntegrationTest` passed 1/1, proving one inserted-send count, one global
+duplicate count, and one topic-tagged duplicate count. The mandatory clean five-module reactor
+rebuild and `VertxAsyncForbiddenPatternsGuardTest` 1/1 also passed; final logs contained zero
+ERROR or unhandled-exception lines.
+
+Original finding:
 
 - **Evidence**: `OutboxProducer.logSendOutcome()` (~lines 487–495): when an idempotency-keyed send
   hits `ON CONFLICT DO NOTHING` (rowCount=0), only a debug log records it. `recordMessageSent` is
@@ -114,7 +163,7 @@ without being converted to success, so they propagate to the caller.
 
 | # | Finding | Severity | Status |
 |---|---------|----------|--------|
-| O1 | `consumerThreads` config accepted and ignored | HIGH | Open |
-| O2 | Consumer group ACTIVE before/despite subscription | HIGH | Open |
-| O3 | Status-update failures swallowed (janitor-dependent) | MEDIUM | Open |
-| O4 | No duplicate-send metric for idempotent conflicts | LOW | Open |
+| O1 | `consumerThreads` config accepted and ignored | HIGH | Fixed |
+| O2 | Consumer group ACTIVE before/despite subscription | HIGH | Fixed |
+| O3 | Status-update failures swallowed (janitor-dependent) | MEDIUM | Fixed |
+| O4 | No duplicate-send metric for idempotent conflicts | LOW | Fixed |

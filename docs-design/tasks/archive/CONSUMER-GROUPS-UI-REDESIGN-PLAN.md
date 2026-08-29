@@ -1,3 +1,5 @@
+> **ARCHIVED 2026-08-29:** Historical evidence only. Current tasks and status are maintained exclusively in [the consolidated register](../tasks.md).
+
 # Consumer Groups UI Redesign — Change Plan
 
 ## Status: COMPLETE — implemented 2026-06-04, verified 2026-08-26

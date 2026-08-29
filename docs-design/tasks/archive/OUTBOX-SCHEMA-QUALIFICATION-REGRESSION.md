@@ -1,15 +1,23 @@
+> **ARCHIVED 2026-08-29:** Historical evidence only. Current tasks and status are maintained exclusively in [the consolidated register](../tasks.md).
+
 # Outbox Schema Qualification Regression
 
 **Date:** 2026-05-24
 **Scope:** `peegeeq-outbox` — all classes with database access
-**Status:** PARTIALLY COMPLETE — reconciled 2026-08-26
+**Status:** COMPLETE — reconciled 2026-08-29 against commit `32ab0371`
 **Linked task:** `OUTBOX-DLQ-FILTER-ERRORS-DEAD-CODE-AUDIT.md` — Step 7 (multi-tenant schema isolation)
 
-Production schema-qualification fixes and `OutboxSchemaIsolationCoverageTest` cases
-TC-S1–TC-S13 are implemented. The separately planned TC-S14 subscription-isolation and
-TC-S15 OFFSET_WATERMARK isolation tests were not found under their specified names and
-remain open until implemented or mapped to equivalent evidence. Historical appendix text
-that says all TC-S1–TC-S15 are unwritten is superseded by this status.
+Production schema-qualification fixes and all TC-S1–TC-S15 contracts are implemented.
+Commit `32ab0371` added `OutboxSchemaSubscriptionIsolationTest` (TC-S14) and
+`OutboxOffsetWatermarkSchemaIsolationTest` (TC-S15) and records focused verification of
+1/1 for each plus the applicable asynchronous forbidden-pattern guard. Historical planning
+language below is retained as chronology; this status block and the completion annotations
+take precedence.
+
+The tests configure PeeGeeQ under explicit non-public tenant schemas. References to `public`
+in TC-S14/TC-S15 are negative contamination sentinels only: they prove that no application
+state leaked into an uninvolved schema. This is consistent with the schema-processing rule
+that tests must not run a PeeGeeQ setup under an ambient/default `public` schema.
 
 ---
 
@@ -835,7 +843,7 @@ mvn test -pl :peegeeq-outbox -Pall-tests -Dtest=OutboxSchemaIsolationCoverageTes
 
 ---
 
-### Phase 4 — Write and run TC-S14 (subscription isolation)
+### Phase 4 — TC-S14 subscription isolation — COMPLETE
 
 **Test class name:** `OutboxSchemaSubscriptionIsolationTest`  
 **Location:** `peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/`
@@ -851,9 +859,13 @@ mvn test -pl :peegeeq-outbox -Pall-tests -Dtest=OutboxSchemaSubscriptionIsolatio
 
 **Dependency:** Requires QUEUE_ALL DDL which includes `outbox_topic_subscriptions`. Verify `SchemaComponent.QUEUE_ALL` includes this table before writing the test.
 
+**Completion evidence (2026-08-29):** Implemented in commit `32ab0371`; the focused
+real-PostgreSQL contract passed 1/1. It asserts tenant A receives the subscription row and
+tenant B plus the negative control schema remain untouched.
+
 ---
 
-### Phase 5 — Write and run TC-S15 (OFFSET_WATERMARK schema isolation)
+### Phase 5 — TC-S15 OFFSET_WATERMARK schema isolation — COMPLETE
 
 **Test class name:** `OutboxOffsetWatermarkSchemaIsolationTest`  
 **Location:** `peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/`
@@ -872,6 +884,10 @@ mvn test -pl :peegeeq-outbox -Pall-tests -Dtest=OutboxOffsetWatermarkSchemaIsola
 **Pass criterion:** Message in `tenant_wm.outbox` reaches `COMPLETED`. `tenant_wm.outbox_topic_watermarks` has an entry. `public.outbox` unchanged. `public.outbox_topic_watermarks` empty.
 
 **Note:** This is the most complex test. If it cannot be completed in one session, document the blocker and return to it. The Phase 5 test gap (G18, G19) is lower risk than the core bugs (A–E) because the OFFSET_WATERMARK path is only active when `connectionManager` is wired.
+
+**Completion evidence (2026-08-29):** Implemented in commit `32ab0371`; the focused
+real-PostgreSQL contract passed 1/1. It asserts completion, offset, and watermark state in
+the tenant schema while the negative control schema remains pending/empty.
 
 ---
 
@@ -963,9 +979,11 @@ Issues identified during this session that are out of scope here but should be t
 
 ---
 
-### A4 — TC-S1–TC-S15 (new schema isolation test class) not yet written
+### A4 — TC-S1–TC-S15 schema isolation coverage — COMPLETE
 
-**Status:** Planned in this document (Section "Test coverage plan"), not yet implemented.  
+**Status:** Implemented; TC-S14 and TC-S15 completion reconciled 2026-08-29 from commit `32ab0371`.
 **Scope:** `OutboxSchemaIsolationCoverageTest` (TC-S1–TC-S13), `OutboxSchemaSubscriptionIsolationTest` (TC-S14), `OutboxOffsetWatermarkSchemaIsolationTest` (TC-S15).  
-**Prerequisite:** Full `-Pall-tests` run with all existing tests passing (schema fixes A–D done, acceptsMessage fix done).  
-**Next action:** Implement TC-S1 through TC-S6 first (the highest-value gaps: `OutboxFactory` and `OutboxQueueBrowser` schema-qualified SQL paths). Run regression gate after each group.
+**Evidence:** TC-S1–TC-S13 were already present; commit `32ab0371` records focused TC-S14
+1/1 and TC-S15 1/1 verification. The earlier Jenkins #36 full gate predates that commit, so
+a future release gate will exercise the combined repository state; it is not an implementation
+remainder for this task.

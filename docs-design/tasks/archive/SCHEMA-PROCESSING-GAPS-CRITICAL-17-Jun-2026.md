@@ -1,12 +1,26 @@
+> **ARCHIVED 2026-08-29:** Historical evidence only. Current tasks and status are maintained exclusively in [the consolidated register](../tasks.md).
+
 # CRITICAL: Schema Processing Gaps — Findings and Remediation Tasks
 
-## Status: CORE REMEDIATION COMPLETE — coverage follow-ups P3/P4 remain
+## Status: COMPLETE — reconciled 2026-08-29 against commit `32ab0371`
+
+> Commit `32ab0371` implements P3 in `MultiSetupNativeCrossIsolationTest` and records focused
+> real-PostgreSQL verification of 1/1 plus the Vert.x asynchronous guard 1/1. The contract proves
+> setup A traffic does not reach setup B and destroying setup A leaves setup B's live native
+> consumer operational. P4 is intentionally **not required**: P1 and P3 verify the observable
+> isolation/lifecycle behavior, while exposing a manager's Vert.x solely to assert object identity
+> would add test-only production API. The dormant worker-verticle address and LISTEN reconnect
+> sharing experiment remain latent/optional observations, not active completion criteria.
+
+> Tests must configure PeeGeeQ itself with an explicit non-public schema. A test may still name
+> `public` solely as a negative contamination sentinel or to protect explicit public-schema
+> handling; that does not mean the test runs a PeeGeeQ setup under `public`.
 
 > **Reconciled 2026-08-26.** Jenkins build #36 completed the full management Playwright
 > suite and the Java `all-tests` gate with zero skips. This satisfies the two owner-run
 > verification items identified in the 2026-06-27 update: Phase E UI execution and the
 > unguarded `PgBiTemporalEventStorePerformanceTest`. The only open items in this document
-> are the separately identified multi-setup coverage-plan rows P3 and P4. Historical
+> were the separately identified multi-setup coverage-plan rows P3 and P4. Historical
 > “reopened” and “owner-run remaining” text below is retained as chronology.
 
 > **Update 2026-06-27 — near-complete.** All conversions and code fixes are DONE and verified GREEN, including
@@ -633,8 +647,8 @@ is a normal production topology. Coverage plan to close that gap, by risk:
 |---|----------|--------|
 | P1 | Two native setups on one service, each with a `LISTEN_NOTIFY_ONLY` consumer; a message produced to each must reach THAT setup's consumer over NOTIFY. | ✅ **Done & validated 2026-06-27.** `MultiSetupNativeListenIsolationTest` (`peegeeq-integration-tests`). Passes under per-setup Vert.x; **proven to fail (60 s timeout) when the shared Vert.x is re-applied** — a real regression lock, not a vacuous pass. Uses `LISTEN_NOTIFY_ONLY` on purpose: the default HYBRID consumer would deliver via the poll fallback and mask a dead LISTEN. Companion: `SseMessageStreamDemoIntegrationTest.secondNativeSetup_alsoStreamsOverSse` locks the SSE-observer path. |
 | P2 | Two bitemporal setups on one service — both receive their append notifications (the bitemporal `ReactiveNotificationHandler` is a separate LISTEN/NOTIFY implementation of the same pattern). | ✅ **Done 2026-06-27.** `MultiSetupBitemporalNotificationIsolationTest` (`peegeeq-integration-tests`): subscribes via each setup's `EventStore` (from `getEventStores()`), appends via REST, both subscribers receive. **Finding — the bitemporal path is IMMUNE to the F1 shared-Vertx defect.** In one run against a re-applied shared Vert.x, P2 passed (5 s) while P1 timed out (60 s) in the *same* run — so the shared db was demonstrably live and the divergence is real. F1 is therefore specific to the **native** queue's LISTEN path, even though both paths use `PgConnection.connect(vertx, opts)` with no poll fallback. P2's value is thus positive multi-setup coverage of the setup-service-provisioned bitemporal notification path (previously untested end-to-end — existing tests only appended/queried over REST, never subscribed), **not** an F1 regression lock. |
-| P3 | Cross-setup isolation: producing to setup A never surfaces in setup B's consumer/tail; `destroySetup(A)` does not disturb B's live consumer. | ⏳ Planned. |
-| P4 | Fast guard: two `createCompleteSetup` calls yield managers on **distinct** Vert.x instances (catches a future F1-style "share the Vert.x" change cheaply — needs a test-visible way to reach each setup's manager Vert.x). | ⏳ Planned. |
+| P3 | Cross-setup isolation: producing to setup A never surfaces in setup B's consumer/tail; `destroySetup(A)` does not disturb B's live consumer. | ✅ **Done & validated 2026-08-29.** `MultiSetupNativeCrossIsolationTest`, added by commit `32ab0371`, passed 1/1 and verifies both traffic isolation and post-destroy liveness of setup B. |
+| P4 | Fast guard: two `createCompleteSetup` calls yield managers on **distinct** Vert.x instances (catches a future F1-style "share the Vert.x" change cheaply — needs a test-visible way to reach each setup's manager Vert.x). | ➖ **Not required (2026-08-29).** P1/P3 lock the observable contract. No test-only accessor will be added merely to expose Vert.x identity. Reconsider only if a legitimate production diagnostic API is introduced. |
 
 **Principle (owner, 2026-06-27):** a PeeGeeQ setup is an independent instance and legitimately owns its
 own Vert.x context; thread/resource optimization is a completely separate concern and must not be bought by
@@ -721,8 +735,9 @@ all pass.** The SSE-observer failure was the *original* F1 symptom; the pool nam
 the shared-pool collision was the **single** root cause, not several separate bugs.
 
 **Bottom line.** For every exercised multi-setup hot path (native consume, bitemporal subscribe, SSE observe)
-the pool fix makes a shared Vert.x behave correctly. **Still not exercised:** the LISTEN reconnect path under
-sharing, and `destroySetup(A)` not disturbing a live B (coverage-plan P3). The dormant worker-verticle address
-is the one remaining latent (opt-in) item. The per-setup Vert.x still stands as the design; the pool fix is
+the pool fix makes a shared Vert.x behave correctly. P3 now also proves that `destroySetup(A)` does not
+disturb a live B. The LISTEN reconnect path under deliberate sharing is not separately exercised, and the
+dormant worker-verticle address remains a latent opt-in item; neither is an active task criterion. The
+per-setup Vert.x still stands as the design; the pool fix is
 defense-in-depth. (This also corrects the earlier `vertx.runOnContext` hypothesis, disproven: the native
 lambda never fires for the "losing" setup only because its DB got no message — not a dispatch-context issue.)
