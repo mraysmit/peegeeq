@@ -2,6 +2,12 @@
 **© Mark Andrew Ray-Smith Cityline Ltd 2025**  
 Version 0.9  
 
+> **Configuration authority (August 29, 2026):** Property names and precedence are defined only
+> by [PEEGEEQ_CONFIGURATION_GUIDE.md](PEEGEEQ_CONFIGURATION_GUIDE.md). The configuration
+> snippets below have been aligned to that inventory; API examples elsewhere in this legacy
+> all-in-one guide may predate the current reactive API and should be checked against the
+> focused module guides.
+
 <div align="left">
     <img src="PGQ-logo.png" alt="PeeGeeQ Logo" width="200" style="display:block; margin-left:0;" />
 </div>
@@ -1040,17 +1046,18 @@ peegeeq.database.port=5432
 peegeeq.database.name=peegeeq
 peegeeq.database.username=peegeeq_user
 peegeeq.database.password=your_password
+peegeeq.database.schema=public
 
 # Connection pool
-peegeeq.database.pool.maxSize=10
+peegeeq.database.pool.max-size=10
 
 # Queue settings
-peegeeq.queue.visibilityTimeoutSeconds=30
-peegeeq.queue.maxRetries=3
+peegeeq.queue.visibility-timeout=PT30S
+peegeeq.queue.max-retries=3
 
 # Health checks
 peegeeq.health.enabled=true
-peegeeq.health.intervalSeconds=30
+peegeeq.health.check-interval=PT30S
 ```
 
 ### Updated Code with Configuration
@@ -2991,9 +2998,7 @@ peegeeq.consumer.threads=4
 peegeeq.queue.batch-size=10
 peegeeq.queue.polling-interval=PT0.1S
 
-# Backpressure management
-peegeeq.consumer.max-concurrent-operations=50
-peegeeq.consumer.timeout=PT30S
+# Admission capacity is consumer.threads; no separate backpressure property is supported.
 ```
 
 ### Advanced Consumer Group Patterns
@@ -4232,22 +4237,21 @@ peegeeq.database.port=5432
 peegeeq.database.name=peegeeq
 peegeeq.database.username=peegeeq_user
 peegeeq.database.password=your_password
+peegeeq.database.schema=public
 
 # Connection pool
-peegeeq.database.pool.maxSize=20
+peegeeq.database.pool.max-size=20
 
 # Queue settings
-peegeeq.queue.visibilityTimeoutSeconds=30
-peegeeq.queue.maxRetries=3
-peegeeq.queue.deadLetterEnabled=true
+peegeeq.queue.visibility-timeout=PT30S
+peegeeq.queue.max-retries=3
 
 # Health checks
 peegeeq.health.enabled=true
-peegeeq.health.intervalSeconds=30
+peegeeq.health.check-interval=PT30S
 
 # Metrics
 peegeeq.metrics.enabled=true
-peegeeq.metrics.jvm.enabled=true
 ```
 
 ## Basic Usage Examples
@@ -4354,11 +4358,12 @@ peegeeq.database.port=5432
 peegeeq.database.name=peegeeq_dev
 peegeeq.database.username=dev_user
 peegeeq.database.password=dev_password
+peegeeq.database.schema=public
 
 # Relaxed settings for development
-peegeeq.queue.visibilityTimeoutSeconds=30
-peegeeq.queue.maxRetries=3
-peegeeq.health.intervalSeconds=60
+peegeeq.queue.visibility-timeout=PT30S
+peegeeq.queue.max-retries=3
+peegeeq.health.check-interval=PT60S
 ```
 
 **`peegeeq-prod.properties`**:
@@ -4369,16 +4374,16 @@ peegeeq.database.port=${DB_PORT:5432}
 peegeeq.database.name=${DB_NAME}
 peegeeq.database.username=${DB_USERNAME}
 peegeeq.database.password=${DB_PASSWORD}
+peegeeq.database.schema=${DB_SCHEMA}
 
 # Production-optimized settings
-peegeeq.database.pool.maxSize=20
-peegeeq.queue.visibilityTimeoutSeconds=300
-peegeeq.queue.maxRetries=5
-peegeeq.health.intervalSeconds=30
+peegeeq.database.pool.max-size=20
+peegeeq.queue.visibility-timeout=PT300S
+peegeeq.queue.max-retries=5
+peegeeq.health.check-interval=PT30S
 
 # Security settings
 peegeeq.database.ssl.enabled=true
-peegeeq.database.ssl.mode=require
 ```
 
 ### Programmatic Configuration
@@ -4567,14 +4572,7 @@ peegeeq.consumer.threads=8                    # Number of parallel consumer thre
 peegeeq.queue.batch-size=25                   # Messages processed per batch
 peegeeq.queue.polling-interval=PT0.5S         # Polling frequency (500ms)
 
-# Backpressure management
-peegeeq.consumer.max-concurrent-operations=100 # Max concurrent operations
-peegeeq.consumer.timeout=PT30S                # Consumer operation timeout
-peegeeq.consumer.queue-capacity=1000          # Internal queue capacity
-
-# Memory and resource management
-peegeeq.consumer.thread-pool-keep-alive=PT60S # Thread keep-alive time
-peegeeq.consumer.enable-metrics=true          # Enable consumer metrics
+# Admission capacity is controlled by consumer.threads and batch-size.
 ```
 
 ### Environment-Specific Configurations
@@ -4586,7 +4584,6 @@ peegeeq.consumer.threads=2
 peegeeq.queue.batch-size=5
 peegeeq.queue.polling-interval=PT1S
 peegeeq.queue.max-retries=3
-peegeeq.logging.level=DEBUG
 ```
 
 #### Staging Environment
@@ -4596,7 +4593,6 @@ peegeeq.consumer.threads=4
 peegeeq.queue.batch-size=15
 peegeeq.queue.polling-interval=PT0.5S
 peegeeq.queue.max-retries=5
-peegeeq.consumer.max-concurrent-operations=50
 ```
 
 #### Production Environment
@@ -4606,9 +4602,7 @@ peegeeq.consumer.threads=8
 peegeeq.queue.batch-size=50
 peegeeq.queue.polling-interval=PT0.1S
 peegeeq.queue.max-retries=7
-peegeeq.consumer.max-concurrent-operations=200
-peegeeq.consumer.timeout=PT60S
-peegeeq.circuitBreaker.enabled=true
+peegeeq.circuit-breaker.enabled=true
 peegeeq.metrics.enabled=true
 ```
 
@@ -4636,10 +4630,6 @@ peegeeq.metrics.enabled=true
 ```properties
 # Enable SSL
 peegeeq.database.ssl.enabled=true
-peegeeq.database.ssl.mode=require
-peegeeq.database.ssl.cert=/path/to/client-cert.pem
-peegeeq.database.ssl.key=/path/to/client-key.pem
-peegeeq.database.ssl.rootcert=/path/to/ca-cert.pem
 ```
 
 ### Message Encryption
@@ -5120,33 +5110,27 @@ peegeeq.database.port=5432
 peegeeq.database.name=peegeeq
 peegeeq.database.username=peegeeq_user
 peegeeq.database.password=your_password
+peegeeq.database.schema=public
 
 # SSL settings
 peegeeq.database.ssl.enabled=true
-peegeeq.database.ssl.mode=require
 
 # Connection pool
-peegeeq.database.pool.maxSize=20
-peegeeq.database.pool.connectionTimeoutMs=30000
-peegeeq.database.pool.idleTimeoutMs=600000
-peegeeq.database.pool.maxLifetimeMs=1800000
+peegeeq.database.pool.max-size=20
+peegeeq.database.pool.connection-timeout-ms=30000
+peegeeq.database.pool.idle-timeout-ms=600000
 ```
 
 ### Queue Configuration
 
 ```properties
 # Message processing
-peegeeq.queue.visibilityTimeoutSeconds=30
-peegeeq.queue.maxRetries=3
-peegeeq.queue.retryDelaySeconds=5
+peegeeq.queue.visibility-timeout=PT30S
+peegeeq.queue.max-retries=3
 
-# Dead letter queue
-peegeeq.queue.deadLetterEnabled=true
-peegeeq.queue.deadLetterMaxAge=7
-
-# Polling (for outbox pattern)
-peegeeq.outbox.pollIntervalMs=1000
-peegeeq.outbox.batchSize=100
+# Polling and claim capacity (shared by native and outbox)
+peegeeq.queue.polling-interval=PT1S
+peegeeq.queue.batch-size=100
 
 # Stuck message recovery (for outbox pattern)
 peegeeq.queue.recovery.enabled=true
@@ -5159,18 +5143,16 @@ peegeeq.queue.recovery.check-interval=PT10M
 ```properties
 # Health checks
 peegeeq.health.enabled=true
-peegeeq.health.intervalSeconds=30
-peegeeq.health.database.timeoutSeconds=5
+peegeeq.health.check-interval=PT30S
+peegeeq.health.timeout=PT5S
 
 # Metrics
 peegeeq.metrics.enabled=true
-peegeeq.metrics.jvm.enabled=true
-peegeeq.metrics.database.enabled=true
 
 # Circuit breaker
-peegeeq.circuitBreaker.enabled=true
-peegeeq.circuitBreaker.failureThreshold=5
-peegeeq.circuitBreaker.timeoutSeconds=60
+peegeeq.circuit-breaker.enabled=true
+peegeeq.circuit-breaker.minimum-number-of-calls=5
+peegeeq.circuit-breaker.wait-duration-in-open-state=PT60S
 ```
 
 ## REST API Integration

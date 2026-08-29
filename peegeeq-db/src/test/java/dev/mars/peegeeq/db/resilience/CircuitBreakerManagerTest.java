@@ -26,6 +26,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -180,5 +181,32 @@ class CircuitBreakerManagerTest {
         assertTrue(circuitBreakerManager.getCircuitBreaker("cb-b").tryAcquirePermission());
         // Release the acquired permission
         circuitBreakerManager.getCircuitBreaker("cb-b").onSuccess(0, TimeUnit.NANOSECONDS);
+    }
+
+    @Test
+    void canonicalPropertiesConfigureEveryAdvertisedCircuitBreakerSetting() {
+        Properties overrides = new Properties();
+        overrides.setProperty("peegeeq.database.schema", "peegeeq_test");
+        overrides.setProperty("peegeeq.circuit-breaker.failure-rate-threshold", "37.5");
+        overrides.setProperty("peegeeq.circuit-breaker.minimum-number-of-calls", "7");
+        overrides.setProperty("peegeeq.circuit-breaker.sliding-window-size", "41");
+        overrides.setProperty("peegeeq.circuit-breaker.wait-duration-in-open-state", "PT17S");
+        overrides.setProperty("peegeeq.circuit-breaker.slow-call-rate-threshold", "62.5");
+        overrides.setProperty("peegeeq.circuit-breaker.slow-call-duration-threshold", "PT4S");
+        overrides.setProperty("peegeeq.circuit-breaker.permitted-calls-in-half-open-state", "6");
+
+        PeeGeeQConfiguration configuration = new PeeGeeQConfiguration("test", overrides);
+        CircuitBreakerManager manager =
+            new CircuitBreakerManager(configuration.getCircuitBreakerConfig(), new SimpleMeterRegistry());
+        io.github.resilience4j.circuitbreaker.CircuitBreakerConfig actual =
+            manager.getCircuitBreaker("canonical-contract").getCircuitBreakerConfig();
+
+        assertEquals(37.5f, actual.getFailureRateThreshold());
+        assertEquals(7, actual.getMinimumNumberOfCalls());
+        assertEquals(41, actual.getSlidingWindowSize());
+        assertEquals(17_000L, actual.getWaitIntervalFunctionInOpenState().apply(1));
+        assertEquals(62.5f, actual.getSlowCallRateThreshold());
+        assertEquals(Duration.ofSeconds(4), actual.getSlowCallDurationThreshold());
+        assertEquals(6, actual.getPermittedNumberOfCallsInHalfOpenState());
     }
 }
