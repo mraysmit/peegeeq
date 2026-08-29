@@ -123,11 +123,13 @@ class OutboxConsumerSurgicalCoverageTest {
     void testConsumerWithMultipleThreads(VertxTestContext testContext) throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
-                .property("peegeeq.queue.consumer-threads", "4")
+                .property("peegeeq.consumer.threads", "4")
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
+        assertEquals(4, config.getQueueConfig().getConsumerThreads(),
+                "The canonical global consumer-thread property must be applied");
         Checkpoint checkpoint = testContext.checkpoint(3);
         AtomicInteger receivedCount = new AtomicInteger(0);
 

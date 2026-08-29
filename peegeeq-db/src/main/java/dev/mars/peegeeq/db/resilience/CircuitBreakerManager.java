@@ -54,10 +54,12 @@ public class CircuitBreakerManager {
         if (enabled) {
             CircuitBreakerConfig cbConfig = CircuitBreakerConfig.custom()
                 .failureRateThreshold((float) config.getFailureRateThreshold())
-                .waitDurationInOpenState(config.getWaitDuration())
-                .slidingWindowSize(config.getRingBufferSize())
-                .minimumNumberOfCalls(config.getFailureThreshold())
-                .permittedNumberOfCallsInHalfOpenState(3)
+                .waitDurationInOpenState(config.getWaitDurationInOpenState())
+                .slidingWindowSize(config.getSlidingWindowSize())
+                .minimumNumberOfCalls(config.getMinimumNumberOfCalls())
+                .slowCallRateThreshold((float) config.getSlowCallRateThreshold())
+                .slowCallDurationThreshold(config.getSlowCallDurationThreshold())
+                .permittedNumberOfCallsInHalfOpenState(config.getPermittedCallsInHalfOpenState())
                 .automaticTransitionFromOpenToHalfOpenEnabled(true)
                 .recordExceptions(Exception.class)
                 .build();

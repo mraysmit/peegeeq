@@ -174,6 +174,26 @@ public class PeeGeeQManagerIntegrationTest {
     }
 
     @Test
+    void disabledHealthConfigurationDoesNotStartHealthChecks(VertxTestContext testContext) {
+        manager.closeReactive()
+            .compose(v -> {
+                Properties disabledHealthProps = new Properties();
+                disabledHealthProps.putAll(testProps);
+                disabledHealthProps.setProperty("peegeeq.health.enabled", "false");
+                configuration = new PeeGeeQConfiguration("test", disabledHealthProps);
+                manager = new PeeGeeQManager(configuration, new SimpleMeterRegistry());
+                return manager.start();
+            })
+            .onSuccess(v -> testContext.verify(() -> {
+                assertTrue(manager.isStarted());
+                assertFalse(manager.getHealthCheckManager().isRunning(),
+                    "HealthCheckManager must remain stopped when peegeeq.health.enabled=false");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
     void testMetrics(VertxTestContext testContext) {
         manager.start()
             .compose(v -> {
@@ -192,6 +212,32 @@ public class PeeGeeQManagerIntegrationTest {
                 return Future.succeededFuture();
             })
             .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    void disabledMetricsPreventRegistryBindingAndPeriodicCollection(VertxTestContext testContext) {
+        manager.closeReactive()
+            .compose(v -> {
+                Properties disabledMetricsProps = new Properties();
+                disabledMetricsProps.putAll(testProps);
+                disabledMetricsProps.setProperty("peegeeq.metrics.enabled", "false");
+                disabledMetricsProps.setProperty("peegeeq.health.enabled", "false");
+                configuration = new PeeGeeQConfiguration("test", disabledMetricsProps);
+                SimpleMeterRegistry registry = new SimpleMeterRegistry();
+                manager = new PeeGeeQManager(configuration, registry);
+                return manager.start().map(registry);
+            })
+            .onSuccess(registry -> testContext.verify(() -> {
+                manager.getCircuitBreakerManager().getCircuitBreaker("metrics-disabled-contract");
+                assertTrue(registry.getMeters().stream().noneMatch(meter -> {
+                    String name = meter.getId().getName();
+                    return name.startsWith("peegeeq.") || name.startsWith("resilience4j.circuitbreaker");
+                }), "No PeeGeeQ or circuit-breaker meters may be bound when metrics are disabled");
+                assertFalse(manager.isMetricsCollectionRunning(),
+                    "No periodic metrics sampler may run when metrics are disabled");
+                testContext.completeNow();
+            }))
             .onFailure(testContext::failNow);
     }
 
