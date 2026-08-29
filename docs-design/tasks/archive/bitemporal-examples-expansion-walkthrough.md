@@ -1,3 +1,5 @@
+> **ARCHIVED 2026-08-29:** Historical evidence only. Current tasks and status are maintained exclusively in [the consolidated register](../tasks.md).
+
 # Walkthrough: PeeGeeQ Examples Expansion
 
 **Status:** COMPLETE — verified against repository commit `09157c82` on 2026-08-26.

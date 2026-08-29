@@ -64,6 +64,15 @@ public class PgMetricsProvider implements MetricsProvider {
     }
 
     @Override
+    public void recordMessageDuplicate(String topic) {
+        try {
+            metrics.recordMessageDuplicate(topic);
+        } catch (Exception e) {
+            logger.warn("Failed to record duplicate message metric for topic: {}", topic, e);
+        }
+    }
+
+    @Override
     public void recordMessageReceived(String topic) {
         try {
             metrics.recordMessageReceived(topic);

@@ -45,6 +45,13 @@ public class OutboxConsumerConfig {
     // Getters
     public Duration getPollingInterval() { return pollingInterval; }
     public int getBatchSize() { return batchSize; }
+    /**
+     * Returns the maximum number of claimed message pipelines that may be in
+     * flight. A slot remains occupied through handler execution and terminal
+     * persistence. Within one consumer instance, messages with the same non-null
+     * message group are serialized; different groups may execute concurrently up
+     * to this limit.
+     */
     public int getConsumerThreads() { return consumerThreads; }
     public int getMaxRetries() { return maxRetries; }
     public ServerSideFilter getServerSideFilter() { return serverSideFilter; }
@@ -77,6 +84,11 @@ public class OutboxConsumerConfig {
             return this;
         }
 
+        /**
+         * Sets the maximum number of claimed handler and terminal-persistence
+         * pipelines. This per-consumer value takes precedence over the queue-wide
+         * configuration.
+         */
         public Builder consumerThreads(int threads) {
             this.consumerThreads = threads;
             return this;
@@ -145,4 +157,3 @@ public class OutboxConsumerConfig {
                 '}';
     }
 }
-

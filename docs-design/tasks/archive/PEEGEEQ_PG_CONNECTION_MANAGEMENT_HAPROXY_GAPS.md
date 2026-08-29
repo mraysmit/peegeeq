@@ -1,3 +1,5 @@
+> **ARCHIVED 2026-08-29:** Historical evidence only. Current tasks and status are maintained exclusively in [the consolidated register](../tasks.md).
+
 # PostgreSQL Connection Management and HAProxy Failover — Gaps and Implementation Plan
 
 **Extracted from**: `PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md`  

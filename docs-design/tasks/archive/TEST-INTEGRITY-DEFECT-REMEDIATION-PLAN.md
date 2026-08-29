@@ -1,9 +1,11 @@
+> **ARCHIVED 2026-08-29:** Historical evidence only. Current tasks and status are maintained exclusively in [the consolidated register](../tasks.md).
+
 # Test Integrity Defect Remediation Plan
 
 Opened: 2026-08-11
-Last reconciled: 2026-08-25 through commit `e8d07e53` and Jenkins build #36. The
-2026-08-23 P0-P11 evidence remains the targeted checkpoint; P12 records the later
-full-gate remediation and final from-beginning regression result.
+Last reconciled: 2026-08-29. The 2026-08-23 P0-P11 evidence remains the targeted
+checkpoint; P12 records the later full-gate remediation and final from-beginning
+regression result, and P13 records the focused D23 remediation.
 Origin: reading `logs/peegeeq-outbox-integration-20260811.txt` — a run reporting
 `Tests run: 537, Failures: 0, Errors: 0, Skipped: 0` and `BUILD SUCCESS` while logging
 46 ERROR-level exceptions.
@@ -62,7 +64,7 @@ an unresolved cause).
 | D20 | Full-gate lifecycle paths exposed settlement gaps after the original P7/P9 targeted evidence, including manager-owned Vert.x shutdown, native factory/manager close ordering, setup-service close observation, bitemporal notification shutdown, and REST observer cancellation | FIXED | follow-up lifecycle commits `00d5e069`, `fa0d3dc4`, `56429525`, `b901ff2e`, `649f0dd7`, `6b1945d0`, and `56fcfec8`; Jenkins #36 passed from the beginning; see P12 |
 | D21 | Outbox delivery did not consistently contain synchronous handler throws or enforce subscription-start settlement before dependent work | FIXED | `51dd9f2e` and `582d5a36`; final Java outbox aggregate 667/667 in Jenkins #36; see P12 |
 | D22 | Linux CI could only restart the entire full suite and did not reliably prepare Maven-provisioned npm launchers or the Playwright Chromium binary | FIXED | module resume in `eeb9a525`, npm launcher permissions in `d83f4d88`, Chromium installation in `33778b7a`; tail diagnosis completed before a clean from-beginning gate; see P12 |
-| D23 | Management UI SSE real-time-count Playwright test needed one retry in the final full gate | NOT REPRODUCED | Jenkins #36: `queue-updates-sse.spec.ts:274` failed once and passed on retry; the suite finished 481 passed plus 1 flaky. The test still uses a fixed one-second readiness delay; no deterministic reproduction or implementation fix has been established; see P12 |
+| D23 | Management UI SSE real-time-count Playwright test needed one retry in the final full gate | FIXED | A TDD quality guard failed 2/2 against the fixed-delay implementation, the test now awaits the exact setup-specific HTTP 200 `text/event-stream` response before publishing, and focused real-backend Playwright passed 36/36 with no retry; see P13 |
 
 ### 2026-08-22 native consumer-group lifecycle reconciliation
 
@@ -828,7 +830,7 @@ ratcheted backlog and were not part of the enumerated D18 lifecycle inventory. T
 discarded stop/close Futures repository-wide. At the P11 checkpoint, the approximately 90-minute
 owner-run `-Pall-tests` release gate had not yet run; P12 records its later successful execution.
 
-### P12 — Full Jenkins gate reconciliation (D19-D23) — COMPLETE; D23 NOT REPRODUCED
+### P12 — Full Jenkins gate reconciliation (D19-D23) — COMPLETE; D23 CARRIED FORWARD
 
 The first full regression after P11 exposed coverage that the targeted phases could not claim.
 There are 31 commits and 73 changed files between the committed P11 checkpoint `1454c4e7` and
@@ -876,11 +878,38 @@ post-build worktree was clean. The build finished `SUCCESS` with:
 - utilities UI Playwright: 91/91 in 6.1 minutes.
 
 The one flaky management UI result is D23. `queue-updates-sse.spec.ts:274` failed on its first
-attempt and passed on retry. Its current readiness mechanism includes a fixed one-second delay,
-but this artifact alone does not prove the cause. D23 therefore remains `NOT REPRODUCED`: do not
-raise a timeout or add another fixed delay and call it fixed. A future phase must first establish
-a deterministic SSE-readiness signal, reproduce the failure in a focused repeat scope, and then
-verify the smallest correction.
+attempt and passed on retry. At this P12 checkpoint its readiness mechanism included a fixed
+one-second delay, but that artifact alone did not prove the cause, so D23 remained
+`NOT REPRODUCED`. P13 records the later observed-readiness correction and focused verification.
+
+### P13 — Management UI queue-update SSE readiness (D23) — COMPLETE
+
+Strict TDD first added `queueUpdatesSseReadiness.guard.test.ts`. Against the pre-change E2E
+spec, both contracts failed: the live-count scenario still contained `waitForTimeout(1000)`,
+and it did not observe an SSE response before publishing. This is a deterministic proof of the
+timing-assumption defect; it does not claim the intermittent Jenkins symptom itself was made to
+recur locally.
+
+The Playwright scenario now registers its response observer before navigating to the Queues
+page, matches the exact `/api/v1/sse/queues/{setupId}` path, and requires both HTTP 200 and a
+`text/event-stream` content type. It also corrects an already-selected-but-different setup before
+awaiting that handshake. Only after the observed response settles does the test publish the
+message and retain its original end-to-end assertion that the Messages count changes without a
+manual refresh. The fixed one-second delay was removed rather than increased.
+
+Verification on 2026-08-29:
+
+- RED quality guard: 2/2 failed for the intended missing-readiness and fixed-delay assertions;
+- GREEN quality guard: 2/2 passed;
+- management UI TypeScript check: passed with zero compiler errors; and
+- focused real-backend Playwright project `14d-queue-updates-sse`, including its configured
+  prerequisite chain: 36/36 passed in 1.7 minutes, with all six queue-update SSE scenarios
+  passing and no retry or flaky classification.
+
+No Java or Maven file changed during D23, so the reactor-slice rebuild rule was not applicable.
+The subsequent independent phase retained and enforced `OutboxConsumerConfig.consumerThreads`
+through three behavior-first real-PostgreSQL contracts; it remains separate from D23 and is
+recorded in the configuration/outbox audits and session handover.
 
 ---
 

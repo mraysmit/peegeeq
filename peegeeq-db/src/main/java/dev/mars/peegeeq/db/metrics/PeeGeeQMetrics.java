@@ -55,6 +55,7 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
 
     // Counters
     private Counter messagesSent;
+    private Counter messagesDuplicates;
     private Counter messagesReceived;
     private Counter messagesProcessed;
     private Counter messagesFailed;
@@ -98,6 +99,11 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
         // Message processing counters
         messagesSent = Counter.builder("peegeeq.messages.sent")
             .description("Total number of messages sent to queues")
+            .tag("instance", instanceId)
+            .register(registry);
+
+        messagesDuplicates = Counter.builder("peegeeq.messages.duplicates")
+            .description("Total number of idempotency-keyed sends rejected as duplicates")
             .tag("instance", instanceId)
             .register(registry);
 
@@ -175,6 +181,20 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
                 .tag("topic", topic)
                 .register(registry)
                 .record(Duration.ofMillis(durationMs));
+        }
+    }
+
+    @Override
+    public void recordMessageDuplicate(String topic) {
+        if (messagesDuplicates != null) {
+            messagesDuplicates.increment();
+        }
+        if (registry != null) {
+            Counter.builder("peegeeq.messages.duplicates.by.topic")
+                .tag("instance", instanceId)
+                .tag("topic", topic)
+                .register(registry)
+                .increment();
         }
     }
 

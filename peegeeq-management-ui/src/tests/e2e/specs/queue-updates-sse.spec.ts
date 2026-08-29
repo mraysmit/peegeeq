@@ -275,14 +275,23 @@ test.describe('Queue Updates SSE – Direct API', () => {
         const queueName = `sse_upd_count_${Date.now()}`
         await createQueue(page, queueName) // fresh queue → count 0
 
+        const queueUpdatesSseReady = page.waitForResponse(response => {
+            const url = new URL(response.url())
+            return url.pathname === `/api/v1/sse/queues/${SETUP_ID}`
+                && response.status() === 200
+                && response.headers()['content-type']?.startsWith('text/event-stream') === true
+        }, { timeout: 15000 })
+
         await page.getByTestId('nav-queues').click()
         await page.waitForLoadState('load')
 
         // Scope to the setup so the page subscribes to /api/v1/sse/queues/{setupId}
         const setupSelector = page.getByTestId('setup-scope-selector')
-        if (!(await setupSelector.locator('.ant-select-selection-item').isVisible())) {
+        const selectedSetup = setupSelector.locator('.ant-select-selection-item')
+        if (!(await selectedSetup.isVisible()) || (await selectedSetup.textContent())?.trim() !== SETUP_ID) {
             await selectAntOption(setupSelector, SETUP_ID)
         }
+        await queueUpdatesSseReady
 
         // The new queue's row; its Messages cell (column index 1) starts at 0
         // Late in the full suite the setup holds many queues, so the new one paginates off page 1.
@@ -293,9 +302,6 @@ test.describe('Queue Updates SSE – Direct API', () => {
         await expect(row).toBeVisible({ timeout: 30000 })
         const messagesCell = row.locator('td.ant-table-cell').nth(1)
         await expect(messagesCell).toContainText('0')
-
-        // Allow the per-setup SSE connection to establish before mutating
-        await page.waitForTimeout(1000)
 
         // Publish via the REST API directly — not via the UI, and with no manual refresh click
         const resp = await page.request.post(`/api/v1/queues/${SETUP_ID}/${queueName}/messages`, {

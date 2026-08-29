@@ -166,7 +166,7 @@ response `filters` object — but `PgBiTemporalEventStore` contains **zero refer
 `getMaxVersion()`. None of the five reach the SQL. Clients are told their filters were applied;
 they were not. Same bug class as the ignored `offset` fixed in T1.
 
-A module audit on the same day (see `docs-design/tasks/OUTBOX-AUDIT-FINDINGS-11-Jun-2026.md` for the
+A module audit on the same day (see `docs-design/tasks/archive/OUTBOX-AUDIT-FINDINGS-11-Jun-2026.md` for the
 audit's outbox half) found a **sixth ignored criterion**: `EventQuery.headerFilters` — full builder
 support (`EventQuery.java` lines 43, 165, 221), never applied to any SQL. Folded into F3 below. The
 same audit verified the rest of peegeeq-bitemporal CLEAN on these defect classes: `subscribe`

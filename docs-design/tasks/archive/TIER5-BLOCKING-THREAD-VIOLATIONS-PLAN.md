@@ -1,17 +1,28 @@
+> **ARCHIVED 2026-08-29:** Historical evidence only. Current tasks and status are maintained exclusively in [the consolidated register](../tasks.md).
+
 # Guard Tiers 4, 5, 7 — Audit and Remediation Plan
 
 **Date:** 2026-05-17  
-**Last updated:** 2026-08-26
+**Last updated:** 2026-08-29
 **Scope:** All files flagged by `OnSuccessExceptionSwallowingGuardTest` tiers 4, 5, and 7.
+**Status:** ACTIVE — reopened because the current no-exceptions rule invalidates Tier-5 exemptions
 
 ---
 
 ## Current Build Status
 
-**COMPLETE.** The table below records the original 2026-05-18 failure state. All 60
-file-level checklist entries in this plan are complete, current repository scans find no
-Tier 4/5/7 patterns, the integrity guards pass, and Jenkins build #36 completed the full
-regression gate with zero Java test skips. This plan is ready to archive.
+**ACTIVE — REOPENED 2026-08-29.** The original 60 file-level checklist entries were closed
+under a policy that allowed `blocking-exempt` exceptions, and Jenkins build #36 passed that
+guard policy. The current project rule prohibits `Thread.sleep` and `LockSupport.parkNanos`
+without exceptions. A raw source scan therefore supersedes the earlier “grep-clean” claim and
+finds five executable Tier-5 calls in two files:
+
+- `CircuitBreakerRecoveryTest`: three `LockSupport.parkNanos` calls.
+- `VertxEventLoopBlockingJoinTest`: two `Thread.sleep` calls.
+
+The Tier-4 and Tier-7 work remains complete. Tier 5 is complete only after those five calls are
+replaced, the obsolete exemption comments/tags/baseline entries are removed, the focused tests
+pass, and the no-blocking-pattern guard passes with no exemption mechanism.
 
 ### Original failure state (2026-05-18)
 
@@ -266,11 +277,17 @@ void someOperationFails(VertxTestContext ctx) {
 
 ---
 
-## Exempt Files (T5 — no action required)
+## Historical exempt files (policy superseded 2026-08-29)
 
-Files that legitimately keep `@Tag("blocking-exempt")` under the criteria below. **Do not modify these for T5.**
+This list records the former policy. It is not current authorization to retain a banned pattern.
+The current project rule permits no `Thread.sleep` or `LockSupport.parkNanos` exception. Files
+without an executable banned call need no behavior change; the two files identified in Current
+Build Status must be remediated.
 
-`@Tag("blocking-exempt")` is valid only when: (1) test subject IS the blocking pattern, (2) test subject IS time-based state transition in a non-reactive component, (3) JVM-thread diagnostics post-`vertx.close()` with no reactive runtime, or (4) sleep is inside `vertx.executeBlocking(...)` on a worker thread.
+The historical rule treated `@Tag("blocking-exempt")` as valid when: (1) the test subject was
+the blocking pattern, (2) the test subject was a time-based state transition in a non-reactive
+component, (3) JVM-thread diagnostics ran after `vertx.close()`, or (4) the delay ran inside
+`vertx.executeBlocking(...)`. Those exceptions are now superseded.
 
 | File | Criterion | Reason |
 |------|-----------|--------|

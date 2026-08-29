@@ -4,8 +4,7 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.junit.jupiter.api.parallel.ResourceLock;
 
 import java.util.Map;
 import java.util.Properties;
@@ -21,12 +20,8 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.CORE)
 class SystemInfoCollectorTest {
-    private static final Logger logger = LoggerFactory.getLogger(SystemInfoCollectorTest.class);
-    
     @Test
     void testCollectSystemInfo() {
-        logger.info("Testing system information collection...");
-        
         SystemInfoCollector.SystemInfoSnapshot systemInfo = SystemInfoCollector.collectSystemInfo();
         
         // Verify basic structure
@@ -35,14 +30,10 @@ class SystemInfoCollectorTest {
         assertNotNull(systemInfo.systemConfiguration(), "Should contain system configuration");
         assertNotNull(systemInfo.databaseConfiguration(), "Should contain database configuration");
         assertNotNull(systemInfo.peeGeeQConfiguration(), "Should contain PeeGeeQ configuration");
-        
-        logger.info("System info structure validation passed");
     }
     
     @Test
     void testSystemConfiguration() {
-        logger.info("Testing system configuration collection...");
-        
         SystemInfoCollector.SystemInfoSnapshot systemInfo = SystemInfoCollector.collectSystemInfo();
         Map<String, String> sysConfig = systemInfo.systemConfiguration();
         
@@ -54,21 +45,10 @@ class SystemInfoCollectorTest {
         assertTrue(sysConfig.containsKey("Total Memory"), "Should contain memory information");
         assertTrue(sysConfig.containsKey("Java Version"), "Should contain Java version");
         assertTrue(sysConfig.containsKey("JVM"), "Should contain JVM information");
-        
-        // Log the collected information
-        logger.info("OS: {}", sysConfig.get("OS"));
-        logger.info("CPU Cores: {}", sysConfig.get("CPU Cores"));
-        logger.info("Total Memory: {}", sysConfig.get("Total Memory"));
-        logger.info("Java Version: {}", sysConfig.get("Java Version"));
-        logger.info("JVM: {}", sysConfig.get("JVM"));
-        
-        logger.info("System configuration validation passed");
     }
     
     @Test
     void testDatabaseConfiguration() {
-        logger.info("Testing database configuration collection...");
-        
         SystemInfoCollector.SystemInfoSnapshot systemInfo = SystemInfoCollector.collectSystemInfo();
         Map<String, String> dbConfig = systemInfo.databaseConfiguration();
         
@@ -79,20 +59,10 @@ class SystemInfoCollectorTest {
         assertTrue(dbConfig.containsKey("Connection Status"), "Should contain connection status");
         assertTrue(dbConfig.containsKey("Pool Configuration"), "Should contain pool configuration");
         assertTrue(dbConfig.containsKey("Pipelining"), "Should contain pipelining information");
-        
-        // Log the collected information
-        logger.info("Database: {}", dbConfig.get("Database"));
-        logger.info("Connection Status: {}", dbConfig.get("Connection Status"));
-        logger.info("Pool Configuration: {}", dbConfig.get("Pool Configuration"));
-        logger.info("Pipelining: {}", dbConfig.get("Pipelining"));
-        
-        logger.info("Database configuration validation passed");
     }
     
     @Test
     void testFormatAsMarkdown() {
-        logger.info("Testing markdown formatting...");
-        
         String markdown = SystemInfoCollector.formatAsMarkdown();
         
         assertNotNull(markdown, "Markdown should not be null");
@@ -103,15 +73,10 @@ class SystemInfoCollectorTest {
         assertTrue(markdown.contains("## Database Configuration"), "Should contain database configuration section");
         assertTrue(markdown.contains("**OS:**"), "Should contain OS information");
         assertTrue(markdown.contains("**Database:**"), "Should contain database information");
-        
-        logger.info("Generated markdown:\n{}", markdown);
-        logger.info("Markdown formatting validation passed");
     }
     
     @Test
     void testFormatAsSummary() {
-        logger.info("Testing summary formatting...");
-        
         String summary = SystemInfoCollector.formatAsSummary();
         
         assertNotNull(summary, "Summary should not be null");
@@ -122,15 +87,10 @@ class SystemInfoCollectorTest {
         assertTrue(summary.contains("CPU:"), "Should contain CPU information");
         assertTrue(summary.contains("Memory:"), "Should contain memory information");
         assertTrue(summary.contains("Java:"), "Should contain Java information");
-        
-        logger.info("Generated summary: {}", summary);
-        logger.info("Summary formatting validation passed");
     }
     
     @Test
     void testPerformanceTestResultsGenerator() {
-        logger.info("Testing PerformanceTestResultsGenerator...");
-        
         PerformanceTestResultsGenerator generator = new PerformanceTestResultsGenerator.Builder(
             "Test Suite",
             "Test Environment"
@@ -150,16 +110,10 @@ class SystemInfoCollectorTest {
         assertTrue(report.contains("## System Configuration"), "Should contain system configuration");
         assertTrue(report.contains("##  Detailed Test Results"), "Should contain detailed results");
         assertTrue(report.contains("Sample Test"), "Should contain test name");
-        
-        logger.info("Generated report preview (first 500 chars):\n{}", 
-            report.length() > 500 ? report.substring(0, 500) + "..." : report);
-        logger.info("PerformanceTestResultsGenerator validation passed");
     }
     
     @Test
     void testSystemInfoWithCustomProperties() {
-        logger.info("Testing system info with custom PeeGeeQ properties...");
-
         // Build a configuration with custom properties using the 2-arg constructor
         Properties props = new Properties();
         props.setProperty("peegeeq.test.property", "test-value");
@@ -175,11 +129,88 @@ class SystemInfoCollectorTest {
         assertTrue(peeGeeQConfig.containsKey("peegeeq.test.property"), "Should contain test property");
         assertEquals("test-value", peeGeeQConfig.get("peegeeq.test.property"), "Should have correct test value");
 
-        logger.info("PeeGeeQ properties found: {}", peeGeeQConfig.size());
-        for (Map.Entry<String, String> entry : peeGeeQConfig.entrySet()) {
-            logger.info("  {}: {}", entry.getKey(), entry.getValue());
+    }
+
+    @Test
+    @ResourceLock("system-properties")
+    void diagnosticsAreInstanceScopedAndNoConfigurationIsTruthful() {
+        Properties firstProperties = new Properties();
+        firstProperties.setProperty("peegeeq.database.pool.max-size", "7");
+        firstProperties.setProperty("peegeeq.database.pool.wait-queue-multiplier", "3");
+        firstProperties.setProperty("peegeeq.database.pipelining.limit", "11");
+        firstProperties.setProperty("peegeeq.diagnostics.instance-marker", "first");
+
+        Properties secondProperties = new Properties();
+        secondProperties.setProperty("peegeeq.database.pool.max-size", "13");
+        secondProperties.setProperty("peegeeq.database.pool.wait-queue-multiplier", "2");
+        secondProperties.setProperty("peegeeq.database.pipelining.limit", "17");
+        secondProperties.setProperty("peegeeq.diagnostics.instance-marker", "second");
+
+        PeeGeeQConfiguration first = new PeeGeeQConfiguration("test", firstProperties);
+        PeeGeeQConfiguration second = new PeeGeeQConfiguration("test", secondProperties);
+
+        String[] ambientKeys = {
+            "peegeeq.database.url",
+            "peegeeq.database.pool.max-size",
+            "peegeeq.database.pool.wait-queue-multiplier",
+            "peegeeq.database.pipelining.limit",
+            "peegeeq.diagnostics.instance-marker"
+        };
+        Properties previousValues = new Properties();
+        for (String key : ambientKeys) {
+            String previousValue = System.getProperty(key);
+            if (previousValue != null) {
+                previousValues.setProperty(key, previousValue);
+            }
         }
 
-        logger.info("Custom properties validation passed");
+        try {
+            System.setProperty("peegeeq.database.url", "jdbc:postgresql://ambient-host:5439/ambient");
+            System.setProperty("peegeeq.database.pool.max-size", "91");
+            System.setProperty("peegeeq.database.pool.wait-queue-multiplier", "9");
+            System.setProperty("peegeeq.database.pipelining.limit", "909");
+            System.setProperty("peegeeq.diagnostics.instance-marker", "ambient");
+
+            SystemInfoCollector.SystemInfoSnapshot firstSnapshot =
+                SystemInfoCollector.collectSystemInfo(first);
+            SystemInfoCollector.SystemInfoSnapshot secondSnapshot =
+                SystemInfoCollector.collectSystemInfo(second);
+            SystemInfoCollector.SystemInfoSnapshot unconfiguredSnapshot =
+                SystemInfoCollector.collectSystemInfo();
+
+            assertAll(
+                () -> assertEquals("Optimized (7 connections, 21 wait queue)",
+                    firstSnapshot.databaseConfiguration().get("Pool Configuration")),
+                () -> assertEquals("Enabled (11 limit)",
+                    firstSnapshot.databaseConfiguration().get("Pipelining")),
+                () -> assertEquals("first",
+                    firstSnapshot.peeGeeQConfiguration().get("peegeeq.diagnostics.instance-marker")),
+                () -> assertEquals("Optimized (13 connections, 26 wait queue)",
+                    secondSnapshot.databaseConfiguration().get("Pool Configuration")),
+                () -> assertEquals("Enabled (17 limit)",
+                    secondSnapshot.databaseConfiguration().get("Pipelining")),
+                () -> assertEquals("second",
+                    secondSnapshot.peeGeeQConfiguration().get("peegeeq.diagnostics.instance-marker")),
+                () -> assertEquals("Configuration not supplied",
+                    unconfiguredSnapshot.databaseConfiguration().get("Database")),
+                () -> assertEquals("Configuration not supplied",
+                    unconfiguredSnapshot.databaseConfiguration().get("Pool Configuration")),
+                () -> assertEquals("Configuration not supplied",
+                    unconfiguredSnapshot.databaseConfiguration().get("Pipelining")),
+                () -> assertEquals("Not supplied",
+                    unconfiguredSnapshot.peeGeeQConfiguration().get("Configuration")),
+                () -> assertFalse(unconfiguredSnapshot.peeGeeQConfiguration()
+                    .containsKey("peegeeq.diagnostics.instance-marker"))
+            );
+        } finally {
+            for (String key : ambientKeys) {
+                String previousValue = previousValues.getProperty(key);
+                if (previousValue == null) {
+                    System.clearProperty(key);
+                } else {
+                    System.setProperty(key, previousValue);
+                }
+            }
+        }
     }
 }

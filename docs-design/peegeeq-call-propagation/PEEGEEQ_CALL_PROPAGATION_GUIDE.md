@@ -1,6 +1,10 @@
 # PeeGeeQ Call Propagation Guide
 
-**Last Updated:** 2025-12-27
+**Last Updated:** 2026-08-29 (runtime component reconciliation)
+
+> **Current correction:** `BackpressureManager` was deleted on 2026-08-09 because it guarded no
+> production operation. Historical `peegeeq.backpressure.*` profile keys have no runtime effect;
+> see the [consolidated task register](../tasks/tasks.md#1-configuration-propertyruntime-reconciliation).
 
 This document details the execution flow of a message within the PeeGeeQ system, tracing the path from the REST API layer down to the PostgreSQL database. It is intended for developers who need to understand the internal mechanics of message production and consumption.
 
@@ -1478,7 +1482,7 @@ The following components are intentionally not exposed through the REST API. The
 | **recovery/** | | | |
 | `StuckMessageRecoveryManager` | Internal | Recovers stuck/orphaned messages | `CleanupService` |
 | **resilience/** | | | |
-| `BackpressureManager` | Internal | Manages backpressure | Consumer implementations |
+| `BackpressureManager` | Removed | Deleted 2026-08-09; it guarded no production operation | N/A |
 | `CircuitBreakerManager` | Internal | Manages circuit breakers | All resilient operations |
 | **setup/** | | | |
 | `DatabaseTemplateManager` | Internal | Manages SQL templates | `PeeGeeQDatabaseSetupService` |
@@ -1525,7 +1529,7 @@ These components are REST-layer specific and do not follow the standard interfac
 | **Low-Level Operations** | `PgNativeQueue`, `OutboxQueue`, `PgClient` | Encapsulated by higher-level services |
 | **Configuration** | `ConsumerConfig`, `PgPoolConfig`, `TopicConfig`, etc. | Passed to factory methods, not exposed as endpoints |
 | **Utilities** | `ReactiveUtils`, `VertxPoolAdapter`, `EmptyReadStream` | Internal implementation helpers |
-| **Resilience Patterns** | `CircuitBreakerManager`, `BackpressureManager`, `FilterRetryManager` | Applied internally, not user-controllable via REST |
+| **Resilience Patterns** | `CircuitBreakerManager`, `FilterRetryManager` | Applied internally, not user-controllable via REST; `BackpressureManager` was removed in 2026-08 |
 | **Cleanup/Recovery** | `CleanupService`, `StuckMessageRecoveryManager`, `DeadConsumerDetector` | Background services, not user-invokable |
 | **Performance/Metrics** | `SimplePerformanceMonitor`, `PeeGeeQMetrics` | Internal monitoring, metrics exposed via `PgMetricsProvider` |
 | **REST-Layer Specific** | `WebhookSubscription`, `SSEConnection`, `WebSocketConnection`, `RestDatabaseSetupService` | REST-layer implementation details, not part of core API contracts |
