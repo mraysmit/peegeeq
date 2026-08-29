@@ -1,910 +1,297 @@
 # PeeGeeQ Configuration Guide
 
-**Complete reference for operators, integrators, and developers**
+**Authoritative runtime-property reference**
+**Reconciled:** August 29, 2026
 
-*Author: Mark Andrew Ray-Smith Cityline Ltd*  
-*Version: 1.0*  
-*Date: May 9, 2026*  
-*Runtime-property reconciliation: August 29, 2026*
+## Scope and contract
 
----
+This guide covers the `peegeeq.*` properties loaded by
+`dev.mars.peegeeq.db.config.PeeGeeQConfiguration` and the small set of identically named
+properties with an explicit production owner outside that loader.
 
-## Table of Contents
+The executable inventory is
+`ShippedConfigurationPropertyContractTest`. The 11 profiles in
+`peegeeq-db/src/main/resources` may contain only keys in that inventory. A profile entry is
+therefore evidence that a key has an owner, but behavioral support is established by the
+production call site and a non-default test—not by the file alone.
 
-- [Overview](#overview)
-- [Priority Chain](#priority-chain)
-  - [Phase 1 — Source merge](#phase-1--source-merge-lowest--highest-priority)
-  - [Phase 2 — Placeholder resolution](#phase-2--placeholder-resolution)
-- [Environment Variable Mapping](#environment-variable-mapping)
-  - [Mechanism 1 — PEEGEEQ_* direct sweep](#mechanism-1--peegeeq_-direct-sweep-phase-1-step-3)
-  - [Mechanism 2 — ${VAR:default} placeholder syntax](#mechanism-2--vardefault-placeholder-syntax-phase-2)
-- [Constructors and When to Use Each](#constructors-and-when-to-use-each)
-- [Named Profiles](#named-profiles)
-- [Property Reference](#property-reference)
-  - [Database Connection](#database-connection)
-  - [Connection Pool](#connection-pool)
-  - [Database Tuning](#database-tuning)
-  - [Queue Behaviour](#queue-behaviour)
-  - [Stuck Message Recovery](#stuck-message-recovery)
-  - [Dead Consumer Detection](#dead-consumer-detection)
-  - [Consumer Group Retry](#consumer-group-retry)
-  - [Metrics](#metrics)
-  - [Circuit Breaker](#circuit-breaker)
-  - [Health Check](#health-check)
-  - [Backpressure](#backpressure)
-  - [Bitemporal Features](#bitemporal-features)
-  - [Migration](#migration)
-  - [Performance Tuning](#performance-tuning)
-  - [PostgreSQL Notice Handling](#postgresql-notice-handling)
-  - [Maintenance](#maintenance)
-- [Configuration Validation Rules](#configuration-validation-rules)
-- [Operator Deployment Patterns](#operator-deployment-patterns)
-  - [Single-Tenant Production](#single-tenant-production)
-  - [Multi-Tenant / Multi-Instance in One JVM](#multi-tenant--multi-instance-in-one-jvm)
-- [Vert.x 5.x Integration](#vertx-5x-integration)
-- [Spring Boot Integration](#spring-boot-integration)
-- [Developer and Test Patterns](#developer-and-test-patterns)
-  - [PeeGeeQTestConfig Builder](#peegeeeqtestconfig-builder)
-  - [Permitted System.setProperty Callers](#permitted-systemsetproperty-callers)
-- [Troubleshooting](#troubleshooting)
+Statuses in this guide mean:
 
----
+- **OK** — parsed, consumed by production code, and covered with a non-default contract.
+- **EXTERNAL** — deliberately owned by a named production component outside the core
+  `PeeGeeQConfiguration` adapter path.
+- **COMPATIBILITY ALIAS** — still readable but never shipped. Source-layer precedence is
+  applied first; when both spellings occur in one layer, the canonical spelling wins.
+- **UNSUPPORTED** — no effective production behavior; not shipped and not a supported control.
 
-## Overview
+## Loading and precedence
 
-`PeeGeeQConfiguration` is the single source of truth for all PeeGeeQ runtime settings. It is
-constructed once per manager instance and holds an isolated, immutable snapshot of the resolved
-property values. No shared global state is consulted after construction — every instance carries
-its own private copy.
+A profile is always explicit. The supported constructors are:
 
-**Class:** `dev.mars.peegeeq.db.config.PeeGeeQConfiguration`  
-**Module:** `peegeeq-db`
-
-`PeeGeeQManager` accepts a fully-constructed `PeeGeeQConfiguration` and delegates all
-configuration reads through it. `new PeeGeeQManager(config)` is the standard production entry
-point.
-
----
-
-## Priority Chain
-
-Configuration loading happens in **two sequential phases**. Understanding both is essential for
-predicting which value a property will have at runtime.
-
-### Phase 1 — Source merge (lowest → highest priority)
-
-Five sources are merged in order. A later source overwrites an earlier one for the same key.
-
-```
-1. peegeeq-default.properties          (classpath, always loaded)
-2. peegeeq-<profile>.properties        (classpath, loaded when profile != "default")
-3. PEEGEEQ_* environment variables     (converted to peegeeq.* key format)
-4. System properties (peegeeq.*)       (JVM -D args — single-tenant convenience only)
-5. Programmatic overrides              (Properties passed to the 2-arg constructor — highest)
+```java
+new PeeGeeQConfiguration(profile, overrides);
+new PeeGeeQConfiguration(
+    profile, host, port, database, username, password, schema);
 ```
 
-**Profile selection** is resolved once at construction before Phase 1 begins:
+There is no no-argument or profile-only constructor and no ambient
+`peegeeq.profile`/`PEEGEEQ_PROFILE` selection.
 
-```
-System.getProperty("peegeeq.profile")
-  → env PEEGEEQ_PROFILE
-  → fallback: "default"
-```
+Values merge in this order, from lowest to highest precedence:
 
-### Phase 2 — Placeholder resolution
+1. `peegeeq-default.properties`
+2. `peegeeq-<profile>.properties` when the profile is not `default`
+3. `PEEGEEQ_*` environment variables
+4. the explicit `Properties overrides` object, or the explicit database arguments
 
-After all five sources are merged into a single property set, `PeeGeeQConfiguration` scans
-every value for `${VAR}` and `${VAR:default}` placeholders and resolves them against
-environment variables. This phase runs **once**, on the fully merged set, before validation.
+JVM `-Dpeegeeq.*` system properties are not swept by `PeeGeeQConfiguration`. If an
+application intentionally wants JVM arguments, copy them into an isolated `Properties`
+object at its bootstrap boundary and pass that object to the two-argument constructor.
 
-```
-${VAR}          → value of env var VAR; left unchanged and WARN logged if VAR is not set
-${VAR:default}  → value of env var VAR if set, otherwise the literal text after ":"
-${VAR:}         → value of env var VAR if set, otherwise empty string
-```
+Known environment-variable names map underscores to the existing canonical key, including
+hyphenated segments:
 
-Placeholders may appear in values from **any** source — property files, programmatic overrides,
-or even values written via `System.setProperty`. They are always resolved in Phase 2 regardless
-of which source supplied them.
-
-**Important ordering detail:** Phase 3 `PEEGEEQ_*` env-var sweep (step 3 above) sets property
-values directly from the environment; it does not use `${...}` syntax. Placeholder syntax is
-for embedding env-var references inside property *file* values or programmatic override strings.
-Both mechanisms ultimately source values from environment variables, but they operate
-differently:
-
-| Mechanism | Where it applies | How it works |
-|---|---|---|
-| `PEEGEEQ_*` sweep (step 3) | `PEEGEEQ_DATABASE_HOST=db.example.com` | Sets `peegeeq.database.host` directly |
-| Placeholder in file value | `peegeeq.database.host=${DB_HOST:localhost}` | Resolved in Phase 2 after merge |
-
-> **Multi-tenancy warning:** System properties (step 4) are process-wide. In a JVM hosting
-> multiple tenant instances, relying on `System.setProperty` creates silent misconfiguration
-> races — the last writer wins, with no exception, no log warning, and no compile-time
-> detection. **Always use the 2-arg constructor with an explicit `Properties` object** for
-> multi-tenant and test scenarios. See
-> [Multi-Tenant / Multi-Instance in One JVM](#multi-tenant--multi-instance-in-one-jvm).
->
-> **Single-tenant `-Dpeegeeq.*` JVM args:** If you need `-Dpeegeeq.database.host=...` style
-> JVM argument support for local development convenience, handle the sweep once at your
-> application entry point — not inside `PeeGeeQConfiguration`:
-> ```java
-> // In main() / application bootstrap only
-> Properties jvmOverrides = new Properties();
-> System.getProperties().forEach((k, v) -> {
->     if (k.toString().startsWith("peegeeq."))
->         jvmOverrides.setProperty(k.toString(), v.toString());
-> });
-> PeeGeeQConfiguration config = new PeeGeeQConfiguration("production", jvmOverrides);
-> ```
-> This keeps System access to one intentional call at the application boundary.
-
----
-
-## Environment Variable Mapping
-
-There are **two distinct mechanisms** for sourcing values from environment variables. Both are
-always active; they complement rather than replace each other.
-
-### Mechanism 1 — `PEEGEEQ_*` direct sweep (Phase 1, step 3)
-
-Every environment variable whose name starts with `PEEGEEQ_` is mapped directly to a property
-key during the source merge. Underscores become dots; hyphenated property names are matched by
-normalising both sides.
-
-```
-PEEGEEQ_DATABASE_HOST        →  peegeeq.database.host
-PEEGEEQ_DATABASE_POOL_MAX_SIZE  →  peegeeq.database.pool.max-size
+```text
+PEEGEEQ_DATABASE_HOST                 -> peegeeq.database.host
+PEEGEEQ_DATABASE_POOL_MAX_SIZE        -> peegeeq.database.pool.max-size
+PEEGEEQ_CIRCUIT_BREAKER_ENABLED       -> peegeeq.circuit-breaker.enabled
 ```
 
-This sweep runs at priority level 3 — it overrides values from property files but is itself
-overridden by system properties (step 4) and programmatic overrides (step 5).
+### Placeholder resolution
 
-| Environment variable | Property key |
+After merging, values may contain `${VAR}` or `${VAR:default}`:
+
+- `${VAR}` uses the environment value and fails construction when `VAR` is absent.
+- `${VAR:default}` uses the environment value or the literal default.
+- `${VAR:}` resolves to an empty string when the variable is absent.
+
+The production profile uses required placeholders for all database coordinates. Missing
+`DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD`, or `DB_SCHEMA`
+therefore fails fast unless an explicit override supplies the property first.
+
+## Bundled profiles
+
+Each non-default profile overrides the default baseline.
+
+| Profile | Intended use |
 |---|---|
-| `PEEGEEQ_PROFILE` | profile selection |
-| `PEEGEEQ_DATABASE_HOST` | `peegeeq.database.host` |
-| `PEEGEEQ_DATABASE_PORT` | `peegeeq.database.port` |
-| `PEEGEEQ_DATABASE_NAME` | `peegeeq.database.name` |
-| `PEEGEEQ_DATABASE_USERNAME` | `peegeeq.database.username` |
-| `PEEGEEQ_DATABASE_PASSWORD` | `peegeeq.database.password` |
-| `PEEGEEQ_DATABASE_SCHEMA` | `peegeeq.database.schema` |
-| `PEEGEEQ_DATABASE_SSL_ENABLED` | `peegeeq.database.ssl.enabled` |
-| `PEEGEEQ_DATABASE_POOL_MAX_SIZE` | `peegeeq.database.pool.max-size` |
+| `default` | Complete local baseline and the authoritative active-key inventory |
+| `development` | Small development pool; circuit breaker disabled |
+| `production` | Required environment-backed database coordinates and TLS |
+| `reliable` | Conservative retry, visibility, and recovery timings |
+| `low-latency` | Batch size 1 and 10 ms empty-queue polling |
+| `high-performance` | Large batches, eight consumer threads, pipelining 32 |
+| `high-throughput` | Large pool and batches |
+| `vertx5-optimized` | Vert.x tuning metadata and pipelining 1024 |
+| `extreme-performance` | High-resource benchmark profile |
+| `bitemporal-optimized` | Bitemporal production-owner tuning |
+| `parallel-test` | Parallel-consumer test profile |
 
-### Mechanism 2 — `${VAR:default}` placeholder syntax (Phase 2)
+Bundled profiles contain no migration, backpressure, JVM-metrics, generic performance-toggle,
+queue-prefetch, or invented outbox property namespace.
 
-Any property value — in a `.properties` file, in a programmatic override, or written via
-`System.setProperty` — may contain `${...}` placeholders. After all five source layers are
-merged, `PeeGeeQConfiguration` resolves every placeholder against the process environment.
+## Authoritative active inventory
 
-**Syntax reference:**
+### Database and pool
 
-| Pattern | Env var set? | Resolved value |
-|---|---|---|
-| `${VAR}` | yes | value of `VAR` |
-| `${VAR}` | no | `${VAR}` unchanged; WARN logged |
-| `${VAR:fallback}` | yes | value of `VAR` |
-| `${VAR:fallback}` | no | `fallback` |
-| `${VAR:}` | no | empty string |
+| Property | Status | Parser / production owner | Non-default evidence |
+|---|---|---|---|
+| `peegeeq.database.host` | OK | `PeeGeeQConfiguration -> PgConnectionConfig -> PgConnectionManager` | configuration/database integration tests |
+| `peegeeq.database.port` | OK | same connection path | configuration/database integration tests |
+| `peegeeq.database.name` | OK | same connection path | configuration/database integration tests |
+| `peegeeq.database.username` | OK | same connection path | configuration/database integration tests |
+| `peegeeq.database.password` | OK | same connection path | configuration/database integration tests |
+| `peegeeq.database.schema` | OK | connection `search_path` and schema-scoped SQL | schema-isolation integration tests |
+| `peegeeq.database.ssl.enabled` | OK | `PgConnectionConfig -> PgConnectOptions` | connection-config tests |
+| `peegeeq.database.pool.max-size` | OK | `PgPoolConfig -> PgPoolAdapter` | `PgPoolConfigPropertyBindingTest` |
+| `peegeeq.database.pool.max-wait-queue-size` | OK | `PgPoolConfig -> PgPoolAdapter` | `PgPoolConfigPropertyBindingTest` |
+| `peegeeq.database.pool.connection-timeout-ms` | OK | `PgPoolConfig -> PgPoolAdapter` | exact binding across all 11 profiles |
+| `peegeeq.database.pool.idle-timeout-ms` | OK | `PgPoolConfig -> PgPoolAdapter` | exact binding across all 11 profiles |
+| `peegeeq.database.pool.shared` | OK | `PgPoolConfig -> PgPoolAdapter` | `PgPoolConfigPropertyBindingTest` |
+| `peegeeq.database.pool.wait-queue-multiplier` | EXTERNAL | bitemporal optimized-pool construction | bitemporal pool tests |
+| `peegeeq.database.pipelining.enabled` | EXTERNAL | `VertxPerformanceOptimizer` | optimizer tests |
+| `peegeeq.database.pipelining.limit` | EXTERNAL | optimizer and bitemporal pool construction | optimizer/bitemporal tests |
+| `peegeeq.database.event.loop.size` | EXTERNAL | `VertxPerformanceOptimizer` and bitemporal path | optimizer tests |
+| `peegeeq.database.worker.pool.size` | EXTERNAL | `VertxPerformanceOptimizer` | optimizer tests |
+| `peegeeq.database.use.event.bus.distribution` | EXTERNAL | `PgBiTemporalEventStore` | bitemporal tests |
+| `peegeeq.verticle.instances` | EXTERNAL | `VertxPerformanceOptimizer` | optimizer tests |
 
-**Example — property file:**
+The EXTERNAL keys are not applied by `PeeGeeQManager` merely because they appear in a
+profile. Their named owners must receive the corresponding configuration object.
 
-```properties
-peegeeq.database.host=${DB_HOST:localhost}
-peegeeq.database.port=${DB_PORT:5432}
-peegeeq.database.name=${DB_NAME:peegeeq_prod}
-peegeeq.database.username=${DB_USERNAME:peegeeq_prod}
-peegeeq.database.password=${DB_PASSWORD:}
-peegeeq.database.schema=${DB_SCHEMA:public}
-peegeeq.metrics.instance-id=${INSTANCE_ID:peegeeq-prod}
+### Queue and background work
+
+| Property | Status | Production use | Non-default evidence |
+|---|---|---|---|
+| `peegeeq.queue.max-retries` | OK | native and outbox retry exhaustion | retry integration tests |
+| `peegeeq.queue.visibility-timeout` | OK | native lock duration and settlement timeout | native non-default visibility test |
+| `peegeeq.queue.batch-size` | OK | native/outbox claim capacity | consumer capacity tests |
+| `peegeeq.queue.polling-interval` | OK | native/outbox polling timer | polling contract tests |
+| `peegeeq.consumer.threads` | OK | native/outbox atomic admission capacity | non-default capacity tests |
+| `peegeeq.queue.recovery.enabled` | OK | stuck-message recovery manager and timer | manager lifecycle tests |
+| `peegeeq.queue.recovery.processing-timeout` | OK | stale PROCESSING recovery cutoff | recovery integration tests |
+| `peegeeq.queue.recovery.check-interval` | OK | manager recovery timer | timer/lifecycle tests |
+| `peegeeq.queue.dead-consumer-detection.enabled` | OK | manager job startup | lifecycle tests |
+| `peegeeq.queue.dead-consumer-detection.interval` | OK | dead-consumer timer | lifecycle tests |
+| `peegeeq.queue.consumer-group-retry.enabled` | OK | manager job startup | lifecycle tests |
+| `peegeeq.queue.consumer-group-retry.interval` | OK | consumer-group retry timer | lifecycle tests |
+
+Consumer-specific configuration has deliberate precedence:
+
+```text
+per-consumer ConsumerConfig / OutboxConsumerConfig
+    > global PeeGeeQConfiguration queue value
+    > component-local default
 ```
 
-This is exactly the pattern used in `peegeeq-production.properties`. With `DB_PASSWORD` unset
-the password resolves to an empty string (trust/peer auth); a WARN is logged.
+Outbox uses these canonical `peegeeq.queue.*` settings. There is no
+`peegeeq.outbox.*` runtime-property namespace. Outbox PROCESSING recovery is governed by
+`peegeeq.queue.recovery.processing-timeout`; it does not use the native queue's visibility
+lock.
 
-**Example — programmatic override with placeholder:**
-
-```java
-// Useful when a wrapper config system supplies a reference string rather than the resolved value
-Properties overrides = new Properties();
-overrides.setProperty("peegeeq.database.password", "${DB_PWD}");
-PeeGeeQConfiguration config = new PeeGeeQConfiguration("production", overrides);
-// Phase 2 resolves ${DB_PWD} from the environment before validation runs
-```
-
-> **Choosing between the two mechanisms**
->
-> - Use `PEEGEEQ_*` env vars when you have direct control over the process environment and want
->   a simple, file-free deployment (e.g. container/Kubernetes secrets injected as env vars).
-> - Use `${VAR:default}` placeholders in `.properties` files when you want the file to be
->   self-documenting (defaults are visible) and when different deployments share the same
->   profile file but differ only in environment.
-> - Both mechanisms may be used together; the `PEEGEEQ_*` sweep at step 3 takes priority over
->   the placeholder default but loses to a live `VAR` environment variable resolved in Phase 2
->   for the same property (because Phase 2 runs after step 3 has already set the value).
->   **Avoid setting the same property via both mechanisms** to prevent confusion.
-
----
-
-## Constructors and When to Use Each
-
-### `new PeeGeeQConfiguration()`
-
-Loads the `"default"` profile (or the profile named by `peegeeq.profile` / `PEEGEEQ_PROFILE`).
-Suitable for **single-tenant applications** that configure the JVM once at startup.
-
-```java
-PeeGeeQConfiguration config = new PeeGeeQConfiguration();
-PeeGeeQManager manager = new PeeGeeQManager(config);
-```
-
----
-
-### `new PeeGeeQConfiguration(String profile)`
-
-Loads a named profile explicitly.
-
-```java
-PeeGeeQConfiguration config = new PeeGeeQConfiguration("production");
-```
-
----
-
-### `new PeeGeeQConfiguration(String profile, Properties overrides)` — recommended
-
-Loads profile defaults, applies env vars, then applies `overrides` on top without touching
-`System.getProperties()`. This is the **correct pattern for multi-tenant deployments and all
-tests**.
-
-```java
-Properties props = new Properties();
-props.setProperty("peegeeq.database.host",     tenant.getDbHost());
-props.setProperty("peegeeq.database.schema",   tenant.getSchema());
-props.setProperty("peegeeq.database.username", tenant.getDbUser());
-props.setProperty("peegeeq.database.password", tenant.getDbPassword());
-PeeGeeQConfiguration config = new PeeGeeQConfiguration("production", props);
-```
-
-Any property set in `overrides` dominates all earlier sources including environment variables.
-
----
-
-### `new PeeGeeQConfiguration(String profile, String dbHost, int dbPort, String dbName, String dbUsername, String dbPassword, String dbSchema)`
-
-Convenience overload that accepts database coordinates directly. Equivalent to using the
-2-arg constructor with those six properties pre-populated.
-
----
-
-## Named Profiles
-
-Profile files live in `peegeeq-db/src/main/resources/`. Each file overrides only the properties
-it lists; everything else falls through to `peegeeq-default.properties`.
-
-| Profile | File | Intended use |
-|---|---|---|
-| `default` | `peegeeq-default.properties` | Local development, fallback baseline |
-| `development` | `peegeeq-development.properties` | Dev: small pool, verbose logging, auto-migrate on |
-| `production` | `peegeeq-production.properties` | Production: SSL, env-var placeholders, no auto-migrate |
-| `reliable` | `peegeeq-reliable.properties` | Guaranteed delivery: high retries, long visibility timeout |
-| `low-latency` | `peegeeq-low-latency.properties` | Real-time: 10 ms polling, batch-size=1, DLQ off |
-| `high-performance` | `peegeeq-high-performance.properties` | Throughput: large batches, 8 consumer threads, pipelining=32 |
-| `high-throughput` | `peegeeq-high-throughput.properties` | Batch processing: large pool, prefetch=50 |
-| `vertx5-optimized` | `peegeeq-vertx5-optimized.properties` | Vert.x 5 best practices: pipelining=1024, 8 verticle instances |
-| `extreme-performance` | `peegeeq-extreme-performance.properties` | Benchmarks only: pool=200, pipelining=2048, 16 verticles |
-| `bitemporal-optimized` | `peegeeq-bitemporal-optimized.properties` | Bitemporal event-sourcing workloads |
-| `parallel-test` | `peegeeq-parallel-test.properties` | Parallel test isolation: smaller pool, 4 consumer threads |
-
-### Profile comparison — key settings
-
-| Setting | `default` | `development` | `production` | `reliable` | `low-latency` | `high-performance` |
-|---|---|---|---|---|---|---|
-| pool max | 32 | 5 | 50 | 50 | 20 | 32 |
-| batch-size | 10 | 5 | 50 | 10 | 1 | 100 |
-| polling-interval | PT5S | PT2S | PT0.5S | PT1S | PT0.01S | PT0.1S |
-| max-retries | 3 | 2 | 5 | 10 | 1 | 3 |
-| visibility-timeout | PT30S | PT15S | PT60S | PT300S | PT10S | PT30S |
-| consumer.threads | 1 | 1 | 1 | 1 | 1 | 8 |
-| circuit-breaker | enabled | **disabled** | enabled | enabled | enabled | enabled |
-| auto-migrate | false | **true** | false | — | — | — |
-| SSL | false | false | **true** | — | — | — |
-
----
-
-## Property Reference
-
-Duration values use ISO-8601 notation: `PT30S` = 30 seconds, `PT5M` = 5 minutes, `P30D` = 30 days.
-
-> **Runtime-support warning (reconciled 2026-08-29):** historical profile files contain more
-> keys than the current production runtime consumes. A property-file entry alone is not evidence
-> that a setting has an effect. Rows explicitly marked “not consumed” below have no production
-> reader at revision `32ab0371`; do not rely on them. The active
-> [consolidated task register](../docs-design/tasks/tasks.md#1-configuration-propertyruntime-reconciliation)
-> is classifying the remaining profile-only families. The core database, queue, recovery,
-> metrics-enable, notice, and canonical circuit-breaker keys described without a warning remain
-> the supported surface.
-
-### Database Connection
-
-| Property | Default | Description |
-|---|---|---|
-| `peegeeq.database.host` | `localhost` | PostgreSQL host. Required. |
-| `peegeeq.database.port` | `5432` | PostgreSQL port. Must be 1–65535. |
-| `peegeeq.database.name` | `peegeeq` | Database name. Required. |
-| `peegeeq.database.username` | `peegeeq` | Database username. Required. |
-| `peegeeq.database.password` | `peegeeq` | Database password. Empty is permitted (trust/peer auth); a WARN is logged. |
-| `peegeeq.database.schema` | `public` | PostgreSQL `search_path` schema. Set per-tenant for full multi-tenant isolation. |
-| `peegeeq.database.ssl.enabled` | `false` | Enable TLS. Set `true` in production. |
-
-### Connection Pool
-
-Timeout properties use the `-ms` suffix and are in milliseconds.
-
-| Property | Default | Description |
-|---|---|---|
-| `peegeeq.database.pool.max-size` | `32` | Maximum connections. |
-| `peegeeq.database.pool.shared` | `true` | Use a shared Vert.x pool keyed by pool name. |
-| `peegeeq.database.pool.name` | — | **Not consumed by the current core pool builder.** |
-| `peegeeq.database.pool.connection-timeout-ms` | `30000` | Maximum wait (ms) for a connection. Must be > 0. |
-| `peegeeq.database.pool.idle-timeout-ms` | `600000` | Idle eviction timeout (ms). `0` disables. |
-| `peegeeq.database.pool.max-lifetime-ms` | `1800000` | **Not consumed by the current core pool builder.** |
-| `peegeeq.database.pool.auto-commit` | `true` | **Not consumed by the current core pool builder.** Transaction behavior is selected by the operation API. |
-| `peegeeq.database.pool.wait-queue-multiplier` | `10` | Used by the bitemporal optimized-pool path; the core pool uses `max-wait-queue-size` directly. |
-| `peegeeq.database.pool.max-wait-queue-size` | — | Explicit override for wait queue size (overrides multiplier). |
-
-### Database Tuning
-
-| Property | Default | Description |
-|---|---|---|
-| `peegeeq.database.pipelining.enabled` | `true` | Enable Vert.x PostgreSQL pipelining. Disable if behind a proxy that does not support it (e.g. PgBouncer in transaction mode). |
-| `peegeeq.database.pipelining.limit` | `1024` | Maximum pipelined requests per connection. Use 8–32 for latency-sensitive; 1024–2048 for throughput. |
-| `peegeeq.database.event.loop.size` | `0` | Vert.x event-loop thread count. `0` = Vert.x default (`availableProcessors × 2`). |
-| `peegeeq.database.worker.pool.size` | `0` | Vert.x worker-thread count. `0` = Vert.x default (`availableProcessors × 4`). |
-| `peegeeq.database.use.event.bus.distribution` | `false` | Distribute messages across event loops via the Vert.x event bus. Enable for `extreme-performance` only. |
-| `peegeeq.verticle.instances` | `0` | PeeGeeQ verticle instance count. `0` = 1. Set to `availableProcessors` for multi-core throughput. |
-| `peegeeq.database.batch.size` | — | **Not consumed by the current runtime.** |
-
-### Queue Behaviour
-
-| Property | Default | Description |
-|---|---|---|
-| `peegeeq.queue.max-retries` | `3` | Maximum delivery attempts before a message is dead-lettered. `0` = dead-letter immediately. Must be ≥ 0. |
-| `peegeeq.queue.visibility-timeout` | `PT30S` | How long a dequeued message is invisible to other consumers. Must be ≥ 1 s. Set longer than worst-case processing time. |
-| `peegeeq.queue.batch-size` | `10` | Messages fetched per poll cycle. Must be 1–1000. Use 1 for low-latency; 50–500 for throughput. |
-| `peegeeq.queue.polling-interval` | `PT5S` | How often the consumer polls when the queue is empty. Reduce to `PT0.01S`–`PT0.5S` for near-real-time. |
-| `peegeeq.queue.dead-letter.enabled` | `true` | Move exhausted messages to the dead-letter queue. |
-| `peegeeq.queue.priority.default` | `5` | Default priority assigned to new messages (1 = lowest, 10 = highest). |
-| `peegeeq.consumer.threads` | `1` | Processing threads per manager instance. Increase for CPU-bound workloads. |
-| `peegeeq.queue.prefetch-count` | — | **Not consumed by the current runtime.** |
-| `peegeeq.queue.concurrent-consumers` | — | **Not consumed by the current runtime.** Use the supported consumer APIs and `peegeeq.consumer.threads` semantics. |
-| `peegeeq.queue.buffer-size` | — | **Not consumed by the current runtime.** |
-| `peegeeq.queue.retention-period` | — | **Not consumed by the current runtime.** |
-
-### Stuck Message Recovery
-
-Requeues messages that have been invisible too long — worker crash recovery.
-
-| Property | Default | Description |
-|---|---|---|
-| `peegeeq.queue.recovery.enabled` | `true` | Enable automatic stuck message recovery. |
-| `peegeeq.queue.recovery.processing-timeout` | `PT5M` | A message invisible longer than this is considered stuck. Must be ≥ PT1M. |
-| `peegeeq.queue.recovery.check-interval` | `PT10M` | Scan frequency. Must be ≥ PT1M **and strictly greater than** `processing-timeout`. |
-
-### Dead Consumer Detection
-
-Detects consumers that have stopped heartbeating and releases their claimed messages.
-
-| Property | Default | Description |
-|---|---|---|
-| `peegeeq.queue.dead-consumer-detection.enabled` | `true` | Enable dead consumer detection. |
-| `peegeeq.queue.dead-consumer-detection.interval` | `PT1M` | Scan interval. Must be ≥ 10 s. |
-
-### Consumer Group Retry
-
-Controls retry scheduling for consumer groups that have failed.
-
-| Property | Default | Description |
-|---|---|---|
-| `peegeeq.queue.consumer-group-retry.enabled` | `true` | Enable consumer group retry scheduling. |
-| `peegeeq.queue.consumer-group-retry.interval` | `PT30S` | Re-attempt interval. Must be ≥ 10 s. |
+The native expired-lock cleanup cadence remains an intentional internal constant of 10 seconds.
+It is not a public property because it is housekeeping for expired locks, not a workload tuning
+control. The polling, lock duration, capacity, and retry controls remain configurable.
 
 ### Metrics
 
-| Property | Default | Description |
-|---|---|---|
-| `peegeeq.metrics.enabled` | `true` | Enable metrics collection. |
-| `peegeeq.metrics.reporting-interval` | `PT1M` | How often metrics snapshots are published. Must be ≥ 1 s. |
-| `peegeeq.metrics.depth-cache-interval` | `PT5S` | Queue-depth cache refresh rate. Must be ≥ 1 s. |
-| `peegeeq.metrics.jvm.enabled` | `true` | Parsed into `MetricsConfig` but **not consumed by the current metrics implementation**. |
-| `peegeeq.metrics.database.enabled` | `true` | Parsed into `MetricsConfig` but **not consumed by the current metrics implementation**. |
-| `peegeeq.metrics.instance-id` | `peegeeq-<random-8>` | Unique identifier for this manager in metrics output. Set a stable value in production. |
-| `peegeeq.metrics.collection.enabled` | — | **Not consumed by the current core runtime.** |
-| `peegeeq.metrics.collection.async-save` | — | **Not consumed by the current core runtime.** |
-| `peegeeq.metrics.collection.sampling-rate` | — | **Not consumed by the current core runtime.** |
-| `peegeeq.metrics.bitemporal.enabled` | `false` | **Not consumed by the current core runtime.** |
-| `peegeeq.metrics.detailed.enabled` | `false` | **Not consumed by the current core runtime.** |
+| Property | Status | Production use | Non-default evidence |
+|---|---|---|---|
+| `peegeeq.metrics.enabled` | OK | gates PeeGeeQ/notice/Resilience4j registry binding and all periodic metric samplers | `PeeGeeQManagerIntegrationTest.disabledMetricsPreventRegistryBindingAndPeriodicCollection` |
+| `peegeeq.metrics.depth-cache-interval` | OK | queue-depth refresh timer | timer guard tests |
+| `peegeeq.metrics.instance-id` | OK | metric tags in `PeeGeeQMetrics` | metrics tests |
 
-### Circuit Breaker
+When `peegeeq.metrics.enabled=false`, PeeGeeQ binds no PeeGeeQ notice meters, no core
+PeeGeeQ meters, and no Resilience4j circuit-breaker meters to the supplied registry; it also
+starts no depth, event-loop-lag, or pool-acquisition sampler.
 
-Guards health-check queries against a degraded database. Does not gate business operations.
+`peegeeq.metrics.jvm.enabled` and `peegeeq.metrics.database.enabled` were removed from
+`MetricsConfig`: neither had a consumer. Extended persistence/export/detail flags are also
+unsupported; applications should bind their chosen Micrometer JVM/database binders explicitly.
 
-| Property | Default | Description |
-|---|---|---|
-| `peegeeq.circuit-breaker.enabled` | `true` | Enable the circuit breaker. Set `false` in `development` to simplify debugging. |
-| `peegeeq.circuit-breaker.failure-threshold` | `5` | Currently mapped to Resilience4j `minimumNumberOfCalls`; despite the historical name, it is not a consecutive-failure counter. Must be ≥ 1. |
-| `peegeeq.circuit-breaker.wait-duration` | `PT1M` | How long the breaker stays open before probing (half-open). Must be ≥ 1 s. |
-| `peegeeq.circuit-breaker.ring-buffer-size` | `100` | Sliding-window size for failure-rate calculation. |
-| `peegeeq.circuit-breaker.failure-rate-threshold` | `50.0` | Failure percentage that opens the breaker. |
-| `peegeeq.circuit-breaker.slow-call-rate-threshold` | — | **Not consumed by the current runtime.** Do not rely on this shipped-profile key; tracked by the configuration wiring audit. |
-| `peegeeq.circuit-breaker.slow-call-duration-threshold` | — | **Not consumed by the current runtime.** Do not rely on this shipped-profile key; tracked by the configuration wiring audit. |
-| `peegeeq.circuit-breaker.permitted-calls-in-half-open-state` | — | **Not consumed by the current runtime.** Half-open probe calls are currently fixed at `3`. |
-| `peegeeq.circuit-breaker.sliding-window-size` | — | **Not consumed by the current runtime.** Use `ring-buffer-size`, which currently maps to Resilience4j `slidingWindowSize`. |
-| `peegeeq.circuit-breaker.minimum-number-of-calls` | — | **Not consumed by the current runtime.** `failure-threshold` currently supplies Resilience4j `minimumNumberOfCalls`. |
-| `peegeeq.circuit-breaker.wait-duration-in-open-state` | — | **Not consumed by the current runtime.** Use `wait-duration`. |
+### Circuit breaker
 
-> The `high-performance` and `parallel-test` bundled profiles still contain unsupported keys
-> marked above. They currently have
-> no runtime effect. The active
-> [consolidated task register](../docs-design/tasks/tasks.md#1-configuration-propertyruntime-reconciliation)
-> tracks the decision to remove them or implement explicit aliases and precedence rules.
+The canonical namespace is:
 
-### Health Check
+| Property | Default | Resilience4j setting |
+|---|---:|---|
+| `peegeeq.circuit-breaker.enabled` | `true` | disabled path returns direct futures |
+| `peegeeq.circuit-breaker.minimum-number-of-calls` | `5` | `minimumNumberOfCalls` |
+| `peegeeq.circuit-breaker.wait-duration-in-open-state` | `PT1M` | `waitDurationInOpenState` |
+| `peegeeq.circuit-breaker.sliding-window-size` | `100` | `slidingWindowSize` |
+| `peegeeq.circuit-breaker.failure-rate-threshold` | `50.0` | `failureRateThreshold` |
+| `peegeeq.circuit-breaker.slow-call-rate-threshold` | `100.0` | `slowCallRateThreshold` |
+| `peegeeq.circuit-breaker.slow-call-duration-threshold` | `PT60S` | `slowCallDurationThreshold` |
+| `peegeeq.circuit-breaker.permitted-calls-in-half-open-state` | `3` | `permittedNumberOfCallsInHalfOpenState` |
 
-| Property | Default | Description |
-|---|---|---|
-| `peegeeq.health-check.enabled` | `true` | Parsed, but **not currently honored**: `PeeGeeQManager` starts its health manager regardless. |
-| `peegeeq.health-check.interval` | `PT30S` | Frequency used by `HealthCheckManager`. |
-| `peegeeq.health-check.timeout` | `PT5S` | Query timeout used by `HealthCheckManager`. |
-| `peegeeq.health-check.queue-checks-enabled` | `false` | Include per-queue depth checks in health output. |
-| `peegeeq.health.enabled` | `true` | Exposed through `PgQueueConfiguration`, but does not disable manager health startup. |
-| `peegeeq.health.check-interval` | `PT30S` | Exposed through `PgQueueConfiguration`, but does not set the manager timer. |
-| `peegeeq.health.timeout` | `PT5S` | **Not consumed by the current runtime.** Use `health-check.timeout` for the manager until the namespaces are reconciled. |
-| `peegeeq.health.failure-threshold` | — | **Not consumed by the current runtime.** |
-| `peegeeq.health.recovery-threshold` | — | **Not consumed by the current runtime.** |
+All eight settings are OK and covered by
+`PeeGeeQConfigurationTest` and `CircuitBreakerManagerTest`.
 
-> The two namespaces are not aliases. For the current manager timer and query timeout, use
-> `peegeeq.health-check.interval` and `peegeeq.health-check.timeout`. Enablement is a known wiring
-> defect tracked by the configuration audit.
+Historical aliases remain readable as compatibility spellings:
 
-### Backpressure — historical profile metadata, not currently consumed
+| Compatibility alias | Canonical key |
+|---|---|
+| `peegeeq.circuit-breaker.failure-threshold` | `minimum-number-of-calls` |
+| `peegeeq.circuit-breaker.wait-duration` | `wait-duration-in-open-state` |
+| `peegeeq.circuit-breaker.ring-buffer-size` | `sliding-window-size` |
 
-`BackpressureManager` was removed on 2026-08-09 because it did not guard any operation. The
-following retained profile keys have no runtime effect and must not be used for capacity control.
+Source-layer precedence is applied before alias normalization, so an alias in a higher layer
+overrides a canonical value in a lower layer. If both spellings are present in the same layer,
+the canonical key wins. Bundled profiles use only canonical spellings. Historical `timeout` and
+`reset-timeout` keys are unsupported and are not aliases.
 
-| Property | Default | Description |
-|---|---|---|
-| `peegeeq.backpressure.enabled` | — | Enable backpressure control. |
-| `peegeeq.backpressure.max-queue-size` | — | Maximum in-flight messages before backpressure activates. |
-| `peegeeq.backpressure.high-watermark` | — | Queue depth that triggers slow-down. |
-| `peegeeq.backpressure.low-watermark` | — | Queue depth at which normal pace resumes. |
-| `peegeeq.backpressure.check-interval` | — | How often watermarks are evaluated. |
-| `peegeeq.backpressure.max-concurrent-operations` | `50` | Maximum simultaneous in-flight operations (parallel-test profile). |
-| `peegeeq.backpressure.timeout` | `PT30S` | Maximum wait for an available slot. |
+### Health
 
-### Bitemporal Features — historical profile metadata, not currently consumed
+The canonical namespace is:
 
-| Property | Default | Description |
-|---|---|---|
-| `peegeeq.bitemporal.notification.enabled` | `false` | Enable LISTEN/NOTIFY for bitemporal change events. |
-| `peegeeq.bitemporal.correction.enabled` | `false` | Enable bitemporal correction tracking. |
-| `peegeeq.bitemporal.versioning.enabled` | `false` | Enable bitemporal version-chain management. |
-| `peegeeq.bitemporal.bulk.operations.enabled` | `false` | Enable bulk bitemporal write optimisations. |
+| Property | Default | Production use |
+|---|---:|---|
+| `peegeeq.health.enabled` | `true` | gates `HealthCheckManager.start()` |
+| `peegeeq.health.queue-checks-enabled` | `true` | gates queue-health registration |
+| `peegeeq.health.check-interval` | `PT30S` | health timer interval |
+| `peegeeq.health.timeout` | `PT5S` | health query timeout |
 
-These keys are present in historical profiles but do not currently gate bitemporal behavior.
+These values are shared by `PeeGeeQManager` and `PgQueueConfiguration`.
+`PeeGeeQManagerIntegrationTest.disabledHealthConfigurationDoesNotStartHealthChecks` proves
+the disabled path, and configuration tests cover non-default interval and timeout values.
 
-### Migration — historical profile metadata, no production Java consumer found
+The four historical `peegeeq.health-check.*` spellings remain compatibility aliases. An alias in
+a higher source layer overrides a canonical value from a lower layer; canonical
+`peegeeq.health.*` values win when both spellings occur in the same layer. The old
+`health.failure-threshold` and `health.recovery-threshold` keys are unsupported.
 
-| Property | Default | Description |
-|---|---|---|
-| `peegeeq.migration.enabled` | `true` | Enable Flyway migration checks at startup. |
-| `peegeeq.migration.validate-checksums` | `true` | Validate applied migration checksums. Set `false` in `development` to allow local script edits. |
-| `peegeeq.migration.auto-migrate` | `false` | Apply pending migrations automatically at startup. Set `true` in `development`. **Never `true` in production.** |
-| `peegeeq.migration.validate-on-migrate` | — | Run schema validation after migration (profile-specific). |
+### PostgreSQL notices
 
-### Performance Tuning — historical profile metadata, not core runtime controls
+| Property | Default | Production owner |
+|---|---:|---|
+| `peegeeq.notices.info.enabled` | `true` | `NoticeHandlerConfig` |
+| `peegeeq.notices.info.level` | `INFO` | `NoticeHandlerConfig` |
+| `peegeeq.notices.other.enabled` | `false` | `NoticeHandlerConfig` |
+| `peegeeq.notices.other.level` | `DEBUG` | `NoticeHandlerConfig` |
+| `peegeeq.notices.metrics.enabled` | `true` | `PgClientFactory` notice metrics, also gated by core metrics enablement |
 
-| Property | Default | Description |
-|---|---|---|
-| `peegeeq.performance.async.enabled` | `true` | Enable async internal operations. |
-| `peegeeq.performance.async.thread-pool-size` | `10` | Async thread-pool size. |
-| `peegeeq.performance.batch.enabled` | `true` | Enable internal SQL batching. |
-| `peegeeq.performance.batch.max-size` | `100` | Maximum SQL batch size. |
-| `peegeeq.performance.batch.timeout` | `PT5S` | Flush timeout for an accumulating batch. |
-| `peegeeq.performance.monitoring.enabled` | — | Enable performance diagnostic monitoring. |
-| `peegeeq.performance.monitoring.interval` | — | Sample interval (ms). |
-| `peegeeq.performance.thresholds.query.warning` | — | Query duration (ms) above which a WARN is logged. |
-| `peegeeq.performance.thresholds.query.critical` | — | Query duration (ms) above which an ERROR is logged. |
-| `peegeeq.performance.thresholds.connection.warning` | — | Connection-wait (ms) WARN threshold. |
-| `peegeeq.performance.thresholds.connection.critical` | — | Connection-wait (ms) ERROR threshold. |
-| `peegeeq.performance.suite` | — | **CLI override only** — selects the performance test suite to run (`-Dpeegeeq.performance.suite=outbox`). Belongs in `System.setProperty` / `-D` JVM args for the performance test runner; not relevant to production configuration. |
-| `peegeeq.performance.tests` | — | **CLI override only** — comma-separated test names for the performance runner. Same scope as `peegeeq.performance.suite`. |
+## Unsupported and removed profile keys
 
-### PostgreSQL Notice Handling
+The following keys were inventoried and deliberately removed from bundled profiles. They must
+not be presented as live deployment controls.
 
-Controls how PostgreSQL NOTICE messages (e.g. from idempotent `IF NOT EXISTS` DDL) are surfaced in logs.
+| Classification | Exact keys |
+|---|---|
+| UNSUPPORTED pool/database aliases | `peegeeq.database.database`, `database.user`, `database.ssl-mode`, `database.batch.size`, `database.pool.name`, `pool.auto-commit`, `pool.min-idle`, `pool.max-lifetime`, `pool.max-lifetime-ms` |
+| EXTERNAL/TEST metadata, not a core runtime control | `peegeeq.database.url` |
+| UNSUPPORTED queue parser-only values | `peegeeq.queue.dead-letter.enabled`, `queue.priority.default`, `queue.prefetch-count`, `queue.concurrent-consumers`, `queue.buffer-size`, `queue.retention-period` |
+| UNSUPPORTED stale spelling | `peegeeq.queue.consumer-threads` (use `peegeeq.consumer.threads`) |
+| UNSUPPORTED dead-letter family | `peegeeq.dead-letter.max-retries`, `dead-letter.retry-delay`, `dead-letter.retention-period` |
+| UNSUPPORTED metrics | `peegeeq.metrics.reporting-interval`, `metrics.jvm.enabled`, `metrics.database.enabled`, `metrics.collection.enabled`, `metrics.collection.async-save`, `metrics.collection.sampling-rate`, `metrics.collection-interval`, `metrics.retention-period`, `metrics.bitemporal.enabled`, `metrics.detailed.enabled` |
+| UNSUPPORTED health | `peegeeq.health.failure-threshold`, `health.recovery-threshold` |
+| UNSUPPORTED circuit breaker | `peegeeq.circuit-breaker.timeout`, `circuit-breaker.reset-timeout` |
+| UNSUPPORTED backpressure | `peegeeq.backpressure.enabled`, `max-queue-size`, `high-watermark`, `low-watermark`, `check-interval`, `max-concurrent-operations`, `timeout` |
+| UNSUPPORTED migration | `peegeeq.migration.enabled`, `auto-migrate`, `validate-checksums`, `validate-on-migrate` |
+| UNSUPPORTED maintenance | `peegeeq.maintenance.cleanup-interval`, `maintenance.retention-period` |
+| UNSUPPORTED generic performance toggles | `peegeeq.performance.async.enabled`, `async.thread-pool-size`, `batch.enabled`, `batch.max-size`, `batch.timeout`, `monitoring.enabled`, `monitoring.interval`, `thresholds.query.warning`, `thresholds.query.critical`, `thresholds.connection.warning`, `thresholds.connection.critical` |
+| UNSUPPORTED bitemporal feature toggles | `peegeeq.bitemporal.notification.enabled`, `correction.enabled`, `versioning.enabled`, `bulk.operations.enabled` |
+| UNSUPPORTED logging wrapper | `peegeeq.logging.level.root`, `logging.level.peegeeq`, `logging.pattern` |
 
-| Property | Default | Description |
-|---|---|---|
-| `peegeeq.notices.info.enabled` | `true` | Log INFO-level PostgreSQL notices. |
-| `peegeeq.notices.info.level` | `INFO` | Log level for INFO notices. |
-| `peegeeq.notices.other.enabled` | `false` | Log non-INFO PostgreSQL notices. |
-| `peegeeq.notices.other.level` | `DEBUG` | Log level for other notices. |
-| `peegeeq.notices.metrics.enabled` | `true` | Track notice counts in metrics. |
+CLI-only test-runner selectors such as `peegeeq.performance.suite` and
+`peegeeq.performance.tests` are test metadata, not `PeeGeeQConfiguration` runtime
+properties.
 
-### Maintenance — historical profile metadata, not currently consumed
+## Validation
 
-| Property | Default | Description |
-|---|---|---|
-| `peegeeq.maintenance.cleanup-interval` | `PT1H` | How often old completed messages are pruned. |
-| `peegeeq.maintenance.retention-period` | `P7D` | How long completed messages are retained before pruning. |
+Construction aggregates validation errors and throws `IllegalStateException`.
 
----
+- Database host, name, username, password, and schema are required; an empty password is
+  permitted with a warning. Port must be 1–65535.
+- Pool connection timeout must be positive; idle timeout must be non-negative.
+- Queue retries must be non-negative; visibility must be at least one second; batch size must
+  be 1–1000.
+- Enabled recovery requires processing/check intervals of at least one minute and the check
+  interval must be greater than the processing timeout.
+- Enabled dead-consumer detection and consumer-group retry require intervals of at least ten
+  seconds.
+- Enabled metrics require a depth-cache interval of at least one second.
+- Enabled circuit breakers require positive/range-valid settings, and the sliding window must
+  be at least the minimum number of calls.
 
-## Configuration Validation Rules
-
-`PeeGeeQConfiguration` validates all settings at construction time and throws
-`IllegalStateException` with the full list of violations if any rule fails.
-
-**Database**
-- `host` must not be empty
-- `port` must be 1–65535
-- `name` must not be empty
-- `username` must not be empty
-- `pool.connection-timeout-ms` > 0
-- `pool.idle-timeout-ms` ≥ 0
-
-**Queue**
-- `max-retries` ≥ 0
-- `visibility-timeout` ≥ 1000 ms (1 s)
-- `batch-size` must be 1–1000
-- If `recovery.enabled`: `processing-timeout` ≥ 60 s; `check-interval` ≥ 60 s; `check-interval` > `processing-timeout`
-- If `dead-consumer-detection.enabled`: `interval` ≥ 10 s
-- If `consumer-group-retry.enabled`: `interval` ≥ 10 s
-
-**Metrics** (when `metrics.enabled = true`)
-- `reporting-interval` ≥ 1000 ms
-- `depth-cache-interval` ≥ 1000 ms
-
-**Circuit breaker** (when `circuit-breaker.enabled = true`)
-- `failure-threshold` ≥ 1
-- `wait-duration` ≥ 1000 ms
-
----
-
-## Operator Deployment Patterns
-
-### Single-Tenant Production
-
-Use the `production` profile, supply credentials via environment variables:
-
-```bash
-export PEEGEEQ_DATABASE_HOST=db.example.com
-export PEEGEEQ_DATABASE_PORT=5432
-export PEEGEEQ_DATABASE_NAME=peegeeq_prod
-export PEEGEEQ_DATABASE_USERNAME=peegeeq_prod
-export PEEGEEQ_DATABASE_PASSWORD=<secret>
-export PEEGEEQ_DATABASE_SCHEMA=public
-export INSTANCE_ID=peegeeq-prod-1
-```
-
-```java
-PeeGeeQConfiguration config = new PeeGeeQConfiguration("production");
-PeeGeeQManager manager = new PeeGeeQManager(config, meterRegistry);
-manager.start()
-    .onSuccess(v -> logger.info("PeeGeeQ started"))
-    .onFailure(err -> logger.error("PeeGeeQ failed to start", err));
-```
-
-For any setting not sourced from the environment, pass explicit overrides:
+## Recommended construction
 
 ```java
 Properties overrides = new Properties();
-overrides.setProperty("peegeeq.database.pool.max-size", "80");
-overrides.setProperty("peegeeq.metrics.instance-id", System.getenv("HOSTNAME"));
-PeeGeeQConfiguration config = new PeeGeeQConfiguration("production", overrides);
-```
+overrides.setProperty("peegeeq.database.host", host);
+overrides.setProperty("peegeeq.database.port", Integer.toString(port));
+overrides.setProperty("peegeeq.database.name", database);
+overrides.setProperty("peegeeq.database.username", username);
+overrides.setProperty("peegeeq.database.password", password);
+overrides.setProperty("peegeeq.database.schema", schema);
 
-### Multi-Tenant / Multi-Instance in One JVM
+PeeGeeQConfiguration configuration =
+    new PeeGeeQConfiguration("production", overrides);
+PeeGeeQManager manager = new PeeGeeQManager(configuration, meterRegistry, vertx);
 
-Each tenant gets its own `PeeGeeQConfiguration` and `PeeGeeQManager`. **Never use
-`System.setProperty` for multi-tenant configuration** — System properties are process-wide and
-cause silent misconfiguration when multiple instances initialise concurrently.
-
-```java
-Map<String, PeeGeeQManager> tenantManagers = new ConcurrentHashMap<>();
-
-for (Tenant tenant : tenants) {
-    Properties props = new Properties();
-    props.setProperty("peegeeq.database.host",      tenant.dbHost());
-    props.setProperty("peegeeq.database.port",      String.valueOf(tenant.dbPort()));
-    props.setProperty("peegeeq.database.name",      tenant.dbName());
-    props.setProperty("peegeeq.database.username",  tenant.dbUser());
-    props.setProperty("peegeeq.database.password",  tenant.dbPassword());
-    props.setProperty("peegeeq.database.schema",    tenant.schema());
-    props.setProperty("peegeeq.metrics.instance-id", "peegeeq-" + tenant.id());
-
-    PeeGeeQConfiguration config = new PeeGeeQConfiguration("production", props);
-    PeeGeeQManager manager = new PeeGeeQManager(config, meterRegistry);
-    manager.start();
-    tenantManagers.put(tenant.id(), manager);
-}
-```
-
-Each manager holds a completely isolated configuration snapshot. Schema isolation is absolute:
-LISTEN/NOTIFY channels and all SQL templates are scoped to the tenant's `peegeeq.database.schema`.
-
----
-
-## Vert.x 5.x Integration
-
-PeeGeeQ is built exclusively on Vert.x 5.x reactive APIs. All I/O — including every database
-operation — is non-blocking and returns `Future<T>`. Understanding how the configuration maps to
-Vert.x internals is important for sizing and tuning deployments.
-
-### Vertx instance ownership
-
-`PeeGeeQManager` can accept an externally-owned `Vertx` instance or create its own:
-
-```java
-// Use an existing Vertx instance (recommended in Vert.x applications)
-PeeGeeQManager manager = new PeeGeeQManager(config, registry, vertx);
-
-// Let PeeGeeQManager create and own its own Vertx instance
-PeeGeeQManager manager = new PeeGeeQManager(config);
-```
-
-When sharing a `Vertx` instance, `PeeGeeQManager.close()` does **not** close the shared
-instance. When `PeeGeeQManager` owns its instance, `close()` shuts it down.
-
-### Reactive pool (`PgPool`)
-
-`PeeGeeQConfiguration` drives the `PgPool` created internally by `PeeGeeQManager`. The
-relevant properties are:
-
-| Property | Effect on PgPool |
-|---|---|
-| `peegeeq.database.pool.max-size` | `PoolOptions.setMaxSize` |
-| `peegeeq.database.pool.connection-timeout-ms` | `PoolOptions.setConnectionTimeout` (ms) |
-| `peegeeq.database.pool.idle-timeout-ms` | `PoolOptions.setIdleTimeout` (ms) |
-| `peegeeq.database.pool.shared` | `PoolOptions.setShared` — pool is keyed by name |
-| `peegeeq.database.pool.name` | Pool name when `shared=true` |
-| `peegeeq.database.pipelining.enabled` | `PgConnectOptions.setPipeliningLimit > 1` |
-| `peegeeq.database.pipelining.limit` | Maximum pipelined commands per connection |
-
-Pipelining is enabled by default. Disable it (`peegeeq.database.pipelining.enabled=false`) when
-connecting through a proxy that does not support the PostgreSQL extended query protocol (e.g.
-PgBouncer in transaction mode).
-
-### Event-loop and worker thread sizing
-
-| Property | Default | Notes |
-|---|---|---|
-| `peegeeq.database.event.loop.size` | `0` (Vert.x default) | `0` → `availableProcessors × 2` |
-| `peegeeq.database.worker.pool.size` | `0` (Vert.x default) | `0` → `availableProcessors × 4` |
-| `peegeeq.database.use.event.bus.distribution` | `false` | Spread message dispatch across event loops via the event bus; only meaningful at extreme throughput |
-
-For most deployments the Vert.x defaults are correct. Override only when profiling shows
-specific event-loop saturation.
-
-### Lifecycle — `Future<Void>` everywhere
-
-Every `PeeGeeQManager` lifecycle method returns a `Future<Void>`:
-
-```java
 manager.start()
-    .compose(v -> manager.send(envelope))
-    .compose(v -> manager.close())
-    .onFailure(err -> log.error("lifecycle error", err));
+    .onSuccess(ignored -> logger.info("PeeGeeQ started"))
+    .onFailure(error -> logger.error("PeeGeeQ startup failed", error));
 ```
 
-Do **not** introduce synchronous completion bridges for these futures. Blocking the event-loop
-thread causes pool starvation under load; keep lifecycle sequencing in composed Future chains.
-
-### Choosing the right profile for your Vert.x deployment
-
-| Scenario | Recommended profile |
-|---|---|
-| Standard Vert.x application | `default` or `production` |
-| Low-latency event processing | `low-latency` |
-| High-throughput batch pipelines | `high-performance` or `high-throughput` |
-| Maximising Vert.x pipelining/verticle density | `vertx5-optimized` |
-| Benchmarks and load tests | `extreme-performance` |
-| Bitemporal event-sourcing | `bitemporal-optimized` |
-
-### `io.vertx:vertx-config` and `ConfigRetriever`
-
-PeeGeeQ uses `io.vertx:vertx-config` (`ConfigRetriever`) in two modules:
-
-| Module | Usage |
-|---|---|
-| `peegeeq-rest` | `StartRestServer` loads REST server settings (`port`, monitoring limits, etc.) from `conf/rest-server.json` + env vars + system properties into `RestServerConfig` |
-| `peegeeq-test-support` | `BaseConfigurableTest` loads test fixture config from a JSON file on the classpath |
-
-**`ConfigRetriever` and `PeeGeeQConfiguration` serve different domains and do not replace each other:**
-
-- `ConfigRetriever` / `RestServerConfig` — HTTP server settings, monitoring thresholds, REST API behaviour.
-- `PeeGeeQConfiguration` — database connection coordinates, pool sizing, queue behaviour, schema isolation.
-
-`StartRestServer` bootstraps `PeeGeeQRuntime` (which constructs `PeeGeeQConfiguration` via the
-standard profile/properties mechanism) independently of the `ConfigRetriever` pipeline. The
-`JsonObject` returned by `ConfigRetriever` is never fed directly into `PeeGeeQConfiguration`.
-
-If you need to source `peegeeq.*` values from a `ConfigRetriever` store (e.g. from a
-`conf/peegeeq.json` file or a Consul store), extract them from the `JsonObject` and pass them
-to the 2-arg constructor:
-
-```java
-retriever.getConfig()
-    .compose(json -> {
-        Properties overrides = new Properties();
-        json.forEach(entry -> {
-            if (entry.getKey().startsWith("peegeeq."))
-                overrides.setProperty(entry.getKey(), entry.getValue().toString());
-        });
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("production", overrides);
-        return Future.succeededFuture(new PeeGeeQManager(config));
-    });
-```
-
-This keeps the `ConfigRetriever`-sourced values isolated to the `overrides` `Properties` object
-and avoids touching `System.setProperty`.
-
----
-
-## Spring Boot Integration
-
-Use `@ConfigurationProperties` to bind Spring Boot `application.yml` values into a `Properties`
-object, then pass it to the 2-arg constructor. **Do not call `System.setProperty` inside a Spring `@Bean` method.** The old
-`BiTemporalTxConfig` pattern of writing `peegeeq.database.*` keys to System during Spring
-context initialisation creates a real production race: if two tenant contexts (or two Spring
-test slices) initialise concurrently, the last `System.setProperty` call wins and one context
-silently receives the other tenant's database coordinates — no exception, no warning.
-
-```yaml
-# application.yml
-peegeeq:
-  profile: production
-  database:
-    host: ${DB_HOST:localhost}
-    port: ${DB_PORT:5432}
-    name: ${DB_NAME:peegeeq}
-    username: ${DB_USERNAME:peegeeq}
-    password: ${DB_PASSWORD:}
-    schema: ${DB_SCHEMA:public}
-  pool:
-    max-size: 50
-```
-
-```java
-@Configuration
-@EnableConfigurationProperties(PeeGeeQProperties.class)
-public class PeeGeeQConfig {
-
-    @Bean
-    public PeeGeeQManager peeGeeQManager(PeeGeeQProperties props, MeterRegistry registry,
-                                         Vertx vertx) {
-        Properties overrides = new Properties();
-        overrides.setProperty("peegeeq.database.host",     props.getDatabase().getHost());
-        overrides.setProperty("peegeeq.database.port",     String.valueOf(props.getDatabase().getPort()));
-        overrides.setProperty("peegeeq.database.name",     props.getDatabase().getName());
-        overrides.setProperty("peegeeq.database.username", props.getDatabase().getUsername());
-        overrides.setProperty("peegeeq.database.password", props.getDatabase().getPassword());
-        overrides.setProperty("peegeeq.database.schema",   props.getDatabase().getSchema());
-
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration(props.getProfile(), overrides);
-        PeeGeeQManager manager = new PeeGeeQManager(config, registry, vertx);
-        // start() returns Future<Void> — integrate with your Vert.x lifecycle
-        return manager;
-    }
-}
-```
-
-`PeeGeeQProperties` is provided in `peegeeq-examples-spring` as a reference implementation.
-
----
-
-## Developer and Test Patterns
-
-### PeeGeeQTestConfig Builder
-
-`PeeGeeQTestConfig` (module `peegeeq-test-support`) is the standard way to build test
-configuration from a running Testcontainers `PostgreSQLContainer`. It eliminates the
-`System.setProperty` / `System.clearProperty` boilerplate entirely and is safe for parallel
-test execution.
-
-```java
-// @BeforeEach or @BeforeAll
-Properties props = PeeGeeQTestConfig.builder()
-    .from(postgres)                                      // host, port, db, user, password from container
-    .schema("test_schema")                               // optional schema override
-    .property("peegeeq.database.pool.max-size", "3")
-    .property("peegeeq.migration.enabled", "false")
-    .build();
-
-PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", props);
-```
-
-`from(container)` extracts `host`, `port`, `database name`, `username`, and `password` directly
-from the live container, so dynamic port assignment is always reflected correctly.
-
-**Reference implementation:** `ResourceLeakDetectionTest` in `peegeeq-db`.
-
-> **Supply all test-relevant properties in overrides.** The 2-arg constructor currently still
-> sweeps `System.getProperties()` for `peegeeq.*` keys before applying overrides (Phase 11 of
-> the config remediation will remove this sweep). Until then, any property you do *not* supply
-> in the `overrides` object can be silently contaminated by another test thread that has set it
-> via System. Pass every property your test depends on explicitly through the builder.
-
-> **`test.database.*` properties are safe.** `PeeGeeQTestBase` and
-> `ParameterizedPerformanceTestBase` write to the `test.database.*` namespace for JDBC/Spring
-> integration. Because `loadProperties()` only sweeps keys starting with `peegeeq.`, this
-> namespace is never swept and creates no `PeeGeeQConfiguration` races. Leave those helpers
-> as-is.
-
-### Permitted System.setProperty Callers
-
-The following test files deliberately exercise the System-property reading path in
-`PeeGeeQConfiguration` and **must not** be migrated to `PeeGeeQTestConfig.builder()`.
-All carry `@ResourceLock("system-properties")` to serialise against each other:
-
-- `PgPoolConfigPropertyBindingTest.java` — parameterised verification of System property reading
-- `PeeGeeQConfigurationTest.java` — unit tests for `PeeGeeQConfiguration` itself
-- `SystemPropertiesConfigurationDemoTest.java` — demonstration test
-- `SystemPropertiesConfigurationExampleTest.java` — demonstration test
-- `ConfigurationValidationTest.java` (`peegeeq-examples`) — validates configuration wiring; some assertions call `System.getProperty` to verify what was written. Review individually before migrating.
-
-Any other test that touches `System.setProperty("peegeeq.*", ...)` is a violation.
-
----
-
-## Troubleshooting
-
-### `IllegalStateException: Recovery check interval should be longer than processing timeout`
-
-`peegeeq.queue.recovery.check-interval` ≤ `peegeeq.queue.recovery.processing-timeout`.
-Increase `check-interval` so it strictly exceeds `processing-timeout`, otherwise the scanner
-marks messages as stuck before the worker holding them has had time to finish.
-
----
-
-### `IllegalStateException: Database host is required`
-
-`peegeeq.database.host` resolved to an empty string. Check that `PEEGEEQ_DATABASE_HOST` is set
-in the environment, or that the `overrides` `Properties` object contains `peegeeq.database.host`.
-
----
-
-### `WARN: Reuse was requested but environment does not support container reuse`
-
-Expected noise when `testcontainers.reuse.enable=true` is absent from
-`~/.testcontainers.properties`. Not a defect. Add it for faster local test iteration:
-
-```properties
-# ~/.testcontainers.properties
-testcontainers.reuse.enable=true
-```
-
----
-
-### `WARN: Resource [logback.xml] occurs multiple times on the classpath`
-
-Multiple PeeGeeQ JARs bundle their own `logback.xml`. Harmless at test time. Long-term fix:
-remove `logback.xml` from library module JARs and keep it only in executable entry-point modules.
-
----
-
-### Metrics instance-id shows a random UUID suffix
-
-`peegeeq.metrics.instance-id` was not set explicitly. Set it to a stable, deployment-specific
-value for meaningful dashboards:
-
-```properties
-peegeeq.metrics.instance-id=peegeeq-prod-us-east-1-pod-7
-```
-
-Or via override:
-
-```java
-overrides.setProperty("peegeeq.metrics.instance-id", System.getenv("HOSTNAME"));
-```
+For tests, build isolated overrides with `PeeGeeQTestConfig` and a real PostgreSQL
+Testcontainer. Never use process-global system properties for concurrent test configuration.

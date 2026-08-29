@@ -114,12 +114,12 @@ public class PgQueueConfiguration implements QueueConfiguration {
     
     @Override
     public boolean isHealthChecksEnabled() {
-        return configuration.getBoolean("peegeeq.health.enabled", true);
+        return configuration.getHealthCheckConfig().isEnabled();
     }
 
     @Override
     public Duration getHealthCheckInterval() {
-        return configuration.getDuration("peegeeq.health.check-interval", Duration.ofSeconds(30));
+        return configuration.getHealthCheckConfig().getInterval();
     }
 
     @Override
