@@ -619,8 +619,8 @@ docker compose -f scripts/local-infra/docker-compose-failover-local.yml start pg
 ## 7. Known Gaps
 
 Five gaps exist between the current implementation and a fully resilient production setup.
-For detailed analysis, recommendations, and a phased implementation plan see
-[PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY_GAPS.md](../tasks/pending/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY_GAPS.md).
+For the current status, recommendations, and implementation order see
+[the consolidated task register](../tasks/tasks.md#3-postgresql-connection-management-and-haproxy-gaps).
 
 | # | Gap | Risk |
 |---|---|---|

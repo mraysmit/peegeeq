@@ -59,6 +59,13 @@ public interface MetricsProvider {
     void recordMessageSent(String topic, long durationMs);
 
     /**
+     * Records that an idempotency-keyed send was rejected as a duplicate.
+     *
+     * @param topic The topic targeted by the duplicate send
+     */
+    void recordMessageDuplicate(String topic);
+
+    /**
      * Records that a message was received from a topic.
      *
      * @param topic The topic the message was received from
