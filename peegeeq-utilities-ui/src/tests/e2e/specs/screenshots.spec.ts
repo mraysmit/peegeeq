@@ -92,50 +92,13 @@ test.describe('UI documentation screenshots', () => {
    */
   const CAPTURE_SETTLE_MS = 500
 
-  /**
-   * The app layout is height:100vh with an INTERNALLY scrolling content area,
-   * so `fullPage: true` alone only ever captures one viewport's worth — any
-   * fixed viewport height clips pages taller than it. Instead, each capture
-   * measures the tallest scrollable content on the page (the app's content
-   * area, or an open modal's wrap) and grows the viewport to fit before
-   * shooting. Width stays constant so layout/wrapping never changes between
-   * shots; only the height adapts.
-   */
-  const SHOT_WIDTH = 1440
-  const SHOT_MIN_HEIGHT = 900
-  const SHOT_MAX_HEIGHT = 4000 // sanity bound; no current page approaches this
-
+  /** Documentation captures use the same single 1440x900 viewport as every
+   * other screenshot test. Detailed coverage is supplied by the focused
+   * element capture attached by the functionality screenshot suites. */
   async function shot(page: import('@playwright/test').Page, name: string) {
     await page.waitForTimeout(CAPTURE_SETTLE_MS)
-    // ALWAYS measure from the base height. In a 100vh layout the document's
-    // scrollHeight equals the viewport height, so measuring at an inherited
-    // tall viewport reads the previous shot's height as "content" and the
-    // sizes ratchet upward, bloating later captures with whitespace.
-    const current = page.viewportSize()
-    if (!current || current.height !== SHOT_MIN_HEIGHT || current.width !== SHOT_WIDTH) {
-      await page.setViewportSize({ width: SHOT_WIDTH, height: SHOT_MIN_HEIGHT })
-      await page.waitForTimeout(CAPTURE_SETTLE_MS)
-    }
-    // Bottom edge of the tallest OVERFLOWING element (position + full content
-    // height) — the app's internal content scroller, or an open modal's wrap.
-    // Non-overflowing pages report 0 and capture at the base height.
-    const contentBottom = await page.evaluate(() => {
-      let max = 0
-      for (const el of document.querySelectorAll<HTMLElement>('*')) {
-        if (el.scrollHeight > el.clientHeight + 1) {
-          const top = el.getBoundingClientRect().top + window.scrollY
-          if (top + el.scrollHeight > max) max = top + el.scrollHeight
-        }
-      }
-      return Math.ceil(max)
-    })
-    const height = Math.min(Math.max(SHOT_MIN_HEIGHT, contentBottom + 24), SHOT_MAX_HEIGHT)
-    if (height !== SHOT_MIN_HEIGHT) {
-      await page.setViewportSize({ width: SHOT_WIDTH, height })
-      await page.waitForTimeout(CAPTURE_SETTLE_MS) // re-layout settle after resize
-    }
     await page.evaluate(() => window.scrollTo(0, 0))
-    await page.screenshot({ path: path.join(SHOTS_DIR, name), fullPage: true })
+    await page.screenshot({ path: path.join(SHOTS_DIR, name) })
   }
 
   /** Select the demo setup in Zone A (other suites' setups may also be attached). */

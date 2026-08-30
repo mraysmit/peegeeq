@@ -25,7 +25,14 @@ export default defineConfig({
     slowTestThreshold: 5000,
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json', 'html'],
+      reporter: ['text', 'json', 'json-summary', 'html'],
+      include: ['src/**/*.{ts,tsx}'],
+      thresholds: {
+        statements: 87,
+        branches: 88,
+        functions: 87,
+        lines: 87
+      },
       exclude: [
         'node_modules/',
         'src/tests/',
