@@ -1,12 +1,6 @@
 import { defineConfig, devices } from '@playwright/test'
 
-/**
- * BASE viewport only. The app layout is height:100vh with an internally-
- * scrolling content area, so `fullPage` alone only ever yields one viewport's
- * worth — no fixed height is safe. The spec's shot() helper measures each
- * page's tallest scrollable content and resizes the viewport per capture;
- * this constant is just the starting size and the constant width.
- */
+/** The one viewport used by every Utilities screenshot case. */
 const CAPTURE_VIEWPORT = { width: 1440, height: 900 }
 
 /**
@@ -15,8 +9,8 @@ const CAPTURE_VIEWPORT = { width: 1440, height: 900 }
  * This config is intentionally separate from `playwright.config.ts` so the
  * screenshot run does NOT execute as part of the normal e2e suite. It reuses
  * the same TestContainers global setup/teardown and Vite dev server, but runs
- * only `screenshots.spec.ts` with a tall viewport so full-page captures show
- * all page content without internal scrolling.
+ * only the screenshot suites at the fixed desktop viewport. Each named
+ * functionality test attaches both a focused-element and a viewport capture.
  *
  * Run with:
  *   npx playwright test --config=playwright.screenshots.config.ts
@@ -29,7 +23,10 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: 0,
   workers: 1,
-  reporter: [['list']],
+  reporter: [
+    ['list'],
+    ['html', { outputFolder: 'playwright-report/screenshots', open: 'never' }],
+  ],
   timeout: 180 * 1000,
   expect: {
     timeout: 15 * 1000,
@@ -44,14 +41,13 @@ export default defineConfig({
   projects: [
     {
       name: 'screenshots',
-      testMatch: '**/screenshots.spec.ts',
-      /* CAPTURE_VIEWPORT must come AFTER the devices spread. Playwright merges
-         config-level `use` and project-level `use` per key, and
-         devices['Desktop Chrome'] supplies its own `viewport` key (1280x720) —
-         so a config-level viewport is shadowed by the spread. Declaring the
-         tall viewport at config level (as this file did until 2026-07-22) was
-         silently discarded: full-page captures were clipped at 720px and pages
-         like the Message Generator cut off mid-payload. */
+      testMatch: [
+        '**/screenshots.spec.ts',
+        '**/functionality-screenshots.spec.ts',
+        '**/functional-state-screenshots.spec.ts',
+      ],
+      /* The explicit viewport follows the device spread so Desktop Chrome's
+         1280x720 default cannot override the suite's one fixed viewport. */
       use: { ...devices['Desktop Chrome'], headless: true, viewport: CAPTURE_VIEWPORT },
     },
   ],
