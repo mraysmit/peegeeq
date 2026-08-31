@@ -152,6 +152,8 @@ function AppContent() {
                 <Route path="/queues/:setupId/:queueName" element={<QueueDetailsEnhanced />} />
                 {/* Legacy routes for backwards compatibility */}
                 <Route path="/queues-old" element={<Queues />} />
+                {/* Explicit coordinates keep legacy deep links unambiguous when a queue name contains hyphens. */}
+                <Route path="/queues-old/:setupId/:queueName" element={<QueueDetailsEnhanced />} />
                 <Route path="/queues-old/:queueName" element={<QueueDetails />} />
                 <Route path="/consumer-groups" element={<ConsumerGroups />} />
                 <Route path="/event-stores" element={<EventStores />} />

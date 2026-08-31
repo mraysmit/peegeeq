@@ -28,9 +28,7 @@ function inspectTests(config) {
 
   const output = `${result.stdout}\n${result.stderr}`
   const match = output.match(/Total:\s+(\d+)\s+tests?\b/)
-  if (!match) {
-    throw new Error(`Could not find the Playwright total for ${config}`)
-  }
+  if (!match) throw new Error(`Could not find the Playwright total for ${config}`)
 
   const identities = []
   for (const line of output.split(/\r?\n/)) {
@@ -87,6 +85,4 @@ if (overlap.length > 0) {
 
 console.log(`total unique: ${total}`)
 
-if (failed) {
-  process.exitCode = 1
-}
+if (failed) process.exitCode = 1
