@@ -13,7 +13,7 @@ for (let index = 2; index < process.argv.length; index += 2) {
   expected.set(option.slice(2), Number(value))
 }
 
-function countTests(config) {
+function inspectTests(config) {
   const result = spawnSync(process.execPath, [playwrightCli, 'test', '--config', config, '--list'], {
     encoding: 'utf8',
     env: { ...process.env, NO_COLOR: '1' },
@@ -31,7 +31,25 @@ function countTests(config) {
   if (!match) {
     throw new Error(`Could not find the Playwright total for ${config}`)
   }
-  return Number(match[1])
+
+  const identities = []
+  for (const line of output.split(/\r?\n/)) {
+    const listed = line.match(/^\s+\[[^\]]+\]\s+›\s+(.+?\.spec\.ts:\d+:\d+)\s+›\s+(.+)$/)
+    if (listed) identities.push(`${listed[1]} › ${listed[2]}`)
+  }
+
+  const executions = Number(match[1])
+  if (identities.length !== executions) {
+    throw new Error(
+      `Parsed ${identities.length} listed cases from ${config}, but Playwright reported ${executions}`
+    )
+  }
+
+  const unique = new Set(identities)
+  const duplicates = [...unique].filter(
+    (identity) => identities.filter((candidate) => candidate === identity).length > 1
+  )
+  return { executions, unique, duplicates }
 }
 
 const inventories = [
@@ -41,14 +59,33 @@ const inventories = [
 
 let failed = false
 let total = 0
+const inspected = new Map()
 for (const [name, config] of inventories) {
-  const actual = countTests(config)
+  const inventory = inspectTests(config)
+  inspected.set(name, inventory)
+  const actual = inventory.unique.size
   const target = expected.get(name)
   total += actual
-  console.log(`${name}: ${actual}${target === undefined ? '' : ` (expected ${target})`}`)
+  console.log(
+    `${name}: ${actual} unique (${inventory.executions} executions)`
+    + `${target === undefined ? '' : ` (expected ${target})`}`
+  )
+  if (inventory.duplicates.length > 0) {
+    console.error(`${name}: duplicate project-expanded cases:\n${inventory.duplicates.join('\n')}`)
+    failed = true
+  }
   if (target !== undefined && actual !== target) failed = true
 }
-console.log(`total: ${total}`)
+
+const functional = inspected.get('functional')?.unique ?? new Set()
+const screenshots = inspected.get('screenshots')?.unique ?? new Set()
+const overlap = [...functional].filter((identity) => screenshots.has(identity))
+if (overlap.length > 0) {
+  console.error(`functional/screenshot overlap:\n${overlap.join('\n')}`)
+  failed = true
+}
+
+console.log(`total unique: ${total}`)
 
 if (failed) {
   process.exitCode = 1
