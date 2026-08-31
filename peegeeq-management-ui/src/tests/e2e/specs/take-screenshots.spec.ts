@@ -2,7 +2,7 @@
  * Screenshot capture spec — regenerates all documentation screenshots.
  *
  * Run with:
- *   npx playwright test src/tests/e2e/specs/take-screenshots.spec.ts --headed --reporter=list
+ *   npx playwright test --config=playwright.screenshots.config.ts --reporter=list
  *
  * Creates live data (queue, event store, 5 correlated events) then captures every page
  * and every meaningful functional state with real data visible.
@@ -39,7 +39,9 @@ function saveState(state: Record<string, string>): void {
 function loadState(): Record<string, string> {
   try {
     if (fs.existsSync(STATE_FILE)) return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'))
-  } catch { /* ignore */ }
+  } catch (error) {
+    console.warn('Failed to load persisted screenshot state:', error)
+  }
   return {}
 }
 
@@ -70,20 +72,11 @@ test.describe('PeeGeeQ UI Screenshots', () => {
     if (s.consumerGroupName) consumerGroupName = s.consumerGroupName
   })
 
-  /** Full-page screenshot after sidebar confirms app is rendered.
-   *
-   * The app layout uses height:100vh with an internal scroll container, so
-   * fullPage:true has no effect.  Instead we temporarily expand the viewport
-   * to 2400 px tall (enough for any page), take the shot, then restore the
-   * original size so subsequent interactions are unaffected.
-   */
+  /** Capture the current functional state at the suite's single fixed viewport. */
   async function shot(page: Page, filename: string): Promise<void> {
     await page.locator('[data-testid="app-sidebar"]').waitFor({ state: 'visible' })
-    const vp = page.viewportSize() ?? { width: 1440, height: 900 }
-    await page.setViewportSize({ width: vp.width, height: 1200 })
     await page.waitForTimeout(500)
     await page.screenshot({ path: path.join(DIR, filename) })
-    await page.setViewportSize(vp)
   }
 
   // ── 0. Create all live data ───────────────────────────────────────────────

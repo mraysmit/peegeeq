@@ -16,12 +16,15 @@
     "test:integration": "vitest run src/tests/integration --passWithNoTests",
     "test:e2e": "node scripts/run-e2e-tests.js",
     "test:e2e:direct": "playwright test",
+    "test:e2e:list": "playwright test --list",
+    "test:e2e:screenshots": "playwright test --config=playwright.screenshots.config.ts",
+    "test:e2e:inventory": "node scripts/check-playwright-inventory.js --functional 419 --screenshots 72",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:debug": "playwright test --debug",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:report": "playwright show-report",
     "test:all": "npm run test:run && npm run test:integration && npm run test:e2e",
-    "test:ci": "npm run test:run && npm run test:integration && npm run test:e2e --reporter=junit"
+    "test:ci": "npm run test:e2e:inventory && npm run test:run && npm run test:integration && npm run test:e2e --reporter=junit"
   },
   "dependencies": {
     "@reduxjs/toolkit": "^2.10.1",
