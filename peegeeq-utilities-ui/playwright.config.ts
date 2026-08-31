@@ -112,6 +112,15 @@ export default defineConfig({
       testMatch: '**/template-value-list-contracts.spec.ts',
       use: desktopChrome,
     },
+    // Semantic template/value-list lifecycle coverage: real localStorage,
+    // browser downloads, imports, collisions, confirmations, and downstream
+    // generator resolution. Screenshots are attached as supporting evidence;
+    // exact behavior assertions determine whether each journey passes.
+    {
+      name: '3b-template-value-list-lifecycle',
+      testMatch: '**/template-value-list-lifecycle.spec.ts',
+      use: desktopChrome,
+    },
     {
       name: '4a-scenario-schedule-contracts',
       testMatch: '**/scenario-schedule-contracts.spec.ts',
@@ -256,6 +265,17 @@ export default defineConfig({
       testMatch: '**/compare.spec.ts',
       use: desktopChrome,
       dependencies: ['3-generator'],
+    },
+    // Remediation for previously unit-only or screenshot-only operations:
+    // persisted schedule controls/downloads and generator output/degraded-state
+    // journeys with exact browser, storage, transport, and file assertions.
+    {
+      name: '15-operations-remediation',
+      testMatch: [
+        '**/scheduled-runs-operations.spec.ts',
+        '**/generator-output-degraded.spec.ts',
+      ],
+      use: desktopChrome,
     },
   ],
 

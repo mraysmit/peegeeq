@@ -58,6 +58,27 @@ interface Message {
     deliveryCount?: number;
 }
 
+interface PublishFormValues {
+    payload: string;
+    headers?: string;
+    priority?: number;
+    delaySeconds?: number;
+}
+
+function isFormValidationError(error: unknown): error is { errorFields: unknown[] } {
+    return typeof error === 'object'
+        && error !== null
+        && 'errorFields' in error
+        && Array.isArray((error as { errorFields?: unknown }).errorFields);
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+    return typeof value === 'object'
+        && value !== null
+        && !Array.isArray(value)
+        && Object.values(value).every((entry) => typeof entry === 'string');
+}
+
 const QueueDetailsPage = () => {
     const { setupId, queueName } = useParams<{ setupId: string; queueName: string }>();
     const navigate = useNavigate();
@@ -285,28 +306,44 @@ const QueueDetailsPage = () => {
 
     // Handler for publishing message
     const handlePublishMessage = async () => {
+        let values: PublishFormValues;
         try {
-            const values = await publishForm.validateFields();
+            values = await publishForm.validateFields() as PublishFormValues;
+        } catch (error) {
+            if (isFormValidationError(error)) {
+                message.error('Please correct the highlighted publish fields');
+                return;
+            }
+            message.error(`Failed to validate publish fields: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            return;
+        }
 
-            // Parse payload if it's JSON string
-            let payload = values.payload;
+        // The field is explicitly a JSON payload; reject malformed input before transport.
+        let payload: unknown;
+        try {
+            payload = JSON.parse(values.payload);
+        } catch {
+            message.error('Invalid JSON format for payload');
+            return;
+        }
+
+        let headers: Record<string, string> = {};
+        if (values.headers) {
+            let parsedHeaders: unknown;
             try {
-                payload = JSON.parse(values.payload);
+                parsedHeaders = JSON.parse(values.headers);
             } catch {
-                // Keep as string if not valid JSON
+                message.error('Invalid JSON format for headers');
+                return;
             }
-
-            // Parse headers if provided
-            let headers = {};
-            if (values.headers) {
-                try {
-                    headers = JSON.parse(values.headers);
-                } catch {
-                    message.error('Invalid JSON format for headers');
-                    return;
-                }
+            if (!isStringRecord(parsedHeaders)) {
+                message.error('Headers must be a JSON object with string values');
+                return;
             }
+            headers = parsedHeaders;
+        }
 
+        try {
             const response = await axios.post(getVersionedApiUrl(`/queues/${setupId}/${queueName}/messages`), {
                 payload,
                 headers,
@@ -321,8 +358,7 @@ const QueueDetailsPage = () => {
                 refetch(); // Refresh stats
             }
         } catch (error) {
-            console.error('Failed to publish message:', error);
-            message.error('Failed to publish message');
+            message.error(`Failed to publish message: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     };
 

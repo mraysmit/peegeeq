@@ -227,6 +227,12 @@ export default defineConfig({
       use: chromeMaximized,
       dependencies: ['3c-setup-prerequisite'],
     },
+    // Step 7e: advanced publish transport/validation and backwards-compatible queue routes
+    {
+      name: '7e-queue-publish-legacy-remediation',
+      testMatch: '**/queue-publish-legacy-remediation.spec.ts',
+      use: chromeMaximized,
+    },
     // Step 8: Event Store Workflow - Comprehensive event store workflow with event posting (standalone)
     {
       name: '8-event-store-workflow',
@@ -472,12 +478,6 @@ export default defineConfig({
       testMatch: '**/notification-bell-backend.spec.ts',
       use: chromeMaximized,
       dependencies: ['3c-setup-prerequisite'],
-    },
-    // Screenshots: regenerates documentation screenshots (run manually)
-    {
-      name: 'take-screenshots',
-      testMatch: '**/take-screenshots.spec.ts',
-      use: chromeMaximized,
     },
   ],
 
