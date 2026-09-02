@@ -23,6 +23,9 @@ import dev.mars.peegeeq.api.metrics.NoticeMetrics;
 import dev.mars.peegeeq.db.PeeGeeQDefaults;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
+import dev.mars.peegeeq.db.resilience.CircuitBreakerManager;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
@@ -44,6 +47,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -73,6 +77,7 @@ public class PgConnectionManager {
     private final Vertx vertx;
     private final NoticeHandlerConfig noticeConfig;
     private final NoticeMetrics noticeMetrics;
+    private final CircuitBreakerManager circuitBreakerManager;
     private final String instanceId;
 
 
@@ -92,14 +97,26 @@ public class PgConnectionManager {
     }
 
     public PgConnectionManager(Vertx vertx, MeterRegistry meter, NoticeHandlerConfig noticeConfig, NoticeMetrics noticeMetrics) {
+        this(vertx, meter, noticeConfig, noticeMetrics, null);
+    }
+
+    public PgConnectionManager(
+            Vertx vertx,
+            MeterRegistry meter,
+            NoticeHandlerConfig noticeConfig,
+            NoticeMetrics noticeMetrics,
+            CircuitBreakerManager circuitBreakerManager) {
         this.vertx = Objects.requireNonNull(vertx, "Vertx instance cannot be null");
         this.meter = meter;
         this.noticeConfig = noticeConfig;
         this.noticeMetrics = noticeMetrics;
+        this.circuitBreakerManager = circuitBreakerManager;
         this.instanceId = Integer.toHexString(System.identityHashCode(this));
-        logger.info("PgConnectionManager@{}: Initialized with Vert.x 5.x reactive support (notice handling: {})",
+        logger.info("PgConnectionManager@{}: Initialized with Vert.x 5.x reactive support "
+                + "(notice handling: {}, circuit breaking: {})",
                    instanceId,
-                   noticeConfig != null ? "enabled" : "disabled");
+                   noticeConfig != null ? "enabled" : "disabled",
+                   circuitBreakerManager != null ? "configured" : "disabled");
     }
 
     /**
@@ -213,10 +230,10 @@ public class PgConnectionManager {
         if (pool == null) {
             return Future.failedFuture(new IllegalStateException("No reactive pool found for service: " + resolvedId));
         }
-        return pool.withConnection(conn -> {
+        return executeWithPoolCircuitBreaker(resolvedId, ignored -> pool.withConnection(conn -> {
             setupNoticeHandler(conn);
             return operation.apply(conn);
-        });
+        }));
     }
 
     /**
@@ -230,10 +247,46 @@ public class PgConnectionManager {
         if (pool == null) {
             return Future.failedFuture(new IllegalStateException("No reactive pool found for service: " + resolvedId));
         }
-        return pool.withTransaction(conn -> {
+        return executeWithPoolCircuitBreaker(resolvedId, ignored -> pool.withTransaction(conn -> {
             setupNoticeHandler(conn);
             return operation.apply(conn);
-        });
+        }));
+    }
+
+    /**
+     * Brackets the complete pooled operation with one breaker named for the logical pool.
+     * Acquisition and the caller operation share one terminal signal, so both connection
+     * failures and operation failures contribute to the configured breaker policy.
+     */
+    private <T> Future<T> executeWithPoolCircuitBreaker(
+            String serviceId, Function<Void, Future<T>> pooledOperation) {
+        CircuitBreaker breaker = circuitBreakerManager == null
+            ? null
+            : circuitBreakerManager.getCircuitBreaker("db.pool." + serviceId);
+        if (breaker == null) {
+            return pooledOperation.apply(null);
+        }
+        if (!breaker.tryAcquirePermission()) {
+            return Future.failedFuture(
+                CallNotPermittedException.createCallNotPermittedException(breaker));
+        }
+
+        long startNanos = System.nanoTime();
+        Future<T> result;
+        try {
+            result = pooledOperation.apply(null);
+        } catch (RuntimeException failure) {
+            breaker.onError(System.nanoTime() - startNanos, TimeUnit.NANOSECONDS, failure);
+            logger.warn("Pooled operation for service '{}' failed before returning a Future",
+                serviceId, failure);
+            return Future.failedFuture(failure);
+        }
+
+        return result
+            .onSuccess(value -> breaker.onSuccess(
+                System.nanoTime() - startNanos, TimeUnit.NANOSECONDS))
+            .onFailure(failure -> breaker.onError(
+                System.nanoTime() - startNanos, TimeUnit.NANOSECONDS, failure));
     }
 
     /**

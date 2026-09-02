@@ -256,6 +256,48 @@ public class PeeGeeQConfigurationTest {
     }
 
     @Test
+    void proxyEndpointOverridesDirectDatabaseEndpoint() {
+        Properties overrides = new Properties();
+        overrides.setProperty("peegeeq.database.host", "postgres.internal");
+        overrides.setProperty("peegeeq.database.port", "5432");
+        overrides.setProperty("peegeeq.database.proxy.host", "haproxy.internal");
+        overrides.setProperty("peegeeq.database.proxy.port", "6543");
+
+        PgConnectionConfig dbConfig =
+            new PeeGeeQConfiguration(TEST_PROFILE, overrides).getDatabaseConfig();
+
+        assertEquals("haproxy.internal", dbConfig.getHost());
+        assertEquals(6543, dbConfig.getPort());
+    }
+
+    @Test
+    void blankProxyEndpointFallsBackToDirectDatabaseEndpoint() {
+        Properties overrides = new Properties();
+        overrides.setProperty("peegeeq.database.host", "postgres.internal");
+        overrides.setProperty("peegeeq.database.port", "5544");
+        overrides.setProperty("peegeeq.database.proxy.host", "   ");
+        overrides.setProperty("peegeeq.database.proxy.port", "");
+
+        PgConnectionConfig dbConfig =
+            new PeeGeeQConfiguration(TEST_PROFILE, overrides).getDatabaseConfig();
+
+        assertEquals("postgres.internal", dbConfig.getHost());
+        assertEquals(5544, dbConfig.getPort());
+    }
+
+    @Test
+    void invalidProxyPortFailsConfigurationValidation() {
+        Properties overrides = new Properties();
+        overrides.setProperty("peegeeq.database.proxy.host", "haproxy.internal");
+        overrides.setProperty("peegeeq.database.proxy.port", "70000");
+
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+            () -> new PeeGeeQConfiguration(TEST_PROFILE, overrides));
+
+        assertTrue(error.getMessage().contains("Database proxy port must be between 1 and 65535"));
+    }
+
+    @Test
     void testGetPoolConfig() {
         PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE, new Properties());
         PgPoolConfig poolConfig = config.getPoolConfig();

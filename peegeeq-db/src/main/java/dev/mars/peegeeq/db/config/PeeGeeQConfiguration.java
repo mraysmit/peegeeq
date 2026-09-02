@@ -278,6 +278,18 @@ public class PeeGeeQConfiguration {
         if (port < 1 || port > 65535) {
             errors.add("Database port must be between 1 and 65535");
         }
+
+        String proxyPort = getString("peegeeq.database.proxy.port", "").trim();
+        if (!proxyPort.isEmpty()) {
+            try {
+                int parsedProxyPort = Integer.parseInt(proxyPort);
+                if (parsedProxyPort < 1 || parsedProxyPort > 65535) {
+                    errors.add("Database proxy port must be between 1 and 65535");
+                }
+            } catch (NumberFormatException e) {
+                errors.add("Database proxy port must be an integer between 1 and 65535");
+            }
+        }
         
         if (getString("peegeeq.database.name", "").isEmpty()) {
             errors.add("Database name is required");
@@ -487,14 +499,28 @@ public class PeeGeeQConfiguration {
     // Specific configuration builders
     public PgConnectionConfig getDatabaseConfig() {
         return new PgConnectionConfig.Builder()
-            .host(getString("peegeeq.database.host", "localhost"))
-            .port(getInt("peegeeq.database.port", 5432))
+            .host(getEffectiveDatabaseHost())
+            .port(getEffectiveDatabasePort())
             .database(getString("peegeeq.database.name", "peegeeq"))
             .username(getString("peegeeq.database.username", "peegeeq"))
             .password(getString("peegeeq.database.password", ""))
-                .schema(getString("peegeeq.database.schema", null))
+            .schema(getString("peegeeq.database.schema", null))
             .sslEnabled(getBoolean("peegeeq.database.ssl.enabled", false))
             .build();
+    }
+
+    private String getEffectiveDatabaseHost() {
+        String proxyHost = getString("peegeeq.database.proxy.host", "").trim();
+        return proxyHost.isEmpty()
+            ? getString("peegeeq.database.host", "localhost")
+            : proxyHost;
+    }
+
+    private int getEffectiveDatabasePort() {
+        String proxyPort = getString("peegeeq.database.proxy.port", "").trim();
+        return proxyPort.isEmpty()
+            ? getInt("peegeeq.database.port", 5432)
+            : Integer.parseInt(proxyPort);
     }
     
     public PgPoolConfig getPoolConfig() {
@@ -756,7 +782,9 @@ public class PeeGeeQConfiguration {
             "peegeeq.database.password",
             "peegeeq.database.username",
             "peegeeq.database.host",
-            "peegeeq.database.port"
+            "peegeeq.database.port",
+            "peegeeq.database.proxy.host",
+            "peegeeq.database.proxy.port"
     );
 
     public Properties getProperties() {

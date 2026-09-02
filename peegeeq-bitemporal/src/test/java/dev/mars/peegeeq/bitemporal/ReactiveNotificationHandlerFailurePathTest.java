@@ -39,6 +39,8 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -154,6 +156,47 @@ class ReactiveNotificationHandlerFailurePathTest {
                     });
                 })
                 .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+    }
+
+    @Test
+    void reconnectShouldRetryAfterTransientConnectFailure(Vertx vertx, VertxTestContext testContext) {
+        AtomicInteger connectCalls = new AtomicInteger(0);
+        AtomicReference<PgConnection> initialConnection = new AtomicReference<>();
+
+        TestableReactiveNotificationHandler handler = new TestableReactiveNotificationHandler(
+                vertx,
+                connectOptions,
+                eventId -> Future.succeededFuture(null),
+                () -> {
+                    int attempt = connectCalls.intValue();
+                    if (attempt == 2) {
+                        return Future.failedFuture(new VertxException("forced transient reconnect failure"));
+                    }
+                    return connect(vertx).onSuccess(connection -> {
+                        if (attempt == 1) {
+                            initialConnection.setRelease(connection);
+                        }
+                    });
+                },
+                connectCalls,
+                new CopyOnWriteArrayList<>(),
+                channel -> Future.succeededFuture(),
+                channel -> Future.succeededFuture(),
+                new AtomicBoolean(false));
+
+        handler.start()
+                .compose(v -> initialConnection.getAcquire().close())
+                .compose(v -> waitForCondition(
+                        vertx,
+                        () -> connectCalls.intValue() >= 3 && handler.isActive(),
+                        24))
+                .compose(v -> handler.stop())
+                .onSuccess(v -> testContext.verify(() -> {
+                    assertEquals(3, connectCalls.intValue(),
+                            "Handler should retry after a transient reconnect failure");
+                    testContext.completeNow();
+                }))
                 .onFailure(testContext::failNow);
     }
 
@@ -302,6 +345,18 @@ class ReactiveNotificationHandlerFailurePathTest {
 
     private Future<PgConnection> connect(Vertx vertx) {
         return PgConnection.connect(vertx, connectOptions);
+    }
+
+    private static Future<Void> waitForCondition(
+            Vertx vertx, BooleanSupplier condition, int attemptsRemaining) {
+        if (condition.getAsBoolean()) {
+            return Future.succeededFuture();
+        }
+        if (attemptsRemaining == 0) {
+            return Future.failedFuture("Condition was not met before retry attempts were exhausted");
+        }
+        return vertx.timer(250)
+                .compose(ignored -> waitForCondition(vertx, condition, attemptsRemaining - 1));
     }
 
     private static final class TestableReactiveNotificationHandler extends ReactiveNotificationHandler<String> {
