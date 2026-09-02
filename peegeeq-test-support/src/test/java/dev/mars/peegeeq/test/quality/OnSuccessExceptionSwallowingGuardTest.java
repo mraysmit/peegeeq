@@ -120,7 +120,7 @@ class OnSuccessExceptionSwallowingGuardTest {
     private static final Pattern TRY_BLOCK_START =
             Pattern.compile("\\btry\\s*\\{");
     private static final Pattern BLOCKING_EXEMPT_TAG =
-            Pattern.compile("@Tag\\s*\\(\\s*\"blocking-exempt\"\\s*\\)");
+            Pattern.compile("(?m)^\\s*@Tag\\s*\\(\\s*\"blocking-exempt\"\\s*\\)");
 
     // -------------------------------------------------------------------------
     // Patterns  Tier 4: Future.await() banned in test code
@@ -268,9 +268,6 @@ class OnSuccessExceptionSwallowingGuardTest {
     private static final String TIER_9_BASELINE_RESOURCE = "/quality/discarded-subscribe-future-baseline.csv";
     /** Baseline CSV for the T4 ratchet. */
     private static final String TIER_4_BASELINE_RESOURCE = "/quality/future-await-baseline.csv";
-    /** Baseline CSV for the T5 ratchet. */
-    private static final String TIER_5_BASELINE_RESOURCE = "/quality/blocking-sleep-baseline.csv";
-
     // =========================================================================
     // Test methods
     // =========================================================================
@@ -290,10 +287,12 @@ class OnSuccessExceptionSwallowingGuardTest {
 
     @Test
     void noBlockingThreadDelaysInTestSources() throws IOException {
-        Path workspaceRoot = locateWorkspaceRoot();
-        Map<String, Integer> baseline = loadPathCountBaseline(TIER_5_BASELINE_RESOURCE);
-        Map<String, Integer> actual = scanSleepPerFile(workspaceRoot);
-        assertRatchet("Thread.sleep [Tier 5]", "blocking-sleep-baseline.csv", baseline, actual);
+        runCheck(CheckType.TIER_5_SLEEP);
+    }
+
+    @Test
+    void noBlockingExemptionsInTestSources() throws IOException {
+        runCheck(CheckType.BLOCKING_EXEMPTION);
     }
 
     @Test
@@ -364,7 +363,7 @@ class OnSuccessExceptionSwallowingGuardTest {
 
     private enum CheckType {
         TIER_2_3, TIER_4_AWAIT, TIER_5_SLEEP, TIER_6_ONCOMPLETE, TIER_7_DISCARD,
-        TIER_8_ASSERTED_ONLY
+        TIER_8_ASSERTED_ONLY, BLOCKING_EXEMPTION
     }
 
     private static void runCheck(CheckType type) throws IOException {
@@ -391,6 +390,7 @@ class OnSuccessExceptionSwallowingGuardTest {
                                  case TIER_6_ONCOMPLETE -> scanOnComplete(p, violations);
                                  case TIER_7_DISCARD -> scanDiscardedFuture(p, violations);
                                  case TIER_8_ASSERTED_ONLY -> scanAssertedOnlyAsyncOperation(p, violations);
+                                 case BLOCKING_EXEMPTION -> scanBlockingExemption(p, violations);
                              }
                          });
                 }
@@ -466,6 +466,20 @@ class OnSuccessExceptionSwallowingGuardTest {
                   .append("A non-null Future does not establish that send/subscribe/close succeeded.\n")
                   .append("Fix: compose or observe the Future, then assert the resulting state or behavior.\n\n");
             }
+            case BLOCKING_EXEMPTION -> sb.append("Found ").append(violations.size())
+                  .append(" prohibited blocking-exempt tag(s) in test code.\n")
+                  .append("No test source may bypass the async and blocking-pattern guards.\n\n");
+        }
+    }
+
+    private static void scanBlockingExemption(Path file, List<Violation> violations) {
+        String content = readFile(file);
+        if (content == null) return;
+
+        Matcher matcher = BLOCKING_EXEMPT_TAG.matcher(content);
+        while (matcher.find()) {
+            violations.add(new Violation(file.toString(), lineOf(content, matcher.start()),
+                snippet(content, matcher.start()), 5));
         }
     }
 
@@ -476,7 +490,6 @@ class OnSuccessExceptionSwallowingGuardTest {
     private static void scanOnSuccess(Path file, List<Violation> violations) {
         String content = readFile(file);
         if (content == null) return;
-        if (BLOCKING_EXEMPT_TAG.matcher(content).find()) return;
 
         String masked = maskNonCode(content);
         Matcher m = ON_SUCCESS_START.matcher(masked);
@@ -512,7 +525,6 @@ class OnSuccessExceptionSwallowingGuardTest {
     private static void scanAwait(Path file, List<Violation> violations) {
         String content = readFile(file);
         if (content == null) return;
-        if (BLOCKING_EXEMPT_TAG.matcher(content).find()) return;
 
         String masked = maskNonCode(content);
         Matcher m = AWAIT_CALL.matcher(masked);
@@ -549,7 +561,6 @@ class OnSuccessExceptionSwallowingGuardTest {
     private static void scanSleep(Path file, List<Violation> violations) {
         String content = readFile(file);
         if (content == null) return;
-        if (BLOCKING_EXEMPT_TAG.matcher(content).find()) return;
 
         String masked = maskNonCode(content);
 
@@ -573,7 +584,6 @@ class OnSuccessExceptionSwallowingGuardTest {
     private static void scanOnComplete(Path file, List<Violation> violations) {
         String content = readFile(file);
         if (content == null) return;
-        if (BLOCKING_EXEMPT_TAG.matcher(content).find()) return;
 
         String masked = maskNonCode(content);
         Matcher m = ON_COMPLETE_START.matcher(masked);
@@ -628,7 +638,6 @@ class OnSuccessExceptionSwallowingGuardTest {
     private static void scanDiscardedFuture(Path file, List<Violation> violations) {
         String content = readFile(file);
         if (content == null) return;
-        if (BLOCKING_EXEMPT_TAG.matcher(content).find()) return;
 
         String masked = maskNonCode(content);
         Matcher m = STOP_OR_CLOSE_CALL.matcher(masked);
@@ -680,7 +689,6 @@ class OnSuccessExceptionSwallowingGuardTest {
     private static void scanAssertedOnlyAsyncOperation(Path file, List<Violation> violations) {
         String content = readFile(file);
         if (content == null) return;
-        if (BLOCKING_EXEMPT_TAG.matcher(content).find()) return;
 
         String masked = maskNonCode(content);
         Matcher matcher = ASSERT_NOT_NULL_ASYNC_OPERATION.matcher(masked);
@@ -697,7 +705,6 @@ class OnSuccessExceptionSwallowingGuardTest {
     private static void scanDiscardedSubscribeFuture(Path file, List<Violation> violations) {
         String content = readFile(file);
         if (content == null) return;
-        if (BLOCKING_EXEMPT_TAG.matcher(content).find()) return;
 
         String masked = maskNonCode(content);
         Matcher matcher = SUBSCRIBE_CALL.matcher(masked);
@@ -867,33 +874,6 @@ class OnSuccessExceptionSwallowingGuardTest {
                          .forEach(p -> {
                              List<Violation> fv = new ArrayList<>();
                              scanAwait(p, fv);
-                             if (!fv.isEmpty()) {
-                                 String rel = workspaceRoot.relativize(p).toString().replace('\\', '/');
-                                 result.put(rel, fv.size());
-                             }
-                         });
-                }
-            }
-        }
-        return result;
-    }
-
-    private static Map<String, Integer> scanSleepPerFile(Path workspaceRoot) throws IOException {
-        Map<String, Integer> result = new TreeMap<>();
-        try (Stream<Path> modules = Files.list(workspaceRoot)) {
-            List<Path> testRoots = modules
-                    .filter(Files::isDirectory)
-                    .filter(p -> p.getFileName().toString().startsWith("peegeeq-"))
-                    .map(p -> p.resolve("src").resolve("test").resolve("java"))
-                    .filter(Files::isDirectory)
-                    .toList();
-            for (Path testRoot : testRoots) {
-                try (Stream<Path> files = Files.walk(testRoot)) {
-                    files.filter(Files::isRegularFile)
-                         .filter(p -> p.getFileName().toString().endsWith(".java"))
-                         .forEach(p -> {
-                             List<Violation> fv = new ArrayList<>();
-                             scanSleep(p, fv);
                              if (!fv.isEmpty()) {
                                  String rel = workspaceRoot.relativize(p).toString().replace('\\', '/');
                                  result.put(rel, fv.size());

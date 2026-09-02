@@ -13,11 +13,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
 
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.LockSupport;
 import java.util.function.Predicate;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -27,18 +29,12 @@ import static org.junit.jupiter.api.Assertions.*;
  * Validates state transitions, recovery success rates, and proper behavior under various failure patterns.
  */
 @Tag(TestCategories.CORE)
-// BLOCKING-EXEMPT: LockSupport.parkNanos IS the test stimulus  it advances simulated
-// time past the circuit-breaker's reset timeout threshold to drive the state-machine
-// through the half-open  closed recovery transition. No reactive runtime is involved;
-// this is a time-based state-transition test (criterion 2: time-based state transition
-// in a non-reactive component).
-@Tag("blocking-exempt")
 public class CircuitBreakerRecoveryTest {
     private static final Logger logger = LoggerFactory.getLogger(CircuitBreakerRecoveryTest.class);
     
     @Test
     @DisplayName("ENHANCED: Circuit breaker complete recovery cycle")
-    void testCompleteRecoveryCycle() throws InterruptedException {
+    void testCompleteRecoveryCycle() {
         logger.info(" ENHANCED TEST: Complete circuit breaker recovery cycle");
         
         AtomicInteger filterCallCount = new AtomicInteger(0);
@@ -76,10 +72,12 @@ public class CircuitBreakerRecoveryTest {
             .circuitBreakerTimeout(Duration.ofMillis(200)) // Short timeout for testing
             .defaultStrategy(FilterErrorHandlingConfig.FilterErrorStrategy.REJECT_IMMEDIATELY)
             .build();
+        MutableClock clock = new MutableClock(Instant.parse("2026-01-01T00:00:00Z"));
         
         OutboxConsumerGroupMember<TestMessage> member = new OutboxConsumerGroupMember<>(
             "recovery-test", "recovery-group", "recovery-topic",
-            handler, recoveringFilter, null, config
+            handler, recoveringFilter, null, config,
+            OutboxConsumerGroupMember.DEFAULT_MAX_CONCURRENCY, null, clock
         );
         
         member.start();
@@ -134,9 +132,7 @@ public class CircuitBreakerRecoveryTest {
         logger.info(" SWITCHING TO RECOVERY PHASE");
         phase.set(2);
         
-        // Wait for circuit breaker timeout
-        logger.info(" Waiting for circuit breaker timeout...");
-        LockSupport.parkNanos(250_000_000L); // Wait longer than timeout
+        clock.advance(config.getCircuitBreakerTimeout());
         
         // Phase 2: Test recovery - should transition to HALF_OPEN
         logger.info(" PHASE 2: Testing recovery (should transition to HALF_OPEN)");
@@ -186,7 +182,7 @@ public class CircuitBreakerRecoveryTest {
     
     @Test
     @DisplayName("ENHANCED: Circuit breaker partial recovery failure")
-    void testPartialRecoveryFailure() throws InterruptedException {
+    void testPartialRecoveryFailure() {
         logger.info(" ENHANCED TEST: Circuit breaker partial recovery failure");
         
         AtomicInteger filterCallCount = new AtomicInteger(0);
@@ -233,10 +229,12 @@ public class CircuitBreakerRecoveryTest {
             .circuitBreakerTimeout(Duration.ofMillis(200))
             .defaultStrategy(FilterErrorHandlingConfig.FilterErrorStrategy.REJECT_IMMEDIATELY)
             .build();
+        MutableClock clock = new MutableClock(Instant.parse("2026-01-01T00:00:00Z"));
         
         OutboxConsumerGroupMember<TestMessage> member = new OutboxConsumerGroupMember<>(
             "partial-recovery-test", "partial-recovery-group", "partial-recovery-topic",
-            handler, partialRecoveryFilter, null, config
+            handler, partialRecoveryFilter, null, config,
+            OutboxConsumerGroupMember.DEFAULT_MAX_CONCURRENCY, null, clock
         );
         
         member.start();
@@ -273,7 +271,7 @@ public class CircuitBreakerRecoveryTest {
 
         // Switch to partial recovery phase
         phase.set(2);
-        LockSupport.parkNanos(250_000_000L); // Wait for timeout
+        clock.advance(config.getCircuitBreakerTimeout());
 
         // Phase 2: Attempt recovery that will fail.
         // In HALF_OPEN state, allowRequest() returns true so the filter IS called.
@@ -302,7 +300,7 @@ public class CircuitBreakerRecoveryTest {
         
         // Switch to full recovery phase
         phase.set(3);
-        LockSupport.parkNanos(250_000_000L); // Wait for timeout again
+        clock.advance(config.getCircuitBreakerTimeout());
         
         // Phase 3: Successful recovery
         logger.info(" PHASE 3: Attempting full recovery (should succeed)");
@@ -325,6 +323,33 @@ public class CircuitBreakerRecoveryTest {
         
         member.close();
         logger.info("ENHANCED PARTIAL RECOVERY TEST PASSED");
+    }
+
+    private static final class MutableClock extends Clock {
+        private Instant currentInstant;
+
+        private MutableClock(Instant currentInstant) {
+            this.currentInstant = currentInstant;
+        }
+
+        private void advance(Duration duration) {
+            currentInstant = currentInstant.plus(duration);
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneId.of("UTC");
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return Clock.fixed(currentInstant, zone);
+        }
+
+        @Override
+        public Instant instant() {
+            return currentInstant;
+        }
     }
     
     // Test message class
