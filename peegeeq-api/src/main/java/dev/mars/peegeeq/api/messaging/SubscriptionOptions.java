@@ -23,6 +23,10 @@ public class SubscriptionOptions {
     private final int heartbeatTimeoutSeconds;
     private final int deadAfterMisses;
     private final BackfillScope backfillScope;
+    private final boolean durableEnabled;
+    private final String subscriptionName;
+    private final String consumerId;
+    private final int replayBatchSize;
     
     private SubscriptionOptions(Builder builder) {
         this.startPosition = builder.startPosition;
@@ -32,6 +36,10 @@ public class SubscriptionOptions {
         this.heartbeatTimeoutSeconds = builder.heartbeatTimeoutSeconds;
         this.deadAfterMisses = builder.deadAfterMisses;
         this.backfillScope = builder.backfillScope;
+        this.durableEnabled = builder.durableEnabled;
+        this.subscriptionName = builder.subscriptionName;
+        this.consumerId = builder.consumerId;
+        this.replayBatchSize = builder.replayBatchSize;
         
         // Validation
         if (startPosition == StartPosition.FROM_MESSAGE_ID && startFromMessageId == null) {
@@ -43,6 +51,10 @@ public class SubscriptionOptions {
         // heartbeatIntervalSeconds is guaranteed positive by Builder
         if (heartbeatTimeoutSeconds <= heartbeatIntervalSeconds) {
             throw new IllegalArgumentException("heartbeatTimeoutSeconds must be greater than heartbeatIntervalSeconds");
+        }
+        if (durableEnabled && (subscriptionName == null || subscriptionName.isBlank())) {
+            throw new IllegalArgumentException(
+                "subscriptionName must be provided when durableEnabled is true");
         }
     }
     
@@ -72,6 +84,22 @@ public class SubscriptionOptions {
 
     public BackfillScope getBackfillScope() {
         return backfillScope;
+    }
+
+    public boolean isDurableEnabled() {
+        return durableEnabled;
+    }
+
+    public String getSubscriptionName() {
+        return subscriptionName;
+    }
+
+    public String getConsumerId() {
+        return consumerId;
+    }
+
+    public int getReplayBatchSize() {
+        return replayBatchSize;
     }
     
     /**
@@ -125,16 +153,22 @@ public class SubscriptionOptions {
         return heartbeatIntervalSeconds == that.heartbeatIntervalSeconds &&
                heartbeatTimeoutSeconds == that.heartbeatTimeoutSeconds &&
                deadAfterMisses == that.deadAfterMisses &&
+               durableEnabled == that.durableEnabled &&
+               replayBatchSize == that.replayBatchSize &&
                startPosition == that.startPosition &&
                backfillScope == that.backfillScope &&
                Objects.equals(startFromMessageId, that.startFromMessageId) &&
-                             Objects.equals(startFromTimestamp, that.startFromTimestamp);
+               Objects.equals(startFromTimestamp, that.startFromTimestamp) &&
+               Objects.equals(subscriptionName, that.subscriptionName) &&
+               Objects.equals(consumerId, that.consumerId);
     }
     
     @Override
     public int hashCode() {
         return Objects.hash(startPosition, startFromMessageId, startFromTimestamp,
-                          heartbeatIntervalSeconds, heartbeatTimeoutSeconds, deadAfterMisses, backfillScope);
+                          heartbeatIntervalSeconds, heartbeatTimeoutSeconds, deadAfterMisses,
+                          backfillScope, durableEnabled, subscriptionName, consumerId,
+                          replayBatchSize);
     }
     
     @Override
@@ -147,6 +181,10 @@ public class SubscriptionOptions {
                ", heartbeatTimeoutSeconds=" + heartbeatTimeoutSeconds +
                ", deadAfterMisses=" + deadAfterMisses +
                ", backfillScope=" + backfillScope +
+               ", durableEnabled=" + durableEnabled +
+               ", subscriptionName=" + subscriptionName +
+               ", consumerId=" + consumerId +
+               ", replayBatchSize=" + replayBatchSize +
                '}';
     }
     
@@ -161,6 +199,10 @@ public class SubscriptionOptions {
         private int heartbeatTimeoutSeconds = 300;  // Default: 5 minutes
         private int deadAfterMisses = 3;             // Default: 3 consecutive misses
         private BackfillScope backfillScope = BackfillScope.PENDING_ONLY;
+        private boolean durableEnabled;
+        private String subscriptionName;
+        private String consumerId;
+        private int replayBatchSize = 500;
         
         /**
          * Sets the start position for the subscription.
@@ -249,6 +291,56 @@ public class SubscriptionOptions {
          */
         public Builder backfillScope(BackfillScope backfillScope) {
             this.backfillScope = Objects.requireNonNull(backfillScope, "backfillScope cannot be null");
+            return this;
+        }
+
+        /**
+         * Enables persistence and replay for this subscription.
+         *
+         * @param enabled whether durable delivery is enabled
+         * @return This builder
+         */
+        public Builder durableEnabled(boolean enabled) {
+            this.durableEnabled = enabled;
+            return this;
+        }
+
+        /**
+         * Sets the stable subscription name used as part of the durable identity.
+         *
+         * @param name stable subscription name
+         * @return This builder
+         */
+        public Builder subscriptionName(String name) {
+            this.subscriptionName = name;
+            return this;
+        }
+
+        /**
+         * Sets the identifier of the consumer instance currently attaching a handler.
+         *
+         * @param id consumer instance identifier, or null when not applicable
+         * @return This builder
+         */
+        public Builder consumerId(String id) {
+            if (id != null && id.isBlank()) {
+                throw new IllegalArgumentException("consumerId must not be blank");
+            }
+            this.consumerId = id;
+            return this;
+        }
+
+        /**
+         * Sets the maximum number of historical events fetched per replay query.
+         *
+         * @param size positive replay batch size
+         * @return This builder
+         */
+        public Builder replayBatchSize(int size) {
+            if (size <= 0) {
+                throw new IllegalArgumentException("replayBatchSize must be positive");
+            }
+            this.replayBatchSize = size;
             return this;
         }
         
