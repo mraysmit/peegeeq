@@ -145,9 +145,13 @@ services:
       DB_NAME:                peegeeq_dev
       DB_USER:                peegeeq_dev
       DB_PASSWORD:            peegeeq_dev
+      AUTH_TYPE:              scram-sha-256
       POOL_MODE:              session
       MAX_CLIENT_CONN:        200
       DEFAULT_POOL_SIZE:      20
+      # The Vert.x client sends search_path at startup. The pinned image exposes
+      # ignore_startup_parameters, while PeeGeeQ reapplies the value per transaction.
+      IGNORE_STARTUP_PARAMETERS: extra_float_digits,search_path
       SERVER_IDLE_TIMEOUT:    "60"
       SERVER_CONNECT_TIMEOUT: "10"
       SERVER_LOGIN_RETRY:     "5"
@@ -155,8 +159,8 @@ services:
       - haproxy
 
   # Start with --profile transaction-pool to validate higher-throughput pooling.
-  # PeeGeeQ reapplies search_path as transaction-local state; PgBouncer must also
-  # accept the startup parameter and discard all untracked session state.
+  # PeeGeeQ reapplies search_path as transaction-local state. PgBouncer ignores
+  # the client startup value so transaction pooling can accept the connection.
   pgbouncer-transaction:
     image: edoburu/pgbouncer:v1.25.2-p0
     container_name: peegeeq-pgbouncer-transaction
@@ -172,11 +176,12 @@ services:
       DB_NAME:                  peegeeq_dev
       DB_USER:                  peegeeq_dev
       DB_PASSWORD:              peegeeq_dev
+      AUTH_TYPE:                scram-sha-256
       POOL_MODE:                transaction
       MAX_CLIENT_CONN:          200
       DEFAULT_POOL_SIZE:        20
       MAX_PREPARED_STATEMENTS:  32
-      TRACK_EXTRA_PARAMETERS:   search_path
+      IGNORE_STARTUP_PARAMETERS: extra_float_digits,search_path
       SERVER_RESET_QUERY:       DISCARD ALL
       SERVER_RESET_QUERY_ALWAYS: "1"
     depends_on:
