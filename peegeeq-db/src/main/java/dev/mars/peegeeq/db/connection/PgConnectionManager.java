@@ -36,6 +36,7 @@ import io.vertx.pgclient.PgNotice;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.PoolOptions;
 import io.vertx.sqlclient.SqlConnection;
+import io.vertx.sqlclient.Tuple;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -238,6 +239,8 @@ public class PgConnectionManager {
 
     /**
      * Executes an operation within a transaction.
+     * Reapplies the configured schema as transaction-local state so transaction
+     * poolers can safely multiplex server connections between tenant clients.
      *
      * @param serviceId The service ID, or null/blank for the default pool
      */
@@ -249,8 +252,22 @@ public class PgConnectionManager {
         }
         return executeWithPoolCircuitBreaker(resolvedId, ignored -> pool.withTransaction(conn -> {
             setupNoticeHandler(conn);
-            return operation.apply(conn);
+            return applyTransactionSearchPath(resolvedId, conn)
+                .compose(applied -> operation.apply(conn));
         }));
+    }
+
+    private Future<Void> applyTransactionSearchPath(
+            String serviceId, SqlConnection connection) {
+        String searchPath = serviceSchemas.get(serviceId);
+        if (searchPath == null || searchPath.isBlank()) {
+            return Future.failedFuture(
+                new IllegalStateException("No schema configured for service: " + serviceId));
+        }
+        return connection.preparedQuery(
+                "SELECT set_config('search_path', $1, true)")
+            .execute(Tuple.of(searchPath))
+            .mapEmpty();
     }
 
     /**

@@ -2,7 +2,8 @@
 
 **Status:** ACTIVE
 **Last reconciled:** 2026-09-02
-**Repository revision reviewed:** `6d652f7f` plus the completed Tier-5 Task 2 worktree remediation
+**Repository revision reviewed:** `6d652f7f` plus the completed Tier-5 Task 2, resilience
+Task 3, and durable-subscription Task 4.1 worktree remediations
 **Latest full release gate:** Jenkins build #36 at `e8d07e53`
 
 This is the **only live task register** under `docs-design`. Do not derive current work from
@@ -69,6 +70,16 @@ Later focused worktree verification, not yet represented by a newer full Jenkins
   because the independent secondary did not contain the primary's durable marker. The final real
   `pg_basebackup` primary/standby contract passed 1/1 after explicit primary fencing and standby
   promotion, and the unchanged independent-node HAProxy regression passed 6/6.
+- PgBouncer transaction pooling Task 3.4: strict TDD first failed 1/1 because PgBouncer rejected
+  the `search_path` startup parameter, then failed with PostgreSQL `42P01` after PgBouncer accepted
+  but could not restore that parameter on a multiplexed backend. The final real PgBouncer contract
+  passed 1/1 with one backend PID shared across four alternating tenant transactions. Connection-
+  manager regressions passed 22/22, schema regressions passed 9/9, the pool circuit-breaker
+  regression passed 1/1, and the four-module reactor slice built cleanly.
+- Durable subscriptions Task 4.1: strict TDD compilation failed on the absent durable options and
+  bitemporal metadata model. The final API scope passed 34/34: `SubscriptionOptionsDurableTest`
+  6/6, `BiTemporalSubscriptionInfoTest` 2/2, and the existing `SubscriptionOptionsValidationTest`
+  26/26. The six-module bitemporal dependency slice compiled cleanly and async guards passed 9/9.
 
 A green gate proves that the selected implementation and tests passed. It does not prove that
 an unimplemented proposal exists or replace explicitly planned load, chaos, or failover gates.
@@ -168,7 +179,7 @@ Tier 4 and Tier 7 remain complete. Do not reopen them unless a current scan find
 ### 3. PostgreSQL/HAProxy resilience gaps
 
 **Priority:** Medium
-**Status:** PARTIAL — 3.1 through 3.3 complete; 3.4 is next
+**Status:** COMPLETE — 2026-09-02
 **Current evidence:** `HaProxyConnectionFailoverTest` proves pool connection failover between
 independent PostgreSQL instances. `HaProxyNotificationFailoverIntegrationTest` now proves the
 configured endpoint is shared by pooled and dedicated LISTEN connections, and that both recover
@@ -176,7 +187,8 @@ through HAProxy after primary loss. `PgPoolCircuitBreakerIntegrationTest` proves
 opening, structured rejection, isolation, and recovery against a stopped and replacement
 PostgreSQL node through a fixed HAProxy endpoint. `HaProxyStreamingReplicationFailoverTest`
 proves committed-data continuity and post-promotion writes through the same HAProxy endpoint.
-Task 3.4 remains open.
+`PgBouncerTransactionModeTest` proves transaction-local tenant schema selection and session-state
+reset while two logical clients multiplex one PgBouncer backend connection.
 
 #### 3.1 Route LISTEN/NOTIFY through the proxy — COMPLETE 2026-09-02
 
@@ -226,22 +238,40 @@ Task 3.4 remains open.
   `42P01` because the failover node did not contain the table. GREEN: the streaming-replication
   contract passed 1/1 after a clean four-module reactor build.
 
-#### 3.4 Validate PgBouncer transaction mode — NEXT
+#### 3.4 Validate PgBouncer transaction mode — COMPLETE 2026-09-02
 
-- Run PgBouncer in transaction mode with an explicit reset strategy.
-- Send/consume across multiple transactions and prove tenant `search_path` isolation survives
-  multiplexed server connections.
-- Keep this test independent of the HAProxy production-code phases.
+- A real PgBouncer transaction-pooling contract uses two logical clients with the same database
+  user and distinct tenant schemas. Four alternating send/consume transactions reuse exactly one
+  PostgreSQL backend PID and retain the expected schema and payload isolation.
+- PgBouncer explicitly accepts `search_path`, enables protocol-level prepared statements, and
+  runs `DISCARD ALL` after every server release. The test also proves an unrelated custom session
+  GUC does not leak to the next logical client.
+- `PgConnectionManager.withTransaction` reapplies the registered service schema with parameterized
+  transaction-local `set_config`. This is required because accepting the startup parameter alone
+  did not restore `search_path` on a reused vanilla PostgreSQL backend.
+- The failover-local compose stack retains session pooling on port 6432 and adds an opt-in
+  `transaction-pool` profile on port 6433 with the verified reset and parameter-tracking settings.
+- Strict TDD RED: PgBouncer first rejected `search_path` with `08P01`; configuration-only
+  acceptance then exposed missing schema state with PostgreSQL `42P01`. GREEN: the dedicated
+  contract passed 1/1 after a clean four-module reactor build. Focused regressions passed
+  `PgConnectionManagerCoreTest` 22/22, `PgConnectionManagerSchemaIntegrationTest` 9/9, and
+  `PgPoolCircuitBreakerIntegrationTest` 1/1.
 
 ### 4. Durable subscriptions runtime
 
 **Priority:** Medium
-**Status:** PARTIAL — schema only
+**Status:** PARTIAL — schema and public API complete; persistence is next
 
 Remaining implementation:
 
-1. Define the public durable-subscription API and service lifecycle.
-2. Persist and advance the replay cursor transactionally.
+1. **COMPLETE — 2026-09-02.** Defined the separate `BiTemporalSubscriptionService` lifecycle API,
+   shared `DurableSubscriptionCoordinator` cursor contract, and immutable
+   `BiTemporalSubscriptionInfo` metadata view. `SubscriptionOptions` now supports opt-in durability,
+   stable subscription and consumer identity, and a positive bounded replay batch size while
+   preserving non-durable defaults. This phase defines contracts only; it does not claim a runtime
+   implementation or database behavior.
+2. **NEXT.** Implement the bitemporal service and supported factory access path, then persist and
+   advance its replay cursor transactionally against the existing tenant-local schema.
 3. Implement bounded historical catch-up.
 4. Implement a lossless catch-up-to-live handoff.
 5. Add lease/ownership and recovery semantics for competing instances.
@@ -307,6 +337,8 @@ These are explicit owner/release runs, not automatic requirements after every co
 | HAProxy LISTEN/NOTIFY routing | Task 3.1 complete: canonical optional proxy endpoint shared by pool and listener, bounded reconnect retries repaired, and real HAProxy failover contract green 1/1 |
 | Pool-operation circuit breaking | Task 3.2 complete: canonical per-pool breakers guard connection/transaction Futures, preserve original failures, and recover through a real HAProxy/PostgreSQL outage contract 1/1 |
 | Streaming-replication failover | Task 3.3 complete: real physical standby retained a committed marker across explicit primary fencing/promotion and accepted a post-promotion write through HAProxy; green 1/1 |
+| PgBouncer transaction pooling | Task 3.4 complete: tenant schema state is applied transaction-locally, session state is reset, and two logical clients safely multiplexed one real backend connection across four transactions; green 1/1 |
+| Durable subscription public API | Task 4.1 complete: opt-in durable options, bitemporal lifecycle and metadata contracts, and the shared cursor coordinator surface are defined; focused API scope green 34/34 |
 
 ## Archived Supporting Records
 

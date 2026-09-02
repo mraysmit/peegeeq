@@ -10,7 +10,7 @@ version: '3.8'
 #   Application (PeeGeeQ)
 #       │  connects to PgBouncer:6432
 #       ▼
-#   PgBouncer  (connection pooling)
+#   PgBouncer  (session pooling on :6432; optional transaction pooling on :6433)
 #       │  proxies to HAProxy:5400
 #       ▼
 #   HAProxy    (TCP load-balancer with active health-checks)
@@ -131,28 +131,54 @@ services:
   # provides transparent reconnection when the backend (HAProxy) resets
   # connections during failover.
   pgbouncer:
-    image: bitnami/pgbouncer:1.22.0
+    image: edoburu/pgbouncer:v1.25.2-p0
     container_name: peegeeq-pgbouncer
     networks:
       - peegeeq-ha
     ports:
-      - "6432:6432"
+      - "6432:5432"
     environment:
       # PgBouncer connects to HAProxy, not directly to PostgreSQL.
       # HAProxy handles the primary/secondary routing transparently.
-      POSTGRESQL_HOST:             haproxy
-      POSTGRESQL_PORT:             "5400"
-      POSTGRESQL_DATABASE:         peegeeq_dev
-      POSTGRESQL_USERNAME:         peegeeq_dev
-      POSTGRESQL_PASSWORD:         peegeeq_dev
-      PGBOUNCER_PORT:              "6432"
-      PGBOUNCER_POOL_MODE:         session
-      PGBOUNCER_MAX_CLIENT_CONN:   200
-      PGBOUNCER_DEFAULT_POOL_SIZE: 20
-      PGBOUNCER_SERVER_IDLE_TIMEOUT: "60"
-      PGBOUNCER_SERVER_CONNECT_TIMEOUT: "10"
-      PGBOUNCER_SERVER_LOGIN_RETRY: "5"
-      PGBOUNCER_AUTH_TYPE:         trust
+      DB_HOST:                haproxy
+      DB_PORT:                "5400"
+      DB_NAME:                peegeeq_dev
+      DB_USER:                peegeeq_dev
+      DB_PASSWORD:            peegeeq_dev
+      POOL_MODE:              session
+      MAX_CLIENT_CONN:        200
+      DEFAULT_POOL_SIZE:      20
+      SERVER_IDLE_TIMEOUT:    "60"
+      SERVER_CONNECT_TIMEOUT: "10"
+      SERVER_LOGIN_RETRY:     "5"
+    depends_on:
+      - haproxy
+
+  # Start with --profile transaction-pool to validate higher-throughput pooling.
+  # PeeGeeQ reapplies search_path as transaction-local state; PgBouncer must also
+  # accept the startup parameter and discard all untracked session state.
+  pgbouncer-transaction:
+    image: edoburu/pgbouncer:v1.25.2-p0
+    container_name: peegeeq-pgbouncer-transaction
+    profiles:
+      - transaction-pool
+    networks:
+      - peegeeq-ha
+    ports:
+      - "6433:5432"
+    environment:
+      DB_HOST:                  haproxy
+      DB_PORT:                  "5400"
+      DB_NAME:                  peegeeq_dev
+      DB_USER:                  peegeeq_dev
+      DB_PASSWORD:              peegeeq_dev
+      POOL_MODE:                transaction
+      MAX_CLIENT_CONN:          200
+      DEFAULT_POOL_SIZE:        20
+      MAX_PREPARED_STATEMENTS:  32
+      TRACK_EXTRA_PARAMETERS:   search_path
+      SERVER_RESET_QUERY:       DISCARD ALL
+      SERVER_RESET_QUERY_ALWAYS: "1"
     depends_on:
       - haproxy
 
