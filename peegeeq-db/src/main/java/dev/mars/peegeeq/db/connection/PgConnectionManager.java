@@ -221,20 +221,18 @@ public class PgConnectionManager {
     }
 
     /**
-     * Executes an operation with a pooled connection.
+     * Executes a read operation with a pooled connection.
+     *
+     * <p>The operation is bracketed by a short transaction so the configured
+     * schema can be applied as transaction-local state. This is required when
+     * PgBouncer uses transaction pooling because a client cannot rely on
+     * connection startup parameters or session state remaining on one backend.
+     * Write operations must use {@link #withTransaction(String, Function)}.
      *
      * @param serviceId The service ID, or null/blank for the default pool
      */
     public <T> Future<T> withConnection(String serviceId, Function<SqlConnection, Future<T>> operation) {
-        String resolvedId = resolveServiceId(serviceId);
-        Pool pool = reactivePools.get(resolvedId);
-        if (pool == null) {
-            return Future.failedFuture(new IllegalStateException("No reactive pool found for service: " + resolvedId));
-        }
-        return executeWithPoolCircuitBreaker(resolvedId, ignored -> pool.withConnection(conn -> {
-            setupNoticeHandler(conn);
-            return operation.apply(conn);
-        }));
+        return withTransaction(serviceId, operation);
     }
 
     /**
