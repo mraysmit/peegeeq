@@ -314,6 +314,10 @@ public class ReactiveNotificationHandler<T> {
      * @return Future that completes when the handler is started
      */
     public Future<Void> start() {
+        return start(true);
+    }
+
+    private Future<Void> start(boolean explicitStart) {
         if (active) {
             return Future.succeededFuture();
         }
@@ -336,8 +340,14 @@ public class ReactiveNotificationHandler<T> {
                 return startInProgress;
             }
 
-            // Start can be called after a previous stop(); re-enable reconnect behavior.
-            this.shutdown = false;
+            if (!explicitStart && shutdown) {
+                return Future.failedFuture(
+                        new IllegalStateException("Notification handler stopped before reconnect"));
+            }
+            if (explicitStart) {
+                // An explicit start can restart a previously stopped handler.
+                this.shutdown = false;
+            }
             logger.info("Starting reactive notification handler for bi-temporal events");
 
             promise = Promise.promise();
@@ -352,9 +362,14 @@ public class ReactiveNotificationHandler<T> {
                     }
 
                     if (shutdown) {
-                        conn.closeHandler(null);
-                        conn.close();
-                        promise.fail(new IllegalStateException("Notification handler was stopped during startup"));
+                        IllegalStateException stopped = new IllegalStateException(
+                                "Notification handler was stopped during startup");
+                        closeListenConnection(conn)
+                                .onSuccess(v -> promise.fail(stopped))
+                                .onFailure(closeError -> {
+                                    stopped.addSuppressed(closeError);
+                                    promise.fail(stopped);
+                                });
                         return;
                     }
 
@@ -379,47 +394,7 @@ public class ReactiveNotificationHandler<T> {
                         logger.warn("Reactive LISTEN connection closed, attempting reconnection");
                         this.listenConnection = null;
                         this.active = false;
-
-                        // Only attempt reconnection if not shutting down and within retry limits.
-                        // Note: get-then-increment is not strictly atomic, but this handler runs
-                        // on the Vert.x event loop (single-threaded context) so TOCTOU is safe.
-                        if (!shutdown && reconnectAttempts.get() < MAX_RECONNECT_ATTEMPTS) {
-                            int attempt = reconnectAttempts.incrementAndGet();
-                            long delay = BASE_RECONNECT_DELAY * (1L << Math.min(attempt - 1, 5)); // Exponential
-                                                                                                            // backoff,
-                                                                                                            // max 32
-                                                                                                            // seconds
-
-                            logger.info("Attempting to reconnect reactive notification handler (attempt {}/{})",
-                                    attempt, MAX_RECONNECT_ATTEMPTS);
-
-                            vertx.setTimer(delay, timerId -> {
-                                if (!shutdown && !active) {
-                                    start().onSuccess(result -> {
-                                        // Reset retry counter on successful reconnection
-                                        reconnectAttempts.set(0);
-                                        logger.info("Successfully reconnected reactive notification handler");
-                                    }).onFailure(error -> {
-                                        logger.error(
-                                                "Failed to reconnect reactive notification handler (attempt {}/{}): {}",
-                                                reconnectAttempts.get(), MAX_RECONNECT_ATTEMPTS, error.getMessage());
-
-                                        // If we've exhausted all retry attempts, log final failure
-                                        if (reconnectAttempts.get() >= MAX_RECONNECT_ATTEMPTS) {
-                                            logger.error(
-                                                    "Exhausted all reconnection attempts ({}/{}). Reactive notifications will not be available until manual restart.",
-                                                    reconnectAttempts.get(), MAX_RECONNECT_ATTEMPTS);
-                                        }
-                                    });
-                                }
-                            });
-                        } else if (shutdown) {
-                            logger.debug("Skipping reconnection attempt - handler is shutting down");
-                        } else {
-                            logger.warn(
-                                    "Exhausted all reconnection attempts ({}/{}). Reactive notifications will not be available.",
-                                    reconnectAttempts.get(), MAX_RECONNECT_ATTEMPTS);
-                        }
+                        scheduleReconnect();
                     });
 
                     replayListenChannelsForExistingSubscriptions()
@@ -429,24 +404,73 @@ public class ReactiveNotificationHandler<T> {
                                 promise.complete();
                             })
                             .onFailure(error -> {
-                                logger.error("Failed to re-establish LISTEN channels after connect: {}",
+                                logger.warn("Failed to re-establish LISTEN channels after connect: {}",
                                         error.getMessage(), error);
                                 this.listenConnection = null;
                                 this.active = false;
-                                conn.closeHandler(null);
-                                conn.close();
-                                promise.fail(error);
+                                closeListenConnection(conn)
+                                        .onSuccess(v -> promise.fail(error))
+                                        .onFailure(closeError -> {
+                                            if (closeError != error) {
+                                                error.addSuppressed(closeError);
+                                            }
+                                            promise.fail(error);
+                                        });
                             });
                 })
                 .onFailure(error -> {
                     synchronized (this) {
                         startInProgress = null;
                     }
-                    logger.error("Failed to establish reactive LISTEN connection: {}", error.getMessage());
+                    logger.warn("Failed to establish reactive LISTEN connection: {}", error.getMessage());
                     promise.fail(error);
                 });
 
         return promise.future();
+    }
+
+    private void scheduleReconnect() {
+        if (shutdown) {
+            logger.debug("Skipping reconnection attempt - handler is shutting down");
+            return;
+        }
+        if (active) {
+            return;
+        }
+        if (reconnectAttempts.intValue() >= MAX_RECONNECT_ATTEMPTS) {
+            logger.error(
+                    "Exhausted all reconnection attempts ({}/{}). Reactive notifications will not be available until manual restart.",
+                    reconnectAttempts.intValue(), MAX_RECONNECT_ATTEMPTS);
+            return;
+        }
+
+        int attempt = reconnectAttempts.incrementAndGet();
+        long delay = BASE_RECONNECT_DELAY * (1L << Math.min(attempt - 1, 5));
+        logger.info("Attempting to reconnect reactive notification handler (attempt {}/{})",
+                attempt, MAX_RECONNECT_ATTEMPTS);
+
+        vertx.timer(delay)
+                .compose(timerId -> {
+                    if (shutdown || active) {
+                        return Future.succeededFuture();
+                    }
+                    return start(false);
+                })
+                .onSuccess(result -> {
+                    if (active) {
+                        reconnectAttempts.set(0);
+                        logger.info("Successfully reconnected reactive notification handler");
+                    }
+                })
+                .onFailure(error -> {
+                    if (shutdown) {
+                        logger.debug("Reconnect attempt ended while handler was shutting down");
+                        return;
+                    }
+                    logger.warn("Failed to reconnect reactive notification handler (attempt {}/{}): {}",
+                            reconnectAttempts.intValue(), MAX_RECONNECT_ATTEMPTS, error.getMessage());
+                    scheduleReconnect();
+                });
     }
 
     private Future<Void> replayListenChannelsForExistingSubscriptions() {

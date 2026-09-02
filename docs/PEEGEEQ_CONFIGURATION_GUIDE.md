@@ -53,6 +53,7 @@ hyphenated segments:
 
 ```text
 PEEGEEQ_DATABASE_HOST                 -> peegeeq.database.host
+PEEGEEQ_DATABASE_PROXY_HOST           -> peegeeq.database.proxy.host
 PEEGEEQ_DATABASE_POOL_MAX_SIZE        -> peegeeq.database.pool.max-size
 PEEGEEQ_CIRCUIT_BREAKER_ENABLED       -> peegeeq.circuit-breaker.enabled
 ```
@@ -98,6 +99,8 @@ queue-prefetch, or invented outbox property namespace.
 |---|---|---|---|
 | `peegeeq.database.host` | OK | `PeeGeeQConfiguration -> PgConnectionConfig -> PgConnectionManager` | configuration/database integration tests |
 | `peegeeq.database.port` | OK | same connection path | configuration/database integration tests |
+| `peegeeq.database.proxy.host` | OK | optional effective endpoint for pooled and dedicated LISTEN/NOTIFY connections | configuration contract and HAProxy notification failover test |
+| `peegeeq.database.proxy.port` | OK | optional effective endpoint for pooled and dedicated LISTEN/NOTIFY connections | configuration contract and HAProxy notification failover test |
 | `peegeeq.database.name` | OK | same connection path | configuration/database integration tests |
 | `peegeeq.database.username` | OK | same connection path | configuration/database integration tests |
 | `peegeeq.database.password` | OK | same connection path | configuration/database integration tests |
@@ -118,6 +121,12 @@ queue-prefetch, or invented outbox property namespace.
 
 The EXTERNAL keys are not applied by `PeeGeeQManager` merely because they appear in a
 profile. Their named owners must receive the corresponding configuration object.
+
+The proxy host and port are optional and resolve independently. A blank proxy host inherits
+`peegeeq.database.host`; a blank proxy port inherits `peegeeq.database.port`. When either proxy
+value is nonblank, the resulting effective `PgConnectionConfig` is shared by the Vert.x pool
+and `PgDatabaseService.getConnectOptions()`, so long-lived LISTEN/NOTIFY connections use the
+same endpoint as ordinary database operations.
 
 ### Queue and background work
 
@@ -261,7 +270,7 @@ properties.
 Construction aggregates validation errors and throws `IllegalStateException`.
 
 - Database host, name, username, password, and schema are required; an empty password is
-  permitted with a warning. Port must be 1–65535.
+  permitted with a warning. Database and nonblank proxy ports must be 1–65535.
 - Pool connection timeout must be positive; idle timeout must be non-negative.
 - Queue retries must be non-negative; visibility must be at least one second; batch size must
   be 1–1000.
@@ -279,6 +288,9 @@ Construction aggregates validation errors and throws `IllegalStateException`.
 Properties overrides = new Properties();
 overrides.setProperty("peegeeq.database.host", host);
 overrides.setProperty("peegeeq.database.port", Integer.toString(port));
+// Optional: route both pooled and dedicated LISTEN/NOTIFY connections through a TCP proxy.
+overrides.setProperty("peegeeq.database.proxy.host", proxyHost);
+overrides.setProperty("peegeeq.database.proxy.port", Integer.toString(proxyPort));
 overrides.setProperty("peegeeq.database.name", database);
 overrides.setProperty("peegeeq.database.username", username);
 overrides.setProperty("peegeeq.database.password", password);

@@ -25,6 +25,7 @@ import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.metrics.MicrometerNoticeMetrics;
 import dev.mars.peegeeq.db.metrics.NoOpNoticeMetrics;
+import dev.mars.peegeeq.db.resilience.CircuitBreakerManager;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.sqlclient.Pool;
@@ -83,11 +84,24 @@ public class PgClientFactory {
      * Creates a new PgClientFactory with Vert.x, MeterRegistry, and notice handling configuration.
      */
     public PgClientFactory(Vertx vertx, MeterRegistry meter, NoticeHandlerConfig noticeConfig) {
+        this(vertx, meter, noticeConfig, null);
+    }
+
+    /**
+     * Creates a factory whose pooled operations use the supplied circuit-breaker registry.
+     * A null manager preserves the standalone factory's historical disabled behavior.
+     */
+    public PgClientFactory(
+            Vertx vertx,
+            MeterRegistry meter,
+            NoticeHandlerConfig noticeConfig,
+            CircuitBreakerManager circuitBreakerManager) {
         this(new PgConnectionManager(
             Objects.requireNonNull(vertx, "vertx"),
             meter,
             noticeConfig,
-            createNoticeMetrics(meter, noticeConfig)
+            createNoticeMetrics(meter, noticeConfig),
+            circuitBreakerManager
         ), meter);
     }
 

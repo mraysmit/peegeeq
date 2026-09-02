@@ -214,11 +214,17 @@ public class PeeGeeQManager {
             // Use a named pool so we can close it explicitly and avoid leaks
             this.workerExecutor = this.vertx.createSharedWorkerExecutor("peegeeq-worker-pool", 20);
 
-            // Initialize client factory with Vert.x support and notice handling
+            // One registry owns health-check and per-pool circuit breakers.
+            this.circuitBreakerManager = new CircuitBreakerManager(
+                configuration.getCircuitBreakerConfig(),
+                configuration.getMetricsConfig().isEnabled() ? meterRegistry : null);
+
+            // Initialize client factory with Vert.x support, notice handling, and pool breakers.
             this.clientFactory = new PgClientFactory(
                 this.vertx,
                 configuration.getMetricsConfig().isEnabled() ? this.meterRegistry : null,
-                configuration.getNoticeHandlerConfig());
+                configuration.getNoticeHandlerConfig(),
+                this.circuitBreakerManager);
 
             // Log and create the client to ensure configuration is stored in the factory
             var dbConfig = configuration.getDatabaseConfig();
@@ -239,10 +245,6 @@ public class PeeGeeQManager {
 
             // Initialize core components using the single pool reference
             this.metrics = new PeeGeeQMetrics(pool, configuration.getMetricsConfig().getInstanceId());
-
-            this.circuitBreakerManager = new CircuitBreakerManager(
-                configuration.getCircuitBreakerConfig(),
-                configuration.getMetricsConfig().isEnabled() ? meterRegistry : null);
 
             // Initialize health check manager with configuration
             PeeGeeQConfiguration.HealthCheckConfig healthCheckConfig = configuration.getHealthCheckConfig();
