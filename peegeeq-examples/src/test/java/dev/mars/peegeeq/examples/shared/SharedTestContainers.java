@@ -21,9 +21,8 @@ import java.util.concurrent.TimeUnit;
  * static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
  * ```
  *
- * NOTE: Exempt from blocking-thread guard via @Tag("blocking-exempt") marker  the
- * container-readiness polling loop below uses Thread.sleep intentionally as test
- * infrastructure (Testcontainers port-mapping retry), not as application logic.
+ * Container readiness uses a bounded latch wait on the calling test-infrastructure thread;
+ * it does not bypass the blocking-thread guard or run on a Vert.x event loop.
  */
 public class SharedTestContainers {
 
