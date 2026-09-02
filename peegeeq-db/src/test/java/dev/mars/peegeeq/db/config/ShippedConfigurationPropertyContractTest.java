@@ -33,6 +33,8 @@ class ShippedConfigurationPropertyContractTest {
     private static final Set<String> SHIPPABLE_PROPERTIES = Set.of(
         "peegeeq.database.host",
         "peegeeq.database.port",
+        "peegeeq.database.proxy.host",
+        "peegeeq.database.proxy.port",
         "peegeeq.database.name",
         "peegeeq.database.username",
         "peegeeq.database.password",

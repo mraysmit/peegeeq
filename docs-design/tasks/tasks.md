@@ -56,6 +56,19 @@ Later focused worktree verification, not yet represented by a newer full Jenkins
   event-loop test sleeps. The final 11-module reactor slice built cleanly;
   `CircuitBreakerRecoveryTest` passed 2/2, `VertxEventLoopBlockingJoinTest` passed 2/2, and
   `OnSuccessExceptionSwallowingGuardTest` passed all 8 checks with no blocking exemptions.
+- HAProxy Task 3.1: strict TDD first failed the proxy endpoint contracts and then exposed a
+  one-attempt-only LISTEN reconnect defect. The final six-module reactor slice built cleanly;
+  configuration suites passed 31/31, notification failure paths passed 8/8, the real two-node
+  HAProxy LISTEN/pool failover contract passed 1/1, and the workspace guard passed 8/8.
+- Pool circuit breaking Task 3.2: strict TDD first proved two real connection failures left the
+  breaker uncreated (`UNKNOWN`). The final four-module reactor slice built cleanly; the dedicated
+  PostgreSQL/HAProxy outage and replacement-node contract passed 1/1, `CircuitBreakerManagerTest`
+  passed 10/10, and the connection-manager, client-factory, and manager regression classes passed
+  73/73.
+- Streaming-replication failover Task 3.3: strict TDD first failed 1/1 with PostgreSQL `42P01`
+  because the independent secondary did not contain the primary's durable marker. The final real
+  `pg_basebackup` primary/standby contract passed 1/1 after explicit primary fencing and standby
+  promotion, and the unchanged independent-node HAProxy regression passed 6/6.
 
 A green gate proves that the selected implementation and tests passed. It does not prove that
 an unimplemented proposal exists or replace explicitly planned load, chaos, or failover gates.
@@ -155,38 +168,65 @@ Tier 4 and Tier 7 remain complete. Do not reopen them unless a current scan find
 ### 3. PostgreSQL/HAProxy resilience gaps
 
 **Priority:** Medium
-**Status:** OPEN
-**Current evidence:** the existing `HaProxyConnectionFailoverTest` proves connection-level
-failover between independent PostgreSQL instances. It does not prove the four capabilities below.
+**Status:** PARTIAL — 3.1 through 3.3 complete; 3.4 is next
+**Current evidence:** `HaProxyConnectionFailoverTest` proves pool connection failover between
+independent PostgreSQL instances. `HaProxyNotificationFailoverIntegrationTest` now proves the
+configured endpoint is shared by pooled and dedicated LISTEN connections, and that both recover
+through HAProxy after primary loss. `PgPoolCircuitBreakerIntegrationTest` proves per-pool breaker
+opening, structured rejection, isolation, and recovery against a stopped and replacement
+PostgreSQL node through a fixed HAProxy endpoint. `HaProxyStreamingReplicationFailoverTest`
+proves committed-data continuity and post-promotion writes through the same HAProxy endpoint.
+Task 3.4 remains open.
 
-#### 3.1 Route LISTEN/NOTIFY through the proxy
+#### 3.1 Route LISTEN/NOTIFY through the proxy — COMPLETE 2026-09-02
 
-- Define proxy host/port configuration whose unset default preserves direct PostgreSQL behavior.
-- Apply the proxy address consistently to pool connections and long-lived
-  `ReactiveNotificationHandler` connections.
-- Extend failover coverage: subscribe, stop primary, switch proxy, issue NOTIFY on secondary,
-  and prove delivery resumes.
+- Added canonical `peegeeq.database.proxy.host` and `.port` settings. Blank values independently
+  fall back to the direct database host and port; nonblank proxy ports are range validated.
+- `PeeGeeQConfiguration` resolves one effective `PgConnectionConfig`, so the default pool and
+  `PgDatabaseService`-provided `ReactiveNotificationHandler` options use the same endpoint.
+- The real HAProxy contract subscribes, stops the primary, issues `NOTIFY` directly on the
+  secondary, proves LISTEN replay and delivery resume, and verifies a post-failover pooled query.
+- The failover red phase exposed that a failed reconnect was never rescheduled. The handler now
+  executes all bounded exponential-backoff attempts, treats intermediate failures as transient,
+  and observes connection-close Futures; the deterministic retry regression passed 1/1.
 
-#### 3.2 Add circuit breaking to pool operations
+#### 3.2 Add circuit breaking to pool operations — COMPLETE 2026-09-02
 
-- Decide and document whether circuit breaking belongs around pool acquisition and transaction
-  paths.
-- If retained, use a per-pool breaker, check before acquisition, and record terminal
-  success/failure without swallowing the original error.
-- Prove threshold opening, structured open-circuit failure, and recovery to HALF_OPEN/CLOSED using
-  real PostgreSQL behavior.
-- Reconcile this work with Task 1.2 before implementation; do not build on ambiguous/dead
-  circuit-breaker properties.
+- Circuit breaking is retained around the complete terminal scope of `withConnection` and
+  `withTransaction`: permission is acquired before the pool call, and both acquisition failures
+  and caller-operation failures are recorded. The original failure Future is returned unchanged.
+- Each logical pool uses `db.pool.<serviceId>`, so one failed pool does not block another.
+  `getReactiveConnection` remains deliberately unwrapped for callers that explicitly own a
+  connection and for independent recovery probes.
+- `PeeGeeQManager` constructs one `CircuitBreakerManager` before the client factory and shares it
+  with pool operations and health checks. Standalone connection managers/factories retain
+  disabled behavior unless a breaker manager is explicitly supplied.
+- The implementation consumes the canonical Task 1.2 `CircuitBreakerConfig`; it introduces no
+  property names or compatibility paths.
+- Strict TDD first failed 1/1 because no `db.pool.peegeeq-main` breaker existed. The final real
+  PostgreSQL contract stops the active node behind HAProxy, opens after two terminal failures,
+  verifies `CallNotPermittedException`, proves another pool remains usable, starts a replacement
+  node, and verifies HALF_OPEN then CLOSED. It also proves transaction metrics and original
+  `PgException` propagation.
+- Verification: clean `mvn clean install -DskipTests -pl :peegeeq-db -am`; circuit-breaker core
+  10/10; real outage/recovery 1/1; `PgConnectionManagerCoreTest` 9/9;
+  `PgClientFactoryCoreTest` 36/36; `PgClientFactoryTest` 11/11; and
+  `PeeGeeQManagerIntegrationTest` 17/17.
 
-#### 3.3 Add a real streaming-replication failover test
+#### 3.3 Add a real streaming-replication failover test — COMPLETE 2026-09-02
 
-- Keep the faster independent-node connection test.
-- Add primary/standby replication, write a known row, stop/promote, reconnect through HAProxy,
-  and prove the row exists after failover.
-- Treat promotion/fencing as an operations decision; automatic promotion without fencing risks
-  split brain.
+- The existing independent-node connection test remains unchanged and passed 6/6.
+- A real physical standby is created from the primary with `pg_basebackup -R`; the contract waits
+  until a committed marker is queryable on the standby before inducing failure.
+- The contract fences the primary, explicitly promotes the standby, reconnects through HAProxy,
+  proves the pre-failure marker survives, and proves the promoted standby accepts a new write.
+- Promotion and fencing remain explicit operations decisions. The fixture does not implement
+  automatic promotion, which could create split brain without an external fencing authority.
+- Strict TDD RED: the same durable-marker contract against independent nodes failed 1/1 with
+  `42P01` because the failover node did not contain the table. GREEN: the streaming-replication
+  contract passed 1/1 after a clean four-module reactor build.
 
-#### 3.4 Validate PgBouncer transaction mode
+#### 3.4 Validate PgBouncer transaction mode — NEXT
 
 - Run PgBouncer in transaction mode with an explicit reset strategy.
 - Send/consume across multiple transactions and prove tenant `search_path` isolation survives
@@ -264,6 +304,9 @@ These are explicit owner/release runs, not automatic requirements after every co
 | Messaging pattern examples | Ten scenarios implemented; example modules passed the full gate |
 | UI semantic Playwright and inventory remediation | Commit `322b7f06` closed the reviewed semantic coverage gaps; 1,308 unique Playwright tests inventoried across both UIs; inventory guards wired into the Maven/Jenkins `test:all` path on 2026-09-02 |
 | Tier-5 blocking-call remediation | Task 2 complete: deterministic clock and event-loop contracts replaced five blocking calls; exemptions and the sleep baseline removed; workspace async guard 8/8 |
+| HAProxy LISTEN/NOTIFY routing | Task 3.1 complete: canonical optional proxy endpoint shared by pool and listener, bounded reconnect retries repaired, and real HAProxy failover contract green 1/1 |
+| Pool-operation circuit breaking | Task 3.2 complete: canonical per-pool breakers guard connection/transaction Futures, preserve original failures, and recover through a real HAProxy/PostgreSQL outage contract 1/1 |
+| Streaming-replication failover | Task 3.3 complete: real physical standby retained a committed marker across explicit primary fencing/promotion and accepted a post-promotion write through HAProxy; green 1/1 |
 
 ## Archived Supporting Records
 
