@@ -23,9 +23,14 @@ npm run test:e2e 2>&1 | Tee-Object -FilePath ..\logs\mgmt-e2e-tests-20260603.txt
 npm run test:all 2>&1 | Tee-Object -FilePath ..\logs\mgmt-all-tests-20260603.txt
 ```
 
-### Single Playwright spec
+### Playwright inventory guard
 ```powershell
-npx playwright test src/tests/e2e/specs/take-screenshots.spec.ts --headed --reporter=list 2>&1 | Tee-Object -FilePath ..\logs\mgmt-screenshots-20260603.txt
+npm run test:e2e:inventory 2>&1 | Tee-Object -FilePath ..\logs\mgmt-e2e-inventory-20260902.txt
+```
+
+### Documentation screenshots (dedicated Playwright configuration)
+```powershell
+npm run test:e2e:screenshots 2>&1 | Tee-Object -FilePath ..\logs\mgmt-screenshots-20260902.txt
 ```
 
 ### E2E tests direct (no backend management)
@@ -62,13 +67,16 @@ npm run dev
 | `test:coverage` | vitest with coverage report |
 | `test:integration` | vitest integration tests only |
 | `test:e2e` | node scripts/run-e2e-tests.js (manages backend) |
+| `test:e2e:list` | list functional tests from the default Playwright configuration |
+| `test:e2e:screenshots` | run documentation screenshots with `playwright.screenshots.config.ts` |
+| `test:e2e:inventory` | verify functional and screenshot test inventories are disjoint and complete |
 | `test:e2e:direct` | playwright test (no backend management) |
 | `test:e2e:headed` | playwright test --headed |
 | `test:e2e:debug` | playwright test --debug |
 | `test:e2e:ui` | playwright test --ui |
 | `test:e2e:report` | playwright show-report |
-| `test:all` | test:run + test:integration + test:e2e |
-| `test:ci` | test:run + test:integration + test:e2e (junit reporter) |
+| `test:all` | inventory guard + test:run + test:integration + test:e2e |
+| `test:ci` | inventory guard + test:run + test:integration + test:e2e (junit reporter) |
 
 ---
 
@@ -79,4 +87,3 @@ npm run dev
 ```powershell
 mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260603.txt
 ```
-
