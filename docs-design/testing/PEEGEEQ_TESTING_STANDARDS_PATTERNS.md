@@ -253,7 +253,7 @@ class SpringBootTest {
 
 #### **3. System Property Configuration**
 
-> ⚠️ **Preferred: Use `PeeGeeQTestConfig.builder()` instead of `System.setProperty`**
+> ⚠️ **Mandated: Use `PeeGeeQTestConfig.builder()` instead of `System.setProperty`**
 >
 > `System.setProperty` writes to the global JVM property map. In a parallel test run, any
 > other test constructing a `PeeGeeQConfiguration` while properties are only partially written

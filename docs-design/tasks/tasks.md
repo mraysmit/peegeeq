@@ -1,9 +1,9 @@
 # PeeGeeQ Consolidated Task Register
 
 **Status:** ACTIVE
-**Last reconciled:** 2026-08-29
-**Repository revision reviewed:** `32ab0371` plus the verified D23, outbox-concurrency,
-diagnostics, O4, and O2 worktree phases
+**Last reconciled:** 2026-09-02
+**Repository revision reviewed:** `322b7f06` plus the 2026-09-02 UI inventory-wiring and
+documentation remediation
 **Latest full release gate:** Jenkins build #36 at `e8d07e53`
 
 This is the **only live task register** under `docs-design`. Do not derive current work from
@@ -47,6 +47,12 @@ Later focused worktree verification, not yet represented by a newer full Jenkins
   `NEW`, no member became active, and the failure reached the caller.
 - Schema contracts in commit `32ab0371`: TC-S14 1/1, TC-S15 1/1, P3 1/1, and applicable
   asynchronous guards green.
+- UI semantic coverage in commit `322b7f06`: Management UI Vitest 128/128 across 14 files
+  and Playwright 419/419; Utilities UI Vitest 836/836 across 55 files and Playwright 246/246.
+  Inventory guards found 491 unique Management UI tests (419 functional + 72 screenshots)
+  and 817 unique Utilities UI tests (246 functional + 571 screenshots), with type checks,
+  builds, and lint green. The 2026-09-02 remediation wires both inventory guards into
+  `test:all`, the command invoked by the Maven `all-tests` profiles and Jenkins full gate.
 
 A green gate proves that the selected implementation and tests passed. It does not prove that
 an unimplemented proposal exists or replace explicitly planned load, chaos, or failover gates.
@@ -248,6 +254,7 @@ These are explicit owner/release runs, not automatic requirements after every co
 | Bitemporal examples expansion | Referenced examples exist and examples modules passed the full gate |
 | Monitoring endpoints | WebSocket/SSE, lifecycle, CORS, and metrics work complete |
 | Messaging pattern examples | Ten scenarios implemented; example modules passed the full gate |
+| UI semantic Playwright and inventory remediation | Commit `322b7f06` closed the reviewed semantic coverage gaps; 1,308 unique Playwright tests inventoried across both UIs; inventory guards wired into the Maven/Jenkins `test:all` path on 2026-09-02 |
 
 ## Archived Supporting Records
 

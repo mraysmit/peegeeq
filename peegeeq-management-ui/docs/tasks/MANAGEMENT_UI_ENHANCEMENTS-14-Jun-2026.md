@@ -2673,7 +2673,9 @@ Workers: 1 (sequential — shared `SETUP_ID = 'default'` — see §4). TestConta
 
 ### 9.3 Documentation screenshot spec (`take-screenshots.spec.ts`)
 
-This is a standalone serial spec run manually (`npx playwright test take-screenshots.spec.ts --headed --reporter=list`). It is **not part of the standard `npm run test:e2e` suite** — it has no project dependency entry and is excluded from the default run.
+This is a standalone serial spec run manually with `npm run test:e2e:screenshots`, which uses
+the dedicated `playwright.screenshots.config.ts`. It is **not part of the standard
+`npm run test:e2e` suite** and is excluded from the default functional configuration.
 
 **What it does**: creates a complete live data set (queue, event store, 5 correlated events with causation chain, consumer group, 5 queued messages), then navigates to every page and captures every meaningful functional state. Screenshots are written to `docs-design/peegeeq-management-ui/screenshots/` and are the source images embedded in the enhancement documents.
 
@@ -2754,18 +2756,20 @@ npm run test:integration # integration dir (currently empty, passes with no test
 
 # E2E tests
 npm run test:e2e         # Standard run via scripts/run-e2e-tests.js (workers=1)
+npm run test:e2e:list    # List functional tests from the default configuration
+npm run test:e2e:inventory # Verify functional/screenshot inventories are disjoint and complete
 npm run test:e2e:direct  # Direct: npx playwright test
 npm run test:e2e:ui      # Playwright UI mode (interactive)
 npm run test:e2e:debug   # Debug mode (step-through)
 npm run test:e2e:headed  # Headed browser (visible)
 npm run test:e2e:report  # Open last HTML report
 
-# Documentation screenshots (manual, not in standard run)
-npx playwright test src/tests/e2e/specs/take-screenshots.spec.ts --headed --reporter=list
+# Documentation screenshots (manual, dedicated configuration, not in standard run)
+npm run test:e2e:screenshots
 
 # All layers
-npm run test:all         # test:run + test:integration + test:e2e
-npm run test:ci          # test:run + test:integration + test:e2e --reporter=junit
+npm run test:all         # inventory + test:run + test:integration + test:e2e
+npm run test:ci          # inventory + test:run + test:integration + test:e2e --reporter=junit
 ```
 
 ---
