@@ -4,6 +4,7 @@ import dev.mars.peegeeq.outbox.config.FilterErrorHandlingConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -24,16 +25,23 @@ public class FilterCircuitBreaker {
     
     private final String filterId;
     private final FilterErrorHandlingConfig config;
+    private final Clock clock;
     
     private final AtomicReference<State> state = new AtomicReference<>(State.CLOSED);
     private final AtomicInteger failureCount = new AtomicInteger(0);
     private final AtomicInteger requestCount = new AtomicInteger(0);
     private final AtomicLong lastFailureTime = new AtomicLong(0);
-    private final AtomicLong stateTransitionTime = new AtomicLong(System.currentTimeMillis());
+    private final AtomicLong stateTransitionTime;
     
     public FilterCircuitBreaker(String filterId, FilterErrorHandlingConfig config) {
+        this(filterId, config, Clock.systemUTC());
+    }
+
+    public FilterCircuitBreaker(String filterId, FilterErrorHandlingConfig config, Clock clock) {
         this.filterId = filterId;
         this.config = config;
+        this.clock = clock;
+        this.stateTransitionTime = new AtomicLong(clock.millis());
     }
     
     /**
@@ -52,11 +60,11 @@ public class FilterCircuitBreaker {
                 
             case OPEN:
                 // Check if timeout has elapsed
-                long timeSinceTransition = System.currentTimeMillis() - stateTransitionTime.get();
+                long timeSinceTransition = clock.millis() - stateTransitionTime.get();
                 if (timeSinceTransition >= config.getCircuitBreakerTimeout().toMillis()) {
                     // Try to transition to HALF_OPEN
                     if (state.compareAndSet(State.OPEN, State.HALF_OPEN)) {
-                        stateTransitionTime.set(System.currentTimeMillis());
+                        stateTransitionTime.set(clock.millis());
                         logger.info("Filter circuit breaker '{}' transitioning from OPEN to HALF_OPEN", filterId);
                         return true;
                     }
@@ -105,14 +113,14 @@ public class FilterCircuitBreaker {
         
         int currentFailures = failureCount.incrementAndGet();
         int currentRequests = requestCount.incrementAndGet();
-        lastFailureTime.set(System.currentTimeMillis());
+        lastFailureTime.set(clock.millis());
         
         State currentState = state.get();
         
         if (currentState == State.HALF_OPEN) {
             // Failure in HALF_OPEN state - reopen the circuit
             if (state.compareAndSet(State.HALF_OPEN, State.OPEN)) {
-                stateTransitionTime.set(System.currentTimeMillis());
+                stateTransitionTime.set(clock.millis());
                 logger.warn("Filter circuit breaker '{}' reopened after failed trial request", filterId);
             }
         } else if (currentState == State.CLOSED) {
@@ -121,7 +129,7 @@ public class FilterCircuitBreaker {
                 currentFailures >= config.getCircuitBreakerFailureThreshold()) {
 
                 if (state.compareAndSet(State.CLOSED, State.OPEN)) {
-                    stateTransitionTime.set(System.currentTimeMillis());
+                    stateTransitionTime.set(clock.millis());
                     logger.warn("Filter circuit breaker '{}' opened after {} failures out of {} requests",
                         filterId, currentFailures, currentRequests);
                 }
@@ -137,7 +145,7 @@ public class FilterCircuitBreaker {
         failureCount.set(0);
         requestCount.set(0);
         lastFailureTime.set(0);
-        stateTransitionTime.set(System.currentTimeMillis());
+        stateTransitionTime.set(clock.millis());
         logger.info("Filter circuit breaker '{}' reset", filterId);
     }
     

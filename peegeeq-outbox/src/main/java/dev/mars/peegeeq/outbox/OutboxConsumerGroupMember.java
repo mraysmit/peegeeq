@@ -26,6 +26,7 @@ import io.vertx.core.Vertx;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -115,6 +116,18 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
                              FilterErrorHandlingConfig filterErrorConfig,
                              int maxConcurrency,
                              Vertx vertx) {
+        this(consumerId, groupName, topic, messageHandler, messageFilter, parentGroup,
+             filterErrorConfig, maxConcurrency, vertx, Clock.systemUTC());
+    }
+
+    OutboxConsumerGroupMember(String consumerId, String groupName, String topic,
+                             MessageHandler<T> messageHandler,
+                             Predicate<Message<T>> messageFilter,
+                             OutboxConsumerGroup<T> parentGroup,
+                             FilterErrorHandlingConfig filterErrorConfig,
+                             int maxConcurrency,
+                             Vertx vertx,
+                             Clock circuitBreakerClock) {
         this.consumerId = consumerId;
         this.groupName = groupName;
         this.topic = topic;
@@ -128,7 +141,7 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
         // Initialize filter error handling
         this.filterErrorConfig = filterErrorConfig;
         this.filterCircuitBreaker = new FilterCircuitBreaker(
-            consumerId + "-filter", filterErrorConfig);
+            consumerId + "-filter", filterErrorConfig, circuitBreakerClock);
         this.vertx = vertx;
 
         logger.debug("Created outbox consumer group member '{}' in group '{}' for topic '{}'",

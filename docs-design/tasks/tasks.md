@@ -2,8 +2,7 @@
 
 **Status:** ACTIVE
 **Last reconciled:** 2026-09-02
-**Repository revision reviewed:** `322b7f06` plus the 2026-09-02 UI inventory-wiring and
-documentation remediation
+**Repository revision reviewed:** `6d652f7f` plus the completed Tier-5 Task 2 worktree remediation
 **Latest full release gate:** Jenkins build #36 at `e8d07e53`
 
 This is the **only live task register** under `docs-design`. Do not derive current work from
@@ -53,6 +52,10 @@ Later focused worktree verification, not yet represented by a newer full Jenkins
   and 817 unique Utilities UI tests (246 functional + 571 screenshots), with type checks,
   builds, and lint green. The 2026-09-02 remediation wires both inventory guards into
   `test:all`, the command invoked by the Maven `all-tests` profiles and Jenkins full gate.
+- Tier-5 Task 2: strict TDD exposed the missing circuit-breaker clock seam and both remaining
+  event-loop test sleeps. The final 11-module reactor slice built cleanly;
+  `CircuitBreakerRecoveryTest` passed 2/2, `VertxEventLoopBlockingJoinTest` passed 2/2, and
+  `OnSuccessExceptionSwallowingGuardTest` passed all 8 checks with no blocking exemptions.
 
 A green gate proves that the selected implementation and tests passed. It does not prove that
 an unimplemented proposal exists or replace explicitly planned load, chaos, or failover gates.
@@ -125,22 +128,27 @@ consumer and non-default behavioral evidence.
 ### 2. Remove the final Tier-5 blocking calls
 
 **Priority:** High
-**Status:** ACTIVE — reopened after the no-exceptions rule superseded `blocking-exempt` policy
+**Status:** COMPLETE — 2026-09-02
 
-Five executable banned calls remain:
-
-| File | Remaining calls | Required outcome |
-|---|---:|---|
-| `CircuitBreakerRecoveryTest` | 3 × `LockSupport.parkNanos` | Replace elapsed-time waiting with an observable, non-blocking state-transition test seam/pattern |
-| `VertxEventLoopBlockingJoinTest` | 2 × `Thread.sleep` | Preserve the event-loop-blocking diagnostic without using a prohibited sleep |
+All executable `Thread.sleep` and `LockSupport.parkNanos` calls covered by the workspace test
+guard have been removed. The `blocking-exempt` policy and empty Tier-5 baseline were deleted;
+the guard now enforces zero tolerance for both blocking calls and exemption annotations.
 
 Required phase order:
 
-1. Remediate `CircuitBreakerRecoveryTest` and run its smallest applicable scope.
-2. Remediate `VertxEventLoopBlockingJoinTest` and run its smallest applicable scope.
-3. Remove obsolete exemption comments/tags and Tier-5 baseline entries.
-4. Run the no-blocking-pattern guard and confirm zero executable
-   `Thread.sleep|LockSupport.parkNanos` occurrences.
+1. **COMPLETE — 2026-09-02.** `CircuitBreakerRecoveryTest` now advances an injected mutable
+   clock across the reset timeout without blocking. The obsolete `blocking-exempt` tag and all
+   three `LockSupport.parkNanos` calls are removed; focused recovery tests passed 2/2 and the
+   Tier-5 guard passed 1/1 after a clean reactor build.
+2. **COMPLETE — 2026-09-02.** `VertxEventLoopBlockingJoinTest` now proves event-loop queueing
+   and worker/event-loop progress through ordered callbacks and a worker-thread phaser, without
+   timing thresholds or sleeps. Its focused scope passed 2/2 after a clean reactor build.
+3. **COMPLETE — 2026-09-02.** Removed the obsolete exemption tag and comments, deleted the
+   intentionally unsafe `VertxAsyncTestPitfallsDemo` executable fixture, deleted the empty
+   Tier-5 sleep baseline, documented the no-opt-out policy, and regenerated the tag inventory.
+4. **COMPLETE — 2026-09-02.** The workspace guard passed 8/8, including zero-tolerance checks
+   for blocking delays and exemption annotations. Direct source and generated-inventory scans
+   found zero live `@Tag("blocking-exempt")` annotations.
 
 Tier 4 and Tier 7 remain complete. Do not reopen them unless a current scan finds a real violation.
 
@@ -255,6 +263,7 @@ These are explicit owner/release runs, not automatic requirements after every co
 | Monitoring endpoints | WebSocket/SSE, lifecycle, CORS, and metrics work complete |
 | Messaging pattern examples | Ten scenarios implemented; example modules passed the full gate |
 | UI semantic Playwright and inventory remediation | Commit `322b7f06` closed the reviewed semantic coverage gaps; 1,308 unique Playwright tests inventoried across both UIs; inventory guards wired into the Maven/Jenkins `test:all` path on 2026-09-02 |
+| Tier-5 blocking-call remediation | Task 2 complete: deterministic clock and event-loop contracts replaced five blocking calls; exemptions and the sleep baseline removed; workspace async guard 8/8 |
 
 ## Archived Supporting Records
 

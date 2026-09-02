@@ -9,17 +9,21 @@ Source: [peegeeq-test-support/src/test/java/dev/mars/peegeeq/test/quality/OnSucc
 
 ## What it checks
 
-The guard runs five independent `@Test` methods, one per tier. Each method
+The guard runs eight independent `@Test` methods. Each method
 walks the workspace, masks comments and string literals, then applies tier-specific
-regex checks.
+regex checks. The exemption check scans raw source so an annotation cannot be hidden by
+string-literal masking.
 
 | Tier | Test method | Pattern flagged |
 |------|-------------|-----------------|
 | 2/3  | `noTier3OnSuccessExceptionSwallowingInTestSources` | Bare `assertX(...)` / `fail(...)` (Tier 3) or top-level `.close(...)` (Tier 2) inside `.onSuccess(v -> { ... })` outside `testContext.verify(...)`. |
 | 4    | `noFutureAwaitInTestSources` | `.await()` on a `Future` in test code. Whitelisted: `testContext.awaitCompletion(...)`, `CountDownLatch.await(timeout, TimeUnit.X)`. |
 | 5    | `noBlockingThreadDelaysInTestSources` | `Thread.sleep(...)` or `LockSupport.parkNanos(...)`. |
+| Policy | `noBlockingExemptionsInTestSources` | Any source-level `@Tag("blocking-exempt")` annotation. |
 | 6    | `noOnCompleteSwallowingInTestSources` | `.onComplete(ar -> singleCountdown())` lambdas containing only a countdown/signal op (`countDown`, `getAndIncrement`, `release`, `tryComplete`) with no failure branch (`ar.failed`, `ar.cause`, `failNow`, `onFailure`). |
 | 7    | `noDiscardedFuturesFromStopOrCloseInTestSources` | `<receiver>.stop();` / `<receiver>.close();` where the receiver name contains `job`/`manager`/`group` (case-insensitive), the call is followed immediately by `;`, and the result is neither assigned nor returned. |
+| 8    | `noAsyncOperationsAssertedOnlyAsNonNullInTestSources` | `assertNotNull(...)` around `send`, `subscribe`, or `close`, which proves only that a Future object was allocated. |
+| 9    | `noDiscardedFuturesFromSubscribeInTestSources` | A bare `consumer.subscribe(handler);` whose returned Future is not observed or composed. |
 
 Failures emit a precise report:
 
@@ -33,7 +37,7 @@ Found 1 .onSuccess(...) block(s) with exception-swallowing risk (Tier 3 = 1, Tie
 All commands follow [PEEGEEQ-TEST-COMMANDS.md](PEEGEEQ-TEST-COMMANDS.md) conventions:
 no `clean`, `Tee-Object` for logs, run from the workspace root.
 
-### Run all five tiers (whole codebase)
+### Run all eight checks (whole codebase)
 
 ```powershell
 mvn test -pl :peegeeq-test-support -Dtest=OnSuccessExceptionSwallowingGuardTest 2>&1 | Tee-Object -FilePath logs\guard-tests-20260517.txt
@@ -51,11 +55,20 @@ mvn test -pl :peegeeq-test-support -Dtest=OnSuccessExceptionSwallowingGuardTest#
 # Tier 5 — Thread.sleep / parkNanos
 mvn test -pl :peegeeq-test-support -Dtest=OnSuccessExceptionSwallowingGuardTest#noBlockingThreadDelaysInTestSources 2>&1 | Tee-Object -FilePath logs\guard-tier5-20260517.txt
 
+# Blocking-exemption policy
+mvn test -pl :peegeeq-test-support -Dtest=OnSuccessExceptionSwallowingGuardTest#noBlockingExemptionsInTestSources 2>&1 | Tee-Object -FilePath logs\guard-blocking-exemptions-20260902.txt
+
 # Tier 6 — onComplete swallow
 mvn test -pl :peegeeq-test-support -Dtest=OnSuccessExceptionSwallowingGuardTest#noOnCompleteSwallowingInTestSources 2>&1 | Tee-Object -FilePath logs\guard-tier6-20260517.txt
 
 # Tier 7 — discarded stop()/close() Future
 mvn test -pl :peegeeq-test-support -Dtest=OnSuccessExceptionSwallowingGuardTest#noDiscardedFuturesFromStopOrCloseInTestSources 2>&1 | Tee-Object -FilePath logs\guard-tier7-20260517.txt
+
+# Tier 8 — async operation asserted only as non-null
+mvn test -pl :peegeeq-test-support -Dtest=OnSuccessExceptionSwallowingGuardTest#noAsyncOperationsAssertedOnlyAsNonNullInTestSources 2>&1 | Tee-Object -FilePath logs\guard-tier8-20260902.txt
+
+# Tier 9 — discarded subscribe Future
+mvn test -pl :peegeeq-test-support -Dtest=OnSuccessExceptionSwallowingGuardTest#noDiscardedFuturesFromSubscribeInTestSources 2>&1 | Tee-Object -FilePath logs\guard-tier9-20260902.txt
 ```
 
 ### Read the summary
@@ -92,22 +105,22 @@ file — absence of matches means no violations in that file.
 | 2 | Either wrap the synchronous `.close()` in `testContext.verify(...)` or replace it with the async `.close()` chained via `.compose`/`.onSuccess`/`.onFailure`. |
 | 4 | Replace `future.await()` with `.onSuccess(...).onFailure(testContext::failNow)` + `testContext.awaitCompletion(timeout, unit)` at the test boundary. Bounded `CountDownLatch.await(timeout, TimeUnit.SECONDS)` is allowed. |
 | 5 | Chain off the `Future` returned by the operation, or observe the side-effect (database row, checkpoint flag) directly. Never use `Thread.sleep` to wait for async work. |
+| Policy | Remove the exemption annotation and rewrite the test around observable async completion. There is no baseline or opt-out for blocking delays. |
 | 6 | Replace `.onComplete(ar -> latch.countDown())` with `.onSuccess(v -> latch.countDown()).onFailure(testContext::failNow)`, or use a `VertxTestContext.Checkpoint` instead of a latch. |
 | 7 | Compose on the returned `Future`: `job.stop().onComplete(testContext.succeedingThenComplete())`, or chain into the next step: `.compose(v -> job.stop()).onSuccess(...)`. In `@AfterEach`, accept the `VertxTestContext` parameter and complete it from `manager.close().onComplete(...)`. |
+| 8 | Observe the Future's terminal result and assert behavior inside `testContext.verify(...)`; do not assert only that the Future reference is non-null. |
+| 9 | Compose from `subscribe(...)`, or attach success and failure handlers before any dependent send or assertion. |
 
 Full guidance:
 - [PEEGEEQ_TESTING_STANDARDS_PATTERNS.md](PEEGEEQ_TESTING_STANDARDS_PATTERNS.md)
 - [PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md](PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md)
 - Vert.x-specific safety rules are consolidated into the two testing-standards documents above.
 
-## Opting out
+## No opt-outs
 
-The guard skips any file annotated with `@Tag("blocking-exempt")` at class
-level — reserved for tests where the blocking pattern is the subject under
-test, or where blocking occurs on a non-reactive thread (worker pool, raw
-ExecutorService, post-shutdown quiescence). Each use must carry a
-`// BLOCKING-EXEMPT:` comment with a detailed rationale directly above the
-tag. Do not use this tag to silence real test code.
+The guard permits no source-level exemption tag. Tests that need to demonstrate a prohibited
+pattern must assert its observable scheduling or failure contract without executing that pattern.
+Pedagogical counter-examples belong in documentation, not compilable test sources.
 
 Ranking by actual damage, not by tier number:
 
