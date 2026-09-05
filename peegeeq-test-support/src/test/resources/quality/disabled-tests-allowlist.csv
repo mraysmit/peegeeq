@@ -1,4 +1,3 @@
 # Approved JUnit @Disabled annotations. Any new or increased usage fails DisabledTestsGuardTest.
 # Remove a row when its annotation is removed; stale approvals also fail the guard.
 path,count,rationale
-peegeeq-db/src/test/java/dev/mars/peegeeq/db/testpatterns/VertxAsyncTestPitfallsDemo.java,1,Intentional failing counter-example fixture used to demonstrate swallowed Vert.x test failures
