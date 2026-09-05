@@ -2,9 +2,9 @@
 
 **Status:** ACTIVE
 **Last reconciled:** 2026-09-05
-**Repository revision reviewed:** `b19b708b`
+**Repository revision reviewed:** `19e3cbdb` plus the Tasks 4.2–4.6 and Task 7 working-tree implementation
 **Recorded from-beginning release baseline:** Jenkins build #36 at `e8d07e53`
-**Latest successful resumed gate:** Jenkins build #46 at `b19b708b` (both UI modules only)
+**Latest successful resumed gate:** Jenkins build #48 at `19e3cbdb` plus the checksummed Task 7 working-tree overlay (both UI modules only)
 
 This is the **only live task register** under `docs-design`. Do not derive current work from
 handover notes, design proposals, unchecked boxes in archived plans, or historical narrative.
@@ -61,10 +61,10 @@ These passes belong to their respective revisions. They do **not** establish a f
 from-beginning full-suite pass at `b19b708b`. Such a run remains an explicit release validation,
 not a requirement to rerun every module during a focused fix.
 
-**Reporting gap:** #46's console reported `No test report files were found.` The existing
+**Historical reporting gap:** #46's console reported `No test report files were found.` The existing
 Jenkins publisher selects Surefire/Failsafe XML and allows empty results. The UI counts above
 were verified from execution logs, not Jenkins' published test-result totals. This does not
-change the observed SUCCESS result; publishing UI results is tracked separately in Task 7.
+change the observed SUCCESS result. Task 7 closed this gap in build #48.
 
 ### Focused verification and remediation evidence
 
@@ -114,6 +114,19 @@ at the current revision:
   bitemporal metadata model. The final API scope passed 34/34: `SubscriptionOptionsDurableTest`
   6/6, `BiTemporalSubscriptionInfoTest` 2/2, and the existing `SubscriptionOptionsValidationTest`
   26/26. The six-module bitemporal dependency slice compiled cleanly and async guards passed 9/9.
+- Durable subscriptions Task 4.2 (2026-09-05, local working tree): the initial contract failed
+  compilation on the missing coordinator/factory. A separate delivery-boundary contract then
+  failed 1/1 when metadata registration incorrectly reported subscription success; registration
+  is now a separate operation and durable delivery fails explicitly until implemented. The first
+  complete persistence run exposed four lifecycle failures; explicit SQL parameter typing fixed
+  them and the four-test rerun passed. After the required clean six-module rebuild, the final
+  `integration-tests` scope passed `DurableBiTemporalSubscriptionIntegrationTest` 34/34 and
+  `BiTemporalAppendMetricsIntegrationTest` 4/4. Core regressions passed
+  `SubscriptionOptionsDurableTest` 6/6, `BiTemporalSubscriptionInfoTest` 2/2,
+  `SubscriptionOptionsValidationTest` 26/26 (nested classes: Builder 11, Equals/HashCode 4,
+  ToString 1, EdgeCase 7, FluentAPI 3), and `OnSuccessExceptionSwallowingGuardTest` 8/8.
+  All 80 final checks passed without failures/errors/skips. This is focused local evidence,
+  not a Jenkins rerun or a new full-suite release gate.
 - Outbox capacity/filter fairness (`1dd6741b`): failing starvation and capacity contracts
   preceded the fix; the focused integration scope passed 74 tests and the async guard passed 8.
   Subsequent full-module verification passed 673 tests in #44 after the retry-metrics fix.
@@ -311,9 +324,9 @@ reset while two logical clients multiplex one PgBouncer backend connection.
 ### 4. Durable subscriptions runtime
 
 **Priority:** Medium
-**Status:** PARTIAL — schema and public API complete; persistence is next
+**Status:** COMPLETE — locally verified 2026-09-05; no new full-suite/Jenkins gate claimed
 
-Remaining implementation:
+Implementation record:
 
 1. **COMPLETE — 2026-09-02.** Defined the separate `BiTemporalSubscriptionService` lifecycle API,
    shared `DurableSubscriptionCoordinator` cursor contract, and immutable
@@ -321,13 +334,58 @@ Remaining implementation:
    stable subscription and consumer identity, and a positive bounded replay batch size while
    preserving non-durable defaults. This phase defines contracts only; it does not claim a runtime
    implementation or database behavior.
-2. **NEXT.** Implement the bitemporal service and supported factory access path, then persist and
-   advance its replay cursor transactionally against the existing tenant-local schema.
-3. Implement bounded historical catch-up.
-4. Implement a lossless catch-up-to-live handoff.
-5. Add lease/ownership and recovery semantics for competing instances.
-6. Add real-PostgreSQL contracts for restart, replay, concurrent ownership, failure recovery,
-   schema isolation, and catch-up/live ordering.
+2. **COMPLETE — 2026-09-05.** `DurableBiTemporalSubscriptionCoordinator` persists definitions,
+   lifecycle/heartbeat state, and cursors in the existing tenant-local schema. The supported
+   entry point is `EventStoreFactory.createBiTemporalSubscriptionService()` implemented by
+   `BiTemporalEventStoreFactory`, with manager-owned pool/close-hook integration. Direct manager
+   construction was superseded to avoid a database-to-bitemporal module dependency cycle.
+   `registerDefinition(...)` is metadata-only; same-key registration preserves committed progress
+   and rejects changed filters. Row-locked transactions enforce monotonic advancement, bounded
+   explicit reset, and terminal-state checks; a caller-owned transaction can roll back advancement.
+   PostgreSQL tests cover recreation/re-registration, lifecycle, cursor integrity, concurrent
+   registrations/advancement, tenant isolation, invalid inputs, failure propagation, and shared-pool
+   ownership. There is no automatic handler restoration or delivery in this phase.
+3. **COMPLETE — 2026-09-05 (local working tree).** Typed finite replay fetches bounded ID-ordered
+   batches, applies event/aggregate filters, and acknowledges only successful handlers. A short
+   READ COMMITTED SHARE-lock barrier waits for pending inserts before capturing the boundary;
+   the lock is released before handlers run. This requires the standard append-only ID sequence
+   (ascending, non-cycling, CACHE 1, allocated by INSERT); explicit/preallocated IDs and sequence
+   resets are unsupported. Lock waits fail after five seconds rather than skipping history.
+   TDD first failed on unsupported replay, then reproduced a delayed lower-ID commit being
+   skipped. Final clean reactor rebuild and integration scope: replay 4/4, persistence 34/34;
+   async guard 8/8. These are focused local results, not a new Jenkins release gate.
+4. **COMPLETE — 2026-09-05 (local working tree).** Typed subscribe establishes LISTEN before
+   its first finite replay. Notifications only request another ordered scan; coalesced scans
+   and one-second reconciliation cover the handoff and missed notifications. Handlers are
+   serialized, close drains delivery, and `deliveryCompletion` surfaces terminal errors.
+   A real PostgreSQL test appends during catch-up and again during live delivery, asserting
+   ordered, duplicate-free delivery. Focused replay/handoff 5/5, persistence 34/34, guard 8/8.
+5. **COMPLETE — 2026-09-05 (local working tree).** V020 and the fresh-schema template add
+   expiring UUID owner leases and monotonically increasing generations. Each finite scan
+   claims, renews, and releases its lease; live contenders reconcile as standbys while owned.
+   Standalone catch-up fails explicitly when busy. Expiry permits takeover, but stale owners
+   cannot commit acknowledgements. Reset/pause/cancel revoke old generations; administrative
+   advancement cannot bypass a live lease. Delivery remains at-least-once across crashes or
+   takeover: external handler side effects require idempotency. Focused PostgreSQL replay,
+   ownership, takeover, renewal, and persistence: 42/42; migrations 11/11; async guard 8/8.
+6. **COMPLETE — 2026-09-05 (local working tree).** Real PostgreSQL delivery contracts cover
+   manager recreation, typed payloads, independent tenants, missed NOTIFY reconciliation,
+   catch-up/live ordering, filters, handler acknowledgement/failure, competing owners, renewal,
+   expiry, fencing, and pause/resume/cancel. New recovery contracts exposed and fixed a poisoned
+   local handler registration and delivery-error/cleanup coupling. The intentional live-handler
+   ERROR has an exact logger/message/throwable/count contract, not a broad exemption.
+   Final clean reactor rebuild; replay/delivery 15/15, persistence 34/34, async guard 8/8.
+
+Typed `subscribe(..., Class<T>, handler, options)` starts durable delivery. The untyped overload
+fails explicitly rather than casting erased payloads. `catchUp` runs one finite replay;
+`deliveryCompletion` exposes post-start terminal failures. Applications re-register handlers
+after restart. Existing non-durable subscriptions are unchanged.
+
+Final focused checks: replay/delivery 15, persistence 34, migrations 11, API options 6,
+API metadata 2, API validation 26 (Builder 11, Equals/HashCode 4, ToString 1, EdgeCase 7,
+FluentAPI 3), and async guard 8 — **102 passing checks**, zero failures/errors/skips.
+The six-module Java slice rebuilt cleanly before verification. The deliberately failing live
+handler is covered by an exact expected-error log contract.
 
 The design reference is
 `docs-design/event-sourcing-messaging/PEEGEEQ_DURABLE_SUBSCRIPTIONS_OPTION_PLAN.md`; status and
@@ -364,11 +422,66 @@ These are explicit owner/release runs, not automatic requirements after every co
 ### 7. Jenkins UI test-result publishing
 
 **Priority:** CI reporting follow-up
-**Status:** OPEN
+**Status:** COMPLETE — Jenkins build #48, 2026-09-05
 
 Build #46 passed both UI suites, but Jenkins did not publish their test counts. Add JUnit XML
 output for the unit and browser suites in both UIs and include those reports in the pipeline
 publisher. Keep this work in this register rather than creating another implementation plan.
+
+Implemented 2026-09-05:
+
+- Both Vitest configurations emit verbose console output plus `target/ui-reports/vitest.xml`.
+- Both Playwright configurations emit `target/ui-reports/playwright.xml`, outside Playwright's
+  cleaned `test-results` directory. Maven core/smoke profiles no longer override away JUnit.
+- Management UI's all-tests command runs the unit inventory once; the redundant, currently
+  empty integration invocation cannot overwrite its result. The separate manual integration
+  command writes `integration.xml`. Both `test:ci` commands delegate to `test:all`.
+- The pipeline is configured to remove the four known stale reports after rebuilding, validate
+  reports expected for the selected reactor/suite, publish Java/UI XML, and retain artifacts
+  even if JUnit parsing fails. Missing reports and real failures fail the build.
+- `scripts/ci/check-ui-reports.mjs` reports totals for reconciliation. Its seven contracts
+  cover full/resumed/unit/Java-only selections and missing/empty/failing report handling.
+- Four real-emitter contracts each run a passing and deliberately failing Vitest or Chromium
+  fixture using the production reporters; all four passed. All **11 reporting contracts** passed.
+- The required clean three-module UI reactor rebuild passed. The actual Maven default/core
+  test scope passed Management UI **128/128 across 14 files** and Utilities UI **836/836 across
+  55 files**. Parsed JUnit totals matched both console totals, with no failures/errors/skips.
+- No dependency versions were changed. npm reported existing engine/audit warnings during
+  installation (Management 16 findings; Utilities 25); these were not hidden or auto-fixed.
+
+Jenkins verification completed in
+[build #48](http://192.168.137.11:8080/job/PeeGeeQ/48/) by replaying the successful UI-only
+gate with `TEST_SUITE=all` and `ALL_TESTS_START_MODULE=peegeeq-management-ui`. Checkout used
+SCM revision `19e3cbdba2b6a5691f4473fc3e38033212dee3ec`, then applied the uncommitted Task 7
+working-tree files from `/tmp/peegeeq-task7-overlay.tar`. The replay verified the archive before
+extraction with SHA-256
+`f9792a15ed11dfc0f4d9ae91466b22959d8d1e08e872618a0f7edbd280c96dfe`.
+
+Build #48 completed in 33 minutes with `SUCCESS`. The report-presence check printed the four
+expected zero-failure summaries, and Jenkins published **1,629 passing tests, 0 failures,
+0 skipped**:
+
+| UI module | Vitest | Playwright | Published total |
+|---|---:|---:|---:|
+| Management UI | 128 | 419 | 547 |
+| Utilities UI | 836 | 246 | 1,082 |
+| **Total** | **964** | **665** | **1,629** |
+
+The production XML files were retained under each module's top-level
+`target/ui-reports/{vitest,playwright}.xml`. The reporting implementation remains uncommitted;
+build #48 is reproducible evidence for the exact recorded SCM revision plus overlay hash, not a
+claim that a plain SCM build already contains the working-tree changes.
+
+Focused reporting check (repository root):
+
+```text
+node --test scripts/ci/check-ui-reports.test.mjs scripts/ci/ui-report-contracts.test.mjs
+node scripts/ci/check-ui-reports.mjs core beginning
+```
+
+Emitter contracts use one real unit/browser fixture per UI, not the 665-test browser gate.
+They remove their own fixture XML afterwards; run the actual selected suite before validating
+its reports. They must not be represented as full UI browser coverage.
 
 Completion requires:
 
@@ -379,7 +492,8 @@ Completion requires:
 - Missing expected UI reports are detected explicitly; Java-only selections do not require UI
   reports for suites they did not run.
 
-This reporting follow-up does not change Task 4.2 as the next product implementation phase.
+Tasks 4.3, 4.4, 4.5, 4.6, and 7 are complete. Task 4 remains focused local PostgreSQL evidence;
+Task 7 additionally has the successful remote Jenkins publication evidence recorded above.
 
 ## Unscheduled Product and Coverage Backlog
 
@@ -410,6 +524,7 @@ This reporting follow-up does not change Task 4.2 as the next product implementa
 | Streaming-replication failover | Task 3.3 complete: real physical standby retained a committed marker across explicit primary fencing/promotion and accepted a post-promotion write through HAProxy; green 1/1 |
 | PgBouncer transaction pooling | Task 3.4 complete: tenant schema state is applied transaction-locally, session state is reset, and two logical clients safely multiplexed one real backend connection across four transactions; green 1/1 |
 | Durable subscription public API | Task 4.1 complete: opt-in durable options, bitemporal lifecycle and metadata contracts, and the shared cursor coordinator surface are defined; focused API scope green 34/34 |
+| Durable subscription persistence | Task 4.2 complete: supported event-store factory, tenant-local definitions/lifecycle/heartbeats, transactional cursors, and explicit unavailable-delivery boundary; persistence 34/34, append regressions 4/4, API 34/34, async guard 8/8 |
 | Outbox capacity and retry-metrics CI remediation | `1dd6741b` and `fe676bda`; focused regressions green, then 673 outbox tests passed in #44 |
 | WebSocket subscription test ordering | `c62af5c3`; readiness and explicit acknowledgement distinguished; REST module passed 518 tests in #45 |
 | Management queue-name search | `b19b708b`; real HTTP/PostgreSQL regression 7/7, management API regression 28/28, focused Playwright 45/45; both UI modules passed in resumed build #46 |

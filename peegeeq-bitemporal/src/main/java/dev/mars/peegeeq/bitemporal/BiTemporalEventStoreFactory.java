@@ -131,6 +131,26 @@ public class BiTemporalEventStoreFactory implements EventStoreFactory {
         return normalized;
     }
 
+    /**
+     * Creates the durable subscription service using this manager's tenant and pool.
+     */
+    @Override
+    public DurableBiTemporalSubscriptionCoordinator createBiTemporalSubscriptionService() {
+        if (!peeGeeQManager.isStarted()) {
+            throw new IllegalStateException("Start the PeeGeeQ manager before creating a subscription service");
+        }
+        var service = new DurableBiTemporalSubscriptionCoordinator(peeGeeQManager.getPool(),
+            peeGeeQManager.getConfiguration().getDatabaseConfig().getSchema(), this, vertx);
+        peeGeeQManager.registerCloseHook(new dev.mars.peegeeq.api.lifecycle.PeeGeeQCloseHook() {
+            @Override
+            public String name() { return "durable-bitemporal-subscriptions"; }
+
+            @Override
+            public io.vertx.core.Future<Void> closeReactive() { return service.close(); }
+        });
+        return service;
+    }
+
     @Override
     public String getFactoryName() {
         return "BiTemporalEventStoreFactory";
@@ -203,4 +223,3 @@ public class BiTemporalEventStoreFactory implements EventStoreFactory {
         return mapper;
     }
 }
-
