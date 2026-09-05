@@ -245,6 +245,7 @@ class OutboxConsumerSurgicalCoverageTest {
      */
     @Test
     void testHandlerCompletesExceptionally(Vertx vertx, VertxTestContext testContext) throws Exception {
+        AtomicInteger attempts = new AtomicInteger();
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
@@ -253,13 +254,20 @@ class OutboxConsumerSurgicalCoverageTest {
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         startManager(config, true)
                 .compose(v -> consumer.subscribe(message -> {
-                    return Future.failedFuture(new RuntimeException("Async failure"));
+                    if (attempts.incrementAndGet() == 1) {
+                        return Future.failedFuture(new RuntimeException("Async failure"));
+                    }
+                    return Future.succeededFuture();
                 }))
                 .compose(v -> producer.send("async-fail"))
-                .compose(v -> awaitCounter(vertx, "peegeeq.messages.failed.by.topic",
+                .compose(v -> awaitCounter(vertx, "peegeeq.messages.processed.by.topic",
                         System.currentTimeMillis() + 10_000))
                 .onSuccess(count -> testContext.verify(() -> {
-                    assertEquals(1.0, count, "Failed handler should increment the per-topic failure counter");
+                    assertEquals(1.0, count, "Retry should successfully process the message once");
+                    assertEquals(2, attempts.get(), "The failed attempt should be retried exactly once");
+                    assertEquals(1.0, meterRegistry.get("peegeeq.messages.failed.by.topic")
+                                    .tag("topic", testTopic).counter().count(),
+                            "Failed handler should increment the per-topic failure counter once");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -451,6 +459,7 @@ class OutboxConsumerSurgicalCoverageTest {
      */
     @Test
     void testMessageFailureMetricsRecording(Vertx vertx, VertxTestContext testContext) throws Exception {
+        AtomicInteger attempts = new AtomicInteger();
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
@@ -459,13 +468,20 @@ class OutboxConsumerSurgicalCoverageTest {
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         startManager(config, true)
                 .compose(v -> consumer.subscribe(message -> {
-                    throw new IllegalArgumentException("Test failure for metrics");
+                    if (attempts.incrementAndGet() == 1) {
+                        throw new IllegalArgumentException("Test failure for metrics");
+                    }
+                    return Future.succeededFuture();
                 }))
                 .compose(v -> producer.send("failure-metrics-msg"))
-                .compose(v -> awaitCounter(vertx, "peegeeq.messages.failed.by.topic",
+                .compose(v -> awaitCounter(vertx, "peegeeq.messages.processed.by.topic",
                         System.currentTimeMillis() + 10_000))
                 .onSuccess(count -> testContext.verify(() -> {
-                    assertEquals(1.0, count, "Failed processing should increment the per-topic failure counter");
+                    assertEquals(1.0, count, "Retry should successfully process the message once");
+                    assertEquals(2, attempts.get(), "The failed attempt should be retried exactly once");
+                    assertEquals(1.0, meterRegistry.get("peegeeq.messages.failed.by.topic")
+                                    .tag("topic", testTopic).counter().count(),
+                            "Failed processing should increment the per-topic failure counter once");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
