@@ -104,6 +104,9 @@ pipeline {
                         chmod u+x "$frontend/node/npm" "$frontend/node/npx"
                         test -x "$frontend/node/npm"
                         test -x "$frontend/node/npx"
+                        # Reports must belong to the selected test invocation, not the rebuild.
+                        rm -f "$frontend/target/ui-reports/vitest.xml" \
+                          "$frontend/target/ui-reports/playwright.xml"
                     done
 
                     peegeeq-management-ui/node/node \
@@ -191,14 +194,26 @@ pipeline {
 
     post {
         always {
-            junit(
-                testResults: '**/target/surefire-reports/*.xml,**/target/failsafe-reports/*.xml',
-                allowEmptyResults: true
-            )
-            archiveArtifacts(
-                artifacts: 'logs/**,**/playwright-report/**,**/test-results/**',
-                allowEmptyArchive: true
-            )
+            script {
+                // A missing expected report is a build failure, even if another suite published.
+                catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
+                    sh '''
+                        peegeeq-management-ui/node/node scripts/ci/check-ui-reports.mjs \
+                          "$TEST_SUITE" "$ALL_TESTS_START_MODULE"
+                    '''
+                }
+                try {
+                    junit(
+                        testResults: '**/target/surefire-reports/*.xml,**/target/failsafe-reports/*.xml,peegeeq-*-ui/target/ui-reports/vitest.xml,peegeeq-*-ui/target/ui-reports/playwright.xml',
+                        allowEmptyResults: false
+                    )
+                } finally {
+                    archiveArtifacts(
+                        artifacts: 'logs/**,**/playwright-report/**,**/test-results/**,**/target/ui-reports/*.xml',
+                        allowEmptyArchive: true
+                    )
+                }
+            }
         }
         cleanup {
             deleteDir()

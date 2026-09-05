@@ -6,7 +6,8 @@ export default defineConfig({
   test: {
     globals: false,
     environment: 'jsdom',
-    reporter: 'verbose',
+    reporters: ['verbose', 'junit'],
+    outputFile: { junit: 'target/ui-reports/vitest.xml' },
     setupFiles: ['./src/tests/vitest.setup.ts'],
     include: [
       'src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}',

@@ -89,7 +89,7 @@
                                 </goals>
                                 <phase>test</phase>
                                 <configuration>
-                                    <arguments>run test:run -- --run --reporter=verbose</arguments>
+                                    <arguments>run test:run</arguments>
                                 </configuration>
                             </execution>
                         </executions>
@@ -117,7 +117,7 @@
                                 </goals>
                                 <phase>test</phase>
                                 <configuration>
-                                    <arguments>run test:run -- --run --reporter=verbose</arguments>
+                                    <arguments>run test:run</arguments>
                                 </configuration>
                             </execution>
                         </executions>
