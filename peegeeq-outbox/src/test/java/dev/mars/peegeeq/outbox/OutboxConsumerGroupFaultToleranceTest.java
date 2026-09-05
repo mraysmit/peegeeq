@@ -57,9 +57,11 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 
@@ -230,9 +232,9 @@ class OutboxConsumerGroupFaultToleranceTest {
 
         @Test
         @DisplayName("batch continues after individual handler failure")
-        void batchContinuesAfterHandlerFailure(Vertx vertx, VertxTestContext testContext) throws Exception {
+        void batchContinuesAfterHandlerFailure(VertxTestContext testContext) throws Exception {
             int totalMessages = 10;
-            AtomicInteger failCount = new AtomicInteger();
+            Map<String, AtomicInteger> attempts = new ConcurrentHashMap<>();
             List<String> successfullyProcessed = Collections.synchronizedList(new ArrayList<>());
 
             // Expect ~half to succeed on first pass; failed ones get retried
@@ -241,8 +243,10 @@ class OutboxConsumerGroupFaultToleranceTest {
             consumerGroup = outboxFactory.createConsumerGroup("mid-batch-group", testTopic, String.class);
             consumerGroup.addConsumer("c1", message -> {
                 String payload = message.getPayload();
+                int attempt = attempts.computeIfAbsent(payload, ignored -> new AtomicInteger())
+                        .incrementAndGet();
                 // Fail on odd-numbered messages the first time only
-                if (payload.contains("odd") && failCount.incrementAndGet() <= 5) {
+                if (payload.contains("odd") && attempt == 1) {
                     return Future.failedFuture(new RuntimeException("Simulated mid-batch failure for " + payload));
                 }
                 successfullyProcessed.add(payload);
@@ -251,7 +255,6 @@ class OutboxConsumerGroupFaultToleranceTest {
             });
             // Wait for group to start, then send mix of messages
             consumerGroup.start()
-                .compose(v -> vertx.timer(500).mapEmpty())
                 .compose(v -> {
                     Future<Void> sends = Future.succeededFuture();
                     for (int i = 0; i < totalMessages; i++) {
@@ -268,6 +271,12 @@ class OutboxConsumerGroupFaultToleranceTest {
 
             assertEquals(totalMessages, successfullyProcessed.size(),
                     "All messages should be successfully processed after retries");
+            for (int i = 0; i < totalMessages; i++) {
+                String payload = (i % 2 == 0 ? "even" : "odd") + "-" + i;
+                assertNotNull(attempts.get(payload), "Every message must reach the handler");
+                assertEquals(i % 2 == 0 ? 1 : 2, attempts.get(payload).intValue(),
+                        "Only the first attempt of each odd message should fail: " + payload);
+            }
         }
     }
 
