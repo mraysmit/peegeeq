@@ -58,6 +58,17 @@ public interface EventStoreFactory {
     }
 
     /**
+     * Creates a tenant-scoped durable bitemporal subscription service.
+     * The caller must close the service before closing its database infrastructure.
+     * Implementations without this capability fail explicitly.
+     *
+     * @return a new subscription service
+     */
+    default dev.mars.peegeeq.api.subscription.BiTemporalSubscriptionService createBiTemporalSubscriptionService() {
+        throw new UnsupportedOperationException("Durable bitemporal subscriptions are not supported by this factory");
+    }
+
+    /**
      * Returns the name of this factory implementation.
      * Used for logging and diagnostics.
      *
