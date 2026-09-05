@@ -69,7 +69,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * <h2>What is tested</h2>
  * <ol>
  *   <li>Normal operation: SELECT 1 routes through HAProxy to primary.</li>
- *   <li>Real SQL round-trip: DDL + DML via {@code withConnection} using a temp table.</li>
+ *   <li>Real SQL round-trip: DDL + DML via {@code withTransaction} using a temp table.</li>
  *   <li>Transaction rollback safety: rolled-back insert leaves no row.</li>
  *   <li>{@code checkHealth()} returns {@code true} while primary is healthy.</li>
  *   <li>Failback: stop primary, verify secondary takes over, start replacement primary,
@@ -339,7 +339,7 @@ class HaProxyConnectionFailoverTest {
     }
 
     /**
-     * Phase 2  Real SQL round-trip via {@link PgConnectionManager#withConnection}.
+     * Phase 2  Real SQL round-trip via {@link PgConnectionManager#withTransaction}.
      *
      * Creates a temporary table, inserts a row, reads it back, and verifies the value.
      * Temporary tables are session-scoped and auto-dropped when the connection closes,
@@ -347,12 +347,12 @@ class HaProxyConnectionFailoverTest {
      */
     @Test
     @Order(2)
-    @DisplayName("Phase 2: withConnection DDL + DML round-trip via HAProxy (temp table)")
+    @DisplayName("Phase 2: withTransaction DDL + DML round-trip via HAProxy (temp table)")
     void testWithConnectionRealSqlRoundTrip(Vertx vertx, VertxTestContext ctx) {
         long t0 = System.currentTimeMillis();
-        logger.info("--- Phase 2 BEGIN: withConnection DDL + DML round-trip ---");
+        logger.info("--- Phase 2 BEGIN: withTransaction DDL + DML round-trip ---");
 
-        connectionManager.withConnection("haproxy-failover-test", conn -> {
+        connectionManager.withTransaction("haproxy-failover-test", conn -> {
             logger.debug("[phase-2] Connection acquired from pool  executing CREATE TEMP TABLE");
             return conn.query("CREATE TEMP TABLE haproxy_roundtrip (id INT, label TEXT)").execute()
                 .compose(v -> {
@@ -381,7 +381,7 @@ class HaProxyConnectionFailoverTest {
             ctx.completeNow();
         })
         .onFailure(err -> {
-            logger.error("[phase-2] FAIL: withConnection round-trip failed after {}ms: {}",
+            logger.error("[phase-2] FAIL: withTransaction round-trip failed after {}ms: {}",
                 System.currentTimeMillis() - t0, err.getMessage(), err);
             ctx.failNow(err);
         });
@@ -390,8 +390,8 @@ class HaProxyConnectionFailoverTest {
     /**
      * Phase 3  Transaction rollback safety via {@link PgConnectionManager#withTransaction}.
      *
-     * Inserts a row inside a transaction, explicitly rolls back, then verifies the row
-     * is absent.  Confirms the pool correctly surfaces rollback through HAProxy.
+     * Inserts a row inside a transaction, fails that transaction deliberately, then verifies
+     * the row is absent. Confirms the manager rolls back failed work through HAProxy.
      */
     @Test
     @Order(3)
@@ -400,33 +400,37 @@ class HaProxyConnectionFailoverTest {
         long t0 = System.currentTimeMillis();
         logger.info("--- Phase 3 BEGIN: transaction rollback safety ---");
 
-        connectionManager.withConnection("haproxy-failover-test", conn -> {
-            logger.debug("[phase-3] Connection acquired  creating temp table haproxy_rollback_test");
-            return conn.query("CREATE TEMP TABLE haproxy_rollback_test (val INT)").execute()
-                .compose(v -> {
-                    logger.debug("[phase-3] Beginning explicit transaction");
-                    return conn.begin();
-                })
-                .compose(tx -> {
-                    logger.debug("[phase-3] Inserting val=999 inside transaction");
-                    return conn.preparedQuery("INSERT INTO haproxy_rollback_test VALUES ($1)")
-                        .execute(io.vertx.sqlclient.Tuple.of(999))
-                        .compose(v -> {
-                            logger.debug("[phase-3] Insert done  rolling back transaction");
-                            return tx.rollback();
-                        });
-                })
-                .compose(v -> {
-                    logger.debug("[phase-3] Rollback complete  verifying row count = 0");
-                    return conn.query("SELECT COUNT(*) AS cnt FROM haproxy_rollback_test").execute();
-                })
-                .map(rows -> {
-                    int count = rows.iterator().next().getInteger("cnt");
-                    logger.info("[phase-3] Row count after rollback: {} (expected 0, {}ms)",
-                        count, System.currentTimeMillis() - t0);
-                    assertEquals(0, count, "No rows should exist after rollback");
-                    return count;
-                });
+        IllegalStateException rollbackSignal = new IllegalStateException("intentional rollback");
+        connectionManager.withTransaction("haproxy-failover-test", conn -> {
+            logger.debug("[phase-3] Creating and clearing rollback verification table");
+            return conn.query("CREATE TABLE IF NOT EXISTS public.haproxy_rollback_test (val INT)").execute()
+                .compose(v -> conn.query("TRUNCATE public.haproxy_rollback_test").execute())
+                .mapEmpty();
+        })
+        .compose(v -> connectionManager.withTransaction("haproxy-failover-test", conn -> {
+            logger.debug("[phase-3] Inserting val=999 inside transaction");
+            return conn.preparedQuery("INSERT INTO public.haproxy_rollback_test VALUES ($1)")
+                .execute(io.vertx.sqlclient.Tuple.of(999))
+                .compose(inserted -> Future.<Void>failedFuture(rollbackSignal));
+        }))
+        .transform(ar -> {
+            if (ar.succeeded()) {
+                return Future.failedFuture(new AssertionError("Rollback transaction unexpectedly committed"));
+            }
+            if (ar.cause() != rollbackSignal) {
+                return Future.failedFuture(ar.cause());
+            }
+            logger.debug("[phase-3] Expected transaction failure observed  verifying row count = 0");
+            return Future.succeededFuture();
+        })
+        .compose(v -> connectionManager.withConnection("haproxy-failover-test", conn ->
+            conn.query("SELECT COUNT(*) AS cnt FROM public.haproxy_rollback_test").execute()))
+        .map(rows -> {
+            int count = rows.iterator().next().getInteger("cnt");
+            logger.info("[phase-3] Row count after rollback: {} (expected 0, {}ms)",
+                count, System.currentTimeMillis() - t0);
+            assertEquals(0, count, "No rows should exist after rollback");
+            return count;
         })
         .onSuccess(v -> {
             logger.info("--- Phase 3 PASS: rollback safety confirmed in {}ms ---",
@@ -624,7 +628,7 @@ class HaProxyConnectionFailoverTest {
     }
 
     // -----------------------------------------------------------------------
-    // Retry helpers  (no .recover()  uses Promise + onSuccess/onFailure)
+    // Retry helpers use Promise plus explicit success and failure handlers.
     // -----------------------------------------------------------------------
 
     /**
@@ -633,8 +637,7 @@ class HaProxyConnectionFailoverTest {
      * attempts.
      *
      * <p>Retry is implemented with {@link Promise} and {@link Vertx#setTimer}
-     * (Vert.x-safe delay) rather than {@code .recover()} which is forbidden in
-     * this codebase.
+     * (Vert.x-safe delay) and explicit success and failure handlers.
      *
      * @param vertx       the Vert.x instance used for timers
      * @param pool        the reactive pool to query
