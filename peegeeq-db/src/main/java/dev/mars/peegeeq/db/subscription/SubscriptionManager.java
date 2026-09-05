@@ -166,7 +166,7 @@ public class SubscriptionManager implements SubscriptionService {
                        groupName, topic, options);
         }
         
-        Future<Void> subscribeFuture = connectionManager.withConnection(serviceId, connection -> 
+        Future<Void> subscribeFuture = connectionManager.withTransaction(serviceId, connection ->
             subscribeInternal(trace, topic, groupName, options, connection)
         );
 
@@ -516,7 +516,8 @@ public class SubscriptionManager implements SubscriptionService {
             logger.debug("Updating heartbeat for consumer group '{}' on topic '{}'", groupName, topic);
         }
 
-        return connectionManager.withConnection(serviceId, connection -> {
+        BackfillService configuredBackfillService = backfillService;
+        return connectionManager.withTransaction(serviceId, connection -> {
             // Use CTE to capture pre-update status for resurrection logging
             String sql = """
                 WITH old AS (
@@ -565,30 +566,34 @@ public class SubscriptionManager implements SubscriptionService {
                                        groupName, topic);
                         }
                     }
-                    // Trigger re-backfill on resurrection to recover messages cleaned up during DEAD period
-                    if (resurrected && backfillService != null) {
+                    // Reset the backfill state in the heartbeat transaction. Starting a second
+                    // transaction before this one commits would wait on its own row lock.
+                    if (resurrected && configuredBackfillService != null) {
                         try (var scope = TraceContextUtil.mdcScope(trace)) {
                             logger.info("Triggering re-backfill after resurrection: topic='{}', group='{}'",
                                        topic, groupName);
                         }
-                        // Reset backfill status so BackfillService doesn't skip as ALREADY_COMPLETED
-                        return resetBackfillStatus(topic, groupName)
-                            .compose(v2 -> backfillService.startBackfill(topic, groupName, BackfillScope.PENDING_ONLY))
-                            .map(backfillResult -> {
-                                try (var scope = TraceContextUtil.mdcScope(trace)) {
-                                    logger.info("Resurrection re-backfill completed: topic='{}', group='{}', status={}, processed={}",
-                                               topic, groupName, backfillResult.status(), backfillResult.processedMessages());
-                                }
-                                return (Void) null;
-                            })
-                            .onFailure(error -> {
-                                try (var scope = TraceContextUtil.mdcScope(trace)) {
-                                    logger.warn("Resurrection re-backfill failed for topic='{}', group='{}': {}",
-                                               topic, groupName, error.getMessage());
-                                }
-                            });
+                        return resetBackfillStatus(connection, topic, groupName).map(true);
                     }
-                    return Future.succeededFuture();
+                    return Future.succeededFuture(false);
+                });
+        }).compose(triggerBackfill -> {
+            if (!triggerBackfill) {
+                return Future.succeededFuture();
+            }
+            return configuredBackfillService.startBackfill(topic, groupName, BackfillScope.PENDING_ONLY)
+                .map(backfillResult -> {
+                    try (var scope = TraceContextUtil.mdcScope(trace)) {
+                        logger.info("Resurrection re-backfill completed: topic='{}', group='{}', status={}, processed={}",
+                                   topic, groupName, backfillResult.status(), backfillResult.processedMessages());
+                    }
+                    return (Void) null;
+                })
+                .onFailure(error -> {
+                    try (var scope = TraceContextUtil.mdcScope(trace)) {
+                        logger.warn("Resurrection re-backfill failed for topic='{}', group='{}': {}",
+                                   topic, groupName, error.getMessage());
+                    }
                 });
         });
     }
@@ -597,19 +602,17 @@ public class SubscriptionManager implements SubscriptionService {
      * Resets the backfill status for a subscription so that a new backfill can be triggered.
      * Used during resurrection to allow re-backfill of messages cleaned up during the DEAD period.
      */
-    private Future<Void> resetBackfillStatus(String topic, String groupName) {
-        return connectionManager.withConnection(serviceId, connection -> {
-            String sql = """
-                UPDATE outbox_topic_subscriptions
-                SET backfill_status = NULL,
-                    backfill_checkpoint_id = NULL,
-                    backfill_processed_messages = 0
-                WHERE topic = $1 AND group_name = $2
-                """;
-            return connection.preparedQuery(sql)
-                .execute(Tuple.of(topic, groupName))
-                .mapEmpty();
-        });
+    private Future<Void> resetBackfillStatus(SqlConnection connection, String topic, String groupName) {
+        String sql = """
+            UPDATE outbox_topic_subscriptions
+            SET backfill_status = NULL,
+                backfill_checkpoint_id = NULL,
+                backfill_processed_messages = 0
+            WHERE topic = $1 AND group_name = $2
+            """;
+        return connection.preparedQuery(sql)
+            .execute(Tuple.of(topic, groupName))
+            .mapEmpty();
     }
 
     /**
@@ -805,7 +808,7 @@ public class SubscriptionManager implements SubscriptionService {
     // Helper methods
 
     private Future<Void> updateStatus(TraceCtx trace, String topic, String groupName, SubscriptionStatus newStatus) {
-        return connectionManager.withConnection(serviceId, connection -> {
+        return connectionManager.withTransaction(serviceId, connection -> {
             String sql = """
                 WITH old AS (
                     SELECT subscription_status
@@ -1136,4 +1139,3 @@ public class SubscriptionManager implements SubscriptionService {
         return json;
     }
 }
-
