@@ -4,6 +4,8 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   test: {
+    reporters: ['verbose', 'junit'],
+    outputFile: { junit: 'target/ui-reports/vitest.xml' },
     globals: false,  // Disable globals to avoid conflicts with Playwright
     environment: 'jsdom',
     setupFiles: ['./src/tests/vitest.setup.ts'],

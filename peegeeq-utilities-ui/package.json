@@ -22,7 +22,7 @@
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:report": "playwright show-report",
     "test:all": "npm run test:e2e:inventory && npm run test:run && npm run test:e2e",
-    "test:ci": "npm run test:e2e:inventory && npm run test:run && npm run test:e2e --reporter=junit"
+    "test:ci": "npm run test:all"
   },
   "dependencies": {
     "@reduxjs/toolkit": "^2.10.1",

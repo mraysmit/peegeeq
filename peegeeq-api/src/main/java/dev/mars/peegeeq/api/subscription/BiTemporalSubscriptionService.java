@@ -32,6 +32,46 @@ import java.util.List;
  */
 public interface BiTemporalSubscriptionService {
 
+    /**
+     * Starts typed durable delivery. Completion means the listener and initial finite replay
+     * are ready. Observe deliveryCompletion for failures after startup. Notifications are hints;
+     * committed ordered history remains authoritative. Handlers must tolerate crash redelivery.
+     */
+    default <T> Future<Void> subscribe(String tableName, String subscriptionName, String consumerGroup,
+            String eventType, String aggregateId, Class<T> payloadType,
+            MessageHandler<BiTemporalEvent<T>> handler, SubscriptionOptions options) {
+        return Future.failedFuture(new UnsupportedOperationException("Typed durable delivery is not supported"));
+    }
+
+    /** Completes on delivery shutdown; fails on a terminal delivery error. */
+    default Future<Void> deliveryCompletion(String tableName, String subscriptionName, String consumerGroup) {
+        return Future.failedFuture(new UnsupportedOperationException("Durable delivery is not supported"));
+    }
+
+    /**
+     * Replays a finite committed history boundary for an existing active definition.
+     * At most batchSize records are fetched at once; successful handler completion advances
+     * the cursor. Does not start live delivery. Payload type is explicit for deserialization.
+     */
+    default <T> Future<Void> catchUp(String tableName, String subscriptionName, String consumerGroup,
+            Class<T> payloadType, MessageHandler<BiTemporalEvent<T>> handler, int batchSize) {
+        return Future.failedFuture(new UnsupportedOperationException("Historical replay is not supported"));
+    }
+
+    /**
+     * Persists a durable definition without starting delivery or registering a handler.
+     * Re-registration preserves the committed cursor and rejects changed filters.
+     * This is an administrative operation, not an acknowledgement or a delivery guarantee.
+     */
+    default Future<Void> registerDefinition(String tableName, String subscriptionName,
+            String consumerGroup, String eventType, String aggregateId, SubscriptionOptions options) {
+        return Future.failedFuture(new UnsupportedOperationException("Definition registration is not supported"));
+    }
+
+    /**
+     * Starts durable delivery. Implementations must fail explicitly if replay/delivery is
+     * unavailable; persisting a definition alone must never report subscription success.
+     */
     <T> Future<Void> subscribe(
         String tableName,
         String subscriptionName,

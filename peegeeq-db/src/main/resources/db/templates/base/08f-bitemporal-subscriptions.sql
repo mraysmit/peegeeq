@@ -14,6 +14,9 @@ CREATE TABLE IF NOT EXISTS {schema}.bitemporal_subscriptions (
     heartbeat_interval_seconds INT DEFAULT 60,
     heartbeat_timeout_seconds INT DEFAULT 300,
     last_heartbeat_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    lease_owner UUID,
+    lease_until TIMESTAMP WITH TIME ZONE,
+    lease_generation BIGINT NOT NULL DEFAULT 0,
     subscribed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     last_active_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     UNIQUE (table_name, subscription_name, consumer_group)

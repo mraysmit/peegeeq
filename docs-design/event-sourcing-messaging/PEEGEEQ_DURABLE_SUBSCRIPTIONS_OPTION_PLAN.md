@@ -1,18 +1,37 @@
 # PeeGeeQ Durable Subscriptions Option Plan (Outbox + Bi-Temporal)
 
-**Status:** PARTIAL — schema groundwork implemented; runtime phases open
-**Reconciled:** 2026-08-26 against repository commit `09157c82`
+**Status:** Task 4 bitemporal runtime implemented and locally verified; broader outbox/operations proposals are not implemented
+**Reconciled:** 2026-09-05 against `19e3cbdb` plus the Tasks 4.2–4.6 working-tree implementation
 
-Migration V012 and the base-template `bitemporal_subscriptions` table are implemented and
-covered by migration/schema tests. No durable bitemporal subscription service, public
-factory, restart replay/cursor coordinator, catch-up-to-live handoff, lease coordination,
-or durable-specific end-to-end test suite was found. The implementation phases below must
-therefore remain open; the presence of the schema alone does not complete this plan.
+The only live execution order and verification record is [the consolidated task register](../tasks/tasks.md).
+This document is a design reference, not a second task list. Its proposed runtime flows and
+test inventory are targets, not claims that every behavior exists.
+
+Migration V012 and the base-template table exist. Tasks 4.1 and 4.2 add the public contracts,
+`EventStoreFactory.createBiTemporalSubscriptionService()`, and the bitemporal coordinator.
+`registerDefinition(...)` persists metadata only. Reads, lifecycle changes, heartbeats, and
+transactional cursor updates use the manager's tenant-local schema and pool. Recreating a
+service preserves committed definitions/cursors; loading active definitions validates stored
+cursor bounds but does not restore handlers or start delivery automatically.
+
+The typed `subscribe(..., Class<T>, handler, options)` overload starts durable delivery;
+the untyped overload fails explicitly because it cannot safely deserialize an erased payload type.
+`catchUp(..., Class<T>, handler, batchSize)` replays one finite committed boundary without live delivery.
+Successful handler completion permits a generation-fenced cursor acknowledgement. V020 adds
+expiring owner leases; each finite scan renews and releases its lease, and live contenders
+remain standbys while another scan owns it. Observe `deliveryCompletion(...)` for terminal
+errors after startup; `close()` drains work and reports resource-cleanup failures separately.
+
+Focused local evidence: `DurableBiTemporalReplayIntegrationTest` 15/15,
+`DurableBiTemporalSubscriptionIntegrationTest` 34/34, `MigrationConventionsTest` 11/11, and
+`OnSuccessExceptionSwallowingGuardTest` 8/8. These results do not claim a fresh Jenkins/full-suite gate.
+Existing non-durable subscriptions remain unchanged. The historical test inventory in section 13
+includes superseded ideas and unapproved extensions; it is not a list of additional current tasks.
 
 ## 1. Objective
 
 Add a durable subscription option to:
-- peegeeq-bitemporal reactive subscription flow (greenfield no durable infrastructure exists today)
+- peegeeq-bitemporal typed durable service (implemented separately from non-durable subscriptions)
 - peegeeq-native outbox flow (extend existing infrastructure)
 
 The option must preserve current behavior by default (non-durable, in-memory), while enabling durable restart-safe consumer progress when explicitly configured.
@@ -68,18 +87,19 @@ Factory: `PeeGeeQManager.createSubscriptionService()`
 - `heartbeatIntervalSeconds`, `heartbeatTimeoutSeconds`
 - `backfillScope` (PENDING_ONLY, etc.)
 
-### 3.4 Bitemporal Subscription State (In-Memory Only)
+### 3.4 Existing Non-Durable Bitemporal Subscription State
 
 `ReactiveNotificationHandler` has:
 - `SubscriptionKey` private inner class with `eventType` (nullable, supports `*` wildcards) and `aggregateId` (nullable)
 - Subscription storage: `ConcurrentHashMap<SubscriptionKey, CopyOnWriteArrayList<MessageHandler>>`
 - LISTEN/NOTIFY via PostgreSQL trigger `notify_bitemporal_event()` (V011)
-- **No persistence** subscriptions lost on restart, no replay capability
+- This non-durable path remains in-memory. The durable service owns a typed event-store listener
+  and treats its notifications only as hints to reconcile committed history.
 
 ### 3.5 Bitemporal Event Table Ordering
 
 `bitemporal_event_log` has:
-- `id BIGSERIAL PRIMARY KEY` guaranteed monotonic, auto-incrementing (the cursor column)
+- `id BIGSERIAL PRIMARY KEY` sequence-allocated identifier (the cursor column); allocation order is not transaction commit order
 - `transaction_time TIMESTAMPTZ` when recorded, but can have ties across concurrent inserts
 - `valid_time TIMESTAMPTZ` business time, not monotonic (can be backdated)
 - `event_type`, `aggregate_id`, `correlation_id`, `causation_id`
@@ -92,7 +112,7 @@ The project supports per-schema table isolation (see PEEGEEQ_SCHEMA_CONFIGURATIO
 
 ## 4. Current State Summary
 
-Bitemporal reactive subscriptions:
+Bitemporal non-durable reactive subscriptions (unchanged by Task 4.2):
 - Subscription keys are in memory only (ConcurrentHashMap in ReactiveNotificationHandler)
 - Clients must resubscribe after process restart
 - LISTEN/NOTIFY events while disconnected are not replayed
@@ -102,7 +122,7 @@ Outbox subscriptions:
 - Already durable via `outbox_topic_subscriptions` with status lifecycle, heartbeats, and backfill
 - Consumer progress tracked in `consumer_group_index.last_processed_id`
 - `SubscriptionService` API provides full lifecycle management
-- Gap: no unified cursor abstraction shared with bitemporal
+- The shared cursor interface exists from Task 4.1; adapting the outbox implementation to it remains a design proposal, not a completed integration.
 
 ## 5. Target Functional Requirements
 
@@ -111,7 +131,8 @@ Outbox subscriptions:
 3. On reconnect, consumers catch up from last acknowledged cursor before live notifications.
 4. At-least-once delivery guarantee in durable mode.
 5. Existing non-durable API behavior remains unchanged.
-6. Multi-subscriber same key remains supported.
+6. Multiple non-durable handlers per filter remain supported. A durable identity has one local
+   handler per service; multiple services coordinate ownership rather than broadcasting a shared cursor.
 7. Clear operational controls: pause/resume/reset/replay-from-cursor via a dedicated bitemporal service plus the existing outbox `SubscriptionService`.
 
 ## 6. High-Level Design
@@ -125,7 +146,15 @@ For the bitemporal module, build new durable infrastructure that follows the sam
 ### 6.2 Cursor Type Decisions
 
 - **Outbox cursor**: `outbox.id` (BIGSERIAL) already stored as `consumer_group_index.last_processed_id`
-- **Bitemporal cursor**: `bitemporal_event_log.id` (BIGSERIAL) guaranteed monotonic. Transaction time is NOT suitable because concurrent inserts can produce ties. The `id` column provides total ordering.
+- **Bitemporal cursor**: `bitemporal_event_log.id` (BIGSERIAL) provides numeric order, not commit order.
+  A short READ COMMITTED SHARE-lock barrier waits for current writers before reading the maximum.
+  Tests prove a delayed lower-ID commit is included. The lock is released before fetching/handling
+  the backlog. The supported table is append-only, with IDs allocated inside INSERT from an
+  ascending, non-cycling CACHE 1 sequence. Explicit/preallocated IDs, sequence resets, and
+  deleting retained history are outside this contract. Sequence settings are checked on each scan.
+  Lock acquisition is bounded to five seconds and requires PostgreSQL SHARE-lock privileges.
+  See [PostgreSQL LOCK](https://www.postgresql.org/docs/current/sql-lock.html) and
+  [sequence caching](https://www.postgresql.org/docs/current/sql-createsequence.html).
 
 ### 6.3 Core Pattern
 
@@ -157,6 +186,9 @@ These tables follow the existing naming convention (no `pgq_` prefix) and must b
 | `heartbeat_interval_seconds` | `INT DEFAULT 60` | |
 | `heartbeat_timeout_seconds` | `INT DEFAULT 300` | |
 | `last_heartbeat_at` | `TIMESTAMPTZ DEFAULT NOW()` | |
+| `lease_owner` | `UUID` | Unique token for this scan, not a reusable configured consumer name |
+| `lease_until` | `TIMESTAMPTZ` | Database-clock expiry; renewal cannot revive an expired lease |
+| `lease_generation` | `BIGINT NOT NULL DEFAULT 0` | Incremented on acquisition/reset/revocation; fences stale acknowledgements |
 | `subscribed_at` | `TIMESTAMPTZ DEFAULT NOW()` | |
 | `last_active_at` | `TIMESTAMPTZ DEFAULT NOW()` | |
 | `UNIQUE` | | `(table_name, subscription_name, consumer_group)` |
@@ -167,7 +199,7 @@ Design notes:
 - `consumer_group` is required and forms part of the durable business key. Lifecycle operations address subscriptions by `(table_name, subscription_name, consumer_group)`.
 - Wildcard matching follows the current runtime semantics in `ReactiveNotificationHandler`: `*` matches a single dot-delimited segment, so `order.*` matches `order.created` but not `order.created.v2`.
 - Status enum values match `outbox_topic_subscriptions` for consistency.
-- Lease columns (`lease_owner`, `lease_until`) are deferred to Phase 3 and will be added via ALTER TABLE when lease coordination is implemented.
+- Lease columns ship in V020 and `08f-bitemporal-subscriptions.sql`; existing definitions start unowned.
 
 **Table: `bitemporal_subscription_delivery_log` (Phase 3)**
 
@@ -183,10 +215,8 @@ The outbox already stores `last_processed_id` in `consumer_group_index`. No new 
 
 ### 7.3 Schema-Tenancy Integration
 
-New tables must be added to the schema template system:
-- Add `bitemporal_subscriptions` to the base template manifest (`peegeeq-db/src/main/resources/db/templates/base/.manifest`)
-- Create a new template script (e.g., `09a-bitemporal-subscriptions.sql`) following the pattern of `08b-consumer-table-subscriptions.sql`
-- Ensure `DatabaseSetupService` creates these tables in the correct tenant schema
+The base manifest includes `08f-bitemporal-subscriptions.sql`, which now contains the V020
+lease fields for fresh tenant schemas. The migration path upgrades existing definitions.
 
 ### 7.4 Required Indexes
 
@@ -209,8 +239,8 @@ Add durable-subscription fields to the existing `SubscriptionOptions.Builder` ra
 New builder methods:
 - `durableEnabled(boolean)` default false for bitemporal, default true for outbox
 - `subscriptionName(String)` required when durableEnabled=true
-- `consumerId(String)` identifies this consumer instance
-- `replayBatchSize(int)` number of events per catch-up batch (default 500)
+- `consumerId(String)` remains optional application metadata; it is not the lease/fencing token
+- `replayBatchSize(int)` number of records fetched per batch (default 500); runtime accepts 1–10000
 
 Phase 1 delivery mode:
 - Automatic cursor advancement only. Cursor advances after the handler completes successfully.
@@ -227,9 +257,10 @@ Future<Void> subscribeBitemporal(String tableName, String subscriptionName,
 
 // Option B: Separate interface (preferred cleaner separation)
 public interface BiTemporalSubscriptionService {
-    Future<Void> subscribe(String tableName, String subscriptionName, String consumerGroup,
-        String eventType, String aggregateId,
-        MessageHandler<BiTemporalEvent<?>> handler, SubscriptionOptions options);
+    <T> Future<Void> subscribe(String tableName, String subscriptionName, String consumerGroup,
+        String eventType, String aggregateId, Class<T> payloadType,
+        MessageHandler<BiTemporalEvent<T>> handler, SubscriptionOptions options);
+    Future<Void> deliveryCompletion(String tableName, String subscriptionName, String consumerGroup);
     Future<Void> pause(String tableName, String subscriptionName, String consumerGroup);
     Future<Void> resume(String tableName, String subscriptionName, String consumerGroup);
     Future<Void> cancel(String tableName, String subscriptionName, String consumerGroup);
@@ -240,51 +271,29 @@ public interface BiTemporalSubscriptionService {
 Decision: **Option B** a separate `BiTemporalSubscriptionService` interface. Outbox subscriptions are keyed by `(topic, groupName)`. Bitemporal durable subscriptions are keyed by `(tableName, subscriptionName, consumerGroup)`, with `eventType` and `aggregateId` defining the delivery filter. Forcing both into one interface creates awkward unused parameters.
 
 Factory access:
-- Expose `createBiTemporalSubscriptionService()` on `PeeGeeQManager` and surface it through the database service/provider APIs in Phase 1, not Phase 3.
+- Implemented through `EventStoreFactory.createBiTemporalSubscriptionService()` and `BiTemporalEventStoreFactory`, using a started manager's tenant schema/pool and a manager close hook.
+- This supersedes direct construction from `PeeGeeQManager`: the database module cannot depend on its downstream bitemporal module without a dependency cycle. No manager/database-provider factory method is claimed as implemented.
+- `registerDefinition(...)` is metadata-only. Typed subscribe waits for LISTEN readiness and
+  its initial finite reconciliation; it may be a standby if another instance currently owns delivery.
+  The untyped overload remains unsupported. Applications explicitly re-register handlers after restart.
 
-### 8.3 ReactiveNotificationHandler Subscribe Overload
+### 8.3 Separate Typed Delivery
 
-Add a new overload to `ReactiveNotificationHandler.subscribe()`:
-
-```java
-// Existing (unchanged):
-public Future<Void> subscribe(String eventType, String aggregateId,
-    MessageHandler<BiTemporalEvent<T>> handler)
-
-// New durable overload:
-public Future<Void> subscribe(String eventType, String aggregateId,
-    MessageHandler<BiTemporalEvent<T>> handler, SubscriptionOptions options)
-```
-
-When `options.durableEnabled == false` (or options is null), the existing in-memory code path executes unchanged.
+The proposed notification-handler overload was superseded. Applications obtain the durable
+service from the event-store factory and supply an explicit payload class. The service uses
+the existing typed event store for deserialization and LISTEN readiness. Non-durable callers
+continue using `EventStore.subscribe(...)`; the durable service rejects non-durable options.
 
 ### 8.4 SubscriptionKey Extraction
 
-`SubscriptionKey` is currently a `private static final` inner class of `ReactiveNotificationHandler`. To persist and restore subscriptions, extract it to a package-visible class:
-
-```java
-// Move to: dev.mars.peegeeq.bitemporal.SubscriptionKey (package-private)
-final class SubscriptionKey {
-    private final String eventType;
-    private final String aggregateId;
-    // ... existing logic unchanged
-}
-```
-
-This avoids making it public API while allowing the durable coordinator (in the same package) to construct keys for restoration.
+The durable coordinator uses its own validated public key record
+`(tableName, subscriptionName, consumerGroup)`. The existing notification-filter key is unchanged.
 
 ### 8.5 Configuration via PeeGeeQConfiguration
 
-All new settings are exposed through the existing `PeeGeeQConfiguration` object, not system properties:
-
-```java
-// In PeeGeeQConfiguration or a new nested DurableSubscriptionConfig:
-int getReplayBatchSize();          // default 500
-int getRecoveryPollIntervalMs();   // default 1000
-boolean getDurableEnabledDefault(); // default false
-```
-
-These are set through the existing configuration loading mechanism (properties file, builder, etc.).
+The proposed `DurableSubscriptionConfig` was not introduced. Delivery settings come from
+`SubscriptionOptions`. Reconciliation uses a fixed one-second cadence; lease renewal/expiry
+use the persisted heartbeat interval/timeout. No new global property namespace is advertised.
 
 ## 9. Runtime Flow (Durable Mode)
 
@@ -293,10 +302,11 @@ These are set through the existing configuration loading mechanism (properties f
 1. Validate inputs `subscriptionName` and `consumerGroup` are required, and `tableName` must match the store's configured table
 2. UPSERT `bitemporal_subscriptions` row keyed by `(table_name, subscription_name, consumer_group)` with status=ACTIVE
 3. If `startPosition == FROM_BEGINNING`, set `start_from_event_id = 0`
-4. If `startPosition == FROM_NOW`, set `start_from_event_id = SELECT COALESCE(MAX(id), 0) FROM <validated_table_name>`
+4. If `startPosition == FROM_NOW`, capture the initial maximum behind the writer barrier (§6.2)
 5. If `startPosition == FROM_MESSAGE_ID`, set `start_from_event_id` from options
-6. Register handler in the in-memory `ConcurrentHashMap` as today
-7. Begin catch-up replay (see §9.3)
+6. Register one typed local handler, establish LISTEN readiness, then begin finite replay (§9.3)
+7. Re-registration preserves the existing cursor and rejects changed filters. A failed local
+   registration releases its key/resources so a corrected call can retry.
 
 ### 9.2 Startup Recovery (Metadata + Cursor State)
 
@@ -308,40 +318,39 @@ These are set through the existing configuration loading mechanism (properties f
 ### 9.3 Catch-Up Replay
 
 ```sql
-SELECT * FROM <validated_table_name>
+SELECT id, event_id, event_type, aggregate_id FROM <validated_tenant_and_table>
 WHERE id > :last_processed_id
-  AND (aggregate_id = :aggregate_id OR :aggregate_id IS NULL)
-    AND (event_type = :exact_event_type OR :exact_event_type IS NULL)
+  AND id <= :stable_boundary
 ORDER BY id ASC
 LIMIT :replay_batch_size
 ```
 
 Query rules:
-- For exact event types, bind `:exact_event_type` and let SQL pre-filter.
-- For wildcard event types such as `order.*`, bind `:exact_event_type = NULL`, fetch by cursor range, and apply the same segment-based wildcard matcher used by `ReactiveNotificationHandler` before invoking the handler.
-- `<validated_table_name>` is the store's configured table identifier, validated by application configuration before query construction. It is not taken directly from user input.
+- Apply exact/wildcard/aggregate matching after fetching the bounded ID range. Advance past
+  nonmatching records so filtered subscriptions do not scan the same excluded tail forever.
+- Both schema and table are validated and quoted; cursor bounds and limits are bound parameters.
 
 Processing loop:
-1. Fetch batch
+1. Acquire an expiring lease, capture the finite writer-barrier boundary, and fetch a batch
 2. For each event that matches the subscription filter, invoke handler
-3. On successful handler return, UPDATE `bitemporal_subscriptions SET last_processed_id = :event_id, last_processed_at = NOW()` within the same transaction
+3. After the handler's Future succeeds, commit the numeric ID cursor in a separate row-locked,
+   generation-fenced transaction. Handler side effects are not made atomic with that commit.
 4. If batch size equals `replay_batch_size`, fetch next batch
-5. When batch returns fewer rows than `replay_batch_size`, catch-up is complete proceed to live handoff
+5. Stop at the fixed boundary, release the lease, and reconcile again when live work is requested
 
 ### 9.4 Catch-Up to Live Handoff Protocol
 
 This is the critical transition that must avoid gaps or duplicates:
 
-1. **Before starting catch-up**, ensure LISTEN is already active on the notification channel. This means the PostgreSQL connection is receiving NOTIFY events into its queue throughout the entire catch-up phase.
-2. Run catch-up batches as described in §9.3. During catch-up, incoming NOTIFY events accumulate in the connection's notification buffer.
-3. On final batch (fewer rows than batch size), record the `high_water_id = MAX(id)` from the last batch.
-4. **Transition to live mode**: Start processing NOTIFY events. For each notification, extract `event_id` from the payload. If `event_id <= high_water_id`, skip it (already delivered during catch-up). If `event_id > high_water_id`, process normally and advance cursor.
-5. This works because:
-   - LISTEN was active before catch-up started, so no NOTIFY is missed
-   - The `id` column is monotonic, so the `high_water_id` comparison is safe
-   - The `notify_bitemporal_event()` trigger (V011) includes `event_id` in the NOTIFY payload, enabling this comparison
+1. Establish LISTEN before the initial replay.
+2. Use notifications only to request a reconciliation; never dispatch notification payloads directly.
+3. Coalesce requests while one finite scan runs; serialize handler invocations and acknowledgements.
+4. Reconcile from the committed numeric cursor again when a request arrived during the scan.
+5. Reconcile every second as a fallback for lost notifications or reconnect gaps.
 
-Race condition guard: If a new event is inserted after the final catch-up batch query but before NOTIFY processing begins, it will be delivered via NOTIFY (since LISTEN was active) and will have `event_id > high_water_id`, so it won't be skipped.
+The original proposal to compare notification `event_id` with numeric cursor `id` was unsafe
+and is not implemented: event UUIDs are not numeric cursor values, and sequence allocation
+alone is not commit order. Both initial and live delivery use the same writer-barrier scan.
 
 ### 9.5 Wildcard Subscription Replay Cost
 
@@ -355,7 +364,15 @@ Mitigations:
 
 ### 9.6 Failure Handling
 
-- Handler throws exception: do not advance cursor. Log the failure. Retry with exponential backoff (configurable max retries). After max retries, mark subscription as DEAD.
+- Handler failure: do not acknowledge that event; fail catch-up/startup or the live
+  `deliveryCompletion` Future and log the terminal live error. No implicit retry/backoff or
+  automatic DEAD transition is claimed. Recreate the service/handler to retry from committed progress.
+- Competing finite catch-up fails explicitly while owned. Live contenders remain standbys and
+  reconcile later. Expiry permits takeover; pre-dispatch checks and acknowledgement generation
+  checks fence stale owners. An already-running external side effect cannot be cancelled by fencing.
+- Pause/cancel quiesce the local scan before changing state. Cross-instance pause/reset/cancel
+  revoke ownership; affected workers surface the resulting lease/state failure. Reset preserves
+  numeric bounds and requires re-registration if it invalidates an active local worker.
 - Process crash during catch-up: cursor was last committed transactionally, so replay resumes from last acknowledged position. At-least-once semantics the last batch may be partially re-delivered.
 - Process crash during live mode: on restart, application re-calls `subscribe()` with same `subscriptionName`, catch-up resumes from stored cursor, handoff protocol re-executes.
 
@@ -363,17 +380,11 @@ Mitigations:
 
 ### 10.1 Bitemporal
 
-Changes required:
-- Extract `SubscriptionKey` to package-visible class (§8.4)
-- Add `BiTemporalSubscriptionService` interface to peegeeq-api
-- Add `createBiTemporalSubscriptionService()` to `PeeGeeQManager` and surface it through the database service/provider APIs
-- Implement `DurableBiTemporalSubscriptionCoordinator` in peegeeq-bitemporal:
-  - Wraps `ReactiveNotificationHandler`
-  - Manages `bitemporal_subscriptions` table CRUD
-  - Implements catch-up → live handoff protocol (§9.4)
-- Add subscribe overload with `SubscriptionOptions` to `ReactiveNotificationHandler`
-- Add replay query path ordered by the configured bitemporal table's `id`
-- Keep existing in-memory dispatch map for active handlers; durable layer restores subscription definitions on startup, application re-registers handlers
+Implemented: public service/factory API, coordinator-local durable identity, tenant-qualified
+metadata/cursors/leases, bounded replay, and `DurableBiTemporalDelivery` for typed live delivery.
+The manager retains pool ownership and registers service close hooks. Handler restoration
+remains application-owned; no manager-to-bitemporal dependency or notification-handler API
+extension was introduced.
 
 ### 10.2 Outbox (peegeeq-native)
 
@@ -410,7 +421,7 @@ Durable mode guarantee:
 Operational implications:
 - Handlers must be idempotent
 - Duplicate delivery can occur after retries/crash recovery
-- The catch-up → live handoff uses `event_id` comparison to minimize duplicates during transition, but does not guarantee exactly-once
+- Catch-up and live use one numeric cursor and lease-fenced scans; notification UUIDs are never compared to that cursor
 
 Future enhancement:
 - Add bounded dedupe key support via `bitemporal_subscription_delivery_log` for effectively-once processing per consumer (Phase 3).
@@ -420,14 +431,11 @@ Future enhancement:
 
 ### 12.1 Database Migration
 
-1. Add new migration script (e.g., `V012__Create_Bitemporal_Subscription_Tables.sql`):
-   - Creates `bitemporal_subscriptions` table
-   - Creates required indexes
-   - Adds `durable_enabled` column to `outbox_topic_subscriptions`
-2. Add template script `09a-bitemporal-subscriptions.sql` to the schema template system
-3. Update `.manifest` file to include the new template
-
-All changes are additive (no existing columns modified or removed). Rollback: drop new table and column.
+V012 creates subscription metadata/indexes and the outbox durability column. V020 adds owner,
+expiry, and generation fields to existing bitemporal definitions. Fresh tenants use the
+manifest's `08f-bitemporal-subscriptions.sql`. Apply V020 before enabling the new runtime.
+Do not drop subscription state to roll back application code: stop durable consumers first
+and retain committed definitions/cursors. The additive lease columns may remain dormant.
 
 ### 12.2 Code Rollout
 
@@ -438,10 +446,16 @@ All changes are additive (no existing columns modified or removed). Rollback: dr
 
 ### 12.3 Rollback
 
-- Set `durableEnabled=false` on subscriptions to fall back to current in-memory/live behavior.
+- Stop/close the durable service, then explicitly use the existing non-durable event-store API
+  if that weaker delivery contract is acceptable. Setting false on the durable service is rejected.
 - No destructive rollback needed tables can remain dormant.
 
-## 13. Test Design (Mandatory TestContainers NO Mockito, NO Reflection)
+## 13. Historical Proposed Test Inventory (Not a Current Task List)
+
+The named classes/cases below are retained design ideas, not the current executable suite or
+completion counts. Sections 6–10 above supersede contradictory proposals (UUID watermarks,
+automatic retry/DEAD transitions, extracted keys, global configuration, and outbox adaptation).
+Current evidence is recorded at the top and in the consolidated task register.
 
 All tests follow pgq-coding-principles.md. Database-touching tests use TestContainers with real PostgreSQL. Pure logic tests are @Tag(CORE). All others are @Tag(INTEGRATION). Every functional behavior has both positive proof (it works) and negative proof (it rejects or handles the wrong case correctly).
 
@@ -749,7 +763,7 @@ All tests follow pgq-coding-principles.md. Database-touching tests use TestConta
 | 9 | `shouldNotDeliverEventsToNonDurableSubscriberAfterRestart` | Negative | Non-durable subscriber does NOT receive missed events after restart only durable subscribers catch up |
 | 10 | `shouldMaintainEventOrderAcrossCatchUpAndLive` | Positive | All events received by handler are in strictly ascending id order, even across the catch-up → live boundary |
 
-## 14. Observability and Operations
+## 14. Proposed Observability Extensions (Not Shipped by Task 4)
 
 ### 14.1 Metrics
 
@@ -774,13 +788,14 @@ All tests follow pgq-coding-principles.md. Database-touching tests use TestConta
    - Mitigation: bounded batch sizes, composite index `(id, event_type, aggregate_id)`, document cost of `FROM_BEGINNING` on large tables
 
 2. **Risk**: Cursor corruption or out-of-order replay
-   - Mitigation: cursor is `bitemporal_event_log.id` (monotonic BIGSERIAL), cursor updates are transactional, integrity check on startup (`last_processed_id <= MAX(id)`)
+   - Mitigation: writer-barrier boundaries plus sequence constraints, bounded numeric validation,
+     row-locked cursor updates, and lease-generation fencing (§6.2 and §9)
 
 3. **Risk**: Handler side effects duplicated
    - Mitigation: at-least-once semantics documented, handlers must be idempotent, optional dedupe log in Phase 3
 
 4. **Risk**: Gap during catch-up to live handoff
-   - Mitigation: LISTEN active before catch-up starts, event_id comparison during transition (§9.4)
+   - Mitigation: LISTEN readiness, coalesced ordered scans, and periodic reconciliation (§9.4)
 
 5. **Risk**: Schema-tenancy not supported for new tables
    - Mitigation: new tables included in template scripts from Phase 0, tested with multi-schema setup
@@ -790,13 +805,16 @@ All tests follow pgq-coding-principles.md. Database-touching tests use TestConta
 
 ## 16. Phased Implementation Plan
 
+Historical design decomposition only. Use Task 4 in the consolidated register for current
+phase boundaries, completion status, and approved execution order.
+
 ### Phase 0: Schema and Interfaces
 - Create `V012` migration: `bitemporal_subscriptions` table + indexes
 - Add template script `09a-bitemporal-subscriptions.sql` + manifest update
 - Add `durable_enabled` column to `outbox_topic_subscriptions`
 - Extract `SubscriptionKey` to package-visible class
 - Define `BiTemporalSubscriptionService` interface in peegeeq-api
-- Expose `createBiTemporalSubscriptionService()` through `PeeGeeQManager` and the database service/provider APIs
+- Expose `createBiTemporalSubscriptionService()` through the event-store factory (implemented in Task 4.2; see section 8.2)
 - Define `DurableSubscriptionCoordinator` interface
 - Add `durableEnabled`, `subscriptionName`, and `replayBatchSize` to `SubscriptionOptions.Builder`
 - Add durable config properties to `PeeGeeQConfiguration`
@@ -829,7 +847,10 @@ All tests follow pgq-coding-principles.md. Database-touching tests use TestConta
 - Large backlog replay validation (millions of events)
 - Adaptive backoff tuning
 
-## 17. Acceptance Criteria
+## 17. Historical Broader Proposal Acceptance Criteria
+
+These include outbox and full-suite work beyond the completed bitemporal Task 4 scope; they
+are not all claimed as satisfied by focused local verification.
 
 1. Non-durable default path remains backward-compatible all existing tests pass unchanged.
 2. Durable bitemporal subscription survives simulated restart without client data loss once the application re-registers the same durable subscription and handler.
@@ -842,26 +863,28 @@ All tests follow pgq-coding-principles.md. Database-touching tests use TestConta
 
 ## 18. Immediate Next Steps
 
-1. Review and approve this design specifically the decision to use `BiTemporalSubscriptionService` (Option B) vs extending `SubscriptionService`.
-2. Validate the `bitemporal_subscriptions` table schema against the existing `outbox_topic_subscriptions` schema for consistency.
-3. Confirm the durable business key `(table_name, subscription_name, consumer_group)` and the public factory access path for `BiTemporalSubscriptionService`.
-4. Implement Phase 0: DDL migration, template script, interface definitions, public factory surface, and `SubscriptionOptions` extensions.
-5. Deliver Phase 1: bitemporal durable MVP with catch-up → live handoff integration tests.
+Task 4 is locally verified. Follow [the consolidated register](../tasks/tasks.md) for CI reporting
+verification and any subsequently approved work.
+Do not treat the broader proposed phases above as authorization to implement extra features.
 
 ## Appendix A: Decisions Log
 
 | # | Decision | Rationale |
 |---|----------|-----------|
-| D1 | Bitemporal cursor is `bitemporal_event_log.id` (BIGSERIAL) | Only monotonic column. `transaction_time` can have ties. |
+| D1 | Bitemporal cursor is `bitemporal_event_log.id` (BIGSERIAL) | Numeric ordering only; delayed lower-ID commits need an explicit replay safety contract. |
 | D2 | No `pgq_` table prefix | Existing tables use unprefixed names. Follow convention. |
 | D3 | Explicit `event_type` + `aggregate_id` columns, not JSONB filter | Matches SubscriptionKey's two fields. Enables SQL filtering and indexing. |
 | D4 | `table_name` column in `bitemporal_subscriptions` | PgBiTemporalEventStore instances target different tables. |
 | D5 | Separate `BiTemporalSubscriptionService` interface | Outbox keyed by (topic, group). Bitemporal keyed by (table, subscription, eventType, aggregateId). Different shapes. |
-| D6 | Lease columns deferred to Phase 3 | Avoid dead columns for 3 phases. Add via ALTER TABLE when needed. |
+| D6 | Lease columns shipped in Task 4.5 / V020 | Expiry and generation fencing protect concurrent replay acknowledgements. |
 | D7 | Extend `SubscriptionOptions` not new options class | Reuse existing builder pattern and StartPosition enum. |
-| D8 | SubscriptionKey extracted to package-visible, not public | Minimize API surface. Same package access sufficient. |
+| D8 | Task 4.2 uses a public coordinator-local durable key record | Stable `(tableName, subscriptionName, consumerGroup)` identity; the existing private notification-filter key is not extracted or reused. |
 | D9 | LISTEN active before catch-up starts | Ensures no NOTIFY gap during handoff. See §9.4. |
 | D10 | Configuration via PeeGeeQConfiguration, not system properties | Follow existing config pattern. |
 | D11 | Phase 1 uses automatic cursor advancement only | Manual ack needs an explicit ack API/token and is deferred. |
 | D12 | Wildcard replay uses current segment-based `ReactiveNotificationHandler` semantics | Prevent durable replay and live delivery from diverging. |
-| D13 | Public bitemporal subscription factory ships in Phase 1 | New API must be reachable through supported manager/service entry points. |
+| D13 | Public bitemporal subscription factory shipped in Task 4.2 | EventStoreFactory is the supported entry point; avoid a database-to-bitemporal dependency cycle. |
+| D14 | Typed subscribe/catch-up require `Class<T>` | Reuse event-store deserialization without unsafe erased generic casts. |
+| D15 | Short writer barrier and CACHE 1 sequence contract | Include delayed lower-ID commits before advancing a numeric cursor. |
+| D16 | Notifications are hints, not direct durable deliveries | One ordered cursor path plus periodic reconciliation covers handoff/reconnect gaps. |
+| D17 | Terminal delivery errors and resource cleanup are separate Futures | Failure remains observable while resources can close cleanly before retry. |

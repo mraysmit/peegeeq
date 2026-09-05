@@ -28,7 +28,7 @@ export default defineConfig({
   reporter: [
     ['html', { outputFolder: 'playwright-report' }],
     ['json', { outputFile: 'test-results/results.json' }],
-    ['junit', { outputFile: 'test-results/junit.xml' }]
+    ['junit', { outputFile: 'target/ui-reports/playwright.xml' }]
   ],
   /* Global timeout for each test */
   timeout: 60 * 1000,
