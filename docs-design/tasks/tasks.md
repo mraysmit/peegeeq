@@ -1,10 +1,10 @@
 # PeeGeeQ Consolidated Task Register
 
 **Status:** ACTIVE
-**Last reconciled:** 2026-09-02
-**Repository revision reviewed:** `6d652f7f` plus the completed Tier-5 Task 2, resilience
-Task 3, and durable-subscription Task 4.1 worktree remediations
-**Latest full release gate:** Jenkins build #36 at `e8d07e53`
+**Last reconciled:** 2026-09-05
+**Repository revision reviewed:** `b19b708b`
+**Recorded from-beginning release baseline:** Jenkins build #36 at `e8d07e53`
+**Latest successful resumed gate:** Jenkins build #46 at `b19b708b` (both UI modules only)
 
 This is the **only live task register** under `docs-design`. Do not derive current work from
 handover notes, design proposals, unchecked boxes in archived plans, or historical narrative.
@@ -25,7 +25,9 @@ Those documents provide context only. New work must be added here before impleme
 
 ## Verification Baseline
 
-Jenkins build #36 ran the complete pipeline from the beginning:
+[Jenkins build #36](http://192.168.137.11:8080/job/PeeGeeQ/36/) ran the complete pipeline
+from the beginning at `e8d07e53`. These are historical baseline counts, not counts for the
+current revision:
 
 | Suite | Result |
 |---|---:|
@@ -35,7 +37,39 @@ Jenkins build #36 ran the complete pipeline from the beginning:
 | Utilities unit | 836/836 |
 | Utilities Playwright | 91/91 |
 
-Later focused worktree verification, not yet represented by a newer full Jenkins gate:
+### Resumed Jenkins verification — 2026-09-05 reconciliation
+
+The remediation sequence reached **SUCCESS** in
+[build #46](http://192.168.137.11:8080/job/PeeGeeQ/46/) at `b19b708b`.
+Its parameters were `TEST_SUITE=all` and `ALL_TESTS_START_MODULE=peegeeq-management-ui`.
+The pipeline first completed its clean install with tests skipped, then ran
+`clean test -Pall-tests -rf :peegeeq-management-ui`. That test invocation covers the two
+remaining UI modules, not the preceding Java modules.
+
+| Build | Revision | Verified passing scope | Overall outcome |
+|---|---|---|---|
+| [#42](http://192.168.137.11:8080/job/PeeGeeQ/42/) | Not recorded here | Database module passed | Earlier module evidence only; not a green release gate |
+| [#44](http://192.168.137.11:8080/job/PeeGeeQ/44/) | `fe676bda` | Outbox 673; native 381; bitemporal 480; runtime 48 | Failed later in REST |
+| [#45](http://192.168.137.11:8080/job/PeeGeeQ/45/) | `c62af5c3` | REST 518; REST client 48; service manager 76; PG sidecar 9; examples 181; migrations 53; integration tests 109; OpenAPI/coverage stages green | Failed in Management UI: 418 of 419 browser tests passed; Utilities UI not run |
+| [#46](http://192.168.137.11:8080/job/PeeGeeQ/46/) | `b19b708b` | Management UI: 128 unit + 419 browser; Utilities UI: 836 unit + 246 browser | SUCCESS |
+
+Build #46's resumed Maven test reactor took **30 minutes 48 seconds**, finishing at
+2026-09-05 06:45 UTC. Its 665 browser tests are the functional gate; they must not be confused
+with the larger functional-plus-screenshot inventory recorded below.
+
+These passes belong to their respective revisions. They do **not** establish a fresh,
+from-beginning full-suite pass at `b19b708b`. Such a run remains an explicit release validation,
+not a requirement to rerun every module during a focused fix.
+
+**Reporting gap:** #46's console reported `No test report files were found.` The existing
+Jenkins publisher selects Surefire/Failsafe XML and allows empty results. The UI counts above
+were verified from execution logs, not Jenkins' published test-result totals. This does not
+change the observed SUCCESS result; publishing UI results is tracked separately in Task 7.
+
+### Focused verification and remediation evidence
+
+Earlier focused verification is retained below. It must not be read as a single full gate
+at the current revision:
 
 - D23 SSE readiness: guard 2/2; real-backend Playwright 36/36.
 - Outbox concurrency: strict TDD failed 3/3 before implementation; final scope 6/6; async
@@ -80,6 +114,23 @@ Later focused worktree verification, not yet represented by a newer full Jenkins
   bitemporal metadata model. The final API scope passed 34/34: `SubscriptionOptionsDurableTest`
   6/6, `BiTemporalSubscriptionInfoTest` 2/2, and the existing `SubscriptionOptionsValidationTest`
   26/26. The six-module bitemporal dependency slice compiled cleanly and async guards passed 9/9.
+- Outbox capacity/filter fairness (`1dd6741b`): failing starvation and capacity contracts
+  preceded the fix; the focused integration scope passed 74 tests and the async guard passed 8.
+  Subsequent full-module verification passed 673 tests in #44 after the retry-metrics fix.
+- Outbox retry metrics (`fe676bda`): three focused contracts failed before deterministic
+  fail-once/succeed fixtures replaced permanently failing handlers. The two regression classes
+  passed 10 and 14 tests, respectively; the async guard passed 8/8.
+- WebSocket subscription ordering (`c62af5c3`): the test now distinguishes automatic queue-tail
+  readiness from the explicit subscription acknowledgement. `WebSocketHandlerTest` passed 6/6,
+  `WebSocketMessageStreamIntegrationTest` passed 2/2, and the async guard passed 8/8. The original
+  failure was observed in CI; the local pre-change run did not reproduce it deterministically.
+- Queue-name search (`b19b708b`): #45's SSE browser test failed before publishing because the
+  management endpoint ignored the search query, leaving the target queue off the first page.
+  A real HTTP/PostgreSQL regression failed 4 of 7 cases before the production fix. Afterwards,
+  `ManagementQueueSearchIntegrationTest` passed 7/7, `ManagementApiIntegrationTest` passed 28/28,
+  and the async guard passed 8/8. The focused filter/SSE Playwright scope passed 45/45 with
+  retries disabled, followed by the successful #46 UI gate. Required reactor rebuilds passed;
+  the browser test was not weakened to hide the endpoint defect.
 
 A green gate proves that the selected implementation and tests passed. It does not prove that
 an unimplemented proposal exists or replace explicitly planned load, chaos, or failover gates.
@@ -310,6 +361,26 @@ Before GA, run and record:
 
 These are explicit owner/release runs, not automatic requirements after every code phase.
 
+### 7. Jenkins UI test-result publishing
+
+**Priority:** CI reporting follow-up
+**Status:** OPEN
+
+Build #46 passed both UI suites, but Jenkins did not publish their test counts. Add JUnit XML
+output for the unit and browser suites in both UIs and include those reports in the pipeline
+publisher. Keep this work in this register rather than creating another implementation plan.
+
+Completion requires:
+
+- Both UI suites emit reports to known, non-overlapping paths retained until publishing.
+- A UI-only resumed build publishes per-suite counts in Jenkins instead of an empty-results
+  warning, with counts reconciled against the execution logs.
+- Actual unit/browser failures still fail the build; reporting must not mask test failures.
+- Missing expected UI reports are detected explicitly; Java-only selections do not require UI
+  reports for suites they did not run.
+
+This reporting follow-up does not change Task 4.2 as the next product implementation phase.
+
 ## Unscheduled Product and Coverage Backlog
 
 | Item | Current verified state | Next decision/work |
@@ -339,6 +410,9 @@ These are explicit owner/release runs, not automatic requirements after every co
 | Streaming-replication failover | Task 3.3 complete: real physical standby retained a committed marker across explicit primary fencing/promotion and accepted a post-promotion write through HAProxy; green 1/1 |
 | PgBouncer transaction pooling | Task 3.4 complete: tenant schema state is applied transaction-locally, session state is reset, and two logical clients safely multiplexed one real backend connection across four transactions; green 1/1 |
 | Durable subscription public API | Task 4.1 complete: opt-in durable options, bitemporal lifecycle and metadata contracts, and the shared cursor coordinator surface are defined; focused API scope green 34/34 |
+| Outbox capacity and retry-metrics CI remediation | `1dd6741b` and `fe676bda`; focused regressions green, then 673 outbox tests passed in #44 |
+| WebSocket subscription test ordering | `c62af5c3`; readiness and explicit acknowledgement distinguished; REST module passed 518 tests in #45 |
+| Management queue-name search | `b19b708b`; real HTTP/PostgreSQL regression 7/7, management API regression 28/28, focused Playwright 45/45; both UI modules passed in resumed build #46 |
 
 ## Archived Supporting Records
 
