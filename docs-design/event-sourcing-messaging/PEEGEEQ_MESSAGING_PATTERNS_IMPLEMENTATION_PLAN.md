@@ -1,8 +1,15 @@
 # Advanced Messaging Patterns Demo Tests Implementation Plan
 
-**Status:** COMPLETE — reconciled 2026-08-26. The ten example scenarios exist (two class
+**Status:** COMPLETE — historical implementation record; reconciled 2026-09-05. The ten example scenarios exist (two class
 names evolved from the names proposed below), and Jenkins build #36 exercised the examples
 modules as part of the full Java gate. Any remaining “run tests” wording is historical.
+
+The examples module subsequently passed 181 tests in
+[Jenkins #45](http://192.168.137.11:8080/job/PeeGeeQ/45/) at `c62af5c3`; that build failed
+later in the Management UI. The subsequent successful #46 resumed at the UI modules and
+did not rerun the examples. Current execution order, remaining work, and the cross-build
+verification ledger are maintained only in the [consolidated task register](../tasks/tasks.md).
+The historical performance targets below are not established by these regression counts.
 
 ## 📋 Overview
 
