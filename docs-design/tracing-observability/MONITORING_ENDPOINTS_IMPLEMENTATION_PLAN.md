@@ -1,6 +1,6 @@
 # Real-Time Monitoring Endpoints Implementation Plan
 
-**Status:** ✅ COMPLETE — archive-ready; reconciled 2026-08-26
+**Status:** ✅ COMPLETE — historical implementation record; reconciled 2026-09-05
 **Created:** 2025-12-30
 **Reviewed:** 2025-12-30
 **Module:** peegeeq-rest
@@ -10,6 +10,19 @@ The WebSocket/SSE handlers, lifecycle cleanup, configurable CORS validation, Pro
 scraping, and frontend coverage described here are implemented. Jenkins build #36 passed
 the complete Java and management UI regression gate. Historical defect sections below are
 retained as the implementation record rather than active work.
+
+Current tasks and verification evidence are maintained exclusively in the
+[consolidated task register](../tasks/tasks.md). REST passed 518 tests in Jenkins #45 at
+`c62af5c3`; both UI modules passed in the resumed #46 run at `b19b708b`. The latter was not
+a fresh full-reactor test run. The register records the WebSocket acknowledgement-ordering
+test correction, the production queue-name search fix exposed by the queue SSE browser test,
+and the outstanding Jenkins UI report-publishing work.
+
+The original problem statements, proposed targets, code snippets, and production-readiness
+judgments below are historical, not current implementation instructions or proof of load-test
+results. In particular, the old cleanup snippets contain unobserved asynchronous close/end
+operations and a catch that logs without propagating; these are pre-existing violations of
+the current coding rules and must not be copied.
 
 ---
 
