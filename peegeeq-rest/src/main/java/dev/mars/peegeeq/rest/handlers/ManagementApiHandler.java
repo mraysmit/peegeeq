@@ -31,6 +31,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -286,14 +287,31 @@ public class ManagementApiHandler {
      */
     public void getQueues(RoutingContext ctx) {
         logger.debug("Queue list requested");
+        String search = ctx.request().getParam("search");
 
         getRealQueues()
+                .map(queues -> {
+                    if (search == null || search.isBlank()) {
+                        return queues;
+                    }
+                    // Filter the complete list before the UI paginates it. Previously the
+                    // search parameter was ignored, hiding matches beyond the first page.
+                    String term = search.strip().toLowerCase(Locale.ROOT);
+                    JsonArray matches = new JsonArray();
+                    for (int i = 0; i < queues.size(); i++) {
+                        JsonObject queue = queues.getJsonObject(i);
+                        if (queue.getString("queueName").toLowerCase(Locale.ROOT).contains(term)) {
+                            matches.add(queue);
+                        }
+                    }
+                    return matches;
+                })
                 .map(queues -> new JsonObject()
                         .put("message", "Queues retrieved successfully")
                         .put("queueCount", queues.size())
                         .put("queues", queues)
                         .put("timestamp", System.currentTimeMillis()))
-                .onSuccess(response -> ctx.response()
+                .compose(response -> ctx.response()
                         .setStatusCode(200)
                         .putHeader("content-type", "application/json")
                         .end(response.encode()))
@@ -2528,4 +2546,3 @@ public class ManagementApiHandler {
                 .end(error.encode());
     }
 }
-
