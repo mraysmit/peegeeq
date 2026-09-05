@@ -135,7 +135,9 @@ class OutboxConsumerConcurrencyIT {
     void consumerThreadsOneLimitsClaimedAndActiveWork(VertxTestContext testContext)
             throws InterruptedException {
         int messageCount = 8;
-        OutboxConsumer<String> consumer = createConsumer(1, messageCount);
+        // The initial poll sees an existing backlog. Releasing a slot must continue
+        // draining it without waiting for the next idle poll one minute later.
+        OutboxConsumer<String> consumer = createConsumer(1, messageCount, Duration.ofMinutes(1));
         Promise<Void> releaseHandlers = trackedRelease();
         Promise<Void> firstHandlerEntered = Promise.promise();
         Promise<Void> allHandlersEntered = Promise.promise();
@@ -309,10 +311,14 @@ class OutboxConsumerConcurrencyIT {
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
-    @SuppressWarnings("unchecked")
     private OutboxConsumer<String> createConsumer(int consumerThreads, int batchSize) {
+        return createConsumer(consumerThreads, batchSize, Duration.ofMillis(5));
+    }
+
+    @SuppressWarnings("unchecked")
+    private OutboxConsumer<String> createConsumer(int consumerThreads, int batchSize, Duration pollingInterval) {
         OutboxConsumerConfig consumerConfig = OutboxConsumerConfig.builder()
-                .pollingInterval(Duration.ofMillis(5))
+                .pollingInterval(pollingInterval)
                 .batchSize(batchSize)
                 .consumerThreads(consumerThreads)
                 .build();
