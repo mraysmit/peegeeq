@@ -21,10 +21,8 @@ below are therefore proposals unless a section explicitly identifies an existing
 primitive. In particular, Appendix D previously described the proposed endpoints as
 implemented; that claim was incorrect and has been reconciled here.
 
-Some historical examples in this design predate the current asynchronous coding
-standard and contain prohibited `CompletableFuture`, completion-stage bridge, `.join()`,
-and `.recover()` patterns. They are non-normative and must be rewritten with composable
-Vert.x `Future` chains before any implementation is copied into production or tests.
+Historical examples in this design now use composable Vert.x `Future` chains. They remain
+proposals and must be validated against current interfaces before implementation.
 
 ---
 
@@ -490,10 +488,10 @@ When the Database is Shared (Co-located), Pattern 1 attempts to coordinate a tra
 **Controller:** `OrderController.java`
 ```java
 @PostMapping("/orders")
-public CompletableFuture<ResponseEntity<String>> createOrder(@RequestBody CreateOrderRequest request) {
+public Future<ResponseEntity<String>> createOrder(@RequestBody CreateOrderRequest request) {
     // Delegates to OrderService which coordinates transaction
     return orderService.createOrder(request)
-        .thenApply(orderId -> ResponseEntity.ok(orderId));
+        .map(orderId -> ResponseEntity.ok(orderId));
 }
 ```
 
@@ -504,22 +502,18 @@ return connectionProvider.withTransaction("peegeeq-main", connection -> {
     return orderRepository.save(order, connection)
 
     // Step 2: Send to outbox (for immediate processing)
-    .compose(v -> Future.fromCompletionStage(
-        orderEventProducer.sendInExistingTransaction(event, connection)
-    ))
+    .compose(v -> orderEventProducer.sendInExistingTransaction(event, connection))
 
     // Step 3: Append to bi-temporal event store (for historical queries)
-    .compose(v -> Future.fromCompletionStage(
-        orderEventStore.appendInTransaction(
+    .compose(v -> orderEventStore.appendInTransaction(
             "OrderCreated",
             event,
             validTime,
             connection  // SAME connection throughout
-        )
-    ))
+        ))
 
     .map(v -> orderId);
-}).toCompletionStage().toCompletableFuture();
+});
 ```
 
 **Key Components:**
@@ -715,14 +709,12 @@ public Future<TransactionalResponse> executeWithCallback(TransactionalCallbackRe
 
                 // Step 2: Append to event store (if configured)
                 if (request.getEventStore() != null) {
-                    return Future.fromCompletionStage(
-                        eventStore.appendInTransaction(
+                    return eventStore.appendInTransaction(
                             request.getEventStore().getEventType(),
                             request.getEventStore().getEventData(),
                             request.getEventStore().getValidFrom(),
                             connection  // SAME connection
-                        )
-                    );
+                        );
                 }
                 return Future.succeededFuture();
             })
@@ -730,12 +722,10 @@ public Future<TransactionalResponse> executeWithCallback(TransactionalCallbackRe
             // Step 3: Send to outbox (if configured)
             .compose(v -> {
                 if (request.getOutbox() != null) {
-                    return Future.fromCompletionStage(
-                        outboxProducer.sendInExistingTransaction(
+                    return outboxProducer.sendInExistingTransaction(
                             request.getOutbox().getMessage(),
                             connection  // SAME connection
-                        )
-                    );
+                        );
                 }
                 return Future.succeededFuture();
             })
@@ -752,13 +742,11 @@ public Future<TransactionalResponse> executeWithCallback(TransactionalCallbackRe
 public Future<SagaResponse> executeSaga(SagaRequest request) {
     SagaState state = new SagaState(request.getSagaId());
 
-    return executeStepsSequentially(request.getSteps(), state)
-        .recover(error -> {
-            // On failure, execute compensation in reverse order
-            return compensateSteps(state.getCompletedSteps())
-                .compose(v -> Future.failedFuture(error));
-        })
-        .map(v -> buildSagaResponse(state));
+    Future<Void> execution = executeStepsSequentially(request.getSteps(), state);
+    return execution.compose(
+        v -> Future.succeededFuture(buildSagaResponse(state)),
+        error -> compensateSteps(state.getCompletedSteps())
+            .compose(v -> Future.failedFuture(error)));
 }
 
 private Future<Void> executeStepsSequentially(List<SagaStep> steps, SagaState state) {
@@ -922,7 +910,7 @@ This design strictly adheres to the PeeGeeQ layered architecture principles docu
 **Interface:** `peegeeq-api/src/main/java/dev/mars/peegeeq/api/EventStore.java`
 
 ```java
-CompletableFuture<BiTemporalEvent<T>> appendInTransaction(
+Future<BiTemporalEvent<T>> appendInTransaction(
     String eventType,
     T payload,
     Instant validTime,
@@ -941,7 +929,7 @@ CompletableFuture<BiTemporalEvent<T>> appendInTransaction(
 **Interface:** `peegeeq-outbox/src/main/java/dev/mars/peegeeq/outbox/OutboxProducer.java`
 
 ```java
-CompletableFuture<Void> sendInExistingTransaction(T message, SqlConnection connection);
+Future<Void> sendInExistingTransaction(T message, SqlConnection connection);
 ```
 
 **Responsibilities:**
@@ -1533,72 +1521,62 @@ void testTransactionalOrderHandler_ParseRequest() {
 1. **Success Path Tests**
 ```java
 @Test
-void testCreateOrder_Success() {
+void testCreateOrder_Success(VertxTestContext testContext) {
     // Given
     TransactionalOrderRequest request = createValidOrderRequest();
 
     // When
-    CompletableFuture<TransactionalOrderResponse> result =
-        handler.createOrder(request);
-
-    // Then
-    assertThat(result).isCompletedWithValueMatching(
-        response -> response.getStatus().equals("COMMITTED")
-    );
-
-    // Verify all operations committed
-    assertThat(orderRepository.findById(orderId)).isPresent();
-    assertThat(eventStore.findById(eventId)).isPresent();
-    assertThat(outbox.findByCorrelationId(correlationId)).isPresent();
+    handler.createOrder(request)
+        .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
+            // Then
+            assertThat(response.getStatus()).isEqualTo("COMMITTED");
+            assertThat(orderRepository.findById(orderId)).isPresent();
+            assertThat(eventStore.findById(eventId)).isPresent();
+            assertThat(outbox.findByCorrelationId(correlationId)).isPresent();
+            testContext.completeNow();
+        })));
 }
 ```
 
 2. **Rollback Tests**
 ```java
 @Test
-void testCreateOrder_RollbackOnEventFailure() {
+void testCreateOrder_RollbackOnEventFailure(VertxTestContext testContext) {
     // Given
     TransactionalOrderRequest request = createRequestWithInvalidEvent();
 
     // When
-    CompletableFuture<TransactionalOrderResponse> result =
-        handler.createOrder(request);
-
-    // Then
-    assertThat(result).isCompletedExceptionally();
-
-    // Verify complete rollback
-    assertThat(orderRepository.findById(orderId)).isEmpty();
-    assertThat(eventStore.findById(eventId)).isEmpty();
-    assertThat(outbox.findByCorrelationId(correlationId)).isEmpty();
+    handler.createOrder(request)
+        .onComplete(testContext.failing(error -> testContext.verify(() -> {
+            // Then: failure is expected and all writes must be rolled back.
+            assertThat(orderRepository.findById(orderId)).isEmpty();
+            assertThat(eventStore.findById(eventId)).isEmpty();
+            assertThat(outbox.findByCorrelationId(correlationId)).isEmpty();
+            testContext.completeNow();
+        })));
 }
 ```
 
 3. **Constraint Violation Tests**
 ```java
 @Test
-void testCreateOrder_DuplicateOrderId() {
+void testCreateOrder_DuplicateOrderId(VertxTestContext testContext) {
     // Given
     TransactionalOrderRequest request = createValidOrderRequest();
-    handler.createOrder(request).join(); // First creation succeeds
-
-    // When
-    CompletableFuture<TransactionalOrderResponse> result =
-        handler.createOrder(request); // Duplicate
-
-    // Then
-    assertThat(result).isCompletedExceptionally();
-    assertThat(result)
-        .failsWithin(Duration.ofSeconds(5))
-        .withThrowableOfType(ExecutionException.class)
-        .withCauseInstanceOf(ConstraintViolationException.class);
+    handler.createOrder(request)
+        .compose(first -> handler.createOrder(request)) // Duplicate
+        .onComplete(testContext.failing(error -> testContext.verify(() -> {
+            // Vert.x reports the original asynchronous cause without a blocking wrapper.
+            assertThat(error).isInstanceOf(ConstraintViolationException.class);
+            testContext.completeNow();
+        })));
 }
 ```
 
 4. **Concurrent Transaction Tests**
 ```java
 @Test
-void testConcurrentOrderCreation() {
+void testConcurrentOrderCreation(VertxTestContext testContext) {
     // Given
     List<TransactionalOrderRequest> requests =
         IntStream.range(0, 100)
@@ -1606,17 +1584,19 @@ void testConcurrentOrderCreation() {
             .collect(Collectors.toList());
 
     // When
-    List<CompletableFuture<TransactionalOrderResponse>> futures =
+    List<Future<TransactionalOrderResponse>> futures =
         requests.stream()
             .map(handler::createOrder)
             .collect(Collectors.toList());
 
-    CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-
-    // Then
-    assertThat(orderRepository.count()).isEqualTo(100);
-    assertThat(eventStore.count()).isEqualTo(100);
-    assertThat(outbox.count()).isEqualTo(100);
+    Future.all(futures)
+        .onComplete(testContext.succeeding(ignored -> testContext.verify(() -> {
+            // Then
+            assertThat(orderRepository.count()).isEqualTo(100);
+            assertThat(eventStore.count()).isEqualTo(100);
+            assertThat(outbox.count()).isEqualTo(100);
+            testContext.completeNow();
+        })));
 }
 ```
 
@@ -1633,24 +1613,26 @@ void testConcurrentOrderCreation() {
 **Test Scenarios:**
 ```java
 @Test
-void testTransactionPerformance() {
+void testTransactionPerformance(VertxTestContext testContext) {
     // Warmup
-    for (int i = 0; i < 100; i++) {
-        handler.createOrder(createOrderRequest("WARMUP-" + i)).join();
-    }
+    List<Future<TransactionalOrderResponse>> warmup = IntStream.range(0, 100)
+        .mapToObj(i -> handler.createOrder(createOrderRequest("WARMUP-" + i)))
+        .toList();
 
-    // Measure
-    long startTime = System.nanoTime();
-    for (int i = 0; i < 1000; i++) {
-        handler.createOrder(createOrderRequest("PERF-" + i)).join();
-    }
-    long endTime = System.nanoTime();
-
-    double avgDurationMs = (endTime - startTime) / 1_000_000.0 / 1000;
-    double throughput = 1000.0 / (avgDurationMs / 1000.0);
-
-    assertThat(avgDurationMs).isLessThan(50.0);
-    assertThat(throughput).isGreaterThan(1000.0);
+    Future.all(warmup)
+        .compose(ignored -> {
+            long startedAt = System.nanoTime();
+            List<Future<TransactionalOrderResponse>> measured = IntStream.range(0, 1000)
+                .mapToObj(i -> handler.createOrder(createOrderRequest("PERF-" + i)))
+                .toList();
+            return Future.all(measured).map(done -> startedAt);
+        })
+        .onComplete(testContext.succeeding(startedAt -> testContext.verify(() -> {
+            double elapsedSeconds = (System.nanoTime() - startedAt) / 1_000_000_000.0;
+            double throughput = 1000.0 / elapsedSeconds;
+            assertThat(throughput).isGreaterThan(1000.0);
+            testContext.completeNow();
+        })));
 }
 ```
 
@@ -1888,13 +1870,13 @@ public class OrderCallbackHandler {
     @Inject OrderRepository orderRepository;
 
     @PostMapping("/api/order-handler")
-    public CompletableFuture<CallbackResponse> handleOrderCreation(
+    public Future<CallbackResponse> handleOrderCreation(
         @RequestBody OrderCallbackPayload payload,
         @RequestHeader("X-Transaction-Connection") String connectionId) {
 
         // This executes within PeeGeeQ's transaction
         return orderRepository.save(payload.toOrder(), connectionId)
-            .thenApply(order -> new CallbackResponse(true, order.getId()));
+            .map(order -> new CallbackResponse(true, order.getId()));
     }
 }
 ```
@@ -1941,13 +1923,13 @@ Domain application creates endpoints for both forward and compensation operation
 public class OrderController {
 
     @PostMapping("/api/orders")
-    public CompletableFuture<OrderResponse> createOrder(@RequestBody OrderRequest request) {
+    public Future<OrderResponse> createOrder(@RequestBody OrderRequest request) {
         return orderRepository.save(request.toOrder())
-            .thenApply(order -> new OrderResponse(order.getId()));
+            .map(order -> new OrderResponse(order.getId()));
     }
 
     @DeleteMapping("/api/orders/{orderId}")
-    public CompletableFuture<Void> deleteOrder(@PathVariable String orderId) {
+    public Future<Void> deleteOrder(@PathVariable String orderId) {
         // Compensation logic
         return orderRepository.delete(orderId);
     }
@@ -4464,7 +4446,7 @@ public class TransactionalOrderHandler {
 
             // Execute transaction
             executeTransaction(request)
-                .thenAccept(response -> {
+                .onSuccess(response -> {
                     logger.info("Transaction committed successfully: orderId={}, eventId={}",
                         response.getOrderId(), response.getEventId());
 
@@ -4474,10 +4456,9 @@ public class TransactionalOrderHandler {
                         .putHeader("Location", "/api/v1/orders/" + response.getOrderId())
                         .end(Json.encode(response));
                 })
-                .exceptionally(error -> {
+                .onFailure(error -> {
                     logger.error("Transaction failed: {}", error.getMessage(), error);
                     sendError(ctx, 500, "Transaction failed: " + error.getMessage());
-                    return null;
                 });
 
         } catch (Exception e) {
@@ -4486,7 +4467,7 @@ public class TransactionalOrderHandler {
         }
     }
 
-    private CompletableFuture<TransactionalOrderResponse> executeTransaction(
+    private Future<TransactionalOrderResponse> executeTransaction(
             TransactionalOrderRequest request) {
 
         return connectionProvider.withTransaction("peegeeq-main", connection -> {
@@ -4498,14 +4479,12 @@ public class TransactionalOrderHandler {
             // Step 2: Append event to bi-temporal store (if requested)
             .compose(order -> {
                 if (request.getOptions().isAppendToEventStore()) {
-                    return Future.fromCompletionStage(
-                        eventStore.appendInTransaction(
+                    return eventStore.appendInTransaction(
                             request.getEvent().getEventType(),
                             request.getEvent().getEventData(),
                             request.getEvent().getValidFrom(),
                             connection
-                        )
-                    ).map(event -> order);
+                        ).map(event -> order);
                 }
                 return Future.succeededFuture(order);
             })
@@ -4513,12 +4492,10 @@ public class TransactionalOrderHandler {
             // Step 3: Send to outbox (if requested)
             .compose(order -> {
                 if (request.getOptions().isSendToOutbox()) {
-                    return Future.fromCompletionStage(
-                        outboxProducer.sendInExistingTransaction(
+                    return outboxProducer.sendInExistingTransaction(
                             request.getEvent().getEventData(),
                             connection
-                        )
-                    ).map(v -> order);
+                        ).map(v -> order);
                 }
                 return Future.succeededFuture(order);
             })
@@ -4531,7 +4508,7 @@ public class TransactionalOrderHandler {
                 .status("COMMITTED")
                 .build());
 
-        }).toCompletionStage().toCompletableFuture();
+        });
     }
 
     private Future<Order> insertOrder(OrderData orderData, SqlConnection connection) {
@@ -4700,7 +4677,7 @@ This appendix contains the complete technical investigation that informed this d
 
 **2. EventStore.appendInTransaction()** (`peegeeq-api/src/main/java/dev/mars/peegeeq/api/EventStore.java`)
 ```java
-CompletableFuture<BiTemporalEvent<T>> appendInTransaction(
+Future<BiTemporalEvent<T>> appendInTransaction(
     String eventType, T payload, Instant validTime, SqlConnection connection);
 ```
 - Participates in existing transaction

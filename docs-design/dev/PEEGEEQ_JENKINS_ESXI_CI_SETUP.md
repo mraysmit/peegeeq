@@ -1,5 +1,13 @@
 # PeeGeeQ Jenkins CI on VMware ESXi
 
+**Document role:** REUSABLE SETUP AND OPERATIONS GUIDE
+
+**Environment record:** `ubu24-cicd` was provisioned and exercised successfully; see
+[Verified state of `ubu24-cicd`](#verified-state-of-ubu24-cicd) and the
+[consolidated task register](../tasks/tasks.md) for dated build evidence.
+
+**Last reconciled:** 2026-09-06
+
 ## Purpose
 
 This guide describes how to build a Linux-based Jenkins environment on VMware ESXi for
@@ -1138,6 +1146,12 @@ replace the complete regression guarantee with a collection of partial runs whos
 coverage is unknown.
 
 ## Provisioning checklist
+
+This is a reusable checklist for provisioning a new or replacement worker. Its unchecked boxes
+do not describe the status of `ubu24-cicd`. That VM's dated state is recorded earlier in this
+guide, while accepted pipeline results and remaining work are recorded only in the consolidated
+task register. Copy this checklist into a new environment record when another worker is built;
+do not mark this reference copy complete.
 
 ### ESXi and Ubuntu
 

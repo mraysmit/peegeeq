@@ -1,241 +1,97 @@
-# PeeGeeQ Authentication Design Decisions Summary
-
-**Date:** 2025-12-27  
-**Status:** ✅ All Open Questions Resolved
-
----
-
-## Overview
-
-This document summarizes the key design decisions made for the PeeGeeQ authentication and authorization system, based on the open questions in Section 20 of the main design document.
-
----
-
-## ✅ Decision 1: Cross-Tenant Users
-
-**Question:** Should a user be able to belong to multiple tenants?
-
-**Decision:** **YES** - Users can have multiple tenant associations with different roles per tenant.
-
-### Rationale
-- Enterprise users often need access to multiple client tenants
-- Consultants/support staff need multi-tenant access
-- Simplifies user management (one login, multiple contexts)
-- Aligns with modern SaaS patterns
-
-### Implementation Impact
-
-#### Schema Changes
-- **Removed** `tenant_id` and `role_id` from `user_accounts` table
-- **Added** `user_tenant_roles` junction table for many-to-many relationships
-- Each user can have different roles in different tenants
-
-#### JWT Changes
-- JWT includes `tenantId` for current active tenant
-- JWT includes `availableTenants` array for tenant switching
-- Permissions are scoped to current tenant
-
-#### API Changes
-- **New endpoint:** `POST /api/v1/auth/switch-tenant` for changing tenant context
-- Login response includes all available tenants
-- User management endpoints support multi-tenant associations
-
-### User Experience
-1. User logs in once with username/password
-2. System returns JWT with default tenant context + list of available tenants
-3. User can switch tenants without re-login
-4. Each tenant switch generates new JWT with updated permissions
-
----
-
-## ✅ Decision 2: Tenant Limits
-
-**Question:** Should we enforce limits on tenants?
-
-**Decision:** **FUTURE ENHANCEMENT** - Not in Phase 1-4, add in Phase 5.
-
-### Rationale
-- Adds complexity to initial implementation
-- Can be added later without schema changes
-- Most deployments won't need limits initially
-- Better to validate real-world usage patterns first
-
-### Future Implementation (Phase 5)
-- Max users per tenant
-- Max queues per tenant
-- Storage quotas per tenant
-- Rate limits per tenant
-- Configurable per-tenant or global defaults
-
----
-
-## ✅ Decision 3: Tenant Migration
-
-**Question:** Support for moving tenants between databases?
-
-**Decision:** **FUTURE ENHANCEMENT** - Not in Phase 1-4, add in Phase 5.
-
-### Rationale
-- Complex feature requiring careful design
-- Low priority for initial deployment
-- Can be built on top of existing backup/restore
-- Requires zero-downtime migration strategy
-
-### Future Implementation (Phase 5)
-- Export tenant schema to SQL
-- Import into new database
-- Update tenant config in SQLite
-- Zero-downtime migration with dual-write
-
----
-
-## ✅ Decision 4: API Keys
-
-**Question:** Support for programmatic access without user login?
-
-**Decision:** **YES** - Role-based API keys with multi-tenant support (Phase 5).
-
-### Rationale
-- Essential for programmatic access (CI/CD, integrations)
-- Aligns with cross-tenant users decision
-- User can have API keys for multiple tenants
-- Each API key has specific role and permissions
-
-### Implementation (Phase 5)
-- API keys stored in `api_keys` table
-- Each key associated with user, tenant, and role
-- Format: `pgq_<tenant-prefix>_<random-32-chars>`
-- Support for expiration and rotation
-
----
-
-## ✅ Decision 5: Multi-Factor Authentication (MFA)
-
-**Question:** Future support for MFA?
-
-**Decision:** **FUTURE ENHANCEMENT** - Phase 5.
-
-### Rationale
-- Important for security but not critical for initial deployment
-- Requires additional infrastructure (SMS, TOTP, email)
-- Can be added without breaking existing authentication
-
----
-
-## ✅ Decision 6: SSO Integration
-
-**Question:** Future support for SAML/OAuth2?
-
-**Decision:** **FUTURE ENHANCEMENT** - Phase 5.
-
-### Rationale
-- Enterprise feature, not needed for initial deployment
-- Complex integration requiring careful design
-- Per-tenant SSO configuration needed
-- Can be added alongside existing password authentication
-
----
-
-## ✅ Decision 7: Audit Logging
-
-**Question:** Should we log all operations with tenant context?
-
-**Decision:** **YES** - Implement in Phase 1 (basic), enhance in Phase 5.
-
-### Phase 1 Implementation
-- Store in SQLite `audit_log` table
-- Log authentication events only
-- 90-day retention
-
-### Phase 5 Enhancements
-- Log all CRUD operations
-- Export to external logging system (Elasticsearch, CloudWatch)
-- Configurable retention per tenant
-- Compliance reporting (GDPR, SOC 2)
-
----
-
-## ✅ Decision 8: Backup/Restore
-
-**Question:** How to backup/restore SQLite and PostgreSQL together?
-
-**Decision:** **FUTURE ENHANCEMENT** - Phase 6 (HA).
-
-### Rationale
-- SQLite backup is simple (copy file)
-- PostgreSQL backup is standard (pg_dump)
-- Coordinated backups needed for consistency
-- Part of broader HA/DR strategy
-
-### Future Implementation (Phase 6)
-- Coordinated backups with transaction consistency
-- Point-in-time recovery
-- Automated backup to S3/Azure Blob
-- Disaster recovery procedures
-
----
-
-## ✅ Decision 9: High Availability
-
-**Question:** How to replicate SQLite across multiple API instances?
-
-**Decision:** **FUTURE ENHANCEMENT** - Phase 6 (HA).
-
-### Rationale
-- Single instance sufficient for initial deployment
-- Litestream provides simple replication when needed
-- PostgreSQL migration (Section 20.3.1) is better long-term solution
-
-### Future Implementation (Phase 6)
-- Litestream for real-time SQLite replication
-- Read replicas for scalability
-- Automated failover procedures
-- Or migrate to PostgreSQL for management plane
-
----
-
-## Impact Summary
-
-### Phase 1-4 (Core Implementation)
-**Immediate Changes Required:**
-1. ✅ Multi-tenant user schema (`user_tenant_roles` table)
-2. ✅ Updated JWT structure with `availableTenants`
-3. ✅ Tenant switching endpoint
-4. ✅ Basic audit logging
-5. ✅ Updated user management APIs
-
-**Deferred to Future:**
-- Tenant limits
-- Tenant migration
-- API keys
-- MFA
-- SSO
-- Advanced audit logging
-- Backup/restore coordination
-- High availability
-
-### Timeline Impact
-- **Phase 1-4:** No timeline change (8 weeks)
-- Multi-tenant users add ~1 week to implementation
-- Offset by deferring other features to Phase 5-6
-
----
-
-## Next Steps
-
-1. ✅ Update main design document with schema changes
-2. ✅ Update JWT structure documentation
-3. ✅ Update API endpoint reference
-4. ✅ Update example flows
-5. ⏳ Begin Phase 1 implementation with multi-tenant support
-6. ⏳ Implement tenant switching in UI
-7. ⏳ Add integration tests for multi-tenant scenarios
-
----
+# PeeGeeQ Authentication and Authorization Decision Summary
+
+**Status:** DESIGN DIRECTION RECORDED — NOT APPROVED OR IMPLEMENTED
+
+**Original decision workshop:** 2025-12-27
+
+**Last reconciled:** 2026-09-06
+
+**Repository baseline:** `7db748b8e77f3aba850be7b73547d192dac5b83f`
+
+## Purpose
+
+This document preserves decisions made while exploring a PeeGeeQ authentication and authorization
+system. It does not describe current runtime behaviour.
+
+At the reviewed baseline, PeeGeeQ has no authentication module, JWT middleware, tenant-management
+implementation, tenant-switch endpoint, or implemented authorization boundary. The authoritative
+status is the Authentication and Authorization entry in the
+[consolidated task register](../tasks/tasks.md#unscheduled-product-and-coverage-backlog).
+
+## Recorded design direction
+
+| Topic | Direction if the product is approved | Delivery status |
+|---|---|---|
+| Cross-tenant users | One identity may hold different roles in multiple tenants | Proposed only |
+| Tenant context | A signed access token would identify one active tenant; switching would issue a new token | Proposed only |
+| Tenant limits | Defer quotas and limits until operational demand is understood | Deferred idea |
+| Tenant migration | Treat cross-database movement as a separate migration capability | Deferred idea |
+| API keys | Consider role- and tenant-scoped keys for programmatic clients | Deferred idea |
+| Multi-factor authentication | Define after the base identity provider and threat model are chosen | Deferred idea |
+| Enterprise SSO | Consider OIDC or SAML with per-tenant configuration | Deferred idea |
+| Audit logging | Authentication and authorization decisions must be auditable from the first release | Required design property |
+| Backup and recovery | Management-plane identity data must participate in a tested recovery plan | Required design property |
+| High availability | Select the management-plane datastore before choosing replication technology | Unresolved architecture decision |
+
+## Important corrections to the original draft
+
+The original summary used completed checkmarks and implementation language for proposed schema,
+token, endpoint, and audit changes. No such implementation exists in the reviewed repository.
+In particular:
+
+- `user_tenant_roles` is a candidate schema, not a deployed table;
+- `availableTenants` is a candidate claim, not a current token contract;
+- `POST /api/v1/auth/switch-tenant` is a candidate endpoint, not a current API;
+- an embedded management-plane database was discussed but not selected; and
+- the earlier phase numbers and eight-week estimate are not approved tasks or commitments.
+
+## Decisions still required
+
+Before work can be promoted into implementation tasks, the product and security owners must define:
+
+1. The deployment boundary: trusted internal service, administrative plane, or public service.
+2. The threat model and assets requiring protection.
+3. The identity provider and protocol, including key rotation and token revocation.
+4. Tenant identity, tenant selection, and prevention of cross-tenant confused-deputy failures.
+5. Role and permission semantics, including administrative privilege boundaries.
+6. Service-account and API-key requirements.
+7. Audit event content, integrity, retention, access, and privacy controls.
+8. Management-plane storage, backup, recovery, and high-availability requirements.
+9. Compatibility and rollout behaviour for currently unauthenticated clients.
+
+## Minimum security properties
+
+Any approved implementation must:
+
+- deny access by default;
+- derive tenant scope from validated identity and server-side authorization, never from an
+  untrusted request field alone;
+- validate issuer, audience, signature algorithm, expiry, and key rotation for signed tokens;
+- use short-lived credentials and explicit revocation or rotation procedures;
+- separate platform administration from tenant administration;
+- avoid disclosing whether an unrelated tenant or identity exists;
+- record security-relevant success and failure events without logging secrets; and
+- document the behaviour when identity, key, or audit dependencies are unavailable.
+
+## Entry criteria and test evidence
+
+If the product decision is approved, the consolidated task register must first contain a bounded,
+ordered TDD plan. Verification must include real protocol and persistence boundaries:
+
+- authentication success, rejection, expiry, revocation, and key rotation;
+- authorization for every protected operation and role transition;
+- cross-tenant isolation and tenant-switch attacks;
+- concurrent role changes and stale-token behaviour;
+- audit completeness and secret-redaction checks;
+- restart, backup, restore, and dependency-outage scenarios; and
+- compatibility tests for the selected rollout policy.
+
+Mocking frameworks and mocked database or repository layers are not acceptable evidence for these
+security guarantees.
 
 ## References
 
-- Main Design Document: `PEEGEEQ_AUTHENTICATION_AUTHORIZATION_DESIGN.md`
-- Section 20.1: Design Decisions (Resolved)
-- Section 20.3: Upgrade and Migration Plan
-
+- [Authentication and authorization design](PEEGEEQ_AUTHENTICATION_AUTHORIZATION_DESIGN.md)
+- [Consolidated task register](../tasks/tasks.md)
+- [Coding principles](../dev/pgq-coding-principles.md)
+- [Testing standards](../testing/PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md)

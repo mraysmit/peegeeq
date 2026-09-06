@@ -67,7 +67,9 @@ Map<String, String> headers = new HashMap<>();
 headers.put("traceparent", rootSpan.traceparent());
 headers.put("correlationId", correlationId);
 
-producer.send(payload, headers, correlationId).get();
+producer.send(payload, headers, correlationId)
+    .onSuccess(ignored -> logger.info("Message accepted for delivery"))
+    .onFailure(error -> logger.error("Message delivery failed", error));
 ```
 
 ### 3. Consumer with Automatic Trace Context
@@ -265,7 +267,9 @@ headers.put("traceparent", rootSpan.traceparent());
 headers.put("correlationId", "order-12345");
 
 // Send message
-producer.send(payload, headers, correlationId).get();
+producer.send(payload, headers, correlationId)
+    .onSuccess(ignored -> logger.info("Message accepted for delivery"))
+    .onFailure(error -> logger.error("Message delivery failed", error));
 ```
 
 ### Parsing Incoming Trace Context
@@ -334,21 +338,18 @@ AsyncTraceUtils.executeBlockingTraced(vertx, workerExecutor, true, () -> {
 ### Manual MDC Scope Management
 
 ```java
-private void processMessage(OutboxMessage message) {
+private Future<Void> processMessage(OutboxMessage message) {
     TraceCtx trace = TraceContextUtil.parseOrCreate(traceparentHeader);
-    
-    // ✅ CORRECT: mdcScope() provides automatic cleanup
-    try (var scope = TraceContextUtil.mdcScope(trace)) {
-        logger.info("Processing message {}", message.getId());
-        
-        // Your business logic here
-        handler.accept(message).get();
-        
-    } catch (Exception e) {
-        logger.error("Error processing message", e);
-        throw e;
-    }
-    // MDC automatically cleared when scope exits
+    var scope = TraceContextUtil.mdcScope(trace);
+
+    logger.info("Processing message {}", message.getId());
+    return handler.accept(message)
+        .onFailure(error -> logger.error("Error processing message", error))
+        .eventually(() -> {
+            scope.close();
+            return Future.succeededFuture();
+        });
+    // MDC is cleared only after the asynchronous handler completes.
 }
 ```
 
@@ -504,11 +505,13 @@ Logs showing `[trace=- span=-]` are **normal** for:
 1. Check message was sent with headers:
    ```java
    // Wrong - no headers
-   producer.send(payload, correlationId).get();
+   producer.send(payload, correlationId)
+       .onFailure(error -> logger.error("Untraced send failed", error));
    
    // Correct
    headers.put("traceparent", rootSpan.traceparent());
-   producer.send(payload, headers, correlationId).get();
+   producer.send(payload, headers, correlationId)
+       .onFailure(error -> logger.error("Traced send failed", error));
    ```
 
 2. Check traceparent format is valid W3C format
@@ -569,7 +572,8 @@ String spanId = span.getSpanContext().getSpanId();
 String traceparent = String.format("00-%s-%s-01", traceId, spanId);
 
 headers.put("traceparent", traceparent);
-producer.send(order, headers, correlationId).get();
+producer.send(order, headers, correlationId)
+    .onFailure(error -> logger.error("Order send failed", error));
 ```
 
 ### Jaeger / Zipkin
@@ -633,10 +637,12 @@ MDC.remove("traceId");  // Easy to forget!
 // ✅ Correct
 Map<String, String> headers = new HashMap<>();
 headers.put("traceparent", rootSpan.traceparent());
-producer.send(payload, headers, correlationId).get();
+producer.send(payload, headers, correlationId)
+    .onFailure(error -> logger.error("Traced send failed", error));
 
 // ❌ Wrong - no trace context
-producer.send(payload, correlationId).get();
+producer.send(payload, correlationId)
+    .onFailure(error -> logger.error("Untraced send failed", error));
 ```
 
 ### 3. Create Child Spans for Each Service Call
@@ -707,13 +713,13 @@ try {
 ### Example 1: Simple Order Processing
 
 ```java
-public void submitOrder(Order order) {
+public Future<Void> submitOrder(Order order) {
     TraceCtx rootSpan = TraceCtx.createNew();
     
     Map<String, String> headers = new HashMap<>();
     headers.put("traceparent", rootSpan.traceparent());
     
-    producer.send(order, headers, "order-" + order.getId()).get();
+    return producer.send(order, headers, "order-" + order.getId());
 }
 
 public void processOrders() {
@@ -730,14 +736,13 @@ public void processOrders() {
 ```java
 // Service 1: API Gateway
 @POST("/orders")
-public Response createOrder(Order order, @HeaderParam("traceparent") String traceparent) {
+public Future<Response> createOrder(Order order, @HeaderParam("traceparent") String traceparent) {
     TraceCtx trace = TraceCtx.parseOrCreate(traceparent);
     TraceCtx childSpan = trace.childSpan("queue-message");
     
     headers.put("traceparent", childSpan.traceparent());
-    orderProducer.send(order, headers, "order-" + order.getId()).get();
-    
-    return Response.accepted().build();
+    return orderProducer.send(order, headers, "order-" + order.getId())
+        .map(ignored -> Response.accepted().build());
 }
 
 // Service 2: Order Processor
@@ -748,13 +753,16 @@ AsyncTraceUtils.tracedConsumer(vertx, "orders", message -> {
     TraceCtx apiSpan = current.childSpan("validate-api");
     httpClient.post("/validate")
         .putHeader("traceparent", apiSpan.traceparent())
-        .send();
-    
-    // Forward to fulfillment with child span
-    TraceCtx fulfillSpan = current.childSpan("fulfillment");
-    fulfillmentProducer.send(order, 
-        Map.of("traceparent", fulfillSpan.traceparent()), 
-        message.correlationId()).get();
+        .send()
+        .compose(response -> {
+            // Forward only after validation completes.
+            TraceCtx fulfillSpan = current.childSpan("fulfillment");
+            return fulfillmentProducer.send(order,
+                Map.of("traceparent", fulfillSpan.traceparent()),
+                message.correlationId());
+        })
+        .onSuccess(ignored -> logger.info("Order forwarded to fulfillment"))
+        .onFailure(error -> logger.error("Order workflow failed", error));
 });
 
 // Service 3: Fulfillment

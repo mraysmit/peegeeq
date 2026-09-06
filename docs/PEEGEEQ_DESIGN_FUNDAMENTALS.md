@@ -382,25 +382,32 @@ pgPool.withTransaction(conn -> {
 Even with atomic transactions, retries happen — network timeouts, process restarts, lease expiry on a slow job. Domain logic must be idempotent. The unique constraint on `job_result` is the deduplication mechanism:
 
 ```java
-private Future<Void> writeResults(SqlConnection conn, List<JobResult> results) {
-    return conn.preparedQuery(INSERT_RESULT_SQL)
-        .execute(buildTuple(results))
-        .mapEmpty()
-        .recover(err -> {
-            if (isUniqueViolation(err)) {
-                // Already completed in a previous attempt. Safe to ignore.
-                return Future.succeededFuture();
-            }
-            return Future.failedFuture(err);
-        });
-}
+private static final String INSERT_RESULT_SQL = """
+    INSERT INTO job_result (job_id, status, result, worker_id, finished_at)
+    VALUES ($1, $2, $3, $4, $5)
+    ON CONFLICT (job_id) DO NOTHING
+    """;
 
-private boolean isUniqueViolation(Throwable err) {
-    // PostgreSQL SQLSTATE 23505 = unique_violation
-    return err instanceof PgException pge
-        && "23505".equals(pge.getSqlState());
+private Future<Void> writeResults(SqlConnection conn, List<JobResult> results) {
+    List<Tuple> parameters = results.stream()
+        .map(result -> Tuple.of(
+            result.jobId(),
+            result.status(),
+            result.payload(),
+            result.workerId(),
+            result.finishedAt()))
+        .toList();
+
+    return conn.preparedQuery(INSERT_RESULT_SQL)
+        .executeBatch(parameters)
+        .mapEmpty();
 }
 ```
+
+`ON CONFLICT (job_id) DO NOTHING` makes duplicate completion an explicit database operation rather
+than an exception path. A retry that encounters an existing `job_id` succeeds idempotently, while
+connection failures, malformed data, constraint failures on other columns, and every other database
+error remain visible through the returned `Future`.
 
 ---
 
@@ -761,7 +768,7 @@ no unbounded verticle-per-job patterns
 entire business cycle in one pgPool.withTransaction()
 idempotent domain logic throughout
 unique constraint deduplication on job_result
-PgException SQLSTATE 23505 handled as idempotent success
+ON CONFLICT (job_id) DO NOTHING handles duplicate completion without swallowing other failures
 ```
 
 **Monitoring**
