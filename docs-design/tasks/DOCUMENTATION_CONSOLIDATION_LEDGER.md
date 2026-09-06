@@ -1,0 +1,4356 @@
+# PeeGeeQ Documentation Consolidation Ledger
+
+**Status:** SECTION ROUTING AND ARCHIVE MIGRATION COMPLETE — SOURCE DETAIL RETAINED
+
+**Baseline date:** 2026-09-06
+
+**Baseline source count:** 99 Markdown documents
+
+**Archive migration:** 2026-09-06 — 23 Markdown sources and 5 plain-text records moved
+byte-for-byte into categorized `_archived` directories. One byte-identical duplicate was removed;
+its original baseline record remains below and points to the retained canonical copy.
+
+## Purpose
+
+This ledger is the loss-prevention control for consolidating `docs-design` into the maintained
+documentation set. Each baseline source has a SHA-256 fingerprint and a heading-level checklist.
+A heading is checked only after all material under that heading has been mapped to a maintained
+destination or retained intact as historical material.
+
+The fingerprints cover the source documents that existed before the checklist and this ledger
+were created. The control documents are intentionally excluded from their own source baseline.
+
+### Asynchronous-example remediation update — 2026-09-06
+
+Eight active `docs-design` sources were updated after the consolidation baseline to replace stale
+blocking or completion-stage examples with native Vert.x `Future` composition. Their fingerprints
+below now identify the remediated versions: consumer-group fan-out, causation update notes,
+bi-temporal causality, CloudEvents, server-side filtering, tracing architecture, tracing usage, and
+the transactional REST proposal. The heading dispositions and historical classifications remain
+unchanged.
+
+## Mapping rules
+
+- A source remains intact until all its heading entries are complete.
+- A destination entry must name a file and heading, not merely a category.
+- Historical facts may be retained in the source rather than copied into a user guide.
+- Contradictory accounts must be annotated and preserved.
+- Runtime claims require current runtime evidence.
+- Proposals remain visibly separated from implemented contracts.
+- A changed source receives a new fingerprint and an explanatory ledger note.
+
+## Baseline sources
+
+### `docs-design/_archived/API_UPDATE_CONSUMER_GROUP_v1.1.0.md`
+
+- SHA-256: `21872512e74e0b290f332f4d173efb66dddb0d9164a0454b9b019d325dc8d706`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 1: # Consumer Group API Updates - Version 1.1.0 — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 5: ## Overview — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 11: ## Changes Summary — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 13: ### 1. New Method: `start(SubscriptionOptions subscriptionOptions)` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 66: ### 2. New Method: `setMessageHandler(MessageHandler<T> handler)` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 114: ## Migration Patterns — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 116: ### Before (v1.0.x - Incorrect Documentation) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 123: ### After (v1.1.0 - Three Valid Approaches) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 160: ## Backwards Compatibility — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 162: ### ✅ Fully Backwards Compatible — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 173: ### New Convenience Methods (Optional) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 185: ## Architecture Clarification — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 187: ### Layer Separation — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 201: ### Recommended Pattern for Production — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 231: ## Architectural Refactoring — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 233: ### Configuration Classes Moved to API Layer — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 255: ## Testing — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 263: ### Test Coverage — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 272: ## Breaking Changes — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 274: ### None ❌ — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 282: ## Documentation Updates — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 284: ### Files Updated — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 289: ### Key Documentation Changes — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 299: ## Future Considerations — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 301: ### Potential Enhancements (Not in v1.1.0) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 326: ## Summary — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 339: ### Key Architectural Improvement — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/_archived/CONSUMER_GROUP_SOURCE_VERIFICATION_FINDINGS.md`
+
+- SHA-256: `81c295f9ec23d84f1b1508d54f1fb7967a6f4c8582273b7c9a396b5dc0ec96ac`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 1: # Consumer Group Source Verification Findings — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 5: ## Purpose — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 9: ## Verified Implemented — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 11: ### Backfill — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 29: ### Dead Consumer Cleanup — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 48: ### Flapping Protection — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 67: ## Verified Implemented (April 2026 Update) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 69: ### Graceful Shutdown Handling For Subscription-Backed Consumer Groups — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 87: ### Adaptive Rate Limiting for Backfill — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 104: ### Admin Force-Remove Endpoint — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 124: ## Verified Missing Or Incomplete — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 126: ### Fanout Retry And DLQ Automation — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 146: ### Per-Consumer-Group Metrics — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 159: ## Tracing Instrumentation Updated Status — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 180: ## Recommended Corrected Summary — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/_archived/Consumer-Mode-Test-Implementation-Plan.md`
+
+- SHA-256: `5e62f34d003c44c26bd9a3094f30b44c049296ca71d49d167be9110554ac0f8f`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 1: # Consumer Mode Test Implementation Plan — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 5: ## Overview — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 9: ## Current Test Coverage Status — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 16: ## Test Categories and Implementation Plan — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 18: ### 1. Consumer Mode Configuration Tests — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 56: ### 2. Consumer Mode Behavior Tests — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 95: ### 3. Configuration Integration Tests — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 113: ### 4. Factory Pattern Tests — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 131: ### 5. Concurrency and Threading Tests — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 155: ### 6. Error Handling and Recovery Tests — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 174: ### 7. Performance and Load Tests — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 192: ### 8. Integration with Existing Features — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 209: ### 9. Backward Compatibility Tests — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 221: ### 10. Documentation and Examples Tests — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 228: ## Implementation Strategy — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 230: ### Phase 1: Critical Foundation (HIGH Priority) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 238: ### Phase 2: Integration and Performance (MEDIUM Priority) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 244: ### Phase 3: Advanced Features (LOW Priority) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 249: ## Success Criteria — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 258: ## Test Implementation Guidelines — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 260: ### Testing Standards — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 268: ### Test Data Management — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 274: ### Error Testing Patterns — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 280: ### Performance Testing Standards — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 286: ## Implementation Checklist — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 288: ### Phase 1: Critical Foundation Tests — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 299: ### Phase 2: Integration and Performance Tests — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 307: ### Phase 3: Advanced Feature Tests — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 315: ## Expected Outcomes — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 317: ### Test Coverage Metrics — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 322: ### Performance Benchmarks — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 327: ### Quality Gates — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 333: ## Next Steps — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/_archived/JSONB_CONVERSION_PLAN.md`
+
+- SHA-256: `f00ac847cb323b344374be0bdc8722d2f62036ecc7f17a3c54acab7a3557cebf`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 1: # JSONB Conversion Plan: From JSON Strings to JSONB Objects — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 9: ## ⚠️ BREAKING CHANGES FOR APPLICATIONS — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 13: ### Spring Boot Integration Changes — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 69: ## ✅ **Health Check Startup Timing - FIXED!** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 73: ### **Problem Solved** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 76: ### **Implementation Details** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 103: ### **Benefits Achieved** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 110: ### **Validation Results** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 126: ### ⚠️ PostgreSQL Connection Pool Exhaustion Issue — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 145: ### Data Migration Considerations — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 159: ### Performance Impact — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 170: ## Overview — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 174: ## Problem Statement — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 176: ### Current Issue — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 185: ### Impact — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 193: ### Desired Outcome — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 202: ## Current State Analysis — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 204: ### ✅ Good News — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 209: ### ❌ Problem Areas — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 213: ## Affected Modules & Files — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 215: ### 1. peegeeq-bitemporal Module — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 225: ### 2. peegeeq-native Module — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 235: ### 3. peegeeq-outbox Module — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 245: ### 4. peegeeq-db Module — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 255: ## Implementation Plan — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 257: ### Phase 1: Create Utility Methods — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 282: ### Phase 2: Update Serialization Logic — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 302: ### Phase 3: Update Consumer Logic — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 326: ### Phase 4: Testing & Validation — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 351: ## Risk Assessment — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 353: ### Low Risk Changes ✅ — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 358: ### Medium Risk Changes ⚠️ — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 363: ### Mitigation Strategies — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 369: ## Migration Strategy — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 371: ### Option 1: Direct Conversion (Recommended) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 378: ### Option 2: Gradual Migration — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 385: ## Implementation Order — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 392: ## Expected Benefits — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 394: ### Enhanced Querying Capabilities — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 416: ### Performance Improvements — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 421: ### Operational Benefits — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 426: ## Implementation Status — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 430: ### ✅ Completed Modules — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 510: ### 🎉 **CONVERSION COMPLETE** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 518: ## Critical Post-Conversion Fixes Applied — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 520: ### 1. Native Queue Dead Letter Queue Fix — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 545: ### 2. BiTemporal Spring Boot Integration Fix — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 570: ### 3. Race Condition Fixes — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 580: ## Validation Results — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 582: ### ✅ All Tests Passing — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 588: ### ✅ No More ClassCastException Errors — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 591: ### ✅ Spring Boot Applications Start Successfully — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 594: ## Critical Investigation Results: Connection Pool Exhaustion Root Cause — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 596: ### 🔍 **Investigation Summary** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 610: ### ✅ **Root Cause Identified** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 625: ### ✅ **Solution Applied** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 639: ### 📋 **Action Plan for Remaining Tests** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 643: # Test individual outbox tests to find missing schema initialization — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 664: ### 🎯 **Key Lessons Learned** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 673: ## 🎉 FINAL SUCCESS RESULTS — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 675: ### ✅ **Complete Resolution Achieved** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 683: ### 🚀 **Validation Results** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 705: ### 🎯 **Investigation Success** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 717: ## Conclusion — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 721: ### **🎯 Achievements** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 729: ### **🚀 Unlocked Capabilities** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 754: ### **📊 Performance & Operational Benefits** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 765: ## Critical Post-Conversion Issue: JSON Deserialization Mismatch — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 767: ### 🚨 **Issue Discovered** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 782: ### 🔍 **Root Cause Analysis** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 806: ### ✅ **Solution Applied** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 832: ### 📁 **Files Modified** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 842: ### 🎯 **Validation Results** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 858: ### 🔧 **Technical Details** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 872: ### 📋 **Impact Assessment** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 884: ### 🎉 **Final Status** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/_archived/PEEGEEQ_CONSUMER_GROUPS_BACKFILL_PERFORMANCE_VALIDATION.md`
+
+- SHA-256: `07a96cb6c92ddea95f95dd7a79789da7365bd78e23dba872b26ad613ead1c36e`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 1: # BackfillService Performance & Concurrency Validation Guide — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3: ## Overview — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 6: ## What Was Changed — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 13: ## Test Coverage Created — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 15: ### BackfillServiceConcurrencyTest.java — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 48: ## Running the Tests — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 50: ### Run All Concurrency Tests — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 56: ### Run Specific Test — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 58: # Heavy load test — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 61: # Concurrency race condition test — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 64: # Row locking test — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 68: ### Run with Performance Category — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 73: ### Run Integration Tests (includes existing functional tests) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 78: ## Expected Results — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 80: ### Performance Benchmarks — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 85: ### Concurrency Requirements — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 91: ## Validation Checklist — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 93: ### Before Production Deployment — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 127: ### Performance Regression Checks — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 134: ### Known Limitations — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 150: ## Troubleshooting — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 152: ### Test Timeouts — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 156: ### Compilation Errors — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 160: ### Test Failures — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 165: ## Next Steps — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/_archived/PEEGEEQ_CRITICAL_GAPS_STATUS.md`
+
+- SHA-256: `3aaca9dddc2904c163c14c6a623130a13acb2f2e48a7544b43cab02a87fef9cc`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ Critical Gaps - Status & Resolution — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 11: ## Executive Summary — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 13: ### TL;DR — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 31: ## Critical Gaps Status — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 33: ### ✅ ALL 4 CRITICAL GAPS IMPLEMENTED — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 47: ## The Schema Issue (RESOLVED) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 49: ### Problem Identified — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 69: ### Solution Implemented — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 87: ## Implementation Details — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 89: ### Gap 1: Queue Purge ✅ IMPLEMENTED — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 105: ### Gap 2: Message Browsing ✅ IMPLEMENTED — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 121: ### Gap 3: Message Polling ✅ IMPLEMENTED — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 137: ### Gap 4: Recent Activity ✅ IMPLEMENTED — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 154: ## Files Changed — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 156: ### New Files Created — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 167: ### Files Modified — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 173: ### Files Removed — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 179: ## Test Status — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 181: ### Integration Tests: ✅ 17/17 PASSING — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 206: ## Remaining Work (1-2 hours) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 208: ### 1. ⚠️ Re-run Integration Tests (30 minutes) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 225: ### 2. ⚠️ Test Management UI (1 hour) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 256: ### 3. ✅ Update Documentation (COMPLETED 2025-12-27) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 291: ### 4. Performance Testing (Optional - 1 hour) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 295: # Test 1: Purge with 1000 messages — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 296: # Expected: < 5 seconds — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 298: # Test 2: Browse 100 messages — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 299: # Expected: < 500ms — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 301: # Test 3: Concurrent operations (10 users) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 302: # Expected: No deadlocks or errors — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 307: ## Success Criteria — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 309: ### Must Have ✅ — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 316: ### Nice to Have — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 323: ## Quick Reference — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 325: ### Run Tests — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 330: ### Start Services — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 332: # Terminal 1 - Backend — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 335: # Terminal 2 - Frontend — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 339: ### Check Logs — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 341: # Backend logs — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 344: # Test logs — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 350: ## Documentation References — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 352: ### Primary Documents — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 356: ### Implementation Files — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 362: ### Outdated Documents (Do Not Use) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 368: ## Timeline — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 370: ### Completed Today (2025-12-25) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 378: ### Remaining (1-2 hours) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 386: ## Summary — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 388: ### What We Thought (2025-12-24) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 393: ### What We Found (2025-12-25) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 398: ### What We Did (2025-12-25) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 404: ### What Remains (1-2 hours) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 411: ## Next Immediate Step — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/_archived/PEEGEEQ_E2E_SMOKE_TEST_IMPLEMENTATION_PLAN.md`
+
+- SHA-256: `4f1ad23af5a70b9b666a456c4bb6468b1ce44f7126f64a43a0f2ce92ad8d2aca`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ End-to-End Integration Smoke Test Implementation Plan — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 5: ## Executive Summary — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 17: ## Current State Analysis — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 19: ### Existing Test Infrastructure — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 29: ### Existing Java Integration Tests — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 59: ### Existing TypeScript Client API — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 86: ## Gaps Identified — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 88: ### Critical Gaps — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 112: ## Recommended Solution: `peegeeq-integration-tests` Module — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 114: ### Module Structure — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 160: ## Smoke Test Scenarios — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 162: ### Test Matrix — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 177: ### Detailed Test Specifications — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 278: ## Architecture Diagrams — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 280: ### Test Orchestration Flow — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 322: ### Layer Verification Flow — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 349: ## Implementation Details — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 351: ### Maven Configuration — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 453: ### Package.json Configuration — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 475: ### Vitest Configuration — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 499: ### Example TypeScript Smoke Test — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 695: ### Example Java Smoke Test Base Class — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 811: ### Orchestration Script (Windows) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 814: # peegeeq-integration-tests/scripts/run-smoke-tests.ps1 — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 830: # Step 1: Build the project — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 843: # Step 2: Run Java smoke tests — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 863: # Step 3: Install TypeScript dependencies — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 876: # Step 4: Run TypeScript smoke tests — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 900: ## CI/CD Integration — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 902: ### GitHub Actions Workflow — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 905: # .github/workflows/smoke-tests.yml — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 989: ## Implementation Checklist — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 991: ### Phase 1: Module Setup (Day 1) - COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1002: ### Phase 2: Core Smoke Tests (Day 2-3) - COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1011: ### Phase 3: Extended Smoke Tests (Day 4) - PARTIAL — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1020: ### Phase 4: Full Stack Integration (Day 5) - FUTURE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1027: ### Phase 5: CI/CD Integration (Day 6) - FUTURE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1034: ### Test Results Summary — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1048: ## Success Criteria — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1050: ### Functional Requirements — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1060: ### Non-Functional Requirements — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1071: ## Alternative Approaches Considered — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1073: ### Option A: Extend Existing Playwright Tests — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1087: ### Option B: Add Tests to peegeeq-rest-client — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1100: ### Option C: Dedicated peegeeq-integration-tests Module (Recommended) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1117: ## References — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1119: ### Related Documents — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1125: ### Existing Test Files — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1133: ### External Resources — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1141: ## Document History — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/_archived/PEEGEEQ_NATIVE_QUEUE_FACTORY_REFACTORING_PLAN.md`
+
+- SHA-256: `892024f43ee7f48c4cfa09d1db368f79acddc6524d284f3d53d5e0409febe80b`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 1: # PgNativeQueueFactory Refactoring Plan — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 5: ## Implementation Status: COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 14: ## Changes Implemented — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 16: ### peegeeq-api — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 46: ### peegeeq-db — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 61: ### peegeeq-native — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 80: ### peegeeq-outbox — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 98: ### peegeeq-bitemporal — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 103: ### Tests Updated — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 113: ## Verification Results — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 115: ### Build Status — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 119: ### Tests Executed — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 129: ## Key Design Improvements (Completed) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 141: ## Original Problem Summary (For Reference) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 161: ## Root Cause Analysis — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 163: ### Problem 1: Reflection for Vertx/Pool Access — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 180: ### Problem 2: Metrics Architecture is Broken — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 197: ### Methods Actually Used by Producers/Consumers — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 210: ## Comparison with OutboxFactory and BiTemporalEventStoreFactory — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 214: ### Summary Table — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 227: ### Detailed Analysis — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 348: ### Why PgNativeQueueFactory Has More Problems — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 363: ### Why OutboxFactory is Cleaner — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 371: ### Why BiTemporalEventStoreFactory is Cleanest — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 379: ### Conclusion — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 385: ## Proposed Solution — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 387: ### Strategy 1: Dependency Inversion for Vertx/Pool Access — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 393: ### Strategy 2: Fix Metrics Architecture — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 400: ## Detailed Changes — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 402: ### Phase 1: Create Provider Interfaces in peegeeq-api — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 547: ### Phase 2: Implement Interfaces in peegeeq-db — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 617: ### Phase 3: Refactor Producers/Consumers to Use MetricsProvider Interface — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 658: ### Phase 4: Refactor Factories — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 747: ### Phase 5: Update VertxPoolAdapter — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 772: ### Phase 6: Fix Other Code Smells — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 828: ## Migration Strategy — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 830: ### Decision: Remove Legacy Constructors (Not Deprecate) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 840: ### Legacy Constructor Usages to Update — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 860: ### Constructors to Remove — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 881: ### Fields to Remove — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 892: ### Dual-Mode Logic to Remove — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 912: ### Metrics Simplification — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 950: ## Verification Plan — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 952: ### Compile-Time Verification — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 957: ### Runtime Verification — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 962: ### Integration Tests — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 968: ### Code Quality Checks — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 974: ### Commands — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 980: ## Implementation Order (All Phases Complete) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 982: ### Phase 1: Fix MetricsProvider Interface (peegeeq-api) - COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 993: ### Phase 2: Update peegeeq-db Implementations - COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1003: ### Phase 3: Refactor Producers/Consumers to Use MetricsProvider Interface - COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1016: ### Phase 4: Refactor Factories - PARTIAL — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1035: ### Phase 5: Update Tests - COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1042: ### Phase 6: Make CloudEvents Required - COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1051: ### Phase 7: Cleanup and Verification - COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1060: ## Benefits Achieved (Partial) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1069: ## Remaining Work — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1081: ### Completed Changes (2025-12-18) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/_archived/PEEGEEQ_OUTBOX_MODULE_REFACTORING_PLAN.md`
+
+- SHA-256: `bf5b47d1a9ef9b086faa1b0bba59b77040fcaf4e654dee683a44a4426a0a847e`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 1: # Outbox Module Refactoring Plan — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 8: ## Executive Summary — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 12: ## Code Smell Summary — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 24: ## Detailed Findings — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 26: ### 1. HIGH Priority: System.out Debug Statements — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 44: ### 2. MEDIUM Priority: Blocking Calls in Async Context — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 76: ### 3. LOW Priority: Duplicate Javadoc Blocks — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 87: ## Implementation Plan — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 89: ### Phase 1: Fix System.out Statements (HIGH Priority) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 109: ### Phase 2: Remove Duplicate Javadoc (LOW Priority) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 117: ### Phase 3: Consider Async Health Check (OPTIONAL) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 133: ## Comparison with PgNativeQueueFactory — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 147: ## Acceptance Criteria — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 156: ## Files Modified — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/_archived/PEEGEEQ_OUTBOX_TEST_STANDARDIZATION_15_DEC_2025.md`
+
+- SHA-256: `abc0a8d7d064c43e11cf9966a030928c37968170b46e204174c15b2ddae087a9`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 1: # Test Standardization Report — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 7: ## Overview — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 11: ## Problem Statement — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 21: ## Changes Made — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 23: ### Files Renamed and Standardized — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 31: ### Pattern Standardization Details — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 96: ## Centralized Test Infrastructure Used — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 104: ## Test Execution Results — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 114: ## Running the Tests — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 121: ## Benefits of Standardization — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 128: ## Files Deleted — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 134: ## Files Created — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 142: ## Part 2: peegeeq-native PostgreSQL Image Constant Standardization — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 144: ### Problem Statement — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 154: ### Files Updated (33 total) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 204: ### Pattern Applied — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 226: ### Special Case: PeeGeeQExampleTest.java — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 244: ### Verification — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 250: ### Benefits — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/_archived/PostgreSQL-Version-Management.md`
+
+- SHA-256: `ed8111202012daa2978fc5ddc6b89db587b251e99354b58cd2c3efb962534786`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 1: # PostgreSQL Version Management for PeeGeeQ — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 5: ## 🎯 Problem Statement — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 19: ## ✅ Solution: Centralized Version Management — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 21: ### **1. Single Source of Truth** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 43: ### **2. Helper Methods** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 66: ## 🔧 Implementation Details — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 68: ### **Current Standardized Version** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 79: ### **Constants Available** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 90: ## 🛡️ Enforcement Mechanisms — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 92: ### **1. Maven Enforcer Plugin** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 122: ### **2. Pre-commit Hook** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 127: # Copy the pre-commit hook — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 132: ### **3. Migration Script** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 137: # Linux/Mac — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 140: # Windows — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 144: ## 📋 Migration Guide — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 146: ### **Step 1: Add Dependency** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 159: ### **Step 2: Update Imports** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 167: ### **Step 3: Replace Hardcoded Versions** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 179: ### **Step 4: Use Helper Methods (Optional)** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 196: ## 🔄 Version Update Process — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 205: ## 📊 Benefits Achieved — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 207: ### **Before Standardization** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 213: ### **After Standardization** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 221: ## 🚀 Best Practices — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 229: ## 🔍 Troubleshooting — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 231: ### **Build Fails with Enforcer Error** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 238: ### **Import Not Found** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 245: ### **Multiple PostgreSQL Images in Docker** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 248: ## 📞 Support — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/_archived/REST-HANDLER-ERROR-PATH-TESTS-PLAN.md`
+
+- SHA-256: `10232a74aec2f040cbcf652daf9c29780235110f85070a9afe7b1149d0d47544`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 1: # REST Handler Error-Path Tests — TDD Implementation Plan — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 6: ## Source-Verified Facts (Read Before Editing This Plan) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 31: ## Problem Statement — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 42: ## TDD Stance — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 54: ## Approach — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 72: ## Antipatterns: Mandatory Gates for These Tests — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 81: ### CRITICAL: Exception thrown in `onSuccess` is silently swallowed (antipatterns doc §"Exception Thrown in `onSuccess`") — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 118: ### CRITICAL: Placeholder tests that always pass (antipatterns doc §"Placeholder Tests") — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 124: ### SERIOUS: `.onComplete(ar -> latch.countDown())` swallows failures (antipatterns doc §"onComplete swallows failures") — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 141: ### HIGH: `setTimer` as a readiness guard (antipatterns doc §"`setTimer` as a Readiness Guard") — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 163: ### CRITICAL: `setTimer` timeout handler calling `completeNow()` (antipatterns doc §"`setTimer` Variant: timeout calls completeNow") — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 169: ### MEDIUM: Empty catch blocks (antipatterns doc §"Empty Catch Blocks in Test Teardown") — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 174: ### HIGH: Discarded `Future<Void>` from stop/close methods (antipatterns doc §"Discarded Future<Void> From Stop/Close") — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 189: ### LOW: Unused method parameters (antipatterns doc §"Unused Method Parameters") — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 194: ### LOW: `@TestMethodOrder` / `@Order` on independent tests (antipatterns doc §"Unnecessary Test Ordering") — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 201: ## Step 1: Build the Test Double First — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 212: ### `ControllableSetupService` design — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 246: ### `SetupNotFoundException` design — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 263: ### Verification after Step 1 — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 269: ## Step 2: TDD Cycles — One Test at a Time — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 278: ### Test class `@BeforeAll` / `@AfterAll` template (applies to all 4 classes) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 321: ### Canonical test method shape — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 356: ## TDD Cycle A: `DatabaseSetupHandlerErrorTest` (port 18110) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 379: ## TDD Cycle B: `QueueHandlerUnitTest` — ALREADY COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 401: ## TDD Cycle C: `ManagementApiHandlerErrorTest` (port 18112) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 424: ## TDD Cycle D: `HealthHandlerErrorTest` (port 18113) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 458: ## Complete Interface Surface for `ControllableSetupService` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 462: ### From `ServiceProvider` (4 synchronous methods): — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 470: ### From `DatabaseSetupService` (7 async methods + 3 defaults): — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 484: ### How handlers map failures to HTTP status codes — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 518: ## Port Assignments — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 554: ## Files to Create — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 569: ## Files to Read Before Starting — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 590: ## Scope Exclusions — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 602: ## After Every RED Test: Decision Tree — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 638: ## Final Validation (after all cycles complete and GREEN) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 660: # Find bare onSuccess callbacks that contain assertions or completeNow outside verify() — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 661: # (the silent-swallow antipattern — causes 30s hangs, not immediate RED failures) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/_archived/TEST_COVERAGE_GAP_ANALYSIS.md`
+
+- SHA-256: `910c0797c70009736384ad84c021b71d78fc914dd54299e79fd6c74dc36f5e3b`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 1: # 🔴 CRITICAL TEST COVERAGE GAP - Root Cause Analysis — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3: ## What Happened - Timeline — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 5: ### 22:43:21 - Integration Tests RAN and FAILED ✅ — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 11: ### 23:13:14 - Unit Tests RAN and PASSED ❌ FALSE POSITIVE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 18: ### 23:16:05 - Declared "BUILD SUCCESS" ❌ INCORRECT — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 23: ## The Gap: Integration Tests Were NOT Re-run — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 25: ### What SHOULD Have Happened: — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 36: ### What ACTUALLY Happened: — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 51: ## Why This Happened — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 53: ### Problem 1: Test Execution Order — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 58: ### Problem 2: Unit Tests Give False Confidence — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 77: ### Problem 3: No Integration Test Re-run Verification — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 89: ## The Tests DID Their Job! — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 91: ### Integration Tests Correctly Failed: — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 109: ## What's Missing: E2E Test Automation — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 111: ### Current Process (MANUAL): — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 122: ### Needed: Automated E2E Test Suite — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 126: # complete-e2e-test.sh — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 130: # 1. Run unit tests — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 134: # 2. Build all artifacts — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 138: # 3. Stop old backend — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 142: # 4. Start NEW backend with NEW artifacts — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 147: # 5. Wait for backend startup — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 153: # 6. Run integration tests against NEW backend — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 158: # 7. Cleanup — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 166: ## Test Coverage Analysis — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 168: ### What We Have ✅ — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 188: ### What's Missing ❌ — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 192: # .github/workflows/ci.yml (example) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 213: # Add to mvn test output — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 243: ## Lessons Learned — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 245: ### 1. Unit Tests ≠ Integration Tests — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 250: ### 2. JAR Version Mismatches are Runtime Errors — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 255: ### 3. Test Pyramid Incomplete Without Top — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 271: ## Immediate Actions Required — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 273: ### Action 1: Re-run Integration Tests NOW ✅ — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 275: # After backend restart with new code — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 281: ### Action 2: Document E2E Test Process — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 284: ### Action 3: Add Automated E2E Script — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 287: ### Action 4: Add Version Checking — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 292: ## Summary: The Tests Worked, We Didn't Follow Through — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/_archived/VERTX_MULTI-STATEMENT_SQL_BUG_ANALYSIS.md`
+
+- SHA-256: `78690ac63149a47532e010f27f07e87e2f035692598d4d4111545b3e28b51e93`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 1: # Vert.x Multi-Statement SQL Bug - Critical Analysis & Remediation — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 10: ## Executive Summary — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 20: ## Technical Details — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 22: ### The Vert.x Limitation — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 46: ### Affected Files — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 105: ## Why Production Was NOT Affected — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 107: ### Defense-in-Depth Architecture — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 200: ### Why Tests Passed Despite the Bug — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 260: ## Timeline of Discovery — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 262: ### Initial Symptom (Nov 30, 2025 - Morning) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 267: ### Investigation Phase (Nov 30, 2025 - Midday) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 273: ### Web Research Phase (Nov 30, 2025 - Afternoon) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 278: ### Root Cause Confirmed (Nov 30, 2025 - Late Afternoon) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 284: ### Resolution Phase (Nov 30, 2025 - Evening) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 293: ## Remediation Actions — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 295: ### 1. Code Changes (COMPLETED) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 353: # base/.manifest — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 358: # ... (27 more lines) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 370: ### 2. Test Improvements (REQUIRED) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 713: ### 3. Documentation Updates (REQUIRED) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 741: ## SQL Template Structure — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 743: ### Vert.x Limitation — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 748: ### Template Organization — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 767: ### Rules for SQL Template Files — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 774: ### Adding New Templates — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 777: # 1. Create single-statement SQL file — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 780: # 2. Add to .manifest in correct order — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 783: # 3. Verify in tests — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 791: ## Template Testing Requirements — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 818: ## Action Items — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 820: ### Immediate (DONE ✅) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 827: ### Short-term (This Sprint - REQUIRED) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 836: ### Medium-term (Next Sprint - RECOMMENDED) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 842: ### Long-term (Next Quarter - RECOMMENDED) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 850: ## Lessons Learned — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 852: ### 1. **Library Limitations Are Real** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 857: ### 2. **Defense-in-Depth Saved Us** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 862: ### 3. **Test Quality Matters More Than Test Quantity** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 867: ### 4. **Silent Failures Are Dangerous** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 872: ### 5. **Code Reviews Need Context** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 879: ## Risk Assessment — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 881: ### Current Risk: **LOW** ✅ — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 890: ### Residual Risks: — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 907: ## Conclusion — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 924: ## References — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/_archived/internal-notes/Claude tells me that its a liability.md`
+
+- SHA-256: `a308ed1f37ebe16c80dfaf1264e4dbdc9698680e68ddcbe9810ff1668376468a`
+- Category: Internal notes
+- Disposition: Retain outside core documentation
+- Heading disposition:
+  - [x] No Markdown heading detected — review the complete file and record its disposition.
+
+### `docs-design/_archived/historical-evidence/backfill-pending-only-multi-batch-failure.md`
+
+- SHA-256: `1ce0918b06ec58977688a586f29617edf5923b53214efd2ddf8d3f38b9a4709a`
+- Category: Internal analysis
+- Disposition: Retain as investigation; extract only verified durable findings
+- Heading disposition:
+  - [x] Line 1: # BackfillScopePerformanceTest PENDING_ONLY Multi-Batch Failure Analysis — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3: ## Summary — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 19: ## Evidence from Log: `logs/peegeeq-db-all-20260504.txt` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 21: ### `testPendingOnlyScope_50kMessages_Throughput` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 36: ### `testScopeComparison_ThroughputParity` (PENDING_ONLY leg) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 50: ### `testAllRetainedScope_50kMessages_Throughput` (passes) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 62: ## What the Code Does — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 64: ### `BackfillService.fetchBatchIds` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 81: ### `processBatchesRecursively` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 91: ### Early-exit path in `processFetchedBatch` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 104: ## Leading Hypotheses — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 106: ### H2 `set_required_consumer_groups` Trigger Race (highest confidence) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 140: ### H3 `checkpointId` equals or exceeds all remaining message IDs (revised) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 154: ### H1 Status Change Between Batches: `outbox_consumer_groups` Trigger — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 188: ### H1 (Revised) `DeadConsumerDetectionJob` Mutates Batch-1 Messages — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 202: ### H4 `withTransaction` for Batch 2 Runs on the Same Connection as a Stale Transaction — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 208: ## Most Likely Root Cause: `set_required_consumer_groups` Trigger + CompletionTracker Auto-Complete — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 238: ## Definitive Root Cause: Cross-Topic Contamination via `create_consumer_group_entries_for_new_message` Trigger — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 269: ## Verification Strategy (Before Fix) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 277: ## Fix Plan — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 279: ### Phase 1 Isolation Run (5 minutes) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 290: ### Phase 2 Fix the Trigger (Production SQL requires migration) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 313: ### Phase 3 Verify — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 321: ## Additional Notes — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 323: ### Why the teardown deadlock fix did NOT resolve this — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 327: ### Why `ALL_RETAINED` is immune — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 331: ### `testScopeComparison` PENDING_ONLY leg — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 341: ## Files Involved — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/_archived/historical-evidence/backfill-performance-test-teardown-deadlock.md`
+
+- SHA-256: `e7f68109eafdedf761ac657dc8b0882bca0ebadbf6ecc65414bd7a96be3fd54f`
+- Category: Internal analysis
+- Disposition: Retain as investigation; extract only verified durable findings
+- Heading disposition:
+  - [x] Line 1: # Deadlock in BackfillScopePerformanceTest — teardown scope too broad — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3: ## Problem — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 25: ## Solution — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/analysis/PEEGEEQ_CRASH_RECOVERY_GUIDE.md`
+
+- SHA-256: `c35eae3a62f985ca5ff5b35d5cc979486c5aeb57102596e005acfe80e706b167`
+- Category: Operations and Observability
+- Disposition: Merge validated recovery contract; retain analysis
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ Outbox Consumer Crash Recovery: Complete Guide — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 3: ## Executive Summary — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 15: ## Part 1: Problem Analysis & Current Solution — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 17: ### The Vulnerable Code Path — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 36: ### What Happens During a Crash — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 45: ### The Inconsistent State Created — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 56: ## Part 2: Current Solution - Stuck Message Recovery — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 58: ### Recovery Manager Implementation — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 72: ### How It Works — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 86: ### Test Coverage — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 100: ### Configuration — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 117: ## Part 3: Why 5-Minute Timeout? — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 119: ### The Architectural Challenge — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 129: ### Why Not Real-Time Detection? — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 146: ### Why This Design is Pragmatic — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 156: ## Part 4: Real-Time Recovery Alternatives — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 158: ### Option 1: Heartbeat-Based Recovery ⭐ RECOMMENDED — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 180: ### Option 2: Consumer Lease Pattern — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 201: ### Option 3: Synchronous Processing with Transactions — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 223: ### Option 4: External Process Monitor — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 246: ## Part 5: Recommendations & Implementation — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 248: ### For Most Use Cases: Reduce Timeout (EASIEST) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 259: ### For Critical Systems: Add Heartbeat (RECOMMENDED) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 267: ### For Ultra-Low-Latency: Synchronous Processing — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 277: ### Implementation Priority — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 293: ## Conclusion — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+
+### `docs-design/_archived/completed-records/PEEGEEQ_REVIEW.md`
+
+- SHA-256: `6ede96d5341f64667bc7c25e19978fdb547c0421416982bd618d0064d1998881`
+- Category: Internal analysis
+- Disposition: Retain as investigation; extract only verified durable findings
+- Heading disposition:
+  - [x] Line 1: ## PeeGeeQ Bitemporal Review Plan (March 30, 2026) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 5: ### Scope — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 20: ### Deliverable Style — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 24: ### Execution Phases — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 97: ### Typical Bitemporal Use Cases To Validate — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 108: ### Quality Gate Before Review Is Marked Complete — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 123: ## What is good — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 134: ## The biggest problems — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 136: ### 1. `start(SubscriptionOptions)` has a race and inconsistent lifecycle semantics RESOLVED — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 188: ### 2. `start(subscriptionOptions)` claims to be blocking, but it is not RESOLVED — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 216: ### 3. `containsKey` + `put` is a race RESOLVED — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 247: ### 4. Your "round-robin" is not round-robin RESOLVED — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 283: ### 5. Failure semantics for filtered / no-eligible-consumer look dangerous RESOLVED — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 325: ### 6. No protection against concurrent delivery to the same member RESOLVED — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 350: ### 7. `getStats()` computes misleading aggregates RESOLVED — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 388: ### 8. Stop/close semantics are not robust enough for async resources RESOLVED — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 426: ### 9. `synchronized` on `setMessageHandler()` is awkward in Vert.x code RESOLVED — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 444: ### 10. Member removal can race with message assignment RESOLVED — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 465: ## Less critical, but still worth fixing ALL RESOLVED — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 467: ### Constructor overload explosion RESOLVED — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 473: ### Null validation RESOLVED — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 479: ### Logging — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 487: ### `getConsumerIds()` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 491: ### Weakly consistent iteration — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 495: ## What I would change first — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 499: ### First: fix lifecycle — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 503: ### Second: separate outcome types — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 527: ### Third: fix membership concurrency — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 531: ### Fourth: decide routing policy explicitly — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 543: ### Fifth: make shutdown async — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 547: ## Concrete code-level fixes — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 549: ### Safer `addConsumer` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 579: ### Rename routing method honestly — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 604: ### Fix weighted average — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 622: ## Architectural question you need to answer — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 648: ## Bottom line — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/code reviews/archived/vertx5-migration-code-reviews/archived/OutboxFactory-review.md`
+
+- SHA-256: `70b644b5849ae1a9ade95ae3ad2005f68f99c5ad9a41ced5ba06598a07b9738a`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 3: # What needs fixing (by priority) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 5: ## 1) Don’t spawn your own Vert.x inside a factory (seriously) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 17: ## 2) Reflection spelunking into `DatabaseService` is brittle — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 28: ## 3) “Fallback” config via system properties is the wrong abstraction — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 39: ## 4) Health check is weak — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 48: ## 5) Lifecycle: closing “shared” Vert.x from here is dangerous — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 61: ## 6) You might create a new PgClientFactory per consumer (leak risk) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 67: ## 7) Topic and payload validation — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 78: ## 8) Resource tracking is synchronous and type-opaque — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 84: ## 9) Logging level and PII — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 92: # Concrete patches (drop-in) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 94: ### A) Kill reflection and fallback; resolve factory once — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 118: ### B) Real health check — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 142: ### C) Remove shared Vert.x shutdown — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 160: ### D) Validate inputs and reduce logging noise — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 182: # API tweaks I strongly recommend — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 195: # Smaller nits (still worth addressing) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 204: # TL;DR — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/code reviews/archived/vertx5-migration-code-reviews/archived/PeeGeeQManager-review.md`
+
+- SHA-256: `011edd57b23466b7ec962dda0c01f209498b65d8a64eafcf1b6630eef29d7edb`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 5: # Top priority (fix these first) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 109: # Medium priority (cleanups, correctness, perf) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 157: # API ergonomics & DI — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 177: # Concrete patches (drop-in) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 257: # Smaller nits — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 266: # What’s good (keep it) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 276: ## TL;DR — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 288: # ✅ IMPLEMENTATION COMPLETE - PeeGeeQManager v1.1 — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 292: ## 🎯 Summary of Changes Implemented — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 294: ### **Top Priority Fixes (All Complete)** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 564: ### **Medium Priority Improvements (Implemented)** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 669: ## 🧪 Test Results — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 679: ## 🎯 Key Benefits Achieved — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 690: ## 📋 Remaining Lower Priority Items — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 700: ## 🚀 Migration Guide — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 704: ### Before (v1.0) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 712: ### After (v1.1) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/code reviews/archived/vertx5-migration-code-reviews/archived/PgClientFactory-review.md`
+
+- SHA-256: `7a43cd8c25211986cd956416426e526d558a9c63a29afcf1095d2eb2206f6d3b`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 3: ## What’s off (and why) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 37: ## Drop-in fixed version — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 164: ### Notes on the changes — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 173: ## Follow-ups / cross-class contracts — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 185: ## Quick wins elsewhere — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/code reviews/archived/vertx5-migration-code-reviews/archived/PgConnectionManager-review.md`
+
+- SHA-256: `a1b63b8e9c2ec2bd2f5aea03bdeaba8c3bd56a71ee87675f89f25642b292b999`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 7: ## 🔥 Critical problems — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 9: ### 1. `Pool.close()` is *synchronous* in your code but actually **returns a `Future`** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 35: ### 2. `createReactivePool()` doesn’t set **max wait queue size / idle timeout / etc.** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 57: ### 3. No validation on `PgConnectionConfig` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 73: ### 4. `computeIfAbsent` race window on concurrent pool creation — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 95: ### 5. `isHealthy()` is a stub false sense of health — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 119: ### 6. `closeAsync()` doesn’t await per-pool closures — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 144: ### 7. `close()` (AutoCloseable) is blocking and unsafe — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 166: ### 8. SSL configuration is half-baked — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 182: ### 9. No pool reuse / cleanup logging on shutdown — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 188: ## 💡 Recommended refactor — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 289: ## ✅ What you did right — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 298: ## 🚀 TL;DR — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/code reviews/archived/vertx5-migration-code-reviews/archived/PgPoolConfig-review.md`
+
+- SHA-256: `7baa16ab18f12e6a8545b5c7e30671efea7ce740edb17cd7c17905e1b7421eae`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 7: ## ⚠️ Issues (and what they imply) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 9: ### 1. **JDBC semantics in a reactive world** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 26: ### 2. **No `maxWaitQueueSize`** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 39: ### 3. **Timeouts are in `long` but should be `Duration`** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 47: ### 4. **`shared = true` is good, but document semantics** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 53: ### 5. **Defaults are small and unrealistic for prod** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 60: ### 6. **Missing `maxWaitQueueSize` and `idleTimeout` units** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 66: ## ✅ Recommended structure (Vert.x idiomatic + safe) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 142: ## 🎯 TL;DR for your current code — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 154: ## Final verdict — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/code reviews/archived/vertx5-migration-code-reviews/archived/SSL-Implementation-Recommendations.md`
+
+- SHA-256: `4a665dc5634b78b23e404c1f49fc13572c01abe150a3b81698b7571593a932f2`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ SSL/TLS Implementation Recommendations — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 10: ## Current State — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 14: ### What exists today — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 27: ### What's missing — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 37: ## Vert.x 5.x SSL API Surface — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 41: ### `PgConnectOptions` (inherited from `SqlConnectOptions` → `NetClientOptions`) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 55: ### `ClientSSLOptions` (set via `connectOptions.setSslOptions(...)`) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 77: ## Recommended Changes — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 79: ### Phase 1: Configuration Model — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 130: ### Phase 2: Centralised SSL Application — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 175: ### Phase 3: Eliminate Duplication — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 189: ## Validation Rules — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 201: ## Security Considerations — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 210: ## Configuration Examples — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 212: ### Development (self-signed certs) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 220: ### Staging (CA-signed, no hostname check) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 228: ### Production (full verification + mTLS) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 238: ### Testcontainers (tests) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 248: ## Backward Compatibility — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 258: ## Test Plan — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 271: ## Affected Files (Estimated) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 287: ## References — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/code reviews/archived/vertx5-migration-code-reviews/PeeGeeQ-Shutdown-Guide.md`
+
+- SHA-256: `d87e4fbcc549ed162bde33f769a8802fd6f4e0e7f6958851b93b708f4c63a269`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ Application Shutdown Guide — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3: ## Overview — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 7: ## Critical Shutdown Requirements — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 9: ### 1. PeeGeeQManager Shutdown — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 30: ### 2. Consumer and Producer Shutdown — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 58: ### 3. Shared Vert.x Instance Cleanup — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 76: ## Shutdown Patterns — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 78: ### Pattern 1: Standalone Application — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 103: ### Pattern 2: Spring Boot Application — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 126: ### Pattern 3: Service with Consumers — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 151: ### Pattern 4: Test Cleanup — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 178: ## Common Shutdown Issues — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 180: ### Issue 1: "Connection refused" errors during shutdown — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 191: ### Issue 2: Application hangs during shutdown — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 199: ### Issue 3: Test context caching prevents cleanup — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 207: ### Issue 4: Shared Vert.x instances not closed — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 215: ## Shutdown Checklist — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 227: ## Monitoring Shutdown — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 248: ## Best Practices — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 258: ## Architecture Notes — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 260: ### Why Shared Vert.x Instances? — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 264: ### Why Reflection for Cleanup? — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 268: ### Shutdown Timeout Values — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 276: ## See Also — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/code reviews/archived/vertx5-migration-code-reviews/PgConnectionConfig-review.md`
+
+- SHA-256: `f5102e2a8032614bd34673c53999eef045fac69f02bd53122ad7753958317686`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 5: ## ⚙️ Overall assessment — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 24: ## 🧨 Critical design issues — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 26: ### 1. **JDBC URL is irrelevant in Vert.x PG client** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 52: ### 2. **SSL configuration is too naive** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 77: ### 3. **Schema handling (JDBC-style) is ignored by Vert.x** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 96: ### 4. **Password exposure** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 113: ### 5. **Missing basic safety validation** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 127: ### 6. **No socket path support** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 142: ### 7. **No connection options for tuning** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 154: ## ✅ Suggested refactor — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 268: ## 🧩 TL;DR — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 281: ### 🧠 Bottom line — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/code reviews/archived/vertx5-migration-code-reviews/Vert.x-Instance-review-Consolidation-Refactoring-Plan.md`
+
+- SHA-256: `d7a2b4a2afbecdeda98d30ce07e72ebf705b71141b77448e65dbba7d589f4b27`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 1: # Vert.x Instance Consolidation Refactoring Plan — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 20: ## Executive Summary — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 30: ## Problem Analysis — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 32: ### Current Architecture Issues — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 58: ## Solution Architecture — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 60: ### **Phase 1: Foundation** ✅ **COMPLETED** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 65: ### **Phase 2: Component Refactoring** (This Plan) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 92: ## Implementation Plan — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 94: ### **Step 1: Investigation and Preparation** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 100: # Find all component constructors that need Vert.x instances — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 115: # Ensure all modules are installed — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 117: # Run baseline tests to establish current state — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 121: ### **Step 2: Component Constructor Refactoring** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 198: ### **Step 3: Factory Class Updates** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 233: ### **Step 4: DatabaseService Integration** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 250: ### **Step 5: Testing and Validation** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 256: # Test each component refactoring individually — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 264: # Test factory integration — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 271: # Verify no resource leaks with single Vert.x instance — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 275: ### **Step 6: Cleanup and Documentation** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 289: ## Risk Assessment — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 291: ### **Low Risk Areas** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 296: ### **Medium Risk Areas** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 301: ### **Mitigation Strategies** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 309: ## Success Criteria — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 311: ### **Functional Requirements** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 317: ### **Performance Requirements**   — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 322: ### **Code Quality Requirements** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 329: ## Implementation Timeline — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 331: ### **Week 1: Preparation and Analysis** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 336: ### **Week 2: Component Refactoring** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 343: ### **Week 3: Integration and Testing** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 351: ## Next Steps — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 362: ## Detailed Implementation Steps — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 364: ### **Component-Specific Refactoring Details** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 466: ### **Testing Strategy Details** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 518: ### **Migration Checklist** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 579: ### **Rollback Strategy** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 594: ## Code Quality Standards — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 596: ### **Constructor Pattern Standards** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 613: ### **Factory Pattern Standards** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 626: ### **Logging Standards** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/code reviews/archived/vertx5-migration-code-reviews/Vertx-5x-Patterns-Guide.md`
+
+- SHA-256: `6e2907f1ea60dbdac838bb160923dbeb3433c0f9fc74eb43bbf1b9cce42df2a0`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 1: # Vert.x 5.x Patterns Guide — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 19: ## Overview — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 33: # Section 1: Composable Future Patterns — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 35: ## Modern Vert.x 5.x Composable Patterns — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 39: ### Key Pattern: Composable Future Chains — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 75: ## Implemented Patterns in PeeGeeQ — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 77: ### 1. Server Startup with Sequential Operations — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 113: ### 2. Database Operations with Error Recovery — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 138: ### 3. Service Interactions with Health Checks — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 167: ### 4. Test Patterns - Modern vs Old Style — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 188: ### 5. Resource Cleanup with Composition — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 200: ## Key Benefits of Composable Patterns — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 202: ### 1. **Better Readability** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 207: ### 2. **Improved Error Handling** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 212: ### 3. **Enhanced Maintainability** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 217: ### 4. **Better Testing** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 222: ## Best Practices for Composable Patterns — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 224: ### 1. **Use .compose() for Sequential Operations** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 234: ### 2. **`.recover (…))` Is Banned Use `.transform()` or `.eventually()`** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 263: ### 3. Return Void cleanly — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 271: ### 4. **Proper Resource Management Use `.eventually()` for Teardown** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 287: ### Common Anti-Patterns to Avoid — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 378: ### Additional Error Handling Patterns — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 405: ### Recommended Factory Pattern with Dependency Injection — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 467: ### Refactoring standards distilled from the “-review” documents — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 519: # Section 2: Performance Optimization — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 521: ## Vert.x 5.x PostgreSQL Performance Optimization — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 525: ## 🎯 Performance Results Achieved — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 536: ## 🚀 Critical Vert.x 5.x Architecture Insights — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 538: ### Pipelining: how it actually works in Vert.x 5 — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 566: ## Performance Checklist Implementation — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 568: ### 1. ✅ Set pool size (not 4): try 16/32 and tune with your DBA — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 574: # peegeeq-default.properties — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 581: # peegeeq-bitemporal-optimized.properties — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 588: # Based on real performance testing results — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 611: ### 2. ✅ Share one pool across all verticles (setShared(true)) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 643: ### 3. ✅ Deploy multiple instances of your verticles (≃ cores) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 665: ### 4. ✅ Don't hold a SqlConnection for the whole app; use pool ops or short-lived withConnection — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 686: ### 5. ✅ Keep transactions short, and don't wrap everything in a tx — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 706: ### Transaction Patterns — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 734: ### 6. Enable pipelining on connections; benchmark gains — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 777: ### 7. ✅ Measure: p95 latency, pool wait time, DB CPU and iowait — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 805: ## 🎯 Real-World Performance Testing Results — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 807: ### PeeGeeQ Implementation Comparison — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 816: ### Performance Test Results — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 833: ## Configuration Profiles — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 835: ### Research-Based High-Performance Profile — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 837: # peegeeq-vertx5-optimized.properties - Based on official Vert.x research — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 849: ### Production Profile (Conservative) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 851: # peegeeq-production.properties - Conservative settings for production — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 860: ### Extreme High-Concurrency Profile — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 862: # peegeeq-extreme-performance.properties - For maximum throughput scenarios — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 873: ## Configuration Best Practices — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 875: ### Connection Configuration — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 898: ### Pool Configuration — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 913: ## Security Considerations — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 915: ### Password Handling — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 928: ### SSL Configuration — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 957: ## 🔧 Advanced Vert.x 5.x Optimization Techniques — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 959: ### Event Loop and Worker Pool Optimization — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 987: ### Batch Operations for Maximum Throughput — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1014: ### Connection Pool Resource Management — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1049: ### Advanced Pool Patterns — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1104: ## 🎛️ System Properties and Runtime Configuration — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1108: ### Core Performance Properties — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1110: # Pool Configuration (Research-Based Optimized Defaults) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1115: # Pipelining Configuration (Maximum Throughput) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1119: # Event Loop Optimization (Database-Intensive Workloads) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1123: # Verticle Scaling (≃ CPU cores) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1127: ### Advanced Performance Properties — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1129: # High-Concurrency Scenarios — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1133: # Connection Management — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1137: # Batch Operations — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1142: ### Environment-Specific Configurations — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1171: ## 📊 Performance Monitoring and Troubleshooting — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1173: ### Connection Pool Exhaustion Diagnosis — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1198: ### Performance Metrics to Monitor — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1208: ### Operational Health Checks — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1229: ## Tuning Recommendations — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1231: ### Phase 1: Foundation (Research-Based Defaults) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1237: ### Phase 2: Monitoring and Baseline (24-48 hours) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1243: ### Phase 3: Optimization (Based on Metrics) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1249: ### Phase 4: Production Tuning (Continuous) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1255: ## 🏆 Success Metrics and Validation — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1257: ### Performance Validation Checklist — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1283: ### Troubleshooting Common Issues — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1298: ## Testing Strategies — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1334: # Section 3: Shutdown Coordination Patterns — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1336: ## Critical Pattern: Graceful Shutdown with Connection Pool Coordination — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1338: ### 🚨 Problem: Race Condition During Shutdown — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1346: ### Root Cause Analysis — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1376: ### The Shutdown Race Condition Timeline — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1388: ### 🎯 Solution: Shutdown Coordination Pattern — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1452: ### Implementation Pattern: Multi-Level Shutdown Checks — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1498: ### Established Pattern from Codebase — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1523: ### Complete Implementation Example — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1583: ### Testing the Fix — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1602: ### Best Practices for Shutdown Coordination — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1651: ### When to Apply This Pattern — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1665: ### Performance Impact — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1683: ## Conclusion — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1687: ### Key Takeaways — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1689: ## Production Deployment Checklist — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1714: ## 📚 Additional Resources — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1728: ### 3. **Modern Future Composition** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1740: ### 4. **Proper Resource Cleanup** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1766: ## Configuration Best Practices — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1768: ### 1. **Connection Configuration** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1789: ### 2. **Pool Configuration** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1807: ## Health Check Implementation — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1831: ## Error Handling Patterns — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1833: ### 1. **Fail Fast Validation** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1845: ### 2. **Graceful Degradation** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/code reviews/archived/vertx5-migration-code-reviews/vertx5-migration-general-guide.md`
+
+- SHA-256: `c72bbda356e95ee79a789ebe056c7368b63a184f533b9882f80775cf60179261`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 1: # Vert.x 5 Migration Guide — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 10: ## Executive Summary — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 18: ## Critical Anti-Patterns to Avoid — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 20: ### 1. **Never Create Vert.x Instances in Factories** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 38: ### 2. **Don't Mix ScheduledThreadPoolExecutor with Vert.x** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 57: ### 3. **Avoid Blocking Operations on Event Loop** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 77: ### 4. **Don't Use JDBC Patterns in Reactive Code** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 97: ## Essential Patterns for Vert.x 5 — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 99: ### 1. **Reactive Pool Management** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 114: ### 2. **Proper Async Lifecycle Management** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 137: ### 3. **Modern Future Composition** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 149: ### 4. **Proper Resource Cleanup** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 177: ## Configuration Best Practices — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 179: ### 1. **Connection Configuration** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 200: ### 2. **Pool Configuration** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 218: ## Health Check Implementation — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 237: ## Error Handling Patterns — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 239: ### 1. **Fail Fast Validation** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 251: ### 2. **Graceful Degradation** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 270: ## Security Considerations — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 272: ### 1. **Password Handling** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 287: ### 2. **SSL Configuration** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 300: ## Testing Strategies — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 302: ### 1. **Unit Testing with Vert.x** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 322: ### 2. **Integration Testing** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 341: ## Migration Checklist — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 343: ### Phase 1: Foundation — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 348: ### Phase 2: Configuration — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 353: ### Phase 3: Lifecycle — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 358: ### Phase 4: Testing — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 365: ## Common Pitfalls and Solutions — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 378: ## Advanced Patterns — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 380: ### 1. **Factory Pattern with Dependency Injection** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 404: ### 2. **Connection Pool Idempotency** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 425: ### 3. **Backpressure and Circuit Breaking** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 448: ## Performance Optimization — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 450: ### 1. **Connection Pool Tuning** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 462: ### 2. **Metrics and Monitoring** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 486: ### 3. **Memory Management** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 514: ## Troubleshooting Guide — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 516: ### 1. **Common Error Messages** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 530: ### 2. **Performance Issues** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 544: ### 3. **Debugging Techniques** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 563: ## Production Deployment — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 565: ### 1. **Environment Configuration** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 568: # application.yml - Production settings — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 588: ### 2. **Health Checks** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 620: ### 3. **Graceful Shutdown** — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 652: ## Migration Timeline — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 654: ### Week 1: Assessment and Planning — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 660: ### Week 2: Core Infrastructure — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 666: ### Week 3: Component Migration — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 672: ### Week 4: Testing and Optimization — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/consumer-groups/PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md`
+
+- SHA-256: `d9d6fb30ec3496a1d21854979a8008b0425a7ab6085a200f4576e0e26dcd03c3`
+- Category: Messaging and Subscriptions
+- Disposition: Merge current contract into the consumer-group or ordering authority
+- Heading disposition:
+  - [x] Line 1: # Consumer Group Fan-Out Design: Hybrid Queue/Pub-Sub — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 15: ## 📊 Implementation Status — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 33: ### Quick Status Summary — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 53: ### Detailed Feature Status — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 74: ## Changelog — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 76: ### Version 2.0 (2025-11-12) - Major Architectural Enhancements — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 151: ### Version 1.1 (2025-11-12) - Design Gaps Documented — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 160: ### Version 1.0 (2025-11-11) - Initial Design — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 173: ## Table of Contents — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 197: ## Overview — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 201: ### Key Features (Implementation Status) — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 214: ## Design Principles — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 224: ## Pre-Fan-Out Architecture Analysis — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 228: ### Finding 1: Queue Semantics Messages Distributed, Not Replicated — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 257: ### Finding 2: Thread Configuration Limitation — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 270: ### Finding 3: Manual Scaling Required — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 287: ## Design Alternatives Considered — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 291: ### Problem Statement — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 305: ### Option 1: Multiple Independent Consumer Groups — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 327: ### Option 2: Application-Level Fan-Out — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 347: ### Option 3: Outbox-to-Outbox Replication — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 359: ### Option 4: Hybrid Queue/Pub-Sub Support (Recommended) — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 363: ### Alternatives Comparison — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 374: ## Known Design Gaps & Open Questions — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 378: ### Critical Gap 1: Message Completion Logic for Fan-Out — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 412: ### Critical Gap 2: Zero-Member Consumer Group Lifecycle — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 477: ### Critical Gap 3: Consumer Group Registration Timing — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 670: ### Major Gap 4: Hash-Based Consumer Selection Edge Case — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 708: ### Open Question 1: Subscription Lifecycle State Machine — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 766: ### Open Question 2: Backfill Performance and Limits — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 883: ### Summary of Design Decisions — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 898: ## Completion Tracking Modes — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 902: ### Overview — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 919: ### Mode 1: Reference Counting (Bitmap/Counter) ✅ IMPLEMENTED — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 1046: ### Mode 2: Offset/Watermark ✅ IMPLEMENTED — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 1357: ### Mode Selection Guide — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 1395: ### Migration Between Modes — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 1454: ## Topic Semantics — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 1474: ### Configuration API — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 1499: ## Critical Design Questions & Solutions — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 1501: ### ⚠️ Question 1: Consumer Group Registration — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 1655: ### ⚠️ Question 2: Message Retention — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 1776: ### ⚠️ Question 3: Late-Joining Consumers — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 2267: ### ⚠️ Question 4: Dead Consumer Groups — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 3412: ## Cleanup Job Operations — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 3418: ### Overview of Cleanup Jobs — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 3428: ### 1. Message Cleanup Job — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 3580: ### 2. Dead Consumer Detection Job — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 3717: ### 3. Subscription Cleanup Job — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 3783: ### Performance Impact on Consumer Groups and Fan-Out — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 3889: ### Configuration Best Practices — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 3939: ## Concurrency and Scalability Concerns — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 3941: ### ⚠️ Concern 1: Heartbeat Write Contention — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 4138: ### ⚠️ Concern 2: Trigger Performance on Message Insert — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 4335: ### ⚠️ Concern 3: Consumer Group Query Performance — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 4486: ### ⚠️ Concern 4: Message Completion Write Amplification — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 4707: ### ⚠️ Concern 5: Cleanup Job Performance at Scale — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 4877: ### ⚠️ Concern 6: Hot Partition Problem — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 4972: ### ⚠️ Concern 7: outbox_consumer_groups Table Growth and Query Overhead — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 5364: ## Scalability Analysis: Guaranteed Limits and Bottlenecks — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 5366: ### Overview: What Determines Maximum Throughput? — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 5381: ### Baseline: PostgreSQL Performance Limits — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 5404: ### Solution 1: Current Design (Separate outbox_consumer_groups Table) — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 5527: ### Solution 2: Bitmap Tracking (Recommended) — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 5716: ### Solution 3: Partitioned outbox_consumer_groups with Aggressive Cleanup — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 5886: ### Solution 4: Bloom Filter + Separate Table — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 6048: ### Solution Comparison: Scalability Matrix — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 6058: ### Recommended Architecture by Use Case — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 6155: ### Scalability Recommendations Summary — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 6167: ### Final Scalability Limits by Solution — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 6181: ### Key Takeaways — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 6247: ## Database Schema Changes — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 6251: ### Summary of All Schema Changes — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 6335: ## API Design — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 6339: ### Topic Configuration ✅ IMPLEMENTED — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 6353: ### Consumer Group Creation and Subscription — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 6373: ### Complete Example — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 6405: ## Implementation Details — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 6409: ### Consumer Group Lifecycle Validation ✅ IMPLEMENTED — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 6486: ## 20. Implementation Plan — REST API Fixes and Management UI — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 6501: ### Mandatory Pre-Work (applies to every phase) — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 6526: ### Current State Assessment — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 6547: ### Phase 1 — Fix Broken Management REST Endpoints — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 6616: ### Phase 2 — Management UI Rewrite (`ConsumerGroups.tsx`) — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 6655: ### Phase 3 — Pause / Resume REST Endpoints — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 6702: ### Phase 4 — Backfill REST Endpoint (Management UI) — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 6740: ### Verification Steps — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 6769: ### Files to Change Summary — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 6785: ### Consumer Selection with Safe Hash Calculation — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 6844: ### Consumer Query Logic (Conditional) — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 6924: ### Message Processing Flow — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 6948: ### Performance Considerations — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 6975: ## Pre-GA Decision Checkpoints — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 6981: ### Critical: Load Test Fanout Write Amplification — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7074: ### Critical: Kill-and-Resurrect Chaos Test — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7130: ### Critical: Backfill vs OLTP Contention Test — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7190: ### Recommended: Multi-Tenant Isolation Test — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7213: ### Recommended: Partition Management Test (Offset/Watermark Mode) — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7239: ### Decision Matrix — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7253: ## Migration Path — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7255: ### Phase 1: Schema Changes (Backward Compatible) — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7264: ### Phase 2: API Extensions — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7272: ### Phase 3: Consumer Logic Updates — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7280: ### Phase 4: Heartbeat & Cleanup — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7288: ### Phase 5: Testing & Documentation — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7294: ### Migration Example — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7322: ## Comparison with Other Systems — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7324: ### Kafka — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7335: ### RabbitMQ — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7345: ### Pulsar — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7357: ### Ordering Guarantees - Important Note — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7376: ### PeeGeeQ Advantages — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7383: ### PeeGeeQ Limitations — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7391: ## Summary — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7395: ### Key Design Decisions — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7407: ### Critical Questions Answered — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7418: ### Scalability Guarantees — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7428: ### Document Organization — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7441: ### Next Steps — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7455: ## Partitioned Consumer Groups (OFFSET_WATERMARK Mode) — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7461: ### 19.1 Problem Statement — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7474: ### 19.2 Design Goals — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7486: ### 19.3 Core Concepts — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7521: ### 19.4 Schema Design — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7600: ### 19.5 Consumption Flow — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7833: ### 19.6 Rebalance Protocol Detail — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7877: ### 19.7 Interaction with Existing Infrastructure — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7904: ### 19.8 Key Design Decisions — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7915: ### 19.9 API Surface — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 8002: ### 19.10 Implementation Phases — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 8050: ### 19.11 Open Questions (Partitioned Mode) — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 8062: ### 19.12 Pre-GA Decision Checkpoints (Partitioned Mode) — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 8124: ### 19.13 Migration from Reference Counting to Offset/Watermark — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 8211: ## Appendix: Complete Schema DDL — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+
+### `docs-design/_archived/superseded-guides/PEEGEEQ_CONSUMER_GROUP_FANOUT_GUIDE.md`
+
+- SHA-256: `054f03a98c70458639aabfc39b2f0760086394a8d8704148c6f2b33db1614849`
+- Category: Messaging and Subscriptions
+- Disposition: Merge current contract into the consumer-group or ordering authority
+- Heading disposition:
+  - [x] Line 1: # Consumer Group Fan-Out Guide — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 9: ## Overview — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 13: ### Key Features — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 22: ### When to Use Fan-Out — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 37: ## Quick Start — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 39: ### Step 1: Configure a Topic as PUB_SUB — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 63: ### Step 2: Create Consumer Groups — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 89: ### Step 3: Set Message Handlers — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 114: ### Step 4: Start Consumer Groups — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 123: ### Step 5: Publish Messages — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 135: ## Configuration — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 137: ### Topic Configuration Options — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 148: ### Subscription Options — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 179: ## How It Works — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 181: ### Reference Counting Mode — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 190: ### Database Schema — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 240: ## Subscription Lifecycle — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 242: ### Subscription States — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 263: ### Managing Subscriptions — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 298: ## Zero-Subscription Protection — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 300: ### The Problem — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 304: ### The Solution — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 360: ## Best Practices — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 362: ### 1. Topic Configuration — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 375: ### 2. Consumer Group Naming — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 387: ### 3. Subscription Management — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 400: ### 4. Error Handling — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 413: ### 5. Performance Optimization — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 428: ## Troubleshooting — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 430: ### Messages Not Being Delivered to Consumer Group — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 462: ### Messages Not Being Cleaned Up — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 494: ### Consumer Group Marked as DEAD — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 513: ### Write Blocked Due to Zero Subscriptions — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 539: ## Monitoring — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 541: ### Key Metrics to Track — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 597: ### Alerts to Configure — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 607: ## Migration Guide — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 609: ### Migrating from QUEUE to PUB_SUB — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 655: ## Advanced Topics — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 657: ### Late-Joining Consumer Groups — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 701: ### Handling Consumer Group Failures — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 714: ### Idempotent Message Processing — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 740: ## Limitations & Future Work — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 742: ### Current Limitations — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 748: ### Future Enhancements — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 757: ## FAQ — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 782: ## Summary — destination or retention: `docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md` and `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+
+### `docs-design/consumer-groups/PEEGEEQ_PARTITIONED_CONSUMPTION_DESIGN.md`
+
+- SHA-256: `8a7abb1ffcb5ea0b243daa7cbb06f872ffa89a695dfc77728c46ed1b0224984e`
+- Category: Messaging and Subscriptions
+- Disposition: Merge current contract into the consumer-group or ordering authority
+- Heading disposition:
+  - [x] Line 1: # Partitioned Consumption Design and Implementation Record — destination or retention: `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md`; full detail retained in source
+  - [x] Line 11: ## Authority and scope — destination or retention: `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md`; full detail retained in source
+  - [x] Line 21: ## Outcome — destination or retention: `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md`; full detail retained in source
+  - [x] Line 40: ## Completion modes — destination or retention: `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md`; full detail retained in source
+  - [x] Line 51: ## Persistent model — destination or retention: `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md`; full detail retained in source
+  - [x] Line 68: ## Assignment and rebalance — destination or retention: `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md`; full detail retained in source
+  - [x] Line 84: ## Fetch, handle, and commit sequence — destination or retention: `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md`; full detail retained in source
+  - [x] Line 99: ## Default partition — destination or retention: `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md`; full detail retained in source
+  - [x] Line 105: ## Watermark cleanup — destination or retention: `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md`; full detail retained in source
+  - [x] Line 112: ## Lifecycle contract — destination or retention: `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md`; full detail retained in source
+  - [x] Line 122: ## Trace and observability contract — destination or retention: `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md`; full detail retained in source
+  - [x] Line 132: ## Maintained test surfaces — destination or retention: `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md`; full detail retained in source
+  - [x] Line 147: ## Remaining release gates — destination or retention: `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md`; full detail retained in source
+  - [x] Line 158: ## Evaluated but unapproved ideas — destination or retention: `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md`; full detail retained in source
+  - [x] Line 171: ## References — destination or retention: `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md`; full detail retained in source
+
+### `docs-design/_archived/superseded-guides/main-prompt.md`
+
+- SHA-256: `2c1bdc50dcf28578325c51c5b6c2d05d9c38497c564d3ecfc925d25c262e43be`
+- Category: Contributor, Testing, and CI
+- Disposition: Consolidate durable instructions; retain environment-specific and normative sources
+- Heading disposition:
+  - [x] Line 5: ## PeeGeeQ Mandatory Pre-Work (prepend to every implementation prompt) — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 7: ### STOP — read these documents before writing a single line of code — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+
+### `docs-design/dev/PEEGEEQ_JENKINS_ESXI_CI_SETUP.md`
+
+- SHA-256: `d4adedc97f5f05e29b58e1e53f38d0672108e73703e00f35ebc67338f83cd9a9`
+- Category: Contributor, Testing, and CI
+- Disposition: Consolidate durable instructions; retain environment-specific and normative sources
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ Jenkins CI on VMware ESXi — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 11: ## Purpose — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 41: ## Recommended architecture — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 43: ### Preferred: separate controller and build agent — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 71: ### Simpler: one all-in-one VM — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 92: ## Why these resources are appropriate — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 114: ## ESXi VM configuration — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 116: ### CPU and memory — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 134: ### Storage layout — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 151: ### Networking — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 183: ### VMware guest integration and time — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 191: ## Ubuntu base installation — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 218: ## Docker Engine and Testcontainers — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 220: ### Packaging decision for Ubuntu 24.04 — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 259: ### Verified state of `ubu24-cicd` — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 298: ### 2026-08-23 JDK and memory diagnostic — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 345: ### PeeGeeQ Docker API compatibility gate — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 359: ### Install the Ubuntu-packaged Docker stack — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 405: ### Selected Docker security model — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 455: ### Why rootless Docker is not the Ubuntu 24.04 baseline — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 478: ### Testcontainers operation and Linux correction — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 507: ### Docker update gate — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 524: ## Java installation — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 616: ## Maven installation — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 654: ## Node, npm, and Playwright — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 698: ## Installing Jenkins LTS — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 750: ### Recommended Jenkins plugins — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 764: ### Controller security — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 787: ### Separate build agent configuration — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 808: ## CI job strategy — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 843: ## Repository Jenkinsfile — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 892: ### Verified full-gate snapshot — 2026-08-25 — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 912: ## Jenkins job configuration — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 936: ## Initial validation sequence — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1028: ## Build outputs to retain — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1045: ## Operating and maintenance guidance — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1047: ### Snapshots and backups — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1059: ### Disk management — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1073: ### Service health — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1085: ### Docker privilege and network review — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1110: ### Performance-test discipline — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1126: ## Reducing the 90-minute runtime — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1148: ## Provisioning checklist — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1156: ### ESXi and Ubuntu — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1165: ### Build stack — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1201: ### Repository compatibility — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1214: ### Jenkins — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1238: ## Authoritative external references — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+
+### `docs-design/dev/PEEGEEQ_WSL_PASSWORDLESS_SSH_SETUP.md`
+
+- SHA-256: `459aaa69c88d5f88c5f69b303d8214128b3c5849b758b46aceb1e6e6a69bb144`
+- Category: Contributor, Testing, and CI
+- Disposition: Consolidate durable instructions; retain environment-specific and normative sources
+- Heading disposition:
+  - [x] Line 1: # Password-Free SSH from WSL to the PeeGeeQ Linux VM — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 3: ## Purpose — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 15: ## Prerequisites — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 23: ## 1. Prepare the SSH server on the VM — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 56: ## 2. Install the SSH client in WSL — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 73: ## 3. Define the connection details — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 102: ## 4. Make the first password-authenticated connection — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 123: ## 5. Generate a dedicated SSH key in WSL — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 169: ## 6. Load a passphrase-protected key into the WSL SSH agent — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 188: ## 7. Install the public key on the VM — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 202: ## 8. Prove that key-only authentication works — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 227: ## 9. Create a convenient WSL SSH alias — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 272: ## 10. Optionally disable SSH password authentication — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 316: ## Troubleshooting — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 318: ### Port 22 is unreachable — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 338: ### The public key is rejected — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 361: ### A passphrase-protected key is not being selected — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 378: ### SSH reports that the host key changed — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 396: ## Security notes — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 407: ## References — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+
+### `docs-design/dev/pgq-coding-principles.md`
+
+- SHA-256: `c9bbd4385ecbc5d31cf29f0accc5e6819a2e3dadda0013b2022368e82b53c0d0`
+- Category: Contributor, Testing, and CI
+- Disposition: Consolidate durable instructions; retain environment-specific and normative sources
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ Coding Principles & Standards — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 5: ## **🚨 CRITICAL: TestContainers Mandatory Policy** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 7: ### **Principle: "Database-Centric Systems Require Real Databases"** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 75: ## **Investigation Before Implementation** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 77: ### **Principle: "Understand Before You Change"** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 96: ## **Learn From Existing Patterns** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 98: ### **Principle: "Follow Established Conventions"** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 111: ## **Verify Assumptions** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 113: ### **Principle: "Test Your Understanding"** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 127: ## **Precise Problem Identification** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 129: ### **Principle: "Fix the Cause, Not the Symptom"** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 148: ## **Clear Documentation Standards** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 150: ### **Principle: "Document Intent, Not Just Implementation"** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 167: ## **Iterative Validation** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 169: ### **Principle: "Validate Each Step"** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 184: ## **Test Classification** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 186: ### **Principle: "Clearly Distinguish Test Types"** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 228: ### **TestContainers: Mandatory for Database-Centric Systems** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 296: ## **Honest Error Handling** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 298: ### **Principle: "Fail Fast, Fail Clearly"** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 316: ## **Log Analysis Skills** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 318: ### **Principle: "Read Logs Carefully"** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 331: ## **Modern Vert.x 5.x Composable Future Patterns** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 333: ### **Principle: "Use Composable Futures, Not Callbacks"** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 382: ## **Forbidden Reactive Patterns (Hard Rules)** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 387: ### ❌ `.recover (…))` Zero Legitimate Uses — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 399: prohibited callback-style completion check — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 414: ### ❌ Unobserved Futures — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 425: ### ❌ Blocking Waits on the Event Loop — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 438: ### ❌ `setTimer` as a Readiness Guard — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 448: ### ❌ Raw JDBC in Tests — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 461: ## **Database Write Operations** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 463: ### **Principle: "Writes Require Transactions"** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 489: ## **Test Infrastructure Integrity** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 491: ### **Principle: "Test Setup Must Be Verified by Tests"** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 564: ## **Summary: Core Principles** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 579: ## **Critical Test Execution Validation** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 581: ### **Principle: "Verify Test Methods Are Actually Executing"** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 586: ### **Maven Test Profile Configuration (CRITICAL)** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 597: # This looks like success but NO TESTS RAN — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 602: # This actually runs the test — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 632: # Quick feedback during development (CORE tests only, < 5 seconds) — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 635: # Before committing (run INTEGRATION tests with TestContainers) — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 638: # Run specific integration test — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 641: # Clean build with full integration tests — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 644: # Get coverage report for integration tests — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 676: ### **TestContainers Debugging Strategy** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 703: ### **Maven Test Log Analysis** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 717: # 1. Dependencies & Build Setup — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 743: # 2. API Changes — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 745: ### Futures Replace Callbacks — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 762: ### Composition is Cleaner — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 768: #  3. Event Bus & Cluster — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 775: #  4. Verticles — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 787: #  5. Reactive APIs — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 795: #  6. Web & HTTP — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 802: #  7. Database Clients — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 809: #  8. Metrics, Tracing, Monitoring — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 816: # 9. Logging — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 823: #  10. Breaking Changes to Watch — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 832: #  Migration Strategy — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 844: # Vert.x 5.x Composable Future Patterns Guide — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 862: ## Overview — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 870: ## Key Pattern: Composable Future Chains — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 872: ### ✅ Modern Vert.x 5.x Style (RECOMMENDED) — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 882: ### ❌ Old Callback Style (AVOID) — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 906: ## Implemented Patterns in PeeGeeQ — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 908: ### 1. Server Startup with Sequential Operations — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 945: ### 2. Database Operations with Error Recovery — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 972: ### 3. Service Interactions with Health Checks — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1001: ### 4. Test Patterns - Modern vs Old Style — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1022: ### 5. Resource Cleanup with Composition — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1040: ## Key Benefits of Composable Patterns — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1042: ### 1. **Better Readability** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1047: ### 2. **Improved Error Handling** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1052: ### 3. **Enhanced Maintainability** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1057: ### 4. **Better Testing** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1062: ## Migration Checklist — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1064: ### ✅ Completed Refactoring — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1073: ### 🔍 Areas to Monitor — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1079: ## Best Practices — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1081: ### 1. **Use .compose() for Sequential Operations** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1091: ### 2. **`.recover (…))` Is Banned Use `.transform()` or `.eventually()`** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1133: ### 3. **Explicit Type Parameters When Needed** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1140: ### 4. **Use `.eventually()` for Resource Cleanup** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1159: ## Conclusion — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1165: ## **Core Principles Summary** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1178: ## **Critical Additional Principles** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1213: ## `.recover (…))` Full Analysis, Rationale, and Project-Wide Audit — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1215: ### The anti-pattern: `.recover (…))` as silent error erasure — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1274: ### What `.recover (…))` is actually for (per Vert.x documentation) — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1314: ### There are zero legitimate uses of `.recover (…))` in this project — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 1451: ### Project-wide `.recover (…))` audit systematic module-by-module review — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 2012: ### Appendix: Vert.x 5.x failure-handling cheat sheet — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 2223: ## **Multi-Tenant Schema Isolation: Implementation Guidance** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 2225: ### **Principle: "Tenant Separation is Absolute"** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 2232: ### **Principle: "Parametrize, Don't Hardcode"** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 2239: ### **Principle: "Silent Neighbors (Avoid Notification Noise)"** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 2246: ### **Principle: "Standardized Configuration"** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+  - [x] Line 2253: ### **Verification of Isolation** — destination or retention: `docs/PEEGEEQ_CONTRIBUTOR_GUIDE.md`; normative or environment-specific source retained intact
+
+### `docs-design/_archived/completed-records/DOCUMENTATION_UPDATES_CAUSATION_ID.md`
+
+- SHA-256: `e2697b94c8ecbb9cc8b0bd12cdf73f1d61d1026d4ab330c28984bb7af6457cbe`
+- Category: Messaging / Event Store
+- Disposition: Merge implemented behavior; retain proposal and implementation history
+- Heading disposition:
+  - [x] Line 1: # Documentation Updates for CausationId Implementation — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 9: ## Summary — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 15: ## Documentation Files Updated — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 17: ### 1. ✅ PEEGEEQ_ARCHITECTURE_API_GUIDE.md — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 47: ### 2. ✅ PEEGEEQ_EXAMPLES_GUIDE.md — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 80: ### 3. ✅ PEEGEEQ_REST_API_REFERENCE.md — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 104: ### 4. ✅ PEEGEEQ_COMPLETE_GUIDE.md — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 172: ### 5. ✅ BREAKING_CHANGES_CAUSATION_ID.md (NEW) — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 190: ### 6. ✅ CAUSATION_ID_IMPLEMENTATION_SUMMARY.md (NEW) — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 208: ## Documentation Files NOT Requiring Updates — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 212: ### ✅ PEEGEEQ_BITEMPORAL_SUBSCRIPTIONS_GUIDE.md — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 216: ### ✅ PEEGEEQ_CONSUMER_GROUP_FANOUT_GUIDE.md — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 220: ### ✅ PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 224: ### ✅ PEEGEEQ_DATABASE_SETUP_GUIDE.md — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 228: ### ✅ PEEGEEQ_DEVELOPMENT_ENVIRONMENT_SETUP.md — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 232: ### ✅ PEEGEEQ_SERVICE_MANAGER_GUIDE.md — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 236: ### ✅ PEEGEEQ_TRANSACTIONAL_OUTBOX_PATTERNS_GUIDE.md — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 242: ## Code Examples Updated — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 244: ### Total Code Examples Updated: 7 — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 256: ## Parameter Order Reference (Updated in All Examples) — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 258: ### New append() Signature: — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 273: ## Event Causality Pattern Examples Added — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 275: ### Pattern 1: Root Event (No Causation) — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 283: ### Pattern 2: Caused Event (Child Event) — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 293: ### Pattern 3: Event Chain (Grandchild Event) — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 305: ## Verification Checklist — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 319: ## Migration Impact on Documentation — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 321: ### Developer Experience Improvements: — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 344: ## Next Steps for Documentation Team — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 346: ### Optional Enhancements (Future): — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 369: ## Files Modified Summary — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 383: ## Conclusion — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+
+### `docs-design/event-sourcing-messaging/PEEGEEQ_BITEMPORAL_EVENT_CAUSALITY_GUIDE.md`
+
+- SHA-256: `0cf556e157e2d5eec7b7e5fbab086a3b45305458304b2b85179a9367452c0668`
+- Category: Messaging / Event Store
+- Disposition: Merge implemented behavior; retain proposal and implementation history
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ Event Causality Guide — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 9: ## Overview — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 13: ### Key Concepts — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 21: ### Why Use Causation Tracking? — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 30: ## API Reference — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 32: ### Event Store Append — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 46: ### BiTemporalEvent Interface — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 60: ## Usage Patterns — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 62: ### Pattern 1: Root Event (No Causation) — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 81: ### Pattern 2: Child Event (Caused by Parent) — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 97: ### Pattern 3: Event Chain (Grandchild Event) — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 113: ### Resulting Event Chain — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 125: ## REST API Usage — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 127: ### Append Event with Causation — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 144: ### Query Events by Causation — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 152: ### Query Event Response — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 173: ## Common Patterns — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 175: ### Order Processing Saga — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 195: ### Correction Events — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 213: ### Command-Event Pattern (CQRS) — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 229: ## Best Practices — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 243: ## Querying Causation Chains — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 245: ### Find Children of an Event — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 253: ### Build Full Chain (Recursive) — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 272: ### Find Root Cause — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 294: ## Summary — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+
+### `docs-design/event-sourcing-messaging/PEEGEEQ_BITEMPORAL_SUBSCRIPTIONS_GUIDE.md`
+
+- SHA-256: `87240ff20d998d1313c2a193005d7e601f567eee72c19af1f6fcbf8b74ae559d`
+- Category: Messaging / Event Store
+- Disposition: Merge implemented behavior; retain proposal and implementation history
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ Bi-Temporal Event Subscriptions — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 3: ## Overview — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 7: ## Subscription Patterns — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 9: ### Exact Match — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 17: ### Wildcard Match — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 31: ### All Events — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 39: ## Channel Strategy — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 47: ## Dot-to-Underscore Conversion — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 58: ### Collision Handling — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 64: ## PostgreSQL Trigger — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 71: ## Test Cases — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 73: ### Basic Subscription Behavior — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 100: ### Wildcard Subscriptions — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 127: ## Implementation Status — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 140: ## How It Works — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 142: ### Channel Architecture — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 152: ### Subscription Routing — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 160: ## Scalability — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 162: ### Why Scalability Is Not Impacted — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 199: ### Notification Flow — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 257: ### Scalability Summary — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 267: ### Trade-off — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 274: ## Test Approach — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 276: ### Performance Tests — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 287: ### Wildcard Pattern Tests — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 308: ## Performance Expectations — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 310: ### Throughput Benchmarks — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 321: ### Latency Characteristics — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 330: ### Scaling Factors — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 339: ### Resource Usage — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 347: ### Production Recommendations — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+
+### `docs-design/event-sourcing-messaging/PEEGEEQ_CLOUDEVENTS_SUPPORT_AND_INTEGRATION_GUIDE.md`
+
+- SHA-256: `825670baa7f433bcd38ec0d11c8622282356c80588f1f4a2c950de95822abef8`
+- Category: Messaging / Event Store
+- Disposition: Merge implemented behavior; retain proposal and implementation history
+- Heading disposition:
+  - [x] Line 1: # CloudEvents Support and Integration in PeeGeeQ — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 3: ## What is CloudEvents? — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7: ### CloudEvents v1.0 Specification — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 23: ### Extension Attributes — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 35: ## Why Use CloudEvents? — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 37: ### 1. Interoperability — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 45: ### 2. Standardized Event Metadata — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 52: ### 3. Schema Evolution — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 59: ### 4. Ecosystem Support — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 66: ## CloudEvents Integration in PeeGeeQ — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 68: ### Architecture Overview — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 80: ### Dependency Configuration — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 115: ### Automatic Jackson Module Registration — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 146: ## Usage Examples — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 148: ### Basic CloudEvent Creation — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 166: ### Sending CloudEvents via Outbox — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 176: ### Storing CloudEvents in Bi-Temporal Event Store — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 187: ### Querying CloudEvents with PostgreSQL JSONB — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 228: ## Spring Boot Integration — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 232: ### FinancialCloudEventBuilder — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 265: ### CloudEventExtensions Utility — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 294: ### Configuration Properties — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 305: ## Testing CloudEvents Integration — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 307: ### Test Classes — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 318: ### CloudEventsObjectMapperTest — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 352: ### CloudEventsJsonbQueryTest — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 373: ### Running CloudEvents Tests — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 376: # Run CloudEvents ObjectMapper tests (unit tests) — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 379: # Run CloudEvents JSONB query tests (integration tests) — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 382: # Run Spring Boot CloudEvents tests — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 386: ## Best Practices — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 388: ### 1. Event Type Naming — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 401: ### 2. Correlation and Causation — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 424: ### 3. Valid Time vs Transaction Time — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 436: ### 4. Extension Attribute Naming — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 451: ## Performance Considerations — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 453: ### JSONB Indexing — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 471: ### Query Optimization — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 493: ## Troubleshooting — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 495: ### CloudEvents Module Not Registered — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 509: ### Extension Attributes Not Preserved — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 520: ### JSONB Query Returns No Results — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 543: ## References — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+
+### `docs-design/event-sourcing-messaging/PEEGEEQ_DURABLE_SUBSCRIPTIONS_OPTION_PLAN.md`
+
+- SHA-256: `e8e7c1e852c138748ce5d4dcb2a9ec91c862f8174d09b9d68fea3503da7d7e8e`
+- Category: Messaging / Event Store
+- Disposition: Merge implemented behavior; retain proposal and implementation history
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ Durable Subscriptions Option Plan (Outbox + Bi-Temporal) — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 31: ## 1. Objective — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 39: ## 2. Scope and Non-Goals — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 53: ## 3. Existing Infrastructure Inventory — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 57: ### 3.1 Outbox Subscription Tables (V010) — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 69: ### 3.2 Existing SubscriptionService API (peegeeq-api) — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 82: ### 3.3 Existing SubscriptionOptions (peegeeq-api) — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 90: ### 3.4 Existing Non-Durable Bitemporal Subscription State — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 99: ### 3.5 Bitemporal Event Table Ordering — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 109: ### 3.6 Schema-Tenancy — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 113: ## 4. Current State Summary — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 127: ## 5. Target Functional Requirements — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 138: ## 6. High-Level Design — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 140: ### 6.1 Strategy: Extend, Don't Replace — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 146: ### 6.2 Cursor Type Decisions — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 159: ### 6.3 Core Pattern — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 166: ## 7. Data Model Changes — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 168: ### 7.1 Bitemporal Subscription Tables (New) — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 208: ### 7.2 Outbox Schema Extensions — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 216: ### 7.3 Schema-Tenancy Integration — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 221: ### 7.4 Required Indexes — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 233: ## 8. API and Config Changes — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 235: ### 8.1 Extend Existing SubscriptionOptions — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 249: ### 8.2 Extend Existing SubscriptionService — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 280: ### 8.3 Separate Typed Delivery — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 287: ### 8.4 SubscriptionKey Extraction — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 292: ### 8.5 Configuration via PeeGeeQConfiguration — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 298: ## 9. Runtime Flow (Durable Mode) — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 300: ### 9.1 Subscribe Call (durableEnabled=true) — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 311: ### 9.2 Startup Recovery (Metadata + Cursor State) — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 318: ### 9.3 Catch-Up Replay — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 341: ### 9.4 Catch-Up to Live Handoff Protocol — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 355: ### 9.5 Wildcard Subscription Replay Cost — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 365: ### 9.6 Failure Handling — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 379: ## 10. Module-Specific Plan — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 381: ### 10.1 Bitemporal — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 389: ### 10.2 Outbox (peegeeq-native) — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 397: ### 10.3 Shared Coordinator Interface — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 416: ## 11. Delivery Semantics — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 430: ## 12. Migration and Rollout — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 432: ### 12.1 Database Migration — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 440: ### 12.2 Code Rollout — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 447: ### 12.3 Rollback — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 453: ## 13. Historical Proposed Test Inventory (Not a Current Task List) — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 462: ### 13.1 SubscriptionOptions Builder Extensions — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 484: ### 13.2 BiTemporal Subscription Identity — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 494: ### 13.3 SubscriptionKey Extraction — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 513: ### 13.4 DurableSubscriptionConfig (PeeGeeQConfiguration) — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 527: ### 13.5 Schema DDL Bitemporal Subscriptions Table — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 544: ### 13.6 Schema DDL Outbox Extensions — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 555: ### 13.7 Schema-Tenancy — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 565: ### 13.8 Durable Subscribe Persistence — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 584: ### 13.9 Startup Recovery — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 598: ### 13.10 Catch-Up Replay — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 619: ### 13.11 Catch-Up to Live Handoff — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 633: ### 13.12 Failure Handling — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 650: ### 13.13 Subscription Lifecycle Operations — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 670: ### 13.14 DurableSubscriptionCoordinator Interface — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 684: ### 13.15 Multi-Subscriber Behavior — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 697: ### 13.16 Backward Compatibility — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 709: ### 13.17 Outbox Coordinator Integration — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 724: ### 13.18 Cursor Integrity — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 737: ### 13.19 Migration Safety — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 749: ### 13.20 End-to-End Scenarios — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 766: ## 14. Proposed Observability Extensions (Not Shipped by Task 4) — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 768: ### 14.1 Metrics — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 776: ### 14.2 Logs — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 785: ## 15. Risks and Mitigations — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 806: ## 16. Phased Implementation Plan — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 811: ### Phase 0: Schema and Interfaces — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 822: ### Phase 1: Bitemporal Durable MVP — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 830: ### Phase 2: Outbox Integration — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 836: ### Phase 3: Ops Hardening — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 844: ### Phase 4: Scale and Resilience — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 850: ## 17. Historical Broader Proposal Acceptance Criteria — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 864: ## 18. Immediate Next Steps — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+  - [x] Line 871: ## Appendix A: Decisions Log — destination or retention: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`; full detail retained in source
+
+### `docs-design/_archived/completed-records/PEEGEEQ_MESSAGING_PATTERNS_IMPLEMENTATION_PLAN.md`
+
+- SHA-256: `6a030db84a5aaff28f3d3291d63c98a5db61776452b0d6e83cd53a4473cffe0d`
+- Category: Messaging / Event Store
+- Disposition: Merge implemented behavior; retain proposal and implementation history
+- Heading disposition:
+  - [x] Line 1: # Advanced Messaging Patterns Demo Tests Implementation Plan — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 14: ## 📋 Overview — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 18: ## 🎯 Pattern Categories Identified — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 22: ### **1. High-Frequency Messaging Patterns** — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 27: ### **2. Message Priority Handling Patterns** — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 32: ### **3. Enhanced Error Handling Patterns** — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 38: ### **4. System Properties Configuration Patterns** — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 44: ### **5. Consumer Groups & Load Balancing Patterns** — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 50: ### **6. Bi-Temporal Event Store Patterns** — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 56: ### **7. Enterprise Integration Patterns** — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 63: ### **8. Advanced Architecture Patterns** — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 68: ## 🚀 Implementation Plan — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 70: ### **Phase 1: Core Messaging Patterns (Week 1)** — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 119: ### **Phase 2: Configuration & Load Balancing (Week 2)** — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 154: ### **Phase 3: Temporal & Integration Patterns (Week 3)** — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 189: ### **Phase 4: Advanced Architecture Patterns (Week 4)** — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 240: ## 📁 File Structure Plan — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 261: ## 🎯 Success Criteria — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 265: ### **Functional Requirements** — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 272: ### **Technical Requirements** — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 279: ### **Documentation Requirements** — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 286: ### **Quality Requirements** — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 293: ## 🔧 Technical Implementation Details — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 295: ### **TestContainers Configuration** — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 302: ### **Test Structure Template** — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 339: ### **Performance Measurement Pattern** — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 348: ### **Logging Pattern** — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 357: ## 📅 Implementation Timeline — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 366: ## 🎯 Implementation Status — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 370: ### ✅ **Phase 1: COMPLETE** — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 375: ### ✅ **Phase 2: COMPLETE** — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 379: ### ✅ **Phase 3: COMPLETE** — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 383: ### ✅ **Phase 4: COMPLETE** — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 388: ### 🎉 **IMPLEMENTATION COMPLETE!** — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+  - [x] Line 392: ### 📋 **Next Steps for Testing & Validation** — destination or retention: `docs/PEEGEEQ_EXAMPLES_GUIDE.md`; full implementation record retained in source
+
+### `docs-design/_archived/superseded-guides/PEEGEEQ_OUTBOX_PARTITIONED_ORDERING_COMPLETE_GUIDE.md`
+
+- SHA-256: `12cc715a6cd878e7568f36d83e812cf078627df6073cf42206bf1606ee6f8064`
+- Category: Messaging / Event Store
+- Disposition: Merge implemented behavior; retain proposal and implementation history
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ Outbox Partitioned Ordering Guide — destination or retention: `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md`; full detail retained in source
+  - [x] Line 17: ## 1. Choose the Correct Consumption Mode — destination or retention: `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md`; full detail retained in source
+  - [x] Line 35: ## 2. Partition Key — destination or retention: `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md`; full detail retained in source
+  - [x] Line 52: ## 3. Ordering Contract — destination or retention: `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md`; full detail retained in source
+  - [x] Line 70: ## 4. Assignment and Rebalancing — destination or retention: `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md`; full detail retained in source
+  - [x] Line 84: ## 5. Offset and Failure Semantics — destination or retention: `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md`; full detail retained in source
+  - [x] Line 102: ## 6. Watermark Cleanup — destination or retention: `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md`; full detail retained in source
+  - [x] Line 111: ## 7. API Surface — destination or retention: `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md`; full detail retained in source
+  - [x] Line 128: ## 8. Operational Guidance — destination or retention: `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md`; full detail retained in source
+  - [x] Line 145: ## 9. Application Adoption Checklist — destination or retention: `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md`; full detail retained in source
+  - [x] Line 160: ## 10. Remaining Project Release Gates — destination or retention: `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md`; full detail retained in source
+  - [x] Line 171: ## 11. References — destination or retention: `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md`; full detail retained in source
+
+### `docs-design/event-sourcing-messaging/PEEGEEQ_SERVER_SIDE_FILTERING_GUIDE.md`
+
+- SHA-256: `3cda9e2ee9dda4d0b7672f42843e01bd392e2cb86814d9e92ea679f92da74cf9`
+- Category: Messaging / Event Store
+- Disposition: Merge implemented behavior; retain proposal and implementation history
+- Heading disposition:
+  - [x] Line 1: # Server-Side Filtering: Technical Design & Implementation Guide — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 7: ## Executive Summary — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 11: ### Key Features — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 20: ## Table of Contents — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 33: ## Architecture Overview — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 35: ### Filtering Approaches: Client-Side vs Server-Side — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 85: ### Industry Comparison — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 110: ## Technical Design — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 112: ### Core Components — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 121: ### Component Architecture — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 154: ### 1. ServerSideFilter API (peegeeq-api) — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 238: ### 2. ConsumerConfig Extensions — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 311: ### 3. SQL Query Modifications — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 404: ### 4. Database Indexes — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 459: ## Implementation Guide — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 461: ### Quick Start — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 485: ### Migration from Client-Side Filtering — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 526: ## Usage Examples — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 528: ### Example 1: Simple Equality Filter — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 559: ### Example 2: IN Operator (Multiple Values) — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 578: ### Example 3: AND Operator (Multiple Conditions) — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 606: ### Example 4: OR Operator (Alternative Conditions) — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 629: ### Example 5: LIKE Operator (Pattern Matching) — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 646: ### Example 6: NOT_EQUALS Operator (Exclusion) — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 663: ### Example 7: Hybrid Filtering (Server + Client) — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 691: ### Example 8: Outbox Pattern with Filtering — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 715: ## Performance Optimization — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 717: ### When to Use Server-Side Filtering — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 729: ### Index Strategy — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 741: ### Performance Benchmarks — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 767: ### Optimization Best Practices — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 794: ### Query Plan Analysis — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 833: ## Testing Strategy — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 835: ### Test Coverage Summary — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 887: ### Testing Best Practices — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 906: ### Example Test Case — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 941: ## Best Practices — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 943: ### 1. Choose the Right Filtering Approach — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 964: ### 2. Design Effective Header Schemas — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 994: ### 3. Optimize for Common Queries — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 1011: ### 4. Handle Missing Headers Gracefully — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 1031: ### 5. Validate Filter Expressions — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 1044: ### 6. Combine with Other PeeGeeQ Features — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 1074: ## Troubleshooting — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 1076: ### Issue: Messages Not Being Filtered — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 1099: ### Issue: Slow Query Performance — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 1130: ### Issue: Messages with Missing Headers Not Excluded — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 1150: ### Issue: IllegalArgumentException on Filter Creation — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 1171: ### Issue: Filter Not Working with Consumer Groups — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 1193: ### Debugging Tips — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 1227: ## Implementation Summary — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 1229: ### Completed Components — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 1252: ### Files Modified/Created — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 1280: ### Backward Compatibility — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 1288: ### Production Readiness — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 1299: ## Appendix — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 1301: ### SQL Operator Reference — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 1312: ### Header Key Validation Pattern — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 1330: ### Performance Comparison Matrix — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 1339: ### Related Documentation — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+  - [x] Line 1346: ### Version History — destination or retention: `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md`; full detail retained in source
+
+### `docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md`
+
+- SHA-256: `98c1fb36a4cb618e0e782033524d572cc0684828f2e0c12e15702741c7640f69`
+- Category: Operations and Observability
+- Disposition: Merge supported operating guidance; retain dated evidence
+- Heading disposition:
+  - [x] Line 1: # PeeGeeq Connection Management and HAProxy Failover  — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 9: ## Executive Summary — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 39: ## Document Map — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 54: ## Resiliency Options at a Glance — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 68: ### Reading the table — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 92: ## 1. Connection Management Architecture — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 94: ### 1.1 Class hierarchy — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 103: ### 1.2 Configuration loading — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 140: # Connection — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 149: # Pool — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 173: ### 1.3 How a pool is created — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 205: ### 1.4 Pool configuration defaults — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 217: ### 1.5 Reconnection behaviour (main pool) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 234: ### 1.6 Schema isolation — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 243: ### 1.7 Connection string / URL patterns — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 255: ## 2. Resilience Stack Active During a Failover Window — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 261: ### 2.1 Vert.x pool — silent discard and reconnect — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 274: ### 2.2 HealthCheckManager + CircuitBreakerManager — detection and status — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 303: ### 2.3 Application-tier failover — ConnectionRouter + Consul — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 335: ### 2.4 Combined failover sequence (HAProxy + Consul cluster) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 364: ## 3. Application-Tier Failover vs Database-Tier Failover — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 386: ## 4. Why the Vert.x Pool Needs an External Proxy for Failover — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 434: # Patroni-aware health check — only routes to the Patroni-elected write primary — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 446: ## 5. HAProxy Failover Integration Test — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 448: ### 5.1 Files created — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 455: ### 5.2 Container topology (Testcontainers) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 470: ### 5.3 Test phases — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 489: ### 5.4 Retry design (no `.recover (…))`) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 513: ### 5.5 Running the test — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 521: ### 5.6 HAProxy config (annotated) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 567: ## 6. Local Developer Environment (HAProxy + PgBouncer) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 607: # Stop primary — HAProxy detects failure in ~1 s, routes to secondary — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 610: # Connect through PgBouncer (or HAProxy direct on :5400) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 613: # Restore primary — HAProxy auto-recovers, traffic returns to primary — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 619: ## 7. Known Gaps — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 635: ## 8. Using the pg-sidecar Service (`peegeeq-pg-sidecar`) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 651: ### 8.1 Where it fits in the stack — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 669: ### 8.2 Configuration — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 687: ### 8.3 PostgreSQL user setup (one-time, per node) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 705: ### 8.4 Build and run — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 727: # Build takes 2–5 minutes. — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 728: # Output: peegeeq-pg-sidecar\target\peegeeq-pg-sidecar.exe  (Windows) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 729: #         peegeeq-pg-sidecar/target/peegeeq-pg-sidecar       (Linux/macOS) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 755: # Stage 1: build the native binary — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 761: # Stage 2: distroless runtime — no JVM, no shell, minimal attack surface — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 779: ### 8.5 HAProxy configuration for HTTP-based primary detection — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 803: ### 8.6 PeeGeeQ application configuration — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 809: # peegeeq-default.properties (or environment-specific override) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 831: ### 8.7 Verifying the sidecar — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 836: # PowerShell — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 838: # Primary node  → StatusCode 200 — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 839: # Replica node  → StatusCode 503 — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 841: # curl — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 848: # → 404 — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 853: ### 8.8 Running the integration test — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 869: ## Appendix A: HAProxy Primary Detection Options — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 875: # HAProxy PostgreSQL Routing Without Patroni — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 884: ## 1. The Core Problem — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 904: ## 2. What Patroni Does — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 910: ### 2.1 Leader Election via a Distributed Data Store (DCS) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 923: ### 2.2 Automatic Promotion — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 935: ### 2.3 HTTP Status Endpoint for HAProxy — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 948: ### 2.4 Fencing the Old Primary — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 961: ### 2.5 Summary of What Patroni Provides — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 973: ## 3. Options Without Patroni — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 975: ### 3.1 Custom HTTP Sidecar (Patroni-Equivalent, Minimal) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1091: ### 3.2 HAProxy `agent-check` (TCP, No HTTP Needed) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1106: # pg_agent.sh — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1134: ### 3.3 `repmgr` + `repmgrd` (Automated Promotion, No DCS) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1153: ## 4. Comparison — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1165: ## 5. What Each Option Provides and Lacks — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1167: ### Custom HTTP sidecar / `agent-check` — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1184: ### `repmgr` + `repmgrd` — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1198: ### Consul-based monitor (PeeGeeQ-native) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1206: ## 6. Recommendation for PeeGeeQ — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1217: ## 7. Building the Java Sidecar — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1223: ### 7.1 Prerequisites — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1233: # Option A — SDKMAN (Linux / macOS / WSL) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1237: # Option B — Winget (Windows, native GraalVM distribution) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1240: # Option C — download directly from https://www.graalvm.org/downloads/ — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1241: # Then add GRAALVM_HOME/bin to PATH and run: — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1252: ### 7.2 Build the Fat-Jar (JVM) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1274: ### 7.3 Build the Native Binary (GraalVM) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1308: ### 7.4 Container Image (Native Binary, Distroless) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1314: # Stage 1: build the native binary — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1320: # Stage 2: distroless runtime — minimal attack surface, ~10 MB image — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1345: ### 7.5 PostgreSQL User Setup — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1358: ### 7.6 Verify the Endpoint — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1361: # While the sidecar is running: — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1363: # Primary node  → StatusCode 200 — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1364: # Replica node  → StatusCode 503 — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1379: ## Appendix B: The JDBC Multi-Host Failover Pattern (Historical Reference) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1385: ### The Pattern — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1407: ### Why It Is Not Used in PeeGeeQ — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1418: ### Why It Is Not a Sound Pattern for Distributed Systems — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+
+### `docs-design/_archived/superseded-guides/PG_HAPROXY_PRIMARY_DETECTION_OPTIONS.md`
+
+- SHA-256: `6c7167cb4c1d469ec65619122c14a26d3706d02435e8f014ac422410f39a7f0b`
+- Category: Operations and Observability
+- Disposition: Merge supported operating guidance; retain dated evidence
+- Heading disposition:
+  - [x] Line 1: # HAProxy PostgreSQL Routing Without Patroni — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 10: ## 1. The Core Problem — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 30: ## 2. What Patroni Does — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 36: ### 2.1 Leader Election via a Distributed Data Store (DCS) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 49: ### 2.2 Automatic Promotion — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 61: ### 2.3 HTTP Status Endpoint for HAProxy — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 74: ### 2.4 Fencing the Old Primary — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 87: ### 2.5 Summary of What Patroni Provides — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 99: ## 3. Options Without Patroni — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 101: ### 3.1 Custom HTTP Sidecar (Patroni-Equivalent, Minimal) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 217: ### 3.2 HAProxy `agent-check` (TCP, No HTTP Needed) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 232: # pg_agent.sh — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 260: ### 3.3 `repmgr` + `repmgrd` (Automated Promotion, No DCS) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 279: ## 4. Comparison — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 291: ## 5. What Each Option Provides and Lacks — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 293: ### Custom HTTP sidecar / `agent-check` — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 310: ### `repmgr` + `repmgrd` — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 324: ### Consul-based monitor (PeeGeeQ-native) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 332: ## 6. Recommendation for PeeGeeQ — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 343: ## 7. Building the Java Sidecar — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 349: ### 7.1 Prerequisites — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 359: # Option A — SDKMAN (Linux / macOS / WSL) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 363: # Option B — Winget (Windows, native GraalVM distribution) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 366: # Option C — download directly from https://www.graalvm.org/downloads/ — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 367: # Then add GRAALVM_HOME/bin to PATH and run: — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 378: ### 7.2 Build the Fat-Jar (JVM) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 400: ### 7.3 Build the Native Binary (GraalVM) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 434: ### 7.4 Container Image (Native Binary, Distroless) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 440: # Stage 1: build the native binary — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 446: # Stage 2: distroless runtime — minimal attack surface, ~10 MB image — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 471: ### 7.5 PostgreSQL User Setup — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 484: ### 7.6 Verify the Endpoint — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 487: # While the sidecar is running: — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 489: # Primary node  → StatusCode 200 — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 490: # Replica node  → StatusCode 503 — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+
+### `docs-design/peegeeq-call-propagation/PEEGEEQ_CALL_PROPAGATION_GUIDE.md`
+
+- SHA-256: `d6612bfe727c74ccc44c679f461c89bc5a7f77a2c78ffd30f2f20ec6e042bbc1`
+- Category: Architecture and APIs
+- Disposition: Merge current architecture into the core architecture or REST authority
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ Call Propagation Guide — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md`; full detail retained in source
+  - [x] Line 9: ## Purpose — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md`; full detail retained in source
+  - [x] Line 28: ## Layered architecture — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md`; full detail retained in source
+  - [x] Line 54: ### Module responsibilities — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md`; full detail retained in source
+  - [x] Line 72: ## Common request pattern — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md`; full detail retained in source
+  - [x] Line 90: ## Queue message send: end-to-end path — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md`; full detail retained in source
+  - [x] Line 122: ## Queue consumption path — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md`; full detail retained in source
+  - [x] Line 141: ## Event-store append and query paths — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md`; full detail retained in source
+  - [x] Line 156: ## Setup lifecycle path — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md`; full detail retained in source
+  - [x] Line 170: ## Current schema authorities — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md`; full detail retained in source
+  - [x] Line 187: ## REST surface map — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md`; full detail retained in source
+  - [x] Line 208: ## Failure propagation — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md`; full detail retained in source
+  - [x] Line 220: ## Verification map — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md`; full detail retained in source
+  - [x] Line 239: ## Debugging a propagation failure — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md`; full detail retained in source
+  - [x] Line 253: ## References — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md`; full detail retained in source
+
+### `docs-design/peegeeq-management-ui/archive/EXECUTION_CHECKLIST.md`
+
+- SHA-256: `87624d98592b9d5cdc2fee206996b3851f9568076a8dd822c46b92959b58e796`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ Management UI - Execution Checklist — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 5: ## Status — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 11: ## What's Done ✅ — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 13: ### UI & Testing — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 18: ### Core Features (Fully Implemented) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 31: ## Critical Blockers (Must Fix for Production) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 33: ### 1. ~~Consumer Tracking System~~ ALREADY IMPLEMENTED ✅ — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 45: ### 2. ~~Queue Purge Implementation~~ ALREADY IMPLEMENTED ✅ — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 57: ### 3. Authentication & Authorization — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 84: ### 4. ~~Bindings Management~~ NOT A PEEGEEQ CONCEPT ❌ — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 104: ### 5. ~~Recent Activity Tracking~~ ALREADY IMPLEMENTED ✅ — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 122: ## Remaining Production Readiness Tasks — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 124: ### 4. API Contract Tests — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 135: ### 5. Deployment Infrastructure — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 150: ### 6. Monitoring & Observability — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 163: ### 7. Security Hardening — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 177: ### 8. Documentation — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 191: ## Revised Timeline (2-3 weeks) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 195: ### Week 1: Security — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 199: ### Week 2: Testing & Deployment — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 203: ### Week 3: Operations & Polish — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 208: ## Success Criteria — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 210: ### Already Complete ✅ — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 216: ### Remaining Work — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 226: ### Not Applicable — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 229: ## References — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/peegeeq-management-ui/PEEGEEQ_MANAGMENT_UI_ARCHITECTURE.md`
+
+- SHA-256: `1cc47b5e7eeba437708029fd07e3c5f950c66642f99572319f4bad8dd6608c0e`
+- Category: Architecture and APIs
+- Disposition: Merge current architecture into the core architecture or REST authority
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ Management UI - Architecture and Design — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 5: ## Overview — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 9: ### Key Features — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 19: ### Target Users — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 25: ## Architecture — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 27: ### High-Level Architecture — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 95: ### Deployment Models — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 111: ## Technology Stack — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 113: ### Frontend — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 129: ### Backend — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 138: ## Design Principles — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 140: ### 1. Progressive Enhancement — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 146: ### 2. Backend-First Development — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 152: ### 3. Responsive Design — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 158: ### 4. Performance — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 165: ### 5. Developer Experience — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 172: ### 6. User Experience — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 179: ## Component Architecture — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 181: ### Directory Structure — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 226: ### Core Components — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 249: ## State Management — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 251: ### RTK Query API Slices — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 266: ### Direct API Client (`src/api/PeeGeeQClient.ts`) — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 270: ### Local State Management — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 278: ## API Integration — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 280: ### Base Configuration — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 288: ### Error Handling — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 304: ## REST API Reference — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 306: ### System and Health APIs — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 348: ### Queue Management APIs — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 450: ### Consumer Group APIs — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 500: ### Event Store APIs — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 534: ### Message APIs — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 575: ### Database Setup APIs — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 615: ### Error Handling — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 645: ## UI/UX Design — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 647: ### Design System — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 711: ### Page Layouts — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 756: ### Responsive Breakpoints — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 769: ### Accessibility — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 787: ## Security and Performance — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 789: ### Security Considerations — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 823: ### Performance Optimization — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 878: ## Development Workflow — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 880: ### Local Development — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 897: ### Building for Production — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 905: ### Code Quality — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 908: # Linting — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 911: # Type checking — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 914: # Format code — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 918: ## References — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 920: ### Related Documentation — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 928: ### External Resources — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 937: ### Inspiration — destination or retention: `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+
+### `docs-design/_archived/completed-records/grafana-dashboard-enhancement-summary.md`
+
+- SHA-256: `9f56f7f753bd3d0b17ec53f3296470851400fa7a6f46689090281278a25948fd`
+- Category: Operations and Observability
+- Disposition: Merge supported operating guidance; retain dated evidence
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ Grafana Dashboard Enhancement - Implementation Summary — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 8: ## 🎯 **Overview** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 12: ## ✅ **Implementation Summary** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 14: ### **Step 1: Extend Prometheus Metrics Export** ✅ **COMPLETE** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 48: ### **Step 2: Create Hardware Profiling Dashboard** ✅ **COMPLETE** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 67: ### **Step 3: Enhanced Prometheus Configuration** ✅ **COMPLETE** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 90: ### **Step 4: Advanced Alerting Rules** ✅ **COMPLETE** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 120: ### **Step 5: Comprehensive Documentation** ✅ **COMPLETE** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 128: ## 🧪 **Testing Results** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 130: ### **Hardware Profiling Integration Tests** ✅ **ALL PASSING** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 152: ### **Compilation and Integration** ✅ **SUCCESS** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 161: ## 📊 **Key Benefits Delivered** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 163: ### **1. Hardware-Aware Performance Analysis** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 168: ### **2. Real-Time Monitoring Capabilities** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 173: ### **3. Production-Ready Monitoring** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 178: ### **4. Developer Experience Enhancement** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 183: ## 🚀 **Implementation Architecture** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 185: ### **Metrics Flow** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 190: ### **Key Components** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 197: ### **Integration Points** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 203: ## 📈 **Future Enhancements Ready** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 205: ### **Phase 3 Capabilities** (Ready for Implementation) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 211: ### **Enterprise Features** (Architecture Ready) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 217: ## 🏆 **Final Status** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 219: ### **✅ COMPLETE AND PRODUCTION-READY** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 235: ### **Ready for Production Deployment** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+
+### `docs-design/performance/grafana-hardware-profiling-dashboard-guide.md`
+
+- SHA-256: `bf24dad4465946e5c7f9d57baf87e0a0e16ff4fe5da0538c0b667dbbe501339e`
+- Category: Operations and Observability
+- Disposition: Merge supported operating guidance; retain dated evidence
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ Hardware-Aware Performance Dashboard Guide — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 7: ## Overview — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 11: ## Key Features — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 13: ### 🔧 **Hardware Profile Visualization** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 18: ### 📊 **Real-Time Resource Monitoring** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 24: ### 🚀 **Performance Efficiency Metrics** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 29: ## Dashboard Panels — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 31: ### 1. **Hardware Profile Overview** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 36: ### 2. **JVM Configuration** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 41: ### 3. **Real-Time CPU Usage During Tests** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 46: ### 4. **Real-Time Memory Usage During Tests** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 51: ### 5. **System Load and Thread Count** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 56: ### 6. **Performance Efficiency by Hardware** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 61: ### 7. **Resource Constraint Indicators** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 66: ### 8. **Message Throughput (Hardware Context)** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 71: ### 9. **Queue Depth vs Hardware Profile** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 76: ## Template Variables — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 78: ### **Environment** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 82: ### **Instance** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 86: ### **Hardware Profile** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 90: ## Annotations — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 92: ### **Test Executions** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 97: ### **Resource Constraints** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 102: ## Setup Instructions — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 104: ### 1. **Import Dashboard** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 106: # Import the dashboard JSON into Grafana — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 113: ### 2. **Configure Prometheus** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 115: # Add to prometheus.yml — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 126: ### 3. **Enable Hardware Profiling in Tests** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 148: ## Alerting Rules — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 152: ### **High CPU Usage** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 157: ### **High Memory Usage** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 162: ### **Resource Constraints** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 167: ### **Performance Regression** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 172: ## Best Practices — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 174: ### **Dashboard Usage** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 181: ### **Performance Analysis** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 187: ### **Troubleshooting** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 193: ## Integration with Existing Dashboards — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 201: ## Future Enhancements — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 203: ### **Planned Features** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 209: ### **Advanced Analytics** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 215: ## Conclusion — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+
+### `docs-design/performance/PeeGeeQ-Performance-Tuning-Harness.md`
+
+- SHA-256: `7ab518e850ffdf3c4fc73d65abd03cb2b55c3e54679df51191a02743e8da8952`
+- Category: Operations and Observability
+- Disposition: Merge supported operating guidance; retain dated evidence
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ Performance Tuning Harness — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 3: ## Overview — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 7: ## 📊 Executive Performance Summary — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 15: ### Performance Evolution Timeline — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 20: ## Test Environment Configurations — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 22: ### Current High-Performance Environment (September 13, 2025) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 29: ### Reference Environment (September 11, 2025) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 38: ### Breakthrough Vert.x Configuration (September 13, 2025) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 44: ## 🚀 Breakthrough Performance Optimizations (September 13, 2025) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 46: ### Critical PostgreSQL Container Optimizations — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 48: # TestContainers PostgreSQL optimizations for maximum performance — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 53: ### Complete System Properties Configuration — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 55: # CRITICAL PERFORMANCE CONFIGURATION: Complete Sept 11th + breakthrough settings — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 67: ### Performance Impact Analysis — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 76: ### Key Breakthrough Findings — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 82: ## Performance Test Results — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 84: ### 1. Bi-Temporal Event Store Performance — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 113: ### 2. Core Database Performance — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 129: ### 3. Native Queue Performance — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 149: ### 4. Outbox Pattern Performance — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 177: ## Performance Analysis — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 179: ### Exceptional Results — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 198: ### JDBC vs Reactive Performance Comparison — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 212: ## Running Performance Tests — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 214: ### Prerequisites — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 219: ### Test Execution Commands — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 245: # Run parameterized performance demo with H2 persistence — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 248: # Run with specific H2 database configuration — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 251: # Run with debug logging for H2 operations — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 282: ### Performance Test Configuration — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 293: ## Performance Tuning Recommendations — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 295: ### Breakthrough Database Configuration (September 13, 2025) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 303: ### Breakthrough Vert.x Configuration (September 13, 2025) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 309: ### Application Configuration — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 314: ## Monitoring and Metrics — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 316: ### Key Performance Indicators — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 322: ### Health Checks — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 328: ## H2 Performance History Implementation (September 18, 2025) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 330: ### 🎯 **Permanent Performance Statistics Storage** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 399: # Run parameterized performance demo with H2 persistence — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 402: # Expected output includes: — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 403: # - Performance data collection across all profiles — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 404: # - Cross-profile performance comparison with regression detection — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 405: # - H2 database persistence with run ID generation — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 406: # - Historical analysis framework initialization — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 416: ### **Production-Ready Features** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 423: ## Conclusion — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 433: ### Key Performance Achievements — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 445: ## Performance Regression Investigation & Resolution (September 13, 2025) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 447: ### Problem Identification — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 453: ### Investigation Process — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 458: ### Resolution Applied — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 461: # Added critical PostgreSQL performance settings — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 467: # Restored complete configuration — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 473: ### Final Results — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 479: ### Lessons Learned — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 485: ## Technical Implementation Details — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 487: ### Connection Management — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 493: ### Transaction Management — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 499: ### Message Processing Patterns — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 505: ## Performance Optimization Techniques — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 507: ### Database Optimizations — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 513: ### Vert.x Optimizations — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 519: ### Memory Management — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 525: ## Troubleshooting Guide — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 527: ### Common Performance Issues — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 550: ### Performance Monitoring — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 564: ## Load Testing Recommendations — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 566: ### Gradual Load Increase — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 572: ### Test Scenarios — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 578: ### Performance Regression Testing — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 584: ## Production Deployment Considerations — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 586: ### Scaling Strategies — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 592: ### High Availability — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 598: ### Security Considerations — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 604: ## Future Performance Enhancements — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 606: ### Planned Optimizations — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 612: ### Research Areas — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 622: ## 1. **Why Vert.x Reactive PostgreSQL Changes Things** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 630: ## 2. **External Performance Validation for Vert.x + Postgres** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 634: ### **A. Load Generation** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 645: ### **B. Metrics to Collect** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 674: ### **C. SLO Validation** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 684: ### **D. Tooling Integration** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 693: ## 3. **Advanced Validation for Reactive Pipelines** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 709: ## 4. **Best Practices for Vert.x + Postgres Perf Validation** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 725: # 🔧 Reference Test Harness Stack for Vert.x 5.x + Reactive PostgreSQL — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 729: ## 1. **Load Generation Layer** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 731: ### Tool: **Gatling** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 746: ## 2. **Metrics Collection** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 748: ### A. **Vert.x / Application Metrics** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 764: ### B. **Database Metrics** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 773: ### C. **System Metrics** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 780: ## 3. **Observability / Dashboards** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 782: ### Tool: **Prometheus + Grafana** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 796: ## 4. **Validation / Regression Checks** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 798: ### Tool: **CI/CD + Baseline Store** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 811: ## 5. **Chaos / Scalability Testing** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 819: ## 6. **Tooling Summary** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 833: ## 7. **Run Flow Example** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 861: # 📊 Grafana Dashboard JSON (Vert.x + PostgreSQL) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 981: ## 🔍 Panels Included — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1003: ## 📄 Example: Gatling Java Simulation (Reads + Writes) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1066: ## 🔹 What is Gatling? — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1075: ## 🔹 Why Use It? — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1084: ## 🔹 Core Concepts — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1094: ## 🔹 Example in Java (super minimal) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1113: ## 🔹 Typical Use Cases — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1129: ## 🔍 What This Does — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1139: ## 🚀 How to Run — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1157: # Running Performance Tests — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1161: ## Prerequisites — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1163: ### System Requirements — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1170: ### Environment Setup — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1172: # Verify Java version — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1175: # Verify Maven installation — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1178: # Verify Docker is running — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1181: # Clone and navigate to project — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1186: ## Test Categories — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1188: ### 1. Integration Tests — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1192: # Run working integration tests — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1195: # Run specific integration test — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1198: # Run with verbose logging — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1204: # Run complete integration test suite (includes subscription tests) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1207: # Run with debug logging and TestContainers logs — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1211: ### 2. Performance Tests — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1215: # Run all bi-temporal performance tests — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1218: # Individual performance test categories — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1225: # Run with performance optimization flags — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1231: # Run core database performance tests — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1234: # Run with specific performance profiles — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1240: # Run native queue performance tests — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1243: # Run with specific consumer modes — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1249: # Run outbox performance tests — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1252: # Run with specific configurations — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1256: ### 3. Comprehensive Test Suite — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1258: # Run all tests across all modules — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1261: # Run all performance tests only — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1264: # Run with memory optimization for large test suites — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1268: ## Test Configuration Options — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1270: ### System Properties — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1272: # Enable performance tests (disabled by default for faster builds) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1275: # Disable migrations for faster test startup — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1278: # Configure logging levels — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1282: # Configure test timeouts — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1285: # Configure database pool settings — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1289: # H2 Performance History Configuration — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1296: ### JVM Tuning for Performance Tests — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1298: # Recommended JVM settings for performance testing — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1305: # For high-throughput testing — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1308: # For low-latency testing — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1312: ### TestContainers Configuration — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1314: # Configure TestContainers for performance — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1318: # PostgreSQL container tuning — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1323: ## IDE Configuration — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1325: ### IntelliJ IDEA — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1333: ### Eclipse — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1339: ### VS Code — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1345: ## Expected Test Output — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1347: ### Integration Test Success Output — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1357: ### Performance Test Success Output — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1373: ## Performance Benchmarks and Expectations — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1375: ### Target Performance Metrics — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1401: ## Troubleshooting Performance Tests — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1403: ### Common Issues and Solutions — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1408: # Solution: Check Docker resources and enable container reuse — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1416: # Solution: Increase heap size and optimize GC — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1423: # Solution: Increase test timeouts and check system resources — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1430: # Solution: Run with consistent JVM settings and warm-up — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1437: # Solution: Adjust pool settings — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1444: # Solution: Clean H2 database files and restart — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1448: # Check H2 database connectivity — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1454: # Solution: Reset H2 database and verify schema — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1458: # Verify H2 database file creation — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1464: # Solution: Use unique database names for concurrent tests — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1469: ### Debug Mode — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1473: # Full debug logging for troubleshooting — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1479: # Performance-specific debug logging — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1487: # Monitor system resources during tests — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1488: # Terminal 1: Run performance test — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1491: # Terminal 2: Monitor resources — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1496: ### Performance Test Validation — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1500: # Check system specifications — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1505: # Verify available resources — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1513: # Run a quick baseline test to verify environment — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1516: # Verify database connectivity — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1520: ## Continuous Integration Setup — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1522: ### GitHub Actions Example — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1553: ### Jenkins Pipeline Example — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1580: ## Performance Regression Detection — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1582: ### Automated Baseline Comparison — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1584: # Store baseline results — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1587: # Compare against baseline in CI — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1589: # Custom script to compare performance metrics and fail if regression > 10% — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1592: ### Performance Monitoring Integration — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 1594: # Export metrics to monitoring systems — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+
+### `docs-design/_archived/historical-evidence/performance-tests-integration-validation-report.md`
+
+- SHA-256: `686a2884a61c69fb5f4121210e8d6020f8515f0cecce6ee9ae97e3d4c02e6918`
+- Category: Operations and Observability
+- Disposition: Merge supported operating guidance; retain dated evidence
+- Heading disposition:
+  - [x] Line 1: # Performance-Test Integration Validation Record — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 9: ## Purpose — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 18: ## What the historical review established — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 31: ## Reconciliation of the old “pending phases” — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 47: ## Current approved performance work — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 65: ## Guidance for future test-support changes — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 80: ## References — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+
+### `docs-design/_archived/historical-evidence/PerformanceTestResults_2025-01-11.md`
+
+- SHA-256: `dd8b8ac4a82a5f37d3cbe083400e67dc0c45d4a51eacb4ceb6d18daca77152d2`
+- Category: Operations and Observability
+- Disposition: Merge supported operating guidance; retain dated evidence
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ Performance Test Results — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 3: ## Test Environment — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 11: ### System Configuration — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 21: ### Database Configuration — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 27: ## Implementation Status — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 29: ### ✅ Completed Optimizations — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 78: ## Expected Performance Results — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 82: ### Bitemporal Event Store Performance — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 93: ### Configuration Comparison — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 101: ## Test Execution Status — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 103: ### Compilation Results — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 109: ### Test Execution Results — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 115: ### Test Cases Implemented — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 144: ## Implementation Verification — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 146: ### Code Changes Summary — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 165: ### System Properties Configuration — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 168: # Research-Based Optimized Defaults — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 176: ## Performance Monitoring Features — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 178: ### Metrics Tracked — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 185: ### Monitoring Thresholds — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 191: ## Next Steps for Live Testing — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 193: ### Prerequisites — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 198: ### Test Execution Commands — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 201: # Run validation tests — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 204: # Run performance example — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 207: # Run with optimized configuration — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 211: ### Expected Live Test Results — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 219: ## Conclusion — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 221: ### Implementation Status: ✅ COMPLETE — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 232: ### Ready for Production Testing — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 236: ### Validation Required — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+
+### `docs-design/_archived/historical-evidence/PerformanceTestResults_2025-09-11.md`
+
+- SHA-256: `291b1ba68aec8b3e7b3168c80036c3e78c27ebca5736ff51080b302e3a23d1af`
+- Category: Operations and Observability
+- Disposition: Merge supported operating guidance; retain dated evidence
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ Performance Test Results — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 6: ## 📊 Executive Summary — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 14: ## 🎯 Detailed Test Results — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 16: ### 1. Native Queue Performance Test — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 33: ### 2. Outbox Pattern Performance Test — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 50: ### 3. Bitemporal Event Store Performance Test — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 76: ## 📈 Performance Improvement Analysis — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 78: ### Bitemporal Implementation Progress — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 88: ### Critical Issues Resolved — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 94: ## 🚨 Outstanding Issues — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 96: ### Connection Pool Bottlenecks — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 114: ## 🎛️ Current Configuration — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 116: ### Optimized Vert.x 5.x Settings — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 118: # Pool Configuration (Research-Based) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 123: # Pipelining (Maximum Throughput) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 127: # Event Loop Optimization — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 132: ## 📋 Change Management Validation — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 134: ### ✅ **Performance Validation Checklist** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 155: ## 🔄 Continuous Monitoring — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 157: ### Key Performance Indicators (KPIs) — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 163: ### Automated Testing Integration — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 168: ## 🔍 Detailed Test Output Analysis — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 170: ### Bitemporal Performance Test - Detailed Results — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 199: ### Native Queue Test - Detailed Results — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 217: ### Outbox Pattern Test - Detailed Results — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 226: ## 🎯 Performance Benchmarking Context — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 228: ### Historical Performance Comparison — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 236: ### Resource Utilization Analysis — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 250: ## 📊 Test Environment Details — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 252: ### System Configuration — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 259: ### Database Configuration — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 265: ## 📚 References — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+
+### `docs-design/_archived/completed-records/phase-2-1-5-hardware-profiling-implementation.md`
+
+- SHA-256: `f57abac0326bdd78564b08d6b65a6a535958c0719e12fd9e523762386fea7631`
+- Category: Operations and Observability
+- Disposition: Merge supported operating guidance; retain dated evidence
+- Heading disposition:
+  - [x] Line 1: # Phase 2.1.5: Hardware Profiling Infrastructure Implementation — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 3: ## Overview — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 7: ## Implementation Summary — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 9: ### 🎯 **COMPLETE: Hardware Profiling Infrastructure** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 13: ## Key Components Implemented — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 15: ### 1. **HardwareProfile** - System Specifications Capture — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 27: ### 2. **HardwareProfiler** - Cross-Platform Hardware Detection — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 38: ### 3. **SystemResourceMonitor** - Real-Time Resource Monitoring — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 50: ### 4. **ResourceUsageSnapshot** - Resource Usage Analysis — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 61: ### 5. **HardwareAwarePerformanceResult** - Enhanced Performance Results — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 72: ### 6. **PerformanceMetricsCollector Integration** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 82: ### 7. **Comprehensive Integration Test** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 92: ## Technical Implementation Details — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 94: ### Dependencies Added — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 104: ### Integration Points — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 109: ### Performance Characteristics — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 115: ## Usage Examples — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 117: ### Basic Hardware Profiling — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 124: ### Real-Time Resource Monitoring — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 140: ### Hardware-Aware Performance Testing — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 157: ## Compliance with PGQ Coding Principles — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 159: ### ✅ Investigation Before Implementation — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 164: ### ✅ Learn From Existing Patterns — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 169: ### ✅ Verify Assumptions — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 174: ### ✅ No Impact on Core Modules — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 179: ### ✅ Modern Vert.x 5.x Patterns — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 184: ## Benefits Delivered — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 186: ### 🎯 **Meaningful Performance Testing** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 191: ### 🎯 **Real-Time Resource Monitoring** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 196: ### 🎯 **Production-Ready Infrastructure** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 201: ### 🎯 **Seamless Integration** — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 206: ## Next Steps — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 208: ### Phase 2.2: Module Migration — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 214: ### Future Enhancements — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+  - [x] Line 220: ## Conclusion — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md`; full detail retained in source
+
+### `docs-design/schema-registry/PEEGEEQ_SCHEMA_REGISTRY_DESIGN.md`
+
+- SHA-256: `213b75a0b87b0cb9e5ee2ca09c3ac7791abaca36f649df870a4d2cab5108905f`
+- Category: Proposed and Unimplemented Systems
+- Disposition: Retain in docs-design unless implementation is verified
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ Schema Registry — Design — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 14: ## 1. Problem — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 24: ## 2. Requirements — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 35: ## 3. Non-goals (v1) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 46: ## 4. Schema language: Avro schemas, JSON-encoded payloads — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 66: ## 5. Data model — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 102: ## 6. Compatibility modes and the registration algorithm — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 125: ## 7. Message schema reference — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 139: ## 8. Java API — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 166: ## 9. REST surface — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 180: ## 10. Enforcement points — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 188: ## 11. Adoption order — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 196: ## 12. UI — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 203: ## 13. Testing (TestContainers, no mocks) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 223: ## 14. Phasing — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/schema-tenants-support/PEEGEEQ_SCHEMA_CONFIGURATION_DESIGN.md`
+
+- SHA-256: `294b0d12e13f2b7e5d63cb9a0bd2850176fab80449984b06f71cd3ef8a193df6`
+- Category: Event Store and Data Management
+- Disposition: Merge current schema contract; retain superseded history
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ Schema Configuration Design — destination or retention: `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md` and `docs/PEEGEEQ_CONFIGURATION_GUIDE.md`; full detail retained in source
+  - [x] Line 11: ## 1. Architectural Invariant — destination or retention: `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md` and `docs/PEEGEEQ_CONFIGURATION_GUIDE.md`; full detail retained in source
+  - [x] Line 39: ## 2. Configuration Contract — destination or retention: `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md` and `docs/PEEGEEQ_CONFIGURATION_GUIDE.md`; full detail retained in source
+  - [x] Line 58: ## 3. Connection and Transaction Behavior — destination or retention: `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md` and `docs/PEEGEEQ_CONFIGURATION_GUIDE.md`; full detail retained in source
+  - [x] Line 81: ## 4. Fresh Setup Architecture — destination or retention: `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md` and `docs/PEEGEEQ_CONFIGURATION_GUIDE.md`; full detail retained in source
+  - [x] Line 111: ## 5. Migration Architecture — destination or retention: `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md` and `docs/PEEGEEQ_CONFIGURATION_GUIDE.md`; full detail retained in source
+  - [x] Line 129: ## 6. Runtime Object Resolution — destination or retention: `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md` and `docs/PEEGEEQ_CONFIGURATION_GUIDE.md`; full detail retained in source
+  - [x] Line 140: ## 7. Test Architecture — destination or retention: `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md` and `docs/PEEGEEQ_CONFIGURATION_GUIDE.md`; full detail retained in source
+  - [x] Line 162: ## 8. Operational Patterns — destination or retention: `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md` and `docs/PEEGEEQ_CONFIGURATION_GUIDE.md`; full detail retained in source
+  - [x] Line 164: ### Schema per tenant — destination or retention: `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md` and `docs/PEEGEEQ_CONFIGURATION_GUIDE.md`; full detail retained in source
+  - [x] Line 170: ### Database per tenant — destination or retention: `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md` and `docs/PEEGEEQ_CONFIGURATION_GUIDE.md`; full detail retained in source
+  - [x] Line 175: ### PgBouncer transaction pooling — destination or retention: `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md` and `docs/PEEGEEQ_CONFIGURATION_GUIDE.md`; full detail retained in source
+  - [x] Line 182: ### Permissions — destination or retention: `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md` and `docs/PEEGEEQ_CONFIGURATION_GUIDE.md`; full detail retained in source
+  - [x] Line 188: ## 9. Troubleshooting — destination or retention: `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md` and `docs/PEEGEEQ_CONFIGURATION_GUIDE.md`; full detail retained in source
+  - [x] Line 190: ### A relation cannot be found — destination or retention: `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md` and `docs/PEEGEEQ_CONFIGURATION_GUIDE.md`; full detail retained in source
+  - [x] Line 196: ### A template cannot be found — destination or retention: `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md` and `docs/PEEGEEQ_CONFIGURATION_GUIDE.md`; full detail retained in source
+  - [x] Line 201: ### Tenants appear to share data — destination or retention: `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md` and `docs/PEEGEEQ_CONFIGURATION_GUIDE.md`; full detail retained in source
+  - [x] Line 207: ### Behavior differs through PgBouncer — destination or retention: `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md` and `docs/PEEGEEQ_CONFIGURATION_GUIDE.md`; full detail retained in source
+  - [x] Line 213: ## 10. Historical Reconciliation — destination or retention: `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md` and `docs/PEEGEEQ_CONFIGURATION_GUIDE.md`; full detail retained in source
+  - [x] Line 232: ## 11. References — destination or retention: `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md` and `docs/PEEGEEQ_CONFIGURATION_GUIDE.md`; full detail retained in source
+
+### `docs-design/_archived/completed-records/PEEGEEQ_SCHEMA_CONSOLIDATION_GUIDE.md`
+
+- SHA-256: `11363d07f96f32c562ac876e4fcc94eda9ae2658bafa420ec8214271a1e130bc`
+- Category: Event Store and Data Management
+- Disposition: Merge current schema contract; retain superseded history
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ Schema Consolidation — Historical Decision Record — destination or retention: `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md` and `docs/PEEGEEQ_CONFIGURATION_GUIDE.md`; full detail retained in source
+  - [x] Line 17: ## 1. Current Sources of Truth — destination or retention: `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md` and `docs/PEEGEEQ_CONFIGURATION_GUIDE.md`; full detail retained in source
+  - [x] Line 29: ### Runtime template groups — destination or retention: `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md` and `docs/PEEGEEQ_CONFIGURATION_GUIDE.md`; full detail retained in source
+  - [x] Line 43: ## 2. Current Provisioning Flow — destination or retention: `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md` and `docs/PEEGEEQ_CONFIGURATION_GUIDE.md`; full detail retained in source
+  - [x] Line 57: ## 3. Tenant Isolation Rule — destination or retention: `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md` and `docs/PEEGEEQ_CONFIGURATION_GUIDE.md`; full detail retained in source
+  - [x] Line 71: ## 4. Connection Semantics — destination or retention: `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md` and `docs/PEEGEEQ_CONFIGURATION_GUIDE.md`; full detail retained in source
+  - [x] Line 81: ## 5. Schema Change Procedure — destination or retention: `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md` and `docs/PEEGEEQ_CONFIGURATION_GUIDE.md`; full detail retained in source
+  - [x] Line 98: ## 6. Test-Schema Provisioning — destination or retention: `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md` and `docs/PEEGEEQ_CONFIGURATION_GUIDE.md`; full detail retained in source
+  - [x] Line 108: ## 7. Historical Outcome — destination or retention: `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md` and `docs/PEEGEEQ_CONFIGURATION_GUIDE.md`; full detail retained in source
+  - [x] Line 115: ## 8. Current References — destination or retention: `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md` and `docs/PEEGEEQ_CONFIGURATION_GUIDE.md`; full detail retained in source
+
+### `docs-design/security-authentication-authorisation/DESIGN_DECISIONS_SUMMARY.md`
+
+- SHA-256: `210b4cd0a976d4003d0fe4e1aebf8a6476c8c286a814af2a925cc32bce59ed6a`
+- Category: Proposed and Unimplemented Systems
+- Disposition: Retain in docs-design unless implementation is verified
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ Authentication and Authorization Decision Summary — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 11: ## Purpose — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 21: ## Recorded design direction — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 36: ## Important corrections to the original draft — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 48: ## Decisions still required — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 62: ## Minimum security properties — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 76: ## Entry criteria and test evidence — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 92: ## References — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/security-authentication-authorisation/PEEGEEQ_AUTHENTICATION_AUTHORIZATION_DESIGN.md`
+
+- SHA-256: `400aca556abfde3cc92ec71e269f181511a86865c08d13061fae9b4af740b086`
+- Category: Proposed and Unimplemented Systems
+- Disposition: Retain in docs-design unless implementation is verified
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ Authentication & Authorization Design — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 14: ## Table of Contents — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 58: ## Executive Summary — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 65: ### Key Principles — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 88: ## 1. Architecture Overview — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 90: ### 1.1 Two-Tier Architecture — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 126: ### 1.2 Scope Boundary — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 157: ### 1.3 Component Responsibilities — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 175: ### 1.4 High-Level Flow — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 192: ### 1.5 Multi-Tenant Architecture Integration — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 210: ## 2. SQLite Management Database — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 212: ### 2.1 Database Location — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 223: ### 2.2 Schema Definition — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 319: ## 3. User Roles and Permissions — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 321: ### 3.1 Role Definitions — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 331: ### 3.2 Permission Model — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 397: ## 4. Authentication Flow — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 399: ### 4.1 Admin Login — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 458: ### 4.2 User Login — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 507: ### 4.3 Logout — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 530: ## 5. Tenant Management (Admin Only) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 532: ### 5.1 Create Tenant Configuration — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 584: ### 5.2 List Tenants — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 616: ### 5.3 Delete Tenant — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 638: ## 6. User Management (Admin Only) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 640: ### 6.1 Create User — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 678: ### 6.2 List Users — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 708: ### 6.3 Delete User — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 728: ## 7. Connection Pooling Strategy — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 730: ### 7.1 Tenant-Aware Connection Manager — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 808: ## 8. Authorization Middleware — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 810: ### 8.1 JWT Validation Middleware — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 865: ### 8.2 Permission Checking — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 938: ## 9. Bootstrap and Initial Setup — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 940: ### 9.1 Auto-Initialization on First Startup — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 966: # Encryption key for PostgreSQL credentials (AES-256) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 967: # Generate with: openssl rand -base64 32 — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 970: # JWT secret — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 971: # Generate with: openssl rand -base64 64 — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 974: # JWT expiration (optional, defaults to 900 seconds = 15 minutes) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1035: ### 9.2 Default Roles Seeding — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1060: ### 9.3 Implementation: ManagementDatabaseInitializer — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1288: ### 9.4 Admin Password Change Endpoint — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1320: ### 9.5 Configuration Summary — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1325: # Encryption key for PostgreSQL credentials (AES-256) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1326: # Generate with: openssl rand -base64 32 — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1329: # JWT secret — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1330: # Generate with: openssl rand -base64 64 — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1337: # SQLite database path (defaults to ~/.peegeeq/peegeeq_management.db) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1340: # JWT expiration in seconds (defaults to 900 = 15 minutes) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1343: # REST API port (defaults to 8080) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1350: # With environment variables — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1355: # Or with system properties — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1363: ## 10. Credential Encryption — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1365: ### 10.1 Encryption Strategy — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1416: ## 12. JWT Token Structure — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1418: ### 12.1 Admin JWT Token — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1437: ### 12.2 User JWT Token (Multi-Tenant) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1488: ### 12.3 Refresh Token — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1506: ### 12.4 Tenant Switching — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1546: ### 12.5 Token Validation — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1561: ## 13. API Endpoint Reference — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1565: ### 13.1 Authentication Endpoints — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1576: ### 13.2 Admin Endpoints (Tenant Management) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1587: ### 13.3 Admin Endpoints (User Management) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1602: ### 13.4 Admin Endpoints (Role Management) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1612: ### 13.5 User Endpoints (Database Setup) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1621: ### 13.6 User Endpoints (Queue Operations) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1633: ### 13.7 User Endpoints (Event Store Operations) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1646: ### 13.8 User Endpoints (Consumer Group Operations) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1660: ### 13.9 User Endpoints (Webhook Subscriptions) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1668: ### 13.10 User Endpoints (Dead Letter Queue) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1679: ### 13.11 User Endpoints (Subscription Lifecycle) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1690: ### 13.12 User Endpoints (Health & Monitoring) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1699: ### 13.13 User Endpoints (Management API) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1717: ### 13.14 User Endpoints (Queue Details) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1731: ### 13.15 Real-Time Streaming Endpoints — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1743: ## 14. Implementation Plan — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1745: ### 14.1 Phase 1: SQLite Management Database (Week 1-2) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1758: ### 14.2 Phase 2: Authentication (Week 3-4) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1770: ### 14.3 Phase 3: Tenant Management (Week 5-6) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1779: ### 14.4 Phase 4: User Management & Authorization (Week 7-8) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1791: ## 15. Example API Flows — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1793: ### 15.1 Flow 1: Admin Creates Tenant Configuration — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1823: ### 15.2 Flow 2: Admin Creates Multi-Tenant User — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1858: ### 15.3 Flow 3: Multi-Tenant User Logs In and Creates Queue — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1913: ### 15.4 Flow 4: Cross-Tenant Isolation — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1941: ## 16. Testing Strategy — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1943: ### 16.1 Unit Tests — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1950: ### 16.2 Integration Tests — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1959: ### 16.3 Multi-Tenant Isolation Tests — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1998: ### 16.4 Security Tests — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2010: ## 17. Deployment Patterns — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2012: ### 17.1 Pattern 1: Schema-per-Tenant (Recommended for Most Use Cases) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2049: ### 17.2 Pattern 2: Database-per-Tenant (For Large/Enterprise Tenants) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2087: ### 17.3 Pattern 3: Hybrid (Recommended for Production) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2122: ## 18. Security Considerations — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2124: ### 18.1 Credential Security — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2143: ### 18.2 Multi-Tenant Isolation — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2172: ### 18.3 API Security — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2195: ### 18.4 Audit Logging — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2224: ### 18.5 Secrets Management — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2242: ## 19. Advantages and Trade-offs — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2244: ### 19.1 Advantages of SQLite-Based Design — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2283: ### 19.2 Trade-offs and Mitigations — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2324: ### 19.3 When to Migrate to PostgreSQL for Management Plane — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2343: ## 20. Open Questions and Future Enhancements — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2345: ### 20.1 Design Decisions (Resolved) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2583: ### 20.2 Future Enhancements — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2614: ## 20.3 Upgrade and Migration Plan — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2618: ### 20.3.1 SQLite to PostgreSQL Migration (Management Plane) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2762: ### 20.3.2 Encryption Key Management Upgrade — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2813: ### 20.3.3 High Availability Upgrade — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2822: # PostgreSQL HA Configuration — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2881: ### 20.3.4 Service Manager Integration (Phase 8) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3052: ### 20.3.5 Scalability Improvements — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3063: # Use litestream for SQLite replication — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3066: # Configure read replicas — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3166: ### 20.3.6 Multi-Region Deployment — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3198: # us-east-1 configuration — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3206: # eu-west-1 configuration — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3253: ### 20.3.7 Compliance and Audit Enhancements — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3327: ### 20.3.8 Migration Timeline Summary — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3352: ### 20.3.9 Rollback and Risk Mitigation — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3388: # Automated rollback script — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3391: # Steps: — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3392: # 1. Stop writes to new system — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3393: # 2. Switch reads to old system — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3394: # 3. Validate old system health — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3395: # 4. Notify stakeholders — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3396: # 5. Investigate root cause — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3401: ## 21. Conclusion — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3413: ### 21.1 Implementation Roadmap — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3433: ### 21.2 Evolution Path — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3449: ### 21.3 Trade-off Management — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3461: ### 21.4 Service Manager Integration — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3480: ### 21.5 Next Steps — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3502: ### 21.6 Success Metrics — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/tasks/archive/bitemporal-examples-expansion-walkthrough.md`
+
+- SHA-256: `98d8c5f156bde04562e3c4266e79a72d3c10571ace3fa4df4f08a33c61e2a6c2`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 3: # Walkthrough: PeeGeeQ Examples Expansion — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 10: ## 1. Pure Vert.x Outbox Patterns — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 18: ## 2. Financial Services Event Catalogue — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 26: ## 3. Advanced Bi-Temporal Querying & Projections — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/tasks/archive/CONFIG-PROPERTY-WIRING-AUDIT.md`
+
+- SHA-256: `73df98483cf7036b5747b0a904a428874dba70a5adf9128d69803353b88213b8`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 3: # Configuration Property Wiring Audit — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 9: ### Reconciled findings — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 64: ## Background — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 74: ## Known Instance (Fixed) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 82: ## Objective — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 93: ## Scope — Properties to Audit — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 95: ### `peegeeq-native` / `PgNativeQueueConsumer` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 106: ### `peegeeq-native` / `PgNativeQueueFactory` / `ConsumerConfig` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 114: ### `peegeeq-native` / `PgNativeConsumerGroup` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 120: ### `peegeeq-outbox` / `OutboxConsumer` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 130: ### `peegeeq-db` / Pool configuration — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 138: ### `peegeeq-db` / Circuit breaker / backpressure — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 149: ### `peegeeq-db` / Metrics — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 157: ### `peegeeq-db` / Health checks — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 168: ### Shipped-profile families requiring classification — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 182: ## Investigation Method — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 194: ## Deliverables — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 203: ## Notes — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/tasks/archive/CONSUMER-GROUPS-REST-FIXES-20260604.md`
+
+- SHA-256: `948092d56416c882439897fe0cd220f6b18e6bd2a7ba43f3dd0906035da358ee`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 1: # Consumer Groups REST API Fixes — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 16: ## Summary — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 22: ## Reference Documents — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 34: ## Problem Summary — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 46: ## Work Phases — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 48: ### Phase 1 — Fix broken management REST endpoints — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 67: ### Phase 2 — Management UI rewrite — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 82: ### Phase 3 — Pause / Resume REST endpoints — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 98: ### Phase 4 — Backfill REST endpoint — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 111: ## Completion Criteria — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/tasks/archive/CONSUMER-GROUPS-UI-REDESIGN-PLAN.md`
+
+- SHA-256: `3ff11b6829d8eb87bab3304e80be2bbb4b8faabb05a6551d02bb3eac178e6331`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 3: # Consumer Groups UI Redesign — Change Plan — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 5: ## Status: COMPLETE — implemented 2026-06-04, verified 2026-08-26 — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 15: ## Problem Statement — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 43: ## How Consumer Groups Actually Work (from peegeeq-outbox tests) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 47: ### In-process consumer group (what application code uses) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 67: ### What the REST API can know — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 76: ### Key conclusion for UI design — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 86: ## Two Separate REST APIs (important architectural context) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 90: ### 1. Queue-scoped API — `ConsumerGroupHandler` (incomplete) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 106: ### 2. Management API — `ManagementApiHandler` (subscription state) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 115: ### Which API should the management UI use? — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 121: ## Source of Truth — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 123: ### GET /api/v1/management/consumer-groups — actual response shape — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 144: ### POST /api/v1/management/consumer-groups — accepted body — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 154: ### DELETE /api/v1/management/consumer-groups/:groupId — current (broken) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 162: ### SubscriptionState enum (Java source of truth) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 169: ## Changes Required — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 171: ### Phase 1 — Backend: Fix POST and DELETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 187: ### Phase 2 — Frontend: Rewrite ConsumerGroups.tsx — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 334: ## Files Changed — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 344: ## Files NOT Changed — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 356: ## Verification Steps — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/tasks/archive/management-ui-tests-not-running.md`
+
+- SHA-256: `951881873a8f0f50aa1432891480d75993833de949c67c41bb056d493a6d15af`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 3: # Task: Fix peegeeq-management-ui Tests Not Running — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 5: ## Status — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 13: ## Summary — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 18: ## Root Cause Analysis — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 20: ### Issue 1 — Module SKIPPED due to upstream failure (primary blocker) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 29: ### Issue 2 — `all-tests` profile runs e2e tests that may not be viable in all environments — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 49: ## Test inventory — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 63: ## Recommended Fix — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 65: ### Option A — Change `all-tests` profile to run only vitest (safe, no Playwright dependency) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 81: ### Option B — Install Playwright browsers and keep `test:all` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 94: ## Immediate Verification Command — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 104: ## Related Files — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/tasks/archive/OUTBOX-AUDIT-FINDINGS-11-Jun-2026.md`
+
+- SHA-256: `8ed51ac9a20f7e3a9e52acb154c118fa920ac332f60ee1ec638fa3fb8727d07b`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 3: # peegeeq-outbox — Module Audit Findings — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 5: ## Status: COMPLETE — reconciled 29 Aug 2026 — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 24: ## O1 — HIGH — FIXED: `OutboxConsumerConfig.consumerThreads` bounded concurrency contract — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 56: ## O2 — HIGH — FIXED: `OutboxConsumerGroup.startInternal()` reports ACTIVE before/despite subscription — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 92: ## O3 — MEDIUM — FIXED: status-update failures swallowed in `markMessageCompleted` / `resetFilteredMessageToPending` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 112: ## O4 — LOW — FIXED: duplicate idempotent sends are observable in metrics — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 142: ## Refuted during verification (do not re-report) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 150: ## Verified CLEAN (audit negatives, for trust in scope) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 162: ## Summary — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/tasks/archive/OUTBOX-DLQ-FILTER-ERRORS-DEAD-CODE-AUDIT.md`
+
+- SHA-256: `756ca05b8c0de71e4ee868629c461ae38db2d2c0ee8bd07880662268a67c072d`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 3: # Outbox DLQ / Filter-Error Dead Code Audit — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 16: ## Background — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 18: ### How peegeeq-native handles dead letters (reference implementation) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 36: ### The three DLQ write paths compared — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 48: ### The three DLQ abstraction layers in the codebase — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 52: ### Path 1 — Outbox delivery failures (works correctly) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 57: ### Path 2 — Filter-error DLQ path (broken / dead code) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 64: ## What is a "filter error"? — Requirements from design documents — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 73: ### Documented functional requirements (`docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md`, `docs/PEEGEEQ_COMPLETE_GUIDE.md`) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 107: ### Documented non-functional requirements (performance targets) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 117: ### What the docs show about wiring — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 121: ### The gap — and what actually happens — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 133: ## Issues — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 135: ### Issue 1 — `AsyncFilterRetryManager` is dead production code (Critical) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 151: ### Issue 2 — Filter exceptions cause an infinite PENDING loop (Critical) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 166: ### Issue 3 — `.otherwise (…)...)` banned pattern in `AsyncFilterRetryManager` (High) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 182: ### Issue 4 — `executeBlocking` banned pattern in `AsyncFilterRetryManager` (High) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 206: ### Issue 5 — Test-awareness code embedded in three production classes (High) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 232: ### Issue 6 — Fire-and-forget failure in outbox `DeadLetterQueueManager` (Medium) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 244: ### Issue 7 — Two classes named `DeadLetterQueueManager` with opposite responsibilities (Medium) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 255: ### Issue 8 — `AsyncFilterRetryManager` violates the naming rules (Low) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 265: ### Issue 9 — Unit tests generate hundreds of unmarked ERROR log lines (Medium) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 277: ## Root Cause — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 290: ## Remediation Plan — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 306: ## Files to Change — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 324: ## Required Test Cases — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 328: ### TC-1 — Filter exception increments `retry_count` (not infinite PENDING loop) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 338: ### TC-2 — Filter exception exhausting `maxRetries` writes message to `dead_letter_queue` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 351: ### TC-3 — Transient filter exception followed by success processes the message normally — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 362: ### TC-4 — Circuit breaker OPEN resets message to PENDING without incrementing `retry_count` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 375: ### TC-5 — Filter returning `false` (not throwing) leaves message for other consumers — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 388: ### TC-6 — Single-member group with filter returning `false` resets to PENDING (existing behaviour preserved) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 400: ## Verification (after all steps complete) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 410: ## Step 7 — Multi-tenant DLQ schema isolation — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 412: ### Problem — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 431: ### Required fix in `OutboxConsumer` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 448: ### Required test cases for Step 7 — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/tasks/archive/OUTBOX-SCHEMA-QUALIFICATION-REGRESSION.md`
+
+- SHA-256: `6f147b23d08a2529842c5e6dd308969fb6018161e540ea82119e22cfb6ca5054`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 3: # Outbox Schema Qualification Regression — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 24: ## Background — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 35: ## Schema configuration chain — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 72: ## Pre-change vs post-change SQL behaviour — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 85: ## Issue 1 — NullPointerException when `peegeeq.database.schema` is not set — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 107: ## Issue 2 — Inconsistent fallbacks across outbox classes — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 128: ## Issue 3 — Breaking change for deployments that relied on unqualified SQL — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 143: ## Issue 4 — OutboxFactoryRegistrar does not extract config from PgDatabaseService — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 153: ## Remediation plan — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 155: ### Guiding principle — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 163: ### Step A — Fix `OutboxConsumer`: null schema → unqualified SQL — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 187: ### Step B — Fix `OutboxFactory`: null schema → unqualified SQL — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 202: ### Step C — Fix `OutboxQueueBrowser`: null schema → unqualified SQL — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 221: ### Step D — Fix `OutboxFactoryRegistrar`: fall back to `PgDatabaseService.getPeeGeeQConfiguration()` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 234: ### Step E — Verify multi-tenant isolation tests still pass — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 243: ## Files to be changed — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 254: ## Verification — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 267: ## Scope boundary — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 278: ## Complete database access inventory for peegeeq-outbox — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 280: ### Definitive class inventory — all 14 production classes — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 309: ### OutboxConsumer — 9 schema-qualified SQL call sites (all via `schemaName` field) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 331: ### OutboxFactory — 4 SQL call sites (inline schema, fallback `"peegeeq"` — BUG) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 350: ### OutboxQueueBrowser — 1 SQL call site (schema via constructor arg, fallback `"peegeeq"` — BUG) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 362: ### OutboxProducer — 1 SQL call site (intentionally UNQUALIFIED) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 384: ### Classes with NO database access — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 402: ### Related component: StuckMessageRecoveryManager (peegeeq-db module) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 412: ### Related component: DeadLetterQueueManager (peegeeq-db module) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 439: ### Related component: Partitioned consumption sub-system (peegeeq-db/consumer/) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 461: ## Test coverage analysis — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 463: ### What is covered today — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 477: ### Gaps — what is NOT covered — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 505: ## Test coverage plan — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 513: ### TC-S1 — `OutboxFactory.getStats()` with explicit schema (covers G1) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 526: ### TC-S2 — `OutboxFactory.countMessages()` with explicit schema (covers G2) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 536: ### TC-S3 — `OutboxFactory.purgeMessages()` purges only the correct schema (covers G3) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 549: ### TC-S4 — `OutboxQueueBrowser.browse()` via `OutboxFactory.createBrowser()` with explicit schema (covers G4, G5) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 561: ### TC-S5 — Producer (unqualified) + Consumer (schema-qualified) roundtrip with explicit schema (covers G6) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 578: ### TC-S6 — Null schema path: unqualified SQL when no schema configured (covers G7) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 598: ### TC-S7 — `OutboxFactoryRegistrar` schema propagation from `PgDatabaseService` (covers G8) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 615: ### TC-S8 — `OutboxConsumerGroup` with explicit schema processes messages correctly (covers G9) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 625: ### TC-S9 — `OutboxConsumer.markMessageFailed()` writes to correct schema (covers G10) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 635: ### TC-S10 — `OutboxConsumer.resetFilteredMessageToPending()` on correct schema (covers G11) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 645: ### TC-S11 — `OutboxConsumer.processAvailableMessages()` server-side filter path with explicit schema (covers G13) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 655: ### Existing tests that must continue to pass after fix — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 671: ### TC-S12 — `OutboxConsumer.storeDeadLetterMessage()` + `DeadLetterQueueManager` round-trip with explicit schema (covers G16) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 684: ### TC-S13 — `DeadLetterQueueManager.reprocessDeadLetterMessageRecord()` re-inserts to correct schema (covers G14) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 697: ### TC-S14 — `SubscriptionManager.subscribe()` resolves `outbox` and `outbox_topic_subscriptions` via `search_path` with explicit schema (covers G17) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 712: ### TC-S15 — OFFSET_WATERMARK mode: `WatermarkCalculator` completes messages in the correct schema only (covers G18, G19) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 731: ## Implementation sequence — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 737: ## Validation execution plan — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 739: ### Preconditions — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 750: ### Phase 0 — Baseline: establish the current test state — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 767: ### Phase 1 — Apply fixes A–E (code changes only, no test changes) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 789: ### Phase 2 — Regression gate: existing schema tests must still pass — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 809: ### Phase 3 — Write and run TC-S1–TC-S13 (new test class) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 846: ### Phase 4 — TC-S14 subscription isolation — COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 868: ### Phase 5 — TC-S15 OFFSET_WATERMARK schema isolation — COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 894: ### Phase 6 — Full suite validation — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 916: ### Phase 7 (optional) — Coverage measurement with JaCoCo — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 933: ### Phase summary table — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 948: ## Appendix — Follow-up actions — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 952: ### A1 — `OutboxConsumerGroupMember.acceptsMessage()` filter-exception bug (FIXED this session) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 963: ### A2 — `CircuitBreakerRecoveryTest` uses `LockSupport parkNanos` (banned pattern) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 973: ### A3 — `resetFilteredMessageToPending()` used by CB-OPEN path should not be called when filter throws — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 982: ### A4 — TC-S1–TC-S15 schema isolation coverage — COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/tasks/archive/PEEGEEQ_CONFIG_ARCHITECTURE_REPLACE_PROCESS_GLOBALS_WITH_INSTANCE_ISOLATION.md`
+
+- SHA-256: `15781ecc1abe9134d6fd6ad04d8224aa9ac38736bd5bc417e0c10b7cab3b4639`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 1: # Configuration Architecture Remediation: Replace Process-Wide Globals with Per-Instance Isolation — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 9: ## Executive Summary — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 11: ### Root defect — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 25: ### Immediate symptom — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 38: ### Four problems, one root cause — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 56: ## Problem A — Production code reads from System, bypassing PeeGeeQConfiguration — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 65: ### A1 — `PgBiTemporalEventStore` (peegeeq-bitemporal) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 86: ### A2 — `VertxPerformanceOptimizer` (peegeeq-db) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 113: ### A3 — `SystemInfoCollector` (peegeeq-db) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 138: ### A3 — `SystemInfoCollector` (peegeeq-db) — low priority — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 144: ### Not a bypass — `PerformanceTestConfig` (peegeeq-performance-test-harness) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 153: ## Problem B — Test code writes to System.setProperty to configure PeeGeeQConfiguration — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 202: ### Highest-leverage changes in this module group — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 225: ### Tests that legitimately test System property reading — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 244: ## Problem C — loadProperties() uses process-wide globals: wrong design for multi-tenancy — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 266: ### Why this is an architectural design defect for PeeGeeQ — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 288: ### What the correct model looks like — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 305: ### Fix — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 336: ## Problem D — Spring integration bridge writes peegeeq.* to System — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 354: ### Production contamination risk (not test-only) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 382: ## Implementation Order (mandatory — do not reverse) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 389: ### Phase 0a — Fix `PgBiTemporalEventStore` System.getProperty bypass [Problem A1] ✅ COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 404: # must return nothing — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 409: ### Phase 0b — Fix `VertxPerformanceOptimizer` System.getProperty bypass [Problem A2] ✅ COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 423: # must return nothing — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 428: ### Phase 0c — Fix `SystemInfoCollector` System.getProperty bypass [Problem A3] ✅ COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 444: # must return nothing when a PeeGeeQConfiguration is supplied; fallback path may remain — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 449: ### Phase 1 — `peegeeq-db` BaseIntegrationTest [Problem B] ✅ COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 465: # must return nothing — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 470: ### Phase 2 — `peegeeq-db` remaining integration tests [Problem B] ✅ COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 489: # must return nothing — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 494: ### Phase 3 — `peegeeq-db` CORE (non-container) tests [Problem B] ✅ COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 509: ### Phase 4 — `peegeeq-db` System-property tests: add `@ResourceLock` [Problem B] ✅ COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 533: # must return a match — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 538: ### Phase 5 — `peegeeq-bitemporal` tests [Problem B] ✅ COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 549: # BUILD SUCCESS — all tests pass, 0 failures — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 556: # Returns nothing — clean — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 561: ### Phase 6 — `peegeeq-outbox` tests [Problem B] ✅ COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 577: # must return nothing — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 582: ### Phase 7 — `peegeeq-native` tests [Problem B] ✅ COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 598: # must return nothing — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 603: ### Phase 8 — `peegeeq-examples` tests [Problem B] — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 619: # must return nothing — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 624: ### Phase 9 — `peegeeq-rest` tests [Problem B] ✅ — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 638: # must return nothing — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 643: ### Phase 10 — `peegeeq-examples-spring` production config files [Problem D] ✅ COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 662: ### Phase 11 — Remove System sweep from `loadProperties()` [Problem C] ✅ COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 680: ### Phase 12 — Deprecate zero-arg and single-arg constructors [Problem C] ✅ COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 696: ### Final gate — full suite clean — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 706: ## Permitted System.setProperty callers (do not migrate) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/tasks/archive/PEEGEEQ_ONSUCCESS_AUDIT_DEFINITIVE_2026_05_14.md`
+
+- SHA-256: `708adcdb45e7957a3f513848f641b919e5e410fef29989666c7bf7ea6c1d168a`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ `.onSuccess` Exception-Swallowing — Definitive Audit (2026-05-14) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 12: ## 1. The anti-pattern (recap) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 28: ### Tiers — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 37: ## 2. CI guard (the new regression boundary) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 56: ## 3. Fixes applied in this audit pass (2026-05-14) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 58: ### 3.1 `peegeeq-outbox` — second-pass Tier 2/3 (3 sites) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 63: ### 3.2 `peegeeq-db` — Tier 3 (24 sites) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 72: ### 3.3 `peegeeq-rest` — Tier 3 (23 sites) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 80: ### 3.4 `peegeeq-outbox` — Tier 1 partial (7 sites) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 87: ## 4. Workspace-wide status (per module) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 118: ## 5. Tier 2 sites — triaged and resolved — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 120: ### 5.1 First pass — 13 candidates from manual regex sweep (2026-05-14) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 168: ### 5.2 Second pass — guard extended to detect Tier 2 (2026-05-14) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 202: ## 6. Tier 1 stylistic conversion — remaining — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 217: ## 7. Recommendations / next concrete actions — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 240: ## 8. Lessons learned — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/tasks/archive/PEEGEEQ_OUTBOX_REMOVE_INFLIGHT_CLOSE_TIMEOUT.md`
+
+- SHA-256: `96e721902f5f3658fb00bda28936ae0a37252bdb423788b1d142115d8047fdbf`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 1: # Task: Remove `inflightProcessing` / `inflightFutures` Timeout Machinery and Audit `*Async` Naming — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 10: ## Background — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 14: ### The antipattern — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 22: ## Root Cause Analysis (Two Layers) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 24: ### Layer 1: `OutboxConsumer.inflightProcessing` (the timer-guarded one) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 43: ### Layer 2: `OutboxConsumerGroupMember.inflightFutures` (the real source of the 30-second hang) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 57: ### Impact — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 63: ## What Must Change — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 65: ### `OutboxConsumer.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 91: ### `OutboxConsumerGroupMember.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 104: ### `OutboxConsumerGroup.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 129: ### `OutboxFactory.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 144: ## Test Changes — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 146: ### Delete these 4 test methods from `OutboxConsumerEdgeCasesCoverageTest.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 157: ### Do not delete `closeAsyncIsIdempotent` (line 458) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 166: ### Search for tests calling `OutboxConsumerGroupMember.stopAsync()` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 173: ### `OutboxConsumerGroupReviewFixesTest.java` line 446 — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 179: ## Review of the Hanging Tests That First Exposed the Bug — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 195: ### F5 — exact edit — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 232: ## Related Findings (Documented, Out of Scope for THIS Task) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 236: ### A. Private helper methods violating the `*Async` naming rule — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 246: ### B. Public API interface violating the `*Async` naming rule — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 257: ### C. `vertx.setTimer(...)` callback-style violations (production) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 274: ### D. Class-level naming oddity — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 278: ### E. Forbidden blocking bridges in `OutboxFactory` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 290: ### F. Sync wrappers via `.await (…))` on `Future` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 302: callback-style completion success check — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 312: ### H. `OutboxQueue.java` likely dead placeholder code — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 318: ## Files Changed (This Task) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 332: ## Verification — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 354: ## Out of Scope (Explicit) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/tasks/archive/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY_GAPS.md`
+
+- SHA-256: `a16028b2ee471df0b023ff13aef7c21ba087944b8318cd94ff0ec068c689543a`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 3: # PostgreSQL Connection Management and HAProxy Failover — Gaps and Implementation Plan — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 26: ## 1. Gap Analysis — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 28: ### 1.1 No pool-level reconnect configuration — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 46: ### 1.2 LISTEN/NOTIFY reconnects are pool-independent — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 59: ### 1.3 Streaming replication not covered by the test — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 70: ### 1.4 PgBouncer `server_reset_query` in transaction pool mode — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 83: ### 1.5 Split-brain consideration with streaming replication and automatic promotion — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 129: ## 2. Implementation Plan — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 138: ### Phase 1 — LISTEN/NOTIFY via HAProxy (Gap 1.2) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 176: ### Phase 2 — Circuit Breaker on Pool Operations (Gap 1.1) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 243: ### Phase 3 — Streaming Replication Test (Gap 1.3) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 274: ### Phase 4 — PgBouncer Transaction Pool Validation (Gap 1.4) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 292: ### Summary table — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/tasks/archive/PEEGEEQ_POSTGRES_NOTICE_HANDLING_DESIGN.md`
+
+- SHA-256: `0bcd60d4f9cc932f928c6a3ede0afd6aa47d6d6758e84199d4aea3608654c804`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 1: # PostgreSQL Notice Handling Guide — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 11: ## Overview — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 20: ## How It Works — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 24: ### Raising Informational Messages from PostgreSQL — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 44: ### How PeeGeeQ Processes Notices — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 112: ## Configuration — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 120: ### Configuration Properties — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 123: # PeeGeeQ Info Messages — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 127: # Other PostgreSQL Notices — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 131: # Metrics (always enabled) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 135: ### Configuration Examples — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 158: ## Monitoring and Metrics — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 162: ### Available Metrics — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 171: ### Using Metrics in Production — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 175: # Track frequency of specific info codes — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 178: # Alert on unexpected warnings — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 184: # Track notice handler performance — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 194: ## Quick Start Guide — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 196: ### Step 1: Add Info Codes to Your SQL — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 213: ### Step 2: Choose or Create an Info Code — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 230: ### Step 3: Configure Logging (Optional) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 235: # In your application.properties or peegeeq.properties — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 239: ### Step 4: Monitor in Production — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 244: # Dashboard query - notices by code — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 248: ## Best Practices — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 250: ### When to Use PeeGeeQ Info Codes — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 263: ### Structured Detail Fields — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 275: ### Log Level Guidelines — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 281: ## Benefits — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 298: ## Troubleshooting — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 300: ### Issue: Info messages not appearing in logs — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 308: ### Issue: Too many notices in logs — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 314: # Reduce verbosity — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 319: ### Issue: Metrics not being collected — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 326: ### Issue: Invalid info code format — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 335: ## Advanced Topics — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 337: ### Custom Notice Handler Implementation — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 354: ### Integrating with Log Aggregation Systems — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 378: ### Structured Log Fields — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 391: ## Migration Guide — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 395: ### Step 1: Identify Existing RAISE Statements — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 404: ### Step 2: Convert to RAISE INFO with Info Codes — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 419: ### Step 3: Add Info Codes to PeeGeeQInfoCodes — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 437: ### Step 4: Test Your Changes — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 445: ## Examples — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 447: ### Example 1: Outbox Message Enqueued — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 477: ### Example 2: Schema Setup Complete — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 504: ### Example 3: Cleanup Operation — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 536: ## Reference — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 538: ### Complete Notice Handler Implementation — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 599: ### PeeGeeQ Info Code Categories — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 610: ### Configuration Reference — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 615: # PeeGeeQ Info Messages — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 619: # Other PostgreSQL Notices — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 623: # Metrics — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 627: ## FAQ — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 653: ## Related Documentation — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/tasks/archive/PEEGEEQ_REFACTOR_ONSUCESS_EXCEPTION_SWALLOWING.md`
+
+- SHA-256: `1eced018234eda094d20b629d79194a8e9dc70c904aa4bbeb59fea20cd15c85b`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 1: # Refactoring Plan: Fix `onSuccess` Exception Swallowing in Tests — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 33: ## Background — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 47: ## Canonical Fix (from official Vert.x JUnit 5 docs) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 82: ## Scope Measurement (2026-05-05) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 91: ### Risk Classification — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 117: ## Module Inventory — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 133: ## Phased Work Plan — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 135: ### Phase 1 — Fix Confirmed Failures (do now) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 151: ### Phase 2 — Tier 2 Hardening (medium priority) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 164: ### Phase 3 — Migrate Tier 1 to Canonical Pattern (low priority, long-term) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 174: ## File-by-File Work Order (Phase 1) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 176: ### 1. `MultiConfigurationExampleTest.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 211: ### 2. `PeeGeeQDatabaseSetupServiceEnhancedTest.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 231: ### 3. `SqlTemplateProcessorCoreTest.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 256: ### 4. `DeadConsumerDetectorComprehensiveTest.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 265: ### 5. `DeadConsumerDetectorIntegrationTest.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 273: ### 6. `MultiConfigurationManagerSimpleTest.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 281: ## Rules for Each Edit — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 292: ## Discovery Queries — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 297: # All onSuccess callbacks without verify — narrow search — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 303: # Bare assertions outside verify — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 310: ## Acceptance Criteria — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 340: ## Module Review Log — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 342: ### `peegeeq-db` — Phase 3 complete (2026-05-06) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 351: ### `peegeeq-outbox` — review complete (2026-05-06); Tier 3 fixed (2026-05-06) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 396: ### `peegeeq-native` — Phase 3 complete (2026-05-06) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 402: ### `peegeeq-service-manager` — Phase 3 complete (2026-05-06) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 414: ### `peegeeq-integration-tests` — Phase 3 complete (2026-05-06) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 420: ### `peegeeq-rest` — Phase 3 complete (2026-05-06) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 431: ### `peegeeq-bitemporal` — Phase 3 complete (2026-05-06) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 486: ## Related Artefacts — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/tasks/archive/PEEGEEQ_TESTCONTAINERS_PATTERNS.md`
+
+- SHA-256: `4de91845c060eee2a75de508d9b1159330f5a254ad8e30117856dbc9f0bf7eb5`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 1: # Testcontainers Usage Patterns in PeeGeeQ — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3: ## Overview — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 6: ## Container Lifecycle Patterns — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 8: ### 1. JUnit 5 Extension Pattern (peegeeq-db) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 29: ### 2. Shared Static Container Pattern (Examples Modules) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 51: ### 3. Per-Test Container Pattern (Isolation Required) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 71: ### 4. @Testcontainers Annotation Pattern (Standard JUnit 5) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 87: ## PostgreSQL Configuration Comparison — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 96: ## Database Naming Conventions — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 105: ## Schema Initialization Strategies — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 107: ### One-Time Schema Init (peegeeq-db) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 114: ### Per-Test Migration (Examples) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 119: ### Manual Schema Setup — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 123: ## Spring Integration — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 125: ### @DynamicPropertySource Pattern — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 145: ## Module Comparison — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 158: ## Best Practices — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 171: ## When to Use Each Pattern — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### Removed exact duplicate: `docs-design/tasks/archive/REST-HANDLER-ERROR-PATH-TESTS-PLAN.md`
+
+- SHA-256: `10232a74aec2f040cbcf652daf9c29780235110f85070a9afe7b1149d0d47544`
+- Category: Historical evidence
+- Disposition: Removed after SHA-256 equality verification; canonical byte-identical source retained
+  at `docs-design/_archived/REST-HANDLER-ERROR-PATH-TESTS-PLAN.md`
+- Heading disposition:
+  - [x] Line 1: # REST Handler Error-Path Tests — TDD Implementation Plan — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 6: ## Source-Verified Facts (Read Before Editing This Plan) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 31: ## Problem Statement — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 42: ## TDD Stance — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 54: ## Approach — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 72: ## Antipatterns: Mandatory Gates for These Tests — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 81: ### CRITICAL: Exception thrown in `onSuccess` is silently swallowed (antipatterns doc §"Exception Thrown in `onSuccess`") — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 118: ### CRITICAL: Placeholder tests that always pass (antipatterns doc §"Placeholder Tests") — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 124: ### SERIOUS: `.onComplete(ar -> latch.countDown())` swallows failures (antipatterns doc §"onComplete swallows failures") — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 141: ### HIGH: `setTimer` as a readiness guard (antipatterns doc §"`setTimer` as a Readiness Guard") — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 163: ### CRITICAL: `setTimer` timeout handler calling `completeNow()` (antipatterns doc §"`setTimer` Variant: timeout calls completeNow") — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 169: ### MEDIUM: Empty catch blocks (antipatterns doc §"Empty Catch Blocks in Test Teardown") — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 174: ### HIGH: Discarded `Future<Void>` from stop/close methods (antipatterns doc §"Discarded Future<Void> From Stop/Close") — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 189: ### LOW: Unused method parameters (antipatterns doc §"Unused Method Parameters") — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 194: ### LOW: `@TestMethodOrder` / `@Order` on independent tests (antipatterns doc §"Unnecessary Test Ordering") — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 201: ## Step 1: Build the Test Double First — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 212: ### `ControllableSetupService` design — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 246: ### `SetupNotFoundException` design — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 263: ### Verification after Step 1 — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 269: ## Step 2: TDD Cycles — One Test at a Time — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 278: ### Test class `@BeforeAll` / `@AfterAll` template (applies to all 4 classes) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 321: ### Canonical test method shape — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 356: ## TDD Cycle A: `DatabaseSetupHandlerErrorTest` (port 18110) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 379: ## TDD Cycle B: `QueueHandlerUnitTest` — ALREADY COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 401: ## TDD Cycle C: `ManagementApiHandlerErrorTest` (port 18112) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 424: ## TDD Cycle D: `HealthHandlerErrorTest` (port 18113) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 458: ## Complete Interface Surface for `ControllableSetupService` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 462: ### From `ServiceProvider` (4 synchronous methods): — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 470: ### From `DatabaseSetupService` (7 async methods + 3 defaults): — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 484: ### How handlers map failures to HTTP status codes — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 518: ## Port Assignments — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 554: ## Files to Create — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 569: ## Files to Read Before Starting — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 590: ## Scope Exclusions — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 602: ## After Every RED Test: Decision Tree — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 638: ## Final Validation (after all cycles complete and GREEN) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 660: # Find bare onSuccess callbacks that contain assertions or completeNow outside verify() — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 661: # (the silent-swallow antipattern — causes 30s hangs, not immediate RED failures) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/tasks/archive/SCHEMA-PROCESSING-GAPS-CRITICAL-17-Jun-2026.md`
+
+- SHA-256: `c303136ddfac54b6074f73dd3a1a4c573da96fef4993acb614e71f788cbdb9e1`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 3: # CRITICAL: Schema Processing Gaps — Findings and Remediation Tasks — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 5: ## Status: COMPLETE — reconciled 2026-08-29 against commit `32ab0371` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 45: ## Architecture correction (12 Jun 2026, evening) — the binding rules — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 95: ## D2 — production fail-fast enforcement (phased, mandated last) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 100: ### D2.0 — investigation (DONE) — findings that reshaped the plan — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 107: ### D2.1 — core configuration fail-fast (DONE 13 Jun 2026) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 116: ### D2.2 — factory fail-fast + native channel safety (DONE 13 Jun 2026) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 124: ### D2.3 — REST and setup service (DONE 13 Jun 2026) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 131: ### D2.4 — migrations CLI + standalone tools (DONE 13 Jun 2026) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 137: ### D2.5 — examples cleanup (DONE 13 Jun 2026) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 145: ### Post-completion scan findings (DONE 13 Jun 2026) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 154: ### Related findings (DONE 13 Jun 2026) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 176: ## Root cause — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 188: ## Census (audited 12 Jun 2026) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 204: ## Verified clean (the production foundation holds) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 221: ## Audit-claim corrections (recorded so they are not re-reported) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 235: ## Remediation tasks (in priority order) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 237: ### S1 — CRITICAL: `PeeGeeQTestConfig` must inherit the schema system property — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 268: ### S2 — HIGH: `BaseIntegrationTest` custom-schema support — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 318: ### S3 — HIGH: CI regression lock — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 361: ### S4 — MEDIUM: remove the production traps — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 385: ### S5 — LOW: hygiene — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 395: ## Summary — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 415: ## Follow-up: no `public` in any test (2026-06-16) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 448: ### Open items surfaced during Phase B validation (not schema-related) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 470: ## Phase F — Testing discoveries: Vert.x lifecycle (not schema-related) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 479: ### F1 — `PeeGeeQManager` creates a new Vert.x instance on the event loop, once per setup (production) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 531: ### F2 — Related Vert.x test-side antipatterns flagged during the sweep (pre-existing) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 577: ## Follow-up sweep: remove ALL `"public"` references incl. comments (2026-06-21) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 612: ## Follow-up: test-resource `.properties` files (2026-06-26) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 640: ## Follow-up: multi-setup / Vert.x-sharing test coverage (2026-06-27) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 658: ### F1 root cause — proven by instrumented experiment (2026-06-27) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 685: ### Landmine REMOVED + guarded (2026-07-04) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 710: ### Broader sweep — is the fix enough to make cross-setup sharing safe? (2026-07-04) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/tasks/archive/SESSION-HANDOVER-20260812.md`
+
+- SHA-256: `40be71e984efc81efa522cc98e4fa01d9cc1ffd214457cd70c8633e0f16c1dc2`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 3: # Session Handover — 2026-08-12 (reconciled 2026-08-29) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 17: ## 2026-08-29 continuation (priorities 1-11 complete) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 144: ## 2026-08-27 continuation (historical queue — all items completed or reconciled) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 228: ## 2026-08-23 P11 completion (D17 and D18 fixed) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 281: ## 2026-08-23 P11 pre-implementation audit (D17 not reproduced, D18 expanded) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 329: ## 2026-08-21 post-commit reconciliation (D1-D13 complete) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 371: ### Committed state — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 391: ### D10/D12 and final-integrity verification evidence — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 408: ## 2026-08-20 continuation update (P4 and P6/D11 complete) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 478: ### P4 verification evidence — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 511: ## 2026-08-19 continuation update (cleanup review completed) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 565: ### Cleanup-review verification evidence — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 582: ### Utilities UI Phase G.1b completion — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 626: ### Repository snapshot — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 650: ## 1. What started this — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 667: ## 2. The single root cause — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 683: ## 3. What was fixed and verified — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 685: ### Production code (4 files) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 706: ### Test code — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 719: ### Verification runs (this session) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 733: ## 4. What is NOT verified — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 744: ## 5. Open work, ranked — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 746: ### 5.1 — 24 remaining swallow sites — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 776: ### 5.2 — `closeReactive()` returns a Future that never settles (D10/D12) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 804: ### 5.3 — `outbox_consumer_groups` has two incompatible definitions (D3) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 822: ### 5.4 — Remaining — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 837: ## 6. Awaiting the owner's decision — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 846: ## 7. Traps found the hard way — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 878: ## 8. Reliability warning on the counts — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 904: ## 9. Resuming — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 907: # 1. Rebuild and install the changed reactor slices before downstream tests — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 911: # 2. Close the unverified gap — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 915: # 3. Full regression on the modules with production changes — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 925: ## 10. Working agreement notes — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/tasks/archive/TEST-INTEGRITY-DEFECT-REMEDIATION-PLAN.md`
+
+- SHA-256: `42d66666be8d571c1d3cb2eda83540d961f62de1bca9e2ab4cf9e7704dee3d4a`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 3: # Test Integrity Defect Remediation Plan — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 15: ## The single root cause — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 34: ## Defect register — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 69: ### 2026-08-22 native consumer-group lifecycle reconciliation — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 96: ### 2026-08-20 P4 worktree and verification — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 127: ### 2026-08-20 D11-A worktree and verification — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 150: ### 2026-08-20 D11-B worktree and verification — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 175: ### 2026-08-20 D11-C worktree and verification — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 213: ### 2026-08-20 D11-D worktree and verification — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 255: ### 2026-08-20 D10/D12 worktree and verification — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 306: ### D12 detail — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 324: ### D13 detail — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 331: ### D1 detail — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 344: ### D2 detail — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 357: ### D3 detail — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 387: ### D7 detail — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 402: ### D4-A — the 4 contract rewrites (resolved) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 418: ### D4-B — setup precondition (done) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 424: ### D4 progress by module — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 457: ### D5 detail — resolved — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 474: ### D6 detail — resolved — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 494: ## Phases — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 500: ### P0 — Investigation and guard correction — COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 505: ### P1 — Pass-on-failure sweep (D4) — COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 525: ### P2 — `TransactionPropagation` contract (D2) — COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 533: ### P3 — Schema identifier quoting (D1) — COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 538: ### P4 — Background jobs (D3, D7) — COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 551: ### P5 — Performance profile and exposed throughput question (D5, D6) — COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 561: ### P6 — Make unasserted ERROR logs fail the build (D11) — COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 633: ### P7 — Close settlement (D10, D12) — COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 652: ### P8 — Native consumer-group startup settlement (D14) — COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 676: ### P9 — Native graceful-shutdown drain (D15) — COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 734: ### P10 — Atomic native consumer-capacity admission (D16) — COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 783: ### P11 — Startup-close settlement and teardown integrity (D17, D18) — COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 833: ### P12 — Full Jenkins gate reconciliation (D19-D23) — COMPLETE; D23 CARRIED FORWARD — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 885: ### P13 — Management UI queue-update SSE readiness (D23) — COMPLETE — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 916: ## Out of scope — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 928: ## Status discipline — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/tasks/archive/TIER5-BLOCKING-THREAD-VIOLATIONS-PLAN.md`
+
+- SHA-256: `79eb664d68adda1a7e323e592f5c54922d5c67e0d075d638abf3611f0e74a5a2`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 3: # Guard Tiers 4, 5, 7 — Audit and Remediation Plan — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 12: ## Current Build Status — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 27: ### Original failure state (2026-05-18) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 40: ## Master Remediation Checklist — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 48: ### `peegeeq-outbox` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 86: ### `peegeeq-native` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 114: ### `peegeeq-test-support` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 121: ### `peegeeq-examples` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 130: ## T5 Execution Order — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 144: ## T7 Execution Note — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 148: ### `OutboxConsumerGroup` — `close()` / `closeAsync()` naming constraint — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 158: ## Implementation Patterns (reference) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 160: ### T5 Category A — Delete the line — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 164: ### T5 Category C — Replace spin-loop with handler-completed Promise — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 199: ### T5 Category D — Small delay before discrete event — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 224: ### T7 — Correct teardown pattern — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 252: ### T4 — Canonical async test form — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 280: ## Historical exempt files (policy superseded 2026-08-29) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/tasks/archive/WAVE2_UNCOMMITTED_AUDIT_20260516.md`
+
+- SHA-256: `f0e203f0e466323cfe37170d3102b2ace0df6b378af1bd45109679efdbcbf41b`
+- Category: Historical evidence
+- Disposition: Retain intact; extract only validated current facts
+- Heading disposition:
+  - [x] Line 1: # Wave 2 Uncommitted Changes — Testing-Standards Audit — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 18: ## Fix progress (2026-05-16, follow-up session) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 45: ## Summary table (post-fix) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 84: ## Per-file findings (post-fix) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 88: ### 1. `docs-design/testing/PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 91: ### 2. `peegeeq-examples/src/main/java/dev/mars/peegeeq/examples/CloudEventsExample.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 94: ### 3. `peegeeq-examples/src/main/java/dev/mars/peegeeq/examples/FullDistributedTracingExample.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 97: ### 4. `peegeeq-examples/src/main/java/dev/mars/peegeeq/examples/SSEFilteringExample.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 100: ### 5. `peegeeq-examples/.../fundscustody/FundsCustodyTestBase.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 105: ### 6. `peegeeq-examples/.../fundscustody/PositionServiceTest.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 110: ### 7. `peegeeq-examples/.../fundscustody/TradeServiceTest.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 115: ### 8. `peegeeq-examples/.../nativequeue/ConsumerGroupLoadBalancingDemoTest.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 120: ### 9. `peegeeq-examples/.../nativequeue/NativeQueueFeatureTest.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 125: ### 10. `peegeeq-examples/.../nativequeue/ServerSideFilteringTest.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 130: ### 11. `peegeeq-examples/.../nativequeue/SimpleNativeQueueTest.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 135: ### 12. `peegeeq-examples/.../outbox/AdvancedProducerConsumerGroupTest.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 140: ### 13. `peegeeq-examples/.../outbox/ConsumerGroupResilienceTest.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 145: ### 14. `peegeeq-examples/.../outbox/EventSourcingCQRSDemoTest.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 150: ### 15. `peegeeq-examples/.../outbox/HighFrequencyProducerConsumerTest.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 155: ### 16. `peegeeq-examples/.../outbox/MultiConfigurationIntegrationTest.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 160: ### 17. `peegeeq-examples/.../outbox/OutboxServerSideFilteringTest.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 164: ### 18. `peegeeq-examples/.../outbox/PartitionedOrderingDemoTest.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 169: ### 19. `peegeeq-examples/.../outbox/TransactionalOutboxAnalysisTest.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 174: ### 20. `peegeeq-examples/.../outbox/ZeroSubscriptionProtectionDemoTest.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 179: ### 21. `peegeeq-examples/.../patterns/NativeVsOutboxComparisonTest.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 184: ### 22. `peegeeq-examples/.../patterns/PeeGeeQExampleTest.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 189: ### 23. `peegeeq-examples/.../patterns/RestApiExampleTest.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 194: ### 24. `peegeeq-examples/.../patterns/ServiceDiscoveryExampleTest.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 199: ### 25. `peegeeq-examples/.../patterns/ShutdownTest.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 204: ### 26. `peegeeq-native/.../pgqueue/ConsumerGroupSubscriptionTest.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 207: ### 27. `peegeeq-outbox/.../OutboxConsumerErrorHandlingTest.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 212: ### 28. `peegeeq-rest/.../SubscriptionPersistenceAcrossRestartIntegrationTest.java` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 217: ## Residual work — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 230: ## Notes on what was and wasn't my mess this session (historical) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 239: ## Second-pass audit (2026-05-16, after WAVE2 fix work) — vs `PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md` — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 243: ### NEW SERIOUS findings — files previously marked CLEAN/MINOR that are NOT clean — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 256: ### NEW SERIOUS — Manual `Vertx.vertx()` under `VertxExtension` (antipattern §"Manual `Vertx.vertx()` Creation in Tests That Already Have `@ExtendWith(VertxExtension.class)`") — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 262: ### NEW SERIOUS — Fire-and-forget `producer.send()` (antipattern §"Fire-and-Forget `producer.send()` Without Await or Failure Handler") — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 269: ### MODERATE — Empty catch in teardown (antipattern §"Empty Catch Blocks in Test Teardown") — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 275: ### MODERATE — Residual `System.getProperty` in production service-manager constructor — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 281: ### CLEAN false positives (in javadoc only — no code impact) — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 287: ### Updated severity table — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 302: ### Recommended priority for residual work — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 311: ### Note on classification confidence — destination or retention: retained in source as historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/tasks/tasks.md`
+
+- SHA-256: `da11d928cf8f2d6f4c5adee187f5b1cb5fba99df22de523bc02ebec1cd683b81`
+- Category: Project governance
+- Disposition: Retain as task or historical evidence
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ Consolidated Task Register — destination or retention: retained in source as project governance or historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 13: ## Working Rules — destination or retention: retained in source as project governance or historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 26: ## Verification Baseline — destination or retention: retained in source as project governance or historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 40: ### Resumed Jenkins verification — 2026-09-05 reconciliation — destination or retention: retained in source as project governance or historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 69: ### Focused verification and remediation evidence — destination or retention: retained in source as project governance or historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 151: ## Current Execution Order — destination or retention: retained in source as project governance or historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 153: ### 1. Configuration property/runtime reconciliation — destination or retention: retained in source as project governance or historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 216: ### 2. Remove the final Tier-5 blocking calls — destination or retention: retained in source as project governance or historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 243: ### 3. PostgreSQL/HAProxy resilience gaps — destination or retention: retained in source as project governance or historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 324: ### 4. Durable subscriptions runtime — destination or retention: retained in source as project governance or historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 394: ### 5. Transactional REST API product decision — destination or retention: retained in source as project governance or historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 407: ### 6. Partitioned consumption pre-GA gates — destination or retention: retained in source as project governance or historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 422: ### 7. Jenkins UI test-result publishing — destination or retention: retained in source as project governance or historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 500: ## Unscheduled Product and Coverage Backlog — destination or retention: retained in source as project governance or historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 508: ## Completed Work — destination or retention: retained in source as project governance or historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 534: ## Archived Supporting Records — destination or retention: retained in source as project governance or historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 554: ## Status Definitions — destination or retention: retained in source as project governance or historical evidence; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/testing/MAVEN_TOOLCHAINS_EXPLAINER.md`
+
+- SHA-256: `9c10f779944324ce4fc25fcfe2829cbce708e64c953fa381e82b0c07e22300df`
+- Category: Contributor, Testing, and CI
+- Disposition: Consolidate durable instructions; retain environment-specific and normative sources
+- Heading disposition:
+  - [x] Line 1: # Maven Toolchains - How It Works — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 3: ## Overview — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 9: ## Architecture — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 37: ## Configuration Files — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 39: ### 1. `~/.m2/toolchains.xml` - JDK Registry — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 57: ### 2. `pom.xml` - Toolchain Request — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 75: ## How Forking Works — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 77: ### Compiler Plugin (maven-compiler-plugin) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 93: ### Surefire Plugin (maven-surefire-plugin) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 115: ## Why This Solves the JaCoCo Problem — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 117: ### Before (Java 24): — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 123: ### After (Java 21 via Toolchains): — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 129: ## Key Benefits — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 136: ## Verification — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 141: # Maven's JDK — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 143: # Output: Java version: 24 — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 145: # Compilation JDK — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 147: # Output: Toolchain in maven-compiler-plugin: JDK[C:\Users\markr\.jdks\openjdk-21] — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 149: # Test JDK — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 151: # Output: Toolchain in maven-surefire-plugin: JDK[C:\Users\markr\.jdks\openjdk-21] — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 154: ## References — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+
+### `docs-design/testing/PEEGEEQ_E2E_TEST_SETUP_GUIDE.md`
+
+- SHA-256: `a03fd3872018a448b3ffc3df5b557ffb8aad1b2fec66b77f48853ab728c49949`
+- Category: Contributor, Testing, and CI
+- Disposition: Consolidate durable instructions; retain environment-specific and normative sources
+- Heading disposition:
+  - [x] Line 1: # E2E Test Execution Guide (Multi-Terminal Setup) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 5: ## Terminal 1: Backend REST API — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 19: ## Terminal 2: UI Test Runner — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 31: ## Troubleshooting — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 39: ## Automation Tip — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 42: # Start backend in background — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 45: # Wait for backend to be ready — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 52: # Run tests — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+
+### `docs-design/_archived/historical-evidence/PEEGEEQ_SUBSCRIPTION_PERSISTENCE_TEST_COVERAGE.md`
+
+- SHA-256: `b6f501355c37ae8ba43874c776087db2fb737b09a31de62960e61c096ed7424a`
+- Category: Contributor, Testing, and CI
+- Disposition: Consolidate durable instructions; retain environment-specific and normative sources
+- Heading disposition:
+  - [x] Line 1: # Subscription Persistence - Test Coverage — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 3: ## Overview — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 12: ## Test Coverage Status — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 14: ### ✅ Layer 1: Database Layer (`peegeeq-db`) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 52: ### ✅ Layer 2: API Layer (`peegeeq-api`) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 104: ### ✅ Layer 3: REST Layer (`peegeeq-rest`) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 140: ## Test Execution Commands — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 142: ### Run Database Layer Tests — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 148: ### Run API Layer Tests — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 154: ### Run REST Layer Tests — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 160: ## Test Data Flow — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 162: ### Successful Flow (Test 1 - REST Layer) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 183: ### Expected Behavior After Restart (Test 4 - Documented Limitation) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 200: ## Architecture Insights — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 202: ### What Works ✅ — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 208: ### Future Enhancement Opportunities — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 213: ### Potential Solutions — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 237: ## Test Metrics — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 246: ## Recommendations — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 248: ### Immediate Actions — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 253: ### Short-term Improvements — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 258: ### Long-term Enhancements — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 263: ## Conclusion — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 278: ## Related Documentation — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+
+### `docs-design/testing/PEEGEEQ_TEST_GUARD.md`
+
+- SHA-256: `c8ff413ef3d9d2c2c143940b73ff8732b531a42ef0b584f5bf4378bd83c34298`
+- Category: Contributor, Testing, and CI
+- Disposition: Consolidate durable instructions; retain environment-specific and normative sources
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ Async Test Guard — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 10: ## What it checks — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 35: ## Run commands — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 40: ### Run all eight checks (whole codebase) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 46: ### Run a single tier — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 49: # Tier 2/3 — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 52: # Tier 4 — Future.await (…)) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 55: # Tier 5 — Thread sleep / parkNanos — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 58: # Blocking-exemption policy — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 61: # Tier 6 — onComplete swallow — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 64: # Tier 7 — discarded stop()/close() Future — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 67: # Tier 8 — async operation asserted only as non-null — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 70: # Tier 9 — discarded subscribe Future — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 74: ### Read the summary — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 80: ## Scoping to specific files — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 87: # All violations in one file — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 90: # Tier 7 hits in one module — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 93: # All violations in one module across all tiers — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 100: ## Fix recipes — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 119: ## No opt-outs — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 127: ## Catastrophic JUnit Tests By Accident — silent data/logic corruption — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 152: ## Severe — guaranteed hang or guaranteed flake — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 160: ## Real but lower-impact — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 168: ## The meta-issue raised — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+
+### `docs-design/testing/PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md`
+
+- SHA-256: `b0e6160ef9db7c17b90978420deadda9d24a23cbe4e5d478c09a8f83f7d85954`
+- Category: Contributor, Testing, and CI
+- Disposition: Consolidate durable instructions; retain environment-specific and normative sources
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ Error Handling Antipatterns — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 18: ## CRITICAL: Placeholder Tests That Always Pass — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 25: ### Pattern — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 37: ### Variant: Tautological Comparisons That Always Pass — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 49: ### Required Fix — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 57: ## SERIOUS: `.onComplete(ar -> latch.countDown())` Swallows Send Failures — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 73: ### Correct Pattern — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 88: ### Same Pattern in Teardown — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 121: ## MEDIUM: Empty Catch Blocks in Test Teardown — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 131: ### Assessment — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 145: ## SERIOUS: Production `.recover (…))` Patterns All Wrong — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 153: ### 1. Shutdown/Cleanup Chains (WRONG use `.eventually()`) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 180: ### 2. Background Timer Callbacks Not a `.recover (…))` Problem — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 207: ### Recommendation — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 220: ## NOT AN ANTIPATTERN: Production `.onFailure(log)` Terminal Handlers — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 235: ## MEDIUM: Integration Test Hygiene Antipatterns — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 241: ### 1. System Property Pollution (High) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 263: ### 2. Custom Container Factory Instead of Standard Helper (Medium) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 271: ### 3. Excessive Narration Logging (Medium) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 281: ### 4. Trivial Assertions That Test Language Mechanics (Medium) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 293: ### 5. Producer Leak in Timer Callbacks (Medium) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 318: ### 6. Resource Cleanup via `try/finally` Around a Future Chain (Low) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 331: ### 7. Missing `hashCode()` When `equals()` Is Overridden (Medium) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 347: ### 8. Unused Method Parameters (Low) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 356: ### 9. Dead Code Branches in Shared Helpers (Low) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 369: ### 10. Hand-Rolled Schema DDL / Raw JDBC in Tests (High) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 397: ### 11. Unnecessary Test Ordering (Low) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 407: ### 12. Dead Code After `testContext.failNow()` (Low) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 435: ### 13. Weak Assertion Idioms (Low) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 455: ### 13b. Near-Tautological Assertion Tests Handler Invocation Not Outcome (Medium) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 482: ### 13c. Stale Javadoc Referencing Banned Types (Low) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 504: ## CRITICAL: Exception Thrown in `onSuccess` Is Silently Swallowed — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 509: ### What Happens — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 520: ### Real-World Instance — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 549: ### The Four Fixes (ranked by idiomaticness) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 623: ### Additional Warning from Official Vert.x Docs — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 634: ### Scope — Where This Pattern Exists — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 643: # Find onSuccess callbacks without verify() or try-catch — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 646: # Find bare assertions outside testContext wrappers — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 653: ### Companion Test — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 667: ### Same Root Cause, Second Blast Radius: Resource Cleanup in `onSuccess` — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 750: ### Permanent Regression Boundary: CI Guard Test — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 787: ## HIGH: Discarded `Future<Void>` From Stop/Close Methods in Test Compose Chains — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 792: ### What Happens — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 816: ### Pattern — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 834: ### Rule — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 840: ### Fixed In — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 847: ## HIGH: Background Jobs Left Enabled When Creating `PeeGeeQManager` Directly in Tests — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 852: ### What Happens — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 880: ### Race Timeline — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 894: ### Pattern — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 906: ### Rule — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 919: ### Fixed In — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 926: ## MEDIUM: Test Teardown Cleanup SQL Running After Pool Is Closed — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 931: ### What Happens — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 947: ### Pattern — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 961: ### Rule — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 968: ## MEDIUM: Metrics Timer Left Running After Container Stops — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 973: ### What Happens — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 994: ### Rule — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1020: ## MEDIUM: Asserting on Log Message Strings Instead of Exception Type — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1024: ### Problem — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1042: ### Why It Matters — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1049: ### Fix — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1095: ### Scope — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1103: ## Summary of Required Actions — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1157: ## MEDIUM: Commented-Out `@Test` Hidden Test Disabling — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1185: ## HIGH: `LockSupport parkNanos()` Blocking Thread Delay in Tests — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1201: ### Affected Files — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1224: ## HIGH: `setTimer` as a Readiness Guard — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1259: ### Variant: Timeout handler calls `completeNow()` instead of `failNow()` — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1290: ### Variant: Post-`deployVerticle` readiness guard — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1319: ### Variant: Wall-clock wait for SSE/WebSocket buffer to accumulate — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1329: ### Variant: Production code timing assumption (correctness risk) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1352: ## SERIOUS: Fire-and-Forget `producer.send()` Without Await or Failure Handler — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1386: ## SERIOUS: Blocking Wrapper Methods on a Reactive Factory (CircuitBreakerManager) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1438: ## MEDIUM: Scope Leakage Tests Placed in the Wrong Class — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1464: ## MEDIUM: Blocking Wait on the Test Thread Under `VertxExtension` — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1524: ## LOW: Copy-Paste Contamination of Test Logger Messages — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1547: ## MEDIUM: `withConnection()` for Write Operations Missing Transaction — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1575: ## CRITICAL: "Strategic Delay" and Threshold-Masking Anti-Fixes — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1581: ### Pattern 1: `Thread sleep()` labelled as "strategic delay" — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1598: ### Pattern 2: Threshold-based thread leak detection — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1617: ### Pattern 3: Timestamp extraction to filter "old" threads — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1635: ### Why these patterns are dangerous — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1648: ## SERIOUS: Property-Key Mismatch Between Test Setup and Config Loader (Silent Misconfiguration) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1682: ## SERIOUS: `shared=true` in Test Pools Non-Deterministic Connection Cleanup — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1710: ## SERIOUS: Secondary `PgConnectionManager` Instances Never Closed in `@AfterEach` — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1752: ## SERIOUS: `@AfterEach` Grace Timer + `awaitFuture` Bridge Skips `closeReactive()` When Vertx Event Loop Is Dead — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1819: ## LOW: `System.gc()` in `@AfterEach` as Resource Cleanup — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1831: ## HIGH: No Contract Tests for Test Infrastructure (Zero Regression Coverage on Test Setup) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1887: ## Case Study: Outbox Consumer Lifecycle Bug (Resolved) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1889: ### The Symptom — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1896: ### The Root Cause — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1935: ### The Fix (all tasks completed) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1951: ### Validation Result — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1964: ### Connection to Antipatterns in This Document — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1984: ## ANTIPATTERN: Health Checks That Count the Wrong Thing — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 1986: ### Problem — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 2007: ### Rule — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 2023: ### Why This Matters in Tests — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 2033: ## SERIOUS: Manual `Vertx.vertx()` Creation in Tests That Already Have `@ExtendWith(VertxExtension.class)` — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 2037: ### What Happens — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 2052: ### Real-World Instance — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 2085: ### Correct Patterns — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 2152: ## SERIOUS: Wrong Resource Close Order in `@AfterEach` — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 2156: ### What Happens — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 2164: ### Correct Teardown Order — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 2182: ### Anti-Pattern: Independent `try/catch` Blocks With No Guaranteed Ordering — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 2204: ### Correct Pattern: Reactive Teardown Chain Driven By `VertxTestContext` — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 2254: ## MEDIUM: `VertxTestContext` Orphan — Context Created But `awaitCompletion` Not Reachable — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 2258: ### What Happens — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 2272: ### Real-World Instance — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 2296: ### Correct Pattern: Guard the Context Lifetime With `try/finally` — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 2339: ## CRITICAL: `Future.await (…))` in Test Code Causes Indefinite Teardown Hangs — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 2343: ### What Happens — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 2376: ### Real-World Instances — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 2385: ### Banned Forms — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 2419: ### Correct Pattern: `VertxTestContext` Lifecycle Hooks — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 2495: ### Why This Antipattern Slipped Through — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 2502: ### Verification — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 2518: ## CRITICAL: `.eventually(factory::close)` for `QueueFactory` Logs Cleanup Errors and Skips Cleanup — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 2522: ### What Happens — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 2562: ### Correct Pattern — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 2608: ### Rule — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 2626: ### Verification — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+
+### `docs-design/testing/PEEGEEQ_TESTING_STANDARDS_PATTERNS.md`
+
+- SHA-256: `1104ad3c4726e7f6a6707bcecd3314d11e62bebcfdb8c597b9f68fd11610a208`
+- Category: Contributor, Testing, and CI
+- Disposition: Consolidate durable instructions; retain environment-specific and normative sources
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ Testing Patterns — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 7: ## Authority — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 19: ## Core principles — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 32: ## TDD sequence — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 48: ## Test naming and organization — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 89: ## Asynchronous-test checklist — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 103: ## PostgreSQL and Testcontainers pattern — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 133: ## Database verification pattern — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 149: ## External-system adapters — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 164: ## Concurrency and lifecycle tests — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 179: ## Categorization and execution — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 196: ## Evidence to report — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 208: ## Pre-completion checklist — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 221: ## References — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+
+### `docs-design/testing/PEEGEEQ-TEST-COMMANDS.md`
+
+- SHA-256: `3a2a276f78955b9db7a1913e9490143c10c399c9c37c2f9cc160ff731548b9d7`
+- Category: Contributor, Testing, and CI
+- Disposition: Consolidate durable instructions; retain environment-specific and normative sources
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ Test Commands Quick Reference — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 5: ## Profile Architecture (read this first) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 34: ### Available profiles (root pom) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 47: ## COPY-PASTE COMMANDS (update the date suffix before running) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 51: # Full suite resume from — every tag, every module (~90m) — explicit release GATE — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 54: # Full suite — every tag, every module (~90m) — explicit release GATE — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 57: # Core tests — all modules, including both UI Vitest suites (default, ~4m) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 60: # Core tests — single module — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 63: # Smoke tests — all modules (~20s) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 66: # Integration tests — single module (~15m) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 69: # Integration tests — all modules (~60m) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 72: # Performance tests — single module (~30m) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 75: # Audit — tests missing @Tag (should report Tests run: 0 if tagging is healthy) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 97: ## REQUIRED: rebuild before targeted verification — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 103: # One changed module — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 107: # Multiple changed modules — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 119: ## RULE: scoped runs to iterate, `-Pall-tests` to gate — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 147: ## 0 Pre-change baseline — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 157: # Example: D2.3 touches peegeeq-rest and peegeeq-db — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 159: # peegeeq-rest core (146 tests) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 162: # peegeeq-rest integration — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 165: # peegeeq-db integration (727 tests — peegeeq-db has no meaningful core count) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 173: ## 1 Targeted Core Debug (the iteration loop, and known-failure fixes) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 182: ## 2 Targeted Integration Debug (the iteration loop, and known-failure fixes) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 197: ## 4 Performance — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 212: ## 5 Full Suite (release / nightly / regression boundary) — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 232: ## 6 Tagging Audit — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 245: ## Module-Specific Notes — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 256: ## How to Verify the Profile Architecture Is Healthy — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 259: # 1. Confirm test.groups is empty under -Pall-tests for any module — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 262: # Expect: both properties present, both empty. — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 264: # 2. Confirm test.groups=core under default invocation — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 267: # Expect: test.groups=core, test.excludedGroups=integration,performance,slow. — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 269: # 3. Confirm no Java module pom redeclares root profiles; only the two UI — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 270: #    packaging modules may provide matching frontend-wiring profiles — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 273: # Expect: matches only in .\pom.xml (root), .\peegeeq-management-ui\pom.xml, — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+  - [x] Line 274: # and .\peegeeq-utilities-ui\pom.xml (the latter two are frontend wiring). — destination or retention: `docs/PEEGEEQ_TESTING_GUIDE.md`; normative or historical source retained intact
+
+### `docs-design/_archived/completed-records/CONSUMER_GROUP_FANOUT_TRACE_PROPAGATION.md`
+
+- SHA-256: `d400bd7887ad5c4d1615857e01debc988fbdc42fcfc297d1376f5b6b31a9b123`
+- Category: Operations and Observability
+- Disposition: Merge into tracing, monitoring, or REST authorities
+- Heading disposition:
+  - [x] Line 1: # Consumer Group Fan-Out Trace Propagation — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 15: ## 1. Problem Addressed — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 25: ## 2. Implemented Trace Shape — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 46: ## 3. Implementation Boundaries — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 61: ## 4. Required Invariants — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 72: ## 5. Verification Record — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 82: ## 6. References — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+
+### `docs-design/_archived/completed-records/MONITORING_ENDPOINTS_IMPLEMENTATION_PLAN.md`
+
+- SHA-256: `08b465f1a54945a07ec4698799d9be2a9df94a290fdd5b2d2d17372372c47b09`
+- Category: Operations and Observability
+- Disposition: Merge into tracing, monitoring, or REST authorities
+- Heading disposition:
+  - [x] Line 1: # Real-Time Monitoring Endpoints Implementation Record — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 11: ## Outcome — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 29: ## Implemented behaviour — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 45: ## Closed review findings — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 60: ## Verification coverage — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 75: ## Operational contract — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 86: ## Performance claims — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+  - [x] Line 93: ## References — destination or retention: `docs/PEEGEEQ_OPERATIONS_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`; full detail retained in source
+
+### `docs-design/_archived/superseded-guides/PEEGEEQ_TRACING_ARCHITECTURE_GUIDE.md`
+
+- SHA-256: `6d7db157eeaea6c6e8c2aeab6116499487ab216255a3100be7ec181028b3fb32`
+- Category: Operations and Observability
+- Disposition: Merge into tracing, monitoring, or REST authorities
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ Tracing Architecture Guide — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 10: ## Table of Contents — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 23: ## Core Principle — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 29: ### Why This Matters — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 35: ### The Rule — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 45: ## Architecture Overview — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 93: ## Trace Context Model — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 95: ### TraceCtx Record — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 115: ### Key Design Decisions — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 126: ## Component Reference — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 128: ### TraceContextUtil — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 156: ### AsyncTraceUtils — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 172: ## Async Patterns — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 174: ### ❌ WRONG: Raw executeBlocking — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 184: ### ✅ CORRECT: Traced executeBlocking — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 193: ### How It Works Internally — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 217: ## Event Bus Integration — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 219: ### Fire-and-Forget (publish) — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 236: ### Request/Response (RPC) — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 256: ### Internal Implementation — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 276: ## Implementation Checklist — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 280: ### HTTP Handlers — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 288: ### Message Producers — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 294: ### Message Consumers — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 302: ### Blocking Operations — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 308: ### Event Bus Usage — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 316: ## Testing Strategy — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 318: ### Unit Tests — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 354: ### Integration Tests — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 380: ### Concurrency Bleed Test — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 416: ## Files Reference — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 429: ## OpenTelemetry Compatibility — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+  - [x] Line 449: ## Summary — destination or retention: `docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md`; full detail retained in source
+
+### `docs-design/_archived/superseded-guides/PEEGEEQ_TRACING_USER_GUIDE.md`
+
+- SHA-256: `a95955e94c3be92476c31b66c92e2e0af42eba6500928fa442512872241107b9`
+- Category: Operations and Observability
+- Disposition: Merge into tracing, monitoring, or REST authorities
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ Distributed Tracing User Guide — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 9: ## Table of Contents — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 24: ## Quick Start — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 26: ### 1. Configure Logback — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 34: ### 2. Send Message with Trace Context — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 51: ### 3. Consumer Automatically Gets Trace Context — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 63: ### 4. Search Logs — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 66: # Find all logs for a specific trace — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 69: # Find all logs for a specific order — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 75: ## Overview — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 77: ### What is Distributed Tracing? — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 92: ### Why Use Distributed Tracing? — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 112: ## W3C Trace Context — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 114: ### Header Format — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 134: ### Optional Headers — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 143: ## Logging Configuration — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 145: ### Logback Pattern — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 171: ### MDC Fields Available — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 184: ## Producer Usage — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 186: ### Basic Send (Auto-Generated Trace) — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 193: ### Send with Explicit Headers — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 204: ### Send Continuing Existing Trace — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 219: ## Consumer Usage — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 221: ### Basic Consumer (Auto MDC) — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 236: ### Propagate Trace to Downstream Services — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 255: ## REST API Usage — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 257: ### Send Message with W3C Headers — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 271: ### Batch Messages — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 285: ### Verify Headers in Database — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 303: ## Searching Logs — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 305: ### By Trace ID — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 313: ### By Correlation ID — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 321: ### By Span ID — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 329: ### Combined Search — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 337: ## Integration with Observability Tools — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 339: ### Jaeger — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 356: ### Datadog — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 363: ### Grafana/Loki — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 371: ### Prometheus Metrics — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 383: ## Troubleshooting — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 385: ### Blank Trace IDs in Logs — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 399: ### Trace ID Changes Mid-Request — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 416: ### MDC Values Leak Between Requests — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 430: ### Consumer Missing Trace Context — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+  - [x] Line 450: ## Best Practices — destination or retention: `docs/PEEGEEQ_TRACING_USER_GUIDE.md`; full detail retained in source
+
+### `docs-design/_archived/superseded-guides/mq-rest-client-discussion-brief.md`
+
+- SHA-256: `edeb62175e5f090a021be282a1a20ac93f45dbc81e67dbd1e802ed9482fcb8ca`
+- Category: Proposed and Unimplemented Systems
+- Disposition: Retain in docs-design unless implementation is verified
+- Heading disposition:
+  - [x] Line 3: # **Management Summary REST Interfaces over Message Queues** — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 5: ### Purpose — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 11: ### Strategic Motivations — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 23: ### **Core Risks / Technical Trade-offs** — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 59: ### **Mitigation Summary (what we can realistically do)** — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 94: ### Quantitative Impacts (approximate) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 107: ### **Systemic Principles** — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 127: ### **Where REST-over-MQ Makes Sense** — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 144: ### **Where It Should Be Rejected** — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 161: ### Bottom Line — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 169: ## Appendix. Systems that Offer a REST Messaging API — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 171: ### Solace REST Messaging API — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 177: ### IBM MQ REST Messaging & Admin — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/transactional-rest-api/mq-rest-client-discussion.md`
+
+- SHA-256: `61b0eeb6c8651b34a2782867d83aaeb9bba4b3e2d7b49fe1d30328af2793d1ab`
+- Category: Proposed and Unimplemented Systems
+- Disposition: Retain in docs-design unless implementation is verified
+- Heading disposition:
+  - [x] Line 3: # REST Interfaces over Message Queues: Architecture, Trade-offs, and Mitigation — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 5: ### Author — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 11: ### Last Updated — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 17: ## 1. Context and Objective — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 37: ## 2. Typical Motivations — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 39: ### 2.1 Why some teams prefer REST over MQ — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 53: ### 2.2 Systems theory & architecture drivers — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 62: ### 2.3 Networking & protocol realities (why HTTP “just works”) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 68: ### 2.4 Reliability & queueing theory (why queues help—but HTTP can clash) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 78: ### 2.5 Distributed-systems constraints you’re dealing with — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 90: ### 2.6 Economics (why the trade-off might work) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 96: ### 2.7 When the motivations are valid vs. invalid — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 109: ### 2.8 Decision checklist (quick yes/no) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 119: ### Distributed-systems constraints in computer science — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 127: ## 3. Key Feature Degradation and Associated Risks — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 152: ## 4. Ranked Criticality with Quantitative Characteristics — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 177: ### Quantitative Comparison (Baseline vs REST) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 191: ## 5. Synchronous vs Asynchronous Concerns (Reference) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 216: ## 6. Mitigation Matrix (same canonical order; includes Sync/Async) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 239: ### Quantitative “Before vs After Mitigation” — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 252: ## 7. Recommended API Surface (Summary) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 254: ### Publish (Producers) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 264: ### Consume (Pull) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 270: ### Stream (Recommended) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 276: ### Dead Letters & Replay — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 281: ### Backpressure — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 288: ## 8. Observability Model — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 300: ## 9. Broker-Specific Guidance — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 302: ### Solace — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 309: ### ActiveMQ Artemis — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 318: ## 10. When a REST Façade is Acceptable — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 334: ## 11. Summary: Typically What You Trade for Simplicity… — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 352: ## 12. Systems that Offer a REST Messaging API — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 354: ### Solace REST Messaging API — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 360: ### IBM MQ REST Messaging & Admin — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 366: ### RabbitMQ / Artemis / Cloud — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 376: ## 13. Mitigation Matrix Detailed + Simple Explanations (keeps same order) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 428: ## 14. Recommended Baseline Settings — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 444: ## 15. Simply Put — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/transactional-rest-api/PEEGEEQ_PLUGIN_MODEL_TRANSACTIONAL_PATTERNS_DESIGN.md`
+
+- SHA-256: `04dcf0b5de38a81c70f909318b4b7d8bdffa94e33facd12923772c1127e54e91`
+- Category: Proposed and Unimplemented Systems
+- Disposition: Retain in docs-design unless implementation is verified
+- Heading disposition:
+  - [x] Line 1: # PeeGeeQ Transactional Pattern Plugin Model — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 9: ## Purpose — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 22: ## Problem under consideration — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 40: ## Candidate plugin boundary — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 53: ## Required product decisions — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 70: ## Entry criteria for implementation — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 83: ## Testing requirements if approved — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 98: ## Relationship to other documents — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 108: ## Historical reconciliation — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+### `docs-design/transactional-rest-api/PEEGEEQ_TRANSACTIONAL_REST_API_DESIGN.md`
+
+- SHA-256: `ad1f95cbf412cd2e1687fab0695f2e9268e2d98244349790b941c8a43ee22ec4`
+- Category: Proposed and Unimplemented Systems
+- Disposition: Retain in docs-design unless implementation is verified
+- Heading disposition:
+  - [x] Line 1: # Transactional REST API Design — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 8: ## Current Implementation Status — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 31: ## Table of Contents — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 51: ## Summary — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 53: ### Overview — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 57: ### Problem — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 65: ### Solution — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 94: ### Benefits — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 109: ## Pattern Overview — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 111: ### Architectural Foundation — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 120: ### Pattern Overview — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 126: ## Core Architectural Decision: Database Schema Separation and Consistency Requirements — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 157: ### Pattern 1: Callback Hook (Same Database) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 264: ### Pattern 2: Saga Orchestration (Separate Databases) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 415: ### Pattern 3: Reservation (Async Two-Phase) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 445: ### Pattern 4: Inversion (Domain-First) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 473: ### Pattern Comparison — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 484: ### Existing Implementation Evidence — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 532: ### Investigation Conclusion — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 546: ## Problem Statement — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 548: ### Current State — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 589: ### Impact — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 608: ### Requirements — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 623: ## Proposed Solution — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 625: ### High-Level Design — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 673: ### Key Principles — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 699: ### Architecture Pattern — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 787: ## Architecture — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 789: ### Architectural Compliance — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 821: ### Component Diagram — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 864: ### Transaction Flow — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 902: ### Key Components — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 984: ## API Design — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 986: ### Relationship to Existing REST API — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1015: ### Pattern 1 API: Callback Hook (Same Database) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1092: ### Pattern 2 API: Saga Orchestration (Separate Databases) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1177: ### Example 1: Pattern 1 (Callback Hook) - Order Creation — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1263: ### Example 2: Pattern 2 (Saga) - Order Creation — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1387: ### Response Codes — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1399: ### Request Validation — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1415: ## Implementation Plan — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1417: ### Phase 1: Foundation (Week 1-2) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1436: ### Phase 2: Core Endpoints (Week 3-4) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1454: ### Phase 3: Advanced Features (Week 5-6) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1472: ### Phase 4: Production Readiness (Week 7-8) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1493: ## Testing Strategy — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1495: ### Unit Tests — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1527: ### Integration Tests — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1623: ### Performance Tests — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1657: ### Load Tests — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1671: ## Security Considerations — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1673: ### 1. Authentication — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1698: ### 2. Authorization — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1717: ### 3. Input Validation — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1756: ### 4. SQL Injection Prevention — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1772: ### 5. Rate Limiting — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1790: ### 6. Audit Logging — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1809: ## Performance Analysis — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1811: ### Transaction Duration Breakdown — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1829: ### Optimization Strategies — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1853: ### Scalability Analysis — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1873: ## Migration Path — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1875: ### For Domain Applications — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 1997: ### For SDK Users — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2014: ### Backward Compatibility — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2032: ## Alternatives Considered — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2034: ### Alternative 1: Arbitrary SQL Execution Endpoint — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2063: ### Alternative 2: Two-Phase Commit Protocol — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2089: ### Alternative 3: Generic Transactional Coordinator (Event Store + Outbox Only) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2116: ### Alternative 4: Batch Endpoint — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2142: ### Alternative 5: Domain-Specific Transactional Endpoints — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2169: ### Alternative 6: Domain Tables in Same Database (Direct SQL Execution via REST) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2307: ### Selected Alternatives: Pattern 1 (Direct SQL) + Pattern 2 (Callback Hook) + Pattern 3 (Saga Orchestration) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2365: ## Decision Points — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2367: ### Decision 1: Domain-Specific vs. Generic Endpoints — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2572: ### Decision 2: Synchronous vs. Asynchronous Response — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2594: # Client waits... — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2668: # Immediate response — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2679: # Client must poll for status — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2857: ### Decision 3: Outbox Inclusion — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2875: # Outbox processor polls outbox table — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2876: # Delivers events to consumers (queues, webhooks, etc.) — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 2877: # Marks events as processed — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3094: ## Options: sendToOutbox — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3121: ### Decision 4: Event Store Inclusion — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3423: ## Options: appendToEventStore — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3466: ### Decision 5: Idempotency Support — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3840: ## Idempotency — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 3883: ### Decision 6: Error Response Format — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 4294: ## Error Responses — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 4313: ### Error Codes — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 4322: ### Transaction Rollback — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 4335: ## References — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 4337: ### Architecture Documentation — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 4349: ### Existing Implementations — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 4367: ### API Interfaces — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 4384: ### Related Documentation — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 4396: ### External References — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 4412: ## Appendix A: Handler Implementation Example — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 4414: ### Complete Handler Implementation — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 4575: ## Appendix B: Request/Response DTOs — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 4577: ### Request DTOs — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 4619: ### Response DTOs — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 4643: ## Appendix C: Detailed Technical Investigation — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 4647: ### Investigation Scope — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 4653: ### Technical Architecture Analysis — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 4718: ### Use Case Analysis — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 4784: ### Benefits Analysis — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 4846: ### Comparison with Existing Patterns — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 4859: ### Implementation Analysis — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 4882: ### Risk Analysis — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 4901: ### Investigation Conclusion — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 4923: ## Appendix D: Proposed Call Propagation Grid Entry — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+  - [x] Line 4927: ### 9.11 Transactional Operations — destination or retention: retained in source as proposed or discussion material; indexed in `docs/PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md`
+
+## Previously changed source verified against Git history
+
+The original document text is preserved intact at
+`docs-design/_archived/GUARANTEED_ORDERING_CONCURRENT_CONSUMERS_ANALYSIS.md`.
+
+- Original commit: `7db748b8e77f3aba850be7b73547d192dac5b83f`
+- Original Git blob: `fbdd8e7aea4e2ba7b79782f3835b94b786a50083`
+- Archive note: the archived text has one terminating LF added by the patch workflow; the original
+  byte-exact blob remains permanently addressable by the Git identity above.
+- Maintained destination: `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md`
+- Historical detail destination: the archived original above
+
+Heading disposition:
+
+- [x] Document title — maintained guide title and archived original.
+- [x] Executive Summary — Ordering Guide Sections 1, 2, 6, and 7; detailed historical wording retained.
+- [x] Problem Analysis — Ordering Guide Section 1; detailed failure investigation retained.
+- [x] The Core Trade-Off — Ordering Guide Sections 1 and 2.
+- [x] When Ordering Matters — Ordering Guide Section 1.
+- [x] EventSourcingCQRSDemoTest Failure Analysis — Ordering Guide verification section; complete
+  incident analysis retained in the archived original.
+- [x] Existing Solution: OFFSET_WATERMARK Mode — Ordering Guide Section 4.
+- [x] Architecture Overview — Ordering Guide Section 4.
+- [x] How Ordering Is Guaranteed — Ordering Guide Section 4 safety sequence and mechanisms.
+- [x] The default-partition critical behavior — Ordering Guide Sections 2 and 4.
+- [x] Operational Caveats and Lifecycle — Ordering Guide operational boundaries; superseded
+  heartbeat claims remain visible in the archived original.
+- [x] Decision 1: Adopt OFFSET_WATERMARK Mode — Ordering Guide Sections 2, 4, and 7.
+- [x] Decision 2: Exclusive Consumer — Ordering Guide Section 7 as an unapproved design.
+- [x] Cross-Module API Alignment — implemented boundaries are in the Ordering Guide; proposed and
+  historical details remain in the archived original.
+- [x] Decision — Ordering Guide Section 7.
+- [x] Recommendation — Ordering Guide Sections 2 and 7.
+- [x] Implementation Plan — results are represented in Ordering Guide Sections 4 and 6; the full
+  phased plan remains archived.
+- [x] TDD Ordering — retained as historical implementation procedure.
+- [x] Phase 1 Documentation — completed result is the maintained guide; procedure retained.
+- [x] Phase 2 EventSourcingCQRSDemoTest — verification surface recorded in Section 6; detail retained.
+- [x] Phase 3 PartitionedOrderingDemoTest — verification surface recorded in Section 6; detail retained.
+- [x] Phase 4 Safety Tests — verification surfaces recorded in Section 6; detail retained.
+- [x] Phase 5 User Guide Updates — completed result is the maintained guide.
+- [x] Phase 6 Exclusive Consumer — Ordering Guide Section 7; complete proposal retained.
+- [x] Phase 7 Native-Table Engine — Ordering Guide Section 7; complete proposal retained.
+- [x] Success Criteria — current release status is in Section 6; historical criteria retained.
+- [x] Functional — current contract is in Sections 2 and 4; historical checklist retained.
+- [x] Educational — maintained guide organization and archived checklist.
+- [x] Technical — Section 6 and archived checklist.
+- [x] Open Questions for Review — resolved decisions are in Section 7; unresolved context retained.
+- [x] References — Ordering Guide Related Documentation and archived reference list.
+- [x] Existing Implementation — maintained architecture references and archived source paths.
+- [x] Design Documents — maintained related-document links and archived list.
+- [x] Database Schema — Ordering Guide configuration and safety mechanisms; detail retained.
+- [x] Appendix Comparison Table — Ordering Guide Section 2 decision matrix.
+- [x] Approval and Sign-Off — retained as historical governance detail.
+
+The deletion from the former `docs-design/analysis` location is acceptable only together with the
+archived original and updated inbound links.
+
+## Completion gate
+
+This ledger is complete only when every heading checkbox is checked, every preliminary route has
+been replaced by an exact destination or retention location, all source fingerprints are still
+recoverable, and the final link scan passes.

@@ -64,7 +64,7 @@ public interface BiTemporalEvent<T> {
 The first event in a chain has no parent, so `causationId` is `null`:
 
 ```java
-BiTemporalEvent<Order> orderEvent = eventStore.append(
+Future<BiTemporalEvent<Order>> orderEventFuture = eventStore.append(
     "OrderCreated",
     orderPayload,
     Instant.now(),
@@ -72,10 +72,11 @@ BiTemporalEvent<Order> orderEvent = eventStore.append(
     "workflow-123",    // correlationId - same for entire workflow
     null,              // causationId - null for root event
     "ORDER-456"        // aggregateId
-).join();
+);
 
-// Store the event ID for child events
-String orderId = orderEvent.getEventId();
+orderEventFuture
+    .onSuccess(orderEvent -> useEventId(orderEvent.getEventId()))
+    .onFailure(error -> logger.error("Failed to append root event", error));
 ```
 
 ### Pattern 2: Child Event (Caused by Parent)
@@ -83,15 +84,15 @@ String orderId = orderEvent.getEventId();
 Subsequent events reference their parent's event ID:
 
 ```java
-BiTemporalEvent<Payment> paymentEvent = eventStore.append(
-    "PaymentProcessed",
-    paymentPayload,
-    Instant.now(),
-    Map.of("source", "payment-gateway"),
-    "workflow-123",           // Same workflow
-    orderEvent.getEventId(),  // causationId - this event was caused by the order
-    "ORDER-456"               // Same aggregate
-).join();
+Future<BiTemporalEvent<Payment>> paymentEventFuture = orderEventFuture.compose(orderEvent ->
+    eventStore.append(
+        "PaymentProcessed",
+        paymentPayload,
+        Instant.now(),
+        Map.of("source", "payment-gateway"),
+        "workflow-123",           // Same workflow
+        orderEvent.getEventId(),  // causationId - this event was caused by the order
+        "ORDER-456"));             // Same aggregate
 ```
 
 ### Pattern 3: Event Chain (Grandchild Event)
@@ -99,15 +100,15 @@ BiTemporalEvent<Payment> paymentEvent = eventStore.append(
 Build deeper chains by continuing the pattern:
 
 ```java
-BiTemporalEvent<Shipment> shipmentEvent = eventStore.append(
-    "OrderShipped",
-    shipmentPayload,
-    Instant.now(),
-    Map.of("source", "warehouse"),
-    "workflow-123",             // Same workflow
-    paymentEvent.getEventId(),  // Caused by payment confirmation
-    "ORDER-456"                 // Same aggregate
-).join();
+Future<BiTemporalEvent<Shipment>> shipmentEventFuture = paymentEventFuture.compose(paymentEvent ->
+    eventStore.append(
+        "OrderShipped",
+        shipmentPayload,
+        Instant.now(),
+        Map.of("source", "warehouse"),
+        "workflow-123",             // Same workflow
+        paymentEvent.getEventId(),  // Caused by payment confirmation
+        "ORDER-456"));               // Same aggregate
 ```
 
 ### Resulting Event Chain
@@ -175,21 +176,22 @@ curl "http://localhost:8080/api/v1/eventstores/{setupId}/{storeName}/events?caus
 ### Order Processing Saga
 
 ```java
-// 1. Order Created (root)
-var orderEvent = eventStore.append("OrderCreated", order, now, headers, 
-    "saga-" + orderId, null, orderId).join();
+Future<BiTemporalEvent<OrderConfirmation>> sagaFuture =
+    eventStore.append("OrderCreated", order, now, headers,
+        "saga-" + orderId, null, orderId)
+    .compose(orderEvent ->
+        eventStore.append("InventoryReserved", inventory, now, headers,
+            "saga-" + orderId, orderEvent.getEventId(), orderId))
+    .compose(inventoryEvent ->
+        eventStore.append("PaymentProcessed", payment, now, headers,
+            "saga-" + orderId, inventoryEvent.getEventId(), orderId))
+    .compose(paymentEvent ->
+        eventStore.append("OrderConfirmed", confirm, now, headers,
+            "saga-" + orderId, paymentEvent.getEventId(), orderId));
 
-// 2. Inventory Reserved (caused by order)
-var inventoryEvent = eventStore.append("InventoryReserved", inventory, now, headers,
-    "saga-" + orderId, orderEvent.getEventId(), orderId).join();
-
-// 3. Payment Processed (caused by inventory reservation)
-var paymentEvent = eventStore.append("PaymentProcessed", payment, now, headers,
-    "saga-" + orderId, inventoryEvent.getEventId(), orderId).join();
-
-// 4. Order Confirmed (caused by payment)
-var confirmEvent = eventStore.append("OrderConfirmed", confirm, now, headers,
-    "saga-" + orderId, paymentEvent.getEventId(), orderId).join();
+sagaFuture
+    .onSuccess(confirmEvent -> logger.info("Order saga completed: {}", confirmEvent.getEventId()))
+    .onFailure(error -> logger.error("Order saga failed", error));
 ```
 
 ### Correction Events
@@ -197,17 +199,20 @@ var confirmEvent = eventStore.append("OrderConfirmed", confirm, now, headers,
 When correcting a previous event, reference the original as the cause:
 
 ```java
-// Original event
-var originalEvent = eventStore.append("PaymentProcessed", originalPayment, 
-    originalTime, headers, correlationId, null, aggregateId).join();
+Future<BiTemporalEvent<Payment>> correctionFuture =
+    eventStore.append("PaymentProcessed", originalPayment,
+        originalTime, headers, correlationId, null, aggregateId)
+    .compose(originalEvent ->
+        eventStore.append("PaymentProcessed", correctedPayment,
+            correctedTime,
+            Map.of("correction", "true", "reason", "Wrong amount"),
+            correlationId,
+            originalEvent.getEventId(),  // Caused by the event being corrected
+            aggregateId));
 
-// Correction references the original
-var correctionEvent = eventStore.append("PaymentProcessed", correctedPayment,
-    correctedTime, 
-    Map.of("correction", "true", "reason", "Wrong amount"),
-    correlationId,
-    originalEvent.getEventId(),  // Caused by the event being corrected
-    aggregateId).join();
+correctionFuture
+    .onSuccess(correctionEvent -> logger.info("Correction appended: {}", correctionEvent.getEventId()))
+    .onFailure(error -> logger.error("Failed to append correction", error));
 ```
 
 ### Command-Event Pattern (CQRS)

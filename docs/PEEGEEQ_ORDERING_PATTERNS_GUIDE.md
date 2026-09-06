@@ -1,6 +1,12 @@
 # PeeGeeQ Ordering Patterns Guide
 *© Mark Andrew Ray-Smith Cityline Ltd 2025*  
-*Version 1.0*
+*Version 1.1*
+
+**Status:** IMPLEMENTED BASELINE — PRE-GA VALIDATION OPEN
+
+**Last reconciled:** 2026-09-06
+
+**Repository baseline:** `7db748b8e77f3aba850be7b73547d192dac5b83f`
 
 **How to choose and apply the right ordering model for your workload.**
 
@@ -15,6 +21,8 @@
 3. [Pattern 1 Simple Consumer with Idempotent Handlers](#3-pattern-1--simple-consumer-with-idempotent-handlers)
 4. [Pattern 2 Partitioned Consumption (OFFSET_WATERMARK)](#4-pattern-2--partitioned-consumption-offset_watermark)
 5. [Migration Guide: Simple → Partitioned](#5-migration-guide-simple--partitioned)
+6. [Verification and Release Status](#6-verification-and-release-status)
+7. [Decisions and Future Boundaries](#7-decisions-and-future-boundaries)
 
 ---
 
@@ -70,7 +78,7 @@ The correct fix is to guarantee that messages for the same logical entity are de
 |---|---|---|
 | **Throughput** | Highest no coordination overhead | High parallel across partitions, serial within each |
 | **Per-key ordering** | Not guaranteed | ✅ Guaranteed per `messageGroup` |
-| **Global ordering** | Not guaranteed | Not guaranteed (see Phase 6 deferred design) |
+| **Global ordering** | Not guaranteed | Not provided (see [Section 7](#7-decisions-and-future-boundaries)) |
 | **Multiple instances** | Fully concurrent | Partitions distributed across instances |
 | **Setup complexity** | Minimal | Requires topic configuration + partition key design |
 | **Idempotency requirement** | Always recommended | Required at-least-once still applies |
@@ -170,15 +178,36 @@ Use a `ConsumerGroup` with OFFSET_WATERMARK mode when messages for the same logi
 
 ### How the ordering guarantee works
 
-Four cooperating mechanisms enforce the guarantee end-to-end:
+For a topic configured as `OFFSET_WATERMARK`, the implementation applies this sequence to every
+assigned partition:
 
-1. **Schema UNIQUE constraint** `outbox_partition_assignments(topic, group_name, partition_key)` is physically unique. Two consumers cannot claim the same partition simultaneously; the second `INSERT` fails at the database level.
+1. The assignment service gives each discovered partition to one consumer-group instance for the
+   current generation.
+2. An in-memory guard allows at most one fetch-and-handle chain for that partition in an engine.
+3. The engine fetches rows after the committed cursor in ascending message identifier order.
+4. Row locking prevents simultaneous fetches from claiming the same message row.
+5. Handler invocations within the partition are composed sequentially.
+6. The committed offset advances only after the complete batch succeeds.
+7. A rebalance increments the generation, fencing a displaced owner from advancing the current
+   cursor.
+8. Periodic heartbeat and assignment reconciliation refresh liveness and remove ownership that
+   the instance no longer holds.
 
-2. **Serialized rebalance** `joinGroup` and `leaveGroup` both lock the subscription row via `UPDATE ... RETURNING` inside a transaction. Concurrent joins queue behind this row lock and execute one at a time.
+The supporting safety mechanisms are:
 
-3. **Generation fencing on offset commits** Every rebalance increments `rebalance_generation`. Offset commits include `AND generation = $X` in their `WHERE` clause. A displaced consumer's commits match zero rows and are silently rejected; the new owner re-processes from the last committed cursor.
+| Mechanism | Purpose |
+|---|---|
+| Unique assignment row | Prevents two committed assignment records for the same topic, group, and partition |
+| Transactionally serialized rebalance | Prevents partially visible assignment changes |
+| Generation fencing | Rejects offset changes made by an owner from an earlier rebalance |
+| Row locking during fetch | Prevents simultaneous fetches from locking the same message row |
+| Per-partition in-progress guard | Prevents overlapping batches in one engine |
+| Offset commit after successful handling | Replays a failed or interrupted batch from the last committed point |
+| Periodic heartbeat and assignment reconciliation | Refreshes liveness and replaces the engine's in-memory ownership snapshot |
 
-4. **`SKIP LOCKED` on fetch queries** During a rebalance window, if both the old and new owner momentarily issue a fetch for the same partition, `SKIP LOCKED` ensures each row is locked by at most one of them. Combined with generation fencing, the net effect is: per-partition message order is preserved across rebalance windows.
+These controls protect ordering and the queue cursor. They do not make application side effects
+exactly once. A handler already running during a rebalance may finish before its stale cursor update
+is rejected, so handlers must remain idempotent and replay-safe.
 
 ### Step 1 Configure the topic
 
@@ -257,7 +286,10 @@ account-002 events → partition-1 → Consumer instance B (sequential)
 account-003 events → partition-2 → Consumer instance A (sequential)
 ```
 
-Each partition is processed sequentially; different partitions are processed in parallel. Adding consumer instances triggers a rebalance that redistributes partitions, scaling throughput linearly.
+Each partition is processed sequentially; different partitions can be processed in parallel. Adding
+consumer instances triggers a rebalance that redistributes partitions. The resulting throughput
+depends on partition cardinality, key skew, handler cost, and database capacity; it must be measured
+for the target deployment rather than assumed to scale linearly.
 
 ### The `__default__` partition critical behaviour
 
@@ -271,31 +303,38 @@ When a producer calls `send(payload)` without a `messageGroup`, the message is s
 
 **Rule**: Always set `messageGroup` on every `send()` call when using OFFSET_WATERMARK. The `__default__` partition exists as a safety net, not a recommended usage pattern.
 
-### Operational caveats
+### Operational boundaries
 
-These are documented contracts of the current implementation, not bugs.
+These are documented contracts of the current implementation.
 
-#### Caveat 1 Partition discovery is point-in-time at join
+#### Partition discovery occurs during rebalance
 
-`joinGroup` discovers partitions by querying `PENDING`/`PROCESSING` rows at the moment of the call. If no rows exist at join time, `assignedPartitions` is empty and the engine sits idle.
+`joinGroup` discovers partitions from the active outbox rows visible during the rebalance. If no rows
+exist at that point, the initial assignment can be empty. A `message_group` value that first appears
+after the rebalance is not made assignable by the heartbeat cycle alone; discovery requires a later
+join or leave to trigger another rebalance.
 
-A rebalance is triggered only by another `joinGroup` or `leaveGroup`. There is no periodic rediscovery.
+Deployments with unbounded or late-appearing partition keys must account for this lifecycle. Where
+the key set is known, publish at least one pending message for each intended key before the initial
+group join. Otherwise, provide an operational rebalance strategy until a separately approved
+discovery mechanism exists.
 
-**Implication**: Ensure at least one `PENDING` message exists for each intended partition key before the first consumer joins, or defer `start(...)` until after the first batch of events has been published.
+#### Heartbeat and assignment reconciliation are periodic
 
-#### Caveat 2 The engine does not emit heartbeats
+`PartitionedConsumerEngine` periodically updates its heartbeat and reconciles its current database
+assignments. Reconciliation initializes missing cursor state, drops partitions no longer owned by
+the instance, and picks up ownership changes produced by a rebalance. It does not discover new
+partition keys independently.
 
-`PartitionAssignmentService.heartbeat(...)` exists and updates `last_heartbeat_at` in `outbox_partition_assignments`, but `PartitionedConsumerEngine` does not call it. The `last_heartbeat_at` column reflects assignment time, not consumer liveness. Operators cannot use it to detect zombie instances.
+Operators should monitor assignment-heartbeat age, rebalance churn, pending-offset age, watermark
+lag, and sustained stale-generation commit rejection.
 
-Alert instead on the log line `"Offset commit rejected (stale generation)"` sustained occurrence indicates a fenced instance that should be restarted.
+#### At-least-once delivery still applies
 
-#### Caveat 3 New partition keys after join require a rebalance
-
-A `message_group` value that first appears in `outbox` *after* a consumer instance has joined is not in `assignedPartitions`. Those rows accumulate as `PENDING` until a rebalance event redistributes partitions.
-
-#### Caveat 4 At-least-once delivery still applies
-
-OFFSET_WATERMARK guarantees per-partition order. It does not guarantee exactly-once. Duplicates occur on consumer restart before offset commit, on stale-generation rejection followed by retry, and on rebalance windows. Consumer handlers must remain idempotent.
+`OFFSET_WATERMARK` guarantees per-partition order; it does not guarantee exactly-once application
+effects. A failed or interrupted batch replays from the last committed cursor. Replays can also
+follow consumer restart, generation rejection, or a rebalance window. Consumer handlers must remain
+idempotent.
 
 ---
 
@@ -373,9 +412,77 @@ group.start(SubscriptionOptions.builder().startPosition(StartPosition.FROM_BEGIN
 
 ---
 
+## 6. Verification and Release Status
+
+The ordered-consumption implementation baseline is complete. Maintained verification surfaces
+cover:
+
+- `EventSourcingCQRSDemoTest` for ordered CQRS projection updates;
+- `PartitionedOrderingDemoTest` for per-key order, cross-partition concurrency, the default
+  partition, and restart behaviour;
+- `PartitionedConsumerSafetyIntegrationTest` for discovery and failed-batch redelivery boundaries;
+- `PartitionAssignmentIntegrationTest` for assignment, rebalance, generation, and heartbeat
+  behaviour;
+- `PartitionedFetcherIntegrationTest` and `PartitionedOffsetManagerIntegrationTest` for fetch and
+  cursor correctness; and
+- `PartitionedNativeConsumerIntegrationTest` plus consumer-group fault tests for lifecycle and
+  failure paths.
+
+Historical test counts describe only the revisions on which they were recorded. The
+[consolidated task register](../docs-design/tasks/tasks.md) is authoritative for accepted current
+verification.
+
+### Remaining pre-GA gates
+
+The only approved outstanding ordering work is the evidence required by
+[consolidated Task 6](../docs-design/tasks/tasks.md#6-partitioned-consumption-pre-ga-gates):
+
+- long-duration partition and fan-out stability;
+- consumer death, lease expiry, rebalance, and recovery chaos;
+- database contention and connection-pool pressure;
+- tenant and schema isolation under concurrent activity;
+- cleanup correctness after interrupted processing; and
+- a documented performance envelope from a controlled environment.
+
+The implementation is not declared generally available from static inspection alone. Those gates
+require dated, reproducible runtime evidence.
+
+---
+
+## 7. Decisions and Future Boundaries
+
+The current ordering decisions are:
+
+- `REFERENCE_COUNTING` remains the default topic mode.
+- `OFFSET_WATERMARK` remains an explicit opt-in.
+- Producers supply an explicit partition key; hidden reflection or annotation-based extraction is
+  not part of the contract.
+- A consumer-side version guard is an idempotency fence, not an ordering mechanism.
+- Per-partition ordering does not imply exactly-once application effects.
+- Total global ordering and a dedicated native-table partition fetch path require separate product
+  decisions.
+
+### Evaluated but unapproved designs
+
+**Total global ordering.** A single active consumer guarded by a PostgreSQL session advisory lock
+could provide total order for an entire topic. It would trade horizontal throughput for
+active/passive failover and require a dedicated session, explicit fencing semantics, lifecycle
+tests, and operator guidance. It is not implemented or scheduled.
+
+**Native-table partition fetch parity.** A dedicated fetcher for `queue_messages` could combine the
+native storage path with the watermark contract. Before such work is approved, the project must
+establish a concrete latency requirement, cursor ownership, notification/fetch interaction, schema
+indexes, and compatibility tests. It is not an approved implementation task.
+
+No unchecked item from the superseded guaranteed-ordering analysis is a separate live task.
+
+---
+
 ## Related Documentation
 
-- [PeeGeeQ Complete Guide](PEEGEEQ_COMPLETE_GUIDE.md) end-to-end tutorial and configuration reference
+- [Getting Started](PEEGEEQ_GETTING_STARTED.md) maintained entry path and guide selection
 - [PeeGeeQ Architecture & API Reference](PEEGEEQ_ARCHITECTURE_API_GUIDE.md) `PartitionedConsumerEngine`, `PartitionAssignmentService`, `PartitionedOffsetManager` internals
 - [PeeGeeQ Examples Guide](PEEGEEQ_EXAMPLES_GUIDE.md) `PartitionedOrderingDemoTest`, `EventSourcingCQRSDemoTest`, and other runnable examples
 - [Transactional Outbox Patterns Guide](PEEGEEQ_TRANSACTIONAL_OUTBOX_PATTERNS_GUIDE.md) foundational outbox patterns that OFFSET_WATERMARK builds on
+- [Partitioned Consumption Design](../docs-design/consumer-groups/PEEGEEQ_PARTITIONED_CONSUMPTION_DESIGN.md) implemented internals and design invariants
+- [Consolidated Task Register](../docs-design/tasks/tasks.md) authoritative remaining implementation and release work

@@ -1059,10 +1059,10 @@ Map<String, String> params = Map.of(
 public class OrderController {
     
     @PostMapping("/orders")
-    public void createOrder(@RequestHeader("X-Tenant-Id") String tenantId, 
-                           @RequestBody Order order) {
+    public Future<Void> createOrder(@RequestHeader("X-Tenant-Id") String tenantId,
+                                    @RequestBody Order order) {
         // All tenants use same table
-        queue.send(order);  // queue_messages table
+        return queue.send(order);  // queue_messages table
         
         // Problem: Millions of rows from all tenants in one table
         // Problem: Indexes cover all tenants (slower queries)
@@ -1081,16 +1081,13 @@ public class OrderController {
     private TenantQueueService tenantQueueService;
     
     @PostMapping("/orders")
-    public CompletableFuture<Void> createOrder(
+    public Future<Void> createOrder(
             @RequestHeader("X-Tenant-Id") String tenantId,
             @RequestBody Order order) {
-        
-        // Spring MVC async controller: return a NON-BLOCKING CompletableFuture.
-        // toCompletionStage()/toCompletableFuture() only bridge a Vert.x Future to Spring's
-        // CompletableFuture at the controller boundary — this is not a blocking .get().
+
+        // Keep the Vert.x Future intact across the application boundary.
         return tenantQueueService.getOrCreateTenantProducer(tenantId)
-            .thenCompose(producer -> producer.send(order).toCompletionStage())  // send() → Future<Void>
-            .toCompletableFuture();
+            .compose(producer -> producer.send(order));
     }
 }
 
@@ -1099,9 +1096,9 @@ public class TenantQueueService {
     
     private final Map<String, MessageProducer<Order>> tenantProducers = new ConcurrentHashMap<>();
     
-    public CompletableFuture<MessageProducer<Order>> getOrCreateTenantProducer(String tenantId) {
+    public Future<MessageProducer<Order>> getOrCreateTenantProducer(String tenantId) {
         if (tenantProducers.containsKey(tenantId)) {
-            return CompletableFuture.completedFuture(tenantProducers.get(tenantId));
+            return Future.succeededFuture(tenantProducers.get(tenantId));
         }
         
         // Use templates to create tenant-specific queue
@@ -1111,7 +1108,7 @@ public class TenantQueueService {
             .build();
         
         return setupService.addQueue(setupId, config)
-            .thenApply(v -> {
+            .map(v -> {
                 // Templates created (per queue):
                 //   - peegeeq.tenant_acme_orders table (LIKE queue_template INCLUDING ALL)
                 //   - 8 dedicated indexes (only for this tenant)
@@ -1144,7 +1141,7 @@ Integration tests verify that dynamic queue creation works correctly:
 void testDynamicQueueCreation_ValidatesProductionCapability(Vertx vertx, VertxTestContext testContext) {
     // This test validates the production feature of creating queues dynamically
     
-    // Create two queues (simulates onboarding two tenants), composed — no blocking .get()
+    // Create two queues (simulates onboarding two tenants) as one asynchronous chain.
     QueueConfig config1 = new QueueConfig.Builder().queueName("tenant_1_orders").build();
     QueueConfig config2 = new QueueConfig.Builder().queueName("tenant_2_orders").build();
 
@@ -1160,7 +1157,6 @@ void testDynamicQueueCreation_ValidatesProductionCapability(Vertx vertx, VertxTe
         }))
         .onFailure(testContext::failNow);
 }
-```
 ```
 
 ### Template Tables and `LIKE ... INCLUDING ALL`
@@ -1269,7 +1265,7 @@ CREATE INDEX idx_queue_topic ON ...; -- Statement 4
 3. Test execution order caused accidental success
 4. Only verified 4 of 30+ database objects
 
-**See**: [VERTX_MULTISTATEMENT_SQL_BUG_ANALYSIS.md](devtest/VERTX_MULTISTATEMENT_SQL_BUG_ANALYSIS.md) for complete analysis.
+**See**: [Vert.x multi-statement SQL bug analysis](../docs-design/_archived/VERTX_MULTI-STATEMENT_SQL_BUG_ANALYSIS.md) for the historical investigation.
 
 **Solution**: Split into one statement per file, execute sequentially:
 
@@ -2192,7 +2188,7 @@ public class QueueIntegrationTest {
             .eventStores(eventStores)
             .build();
         
-        // Reactive: compose on the Vert.x Future; never block with .get().
+        // Compose on the Vert.x Future and complete the test from its callbacks.
         setupService.createCompleteSetup(request)
             .onSuccess(result -> {
                 setupResult = result;
@@ -2414,7 +2410,7 @@ Apply the Consumer Group Fanout schema **AFTER** the REST API creates the databa
 ```java
 @BeforeAll
 void setupDatabase(Vertx vertx, VertxTestContext testContext) {
-    // Step 1 + 2: deploy the REST server, then create the database via REST — all composed (no .get()).
+    // Step 1 + 2: deploy the REST server, then create the database via REST as one chain.
     vertx.deployVerticle(new PeeGeeQRestServer(port, setupService))
         .compose(id -> {
             JsonObject createRequest = new JsonObject()
@@ -2625,12 +2621,12 @@ public class TenantQueueService {
     private final Map<String, QueueFactory> tenantFactories = new ConcurrentHashMap<>();
     
     // Returns a producer for the tenant's topic (create a consumer the same way via createConsumer).
-    public CompletableFuture<MessageProducer<Order>> getOrCreateTenantProducer(String tenantId) {
+    public Future<MessageProducer<Order>> getOrCreateTenantProducer(String tenantId) {
         String queueName = "tenant_" + tenantId + "_orders";
         
         // Reuse the factory if the queue already exists
         if (tenantFactories.containsKey(queueName)) {
-            return CompletableFuture.completedFuture(
+            return Future.succeededFuture(
                 tenantFactories.get(queueName).createProducer(queueName, Order.class)
             );
         }
@@ -2643,7 +2639,7 @@ public class TenantQueueService {
             .build();
         
         return setupService.addQueue(setupId, config)
-            .thenApply(v -> {
+            .map(v -> {
                 // Create the queue factory (native/outbox) for this tenant
                 QueueFactory factory = createQueueFactory();
                 tenantFactories.put(queueName, factory);
@@ -2663,17 +2659,17 @@ public class TenantController {
     private TenantQueueService tenantQueueService;
     
     @PostMapping("/{tenantId}/orders")
-    public CompletableFuture<OrderResponse> createOrder(
+    public Future<OrderResponse> createOrder(
             @PathVariable String tenantId,
             @RequestBody OrderRequest request) {
         
         // Get or create tenant-specific queue
         return tenantQueueService.getOrCreateTenantQueue(tenantId)
-            .thenCompose(queue -> {
+            .compose(queue -> {
                 Order order = new Order(tenantId, request);
                 return queue.send(order);
             })
-            .thenApply(msg -> new OrderResponse(msg.getId()));
+            .map(ignored -> new OrderResponse(request.orderId()));
     }
 }
 ```
@@ -2708,13 +2704,12 @@ public class FeatureQueueManager {
             .build();
         
         setupService.addQueue(setupId, config)
-            .thenRun(() -> {
+            .onSuccess(ignored -> {
                 activeQueues.add(queueName);
                 logger.info("Queue {} created and ready", queueName);
             })
-            .exceptionally(ex -> {
+            .onFailure(ex -> {
                 logger.error("Failed to create queue for feature: {}", featureName, ex);
-                return null;
             });
     }
 }
@@ -2768,14 +2763,14 @@ Dynamic queue creation is also used during development for:
 public class DevQueueManager {
     
     @PostMapping("/dev/queues/create")
-    public CompletableFuture<String> createDevQueue(@RequestParam String name) {
+    public Future<String> createDevQueue(@RequestParam String name) {
         QueueConfig config = new QueueConfig.Builder()
             .queueName("dev_" + name)
             .maxRetries(1)
             .build();
         
         return setupService.addQueue(setupId, config)
-            .thenApply(v -> "Queue created: dev_" + name);
+            .map(v -> "Queue created: dev_" + name);
     }
 }
 ```
@@ -2794,7 +2789,7 @@ void testDynamicQueueCreation(Vertx vertx, VertxTestContext testContext) {
         .queues(List.of())  // No initial queues
         .build();
 
-    // Compose: create setup, then add a queue dynamically, then verify — no blocking .get().
+    // Compose setup creation, dynamic queue creation, and verification as one chain.
     setupService.createCompleteSetup(request)
         .compose(result -> {
             QueueConfig queueConfig = new QueueConfig.Builder()
@@ -2872,7 +2867,7 @@ Similarly, event stores can be created dynamically:
 /**
  * Create event store dynamically at runtime
  */
-public CompletableFuture<EventStore<OrderEvent>> getOrCreateEventStore(String storeName) {
+public Future<EventStore<OrderEvent>> getOrCreateEventStore(String storeName) {
     EventStoreConfig config = new EventStoreConfig.Builder()
         .eventStoreName(storeName)
         .tableName(storeName + "_log")
@@ -2880,7 +2875,7 @@ public CompletableFuture<EventStore<OrderEvent>> getOrCreateEventStore(String st
         .build();
     
     return setupService.addEventStore(setupId, config)
-        .thenApply(v -> {
+        .map(v -> {
             // Create event store factory
             EventStoreFactory factory = new PeeGeeQEventStoreFactory(manager);
             return factory.createEventStore(
@@ -2961,7 +2956,7 @@ QueueConfig config = new QueueConfig.Builder()
 // addQueue() requires queue_template to already exist.
 
 // ✅ GOOD: createCompleteSetup() applies the base template (which creates queue_template),
-// after which addQueue() can create per-queue tables — composed, no blocking .get()
+// after which addQueue() can create per-queue tables in the same asynchronous chain
 setupService.createCompleteSetup(request)                          // applies base template → queue_template
     .compose(result -> setupService.addQueue(setupId, queueConfig))  // now works
     .onFailure(err -> logger.error("setup failed", err));
@@ -3033,9 +3028,9 @@ public class QueueRegistry {
     
     private final Set<String> createdQueues = ConcurrentHashMap.newKeySet();
     
-    public CompletableFuture<Void> createQueueIfNotExists(String queueName) {
+    public Future<Void> createQueueIfNotExists(String queueName) {
         if (createdQueues.contains(queueName)) {
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         }
         
         QueueConfig config = new QueueConfig.Builder()
@@ -3043,7 +3038,7 @@ public class QueueRegistry {
             .build();
         
         return setupService.addQueue(setupId, config)
-            .thenRun(() -> {
+            .onSuccess(v -> {
                 createdQueues.add(queueName);
                 logger.info("Registered new queue: {}", queueName);
             });
@@ -3062,19 +3057,10 @@ public class QueueRegistry {
 #### 4. Handle Creation Failures Gracefully
 ```java
 // ✅ GOOD: Proper error handling
-public CompletableFuture<MessageProducer<Order>> getOrCreateProducer(String queueName) {
+public Future<MessageProducer<Order>> getOrCreateProducer(String queueName) {
     return createQueueIfNeeded(queueName)
-        .thenApply(v -> queueFactory.createProducer(queueName, Order.class))
-        .exceptionally(ex -> {
-            logger.error("Failed to create queue: {}", queueName, ex);
-            
-            // Check if queue already exists (race condition)
-            if (queueExists(queueName)) {
-                return queueFactory.createProducer(queueName, Order.class);
-            }
-            
-            throw new QueueCreationException("Unable to create queue: " + queueName, ex);
-        });
+        .map(v -> queueFactory.createProducer(queueName, Order.class))
+        .onFailure(error -> logger.error("Failed to create queue: {}", queueName, error));
 }
 ```
 
@@ -3087,21 +3073,24 @@ public class MonitoredQueueService {
     @Autowired
     private MeterRegistry meterRegistry;
     
-    public CompletableFuture<Void> createQueue(QueueConfig config) {
+    public Future<Void> createQueue(QueueConfig config) {
         Timer.Sample sample = Timer.start(meterRegistry);
-        
+
         return setupService.addQueue(setupId, config)
-            .whenComplete((result, error) -> {
+            .onSuccess(result -> {
                 sample.stop(Timer.builder("peegeeq.queue.creation")
                     .tag("queue", config.getQueueName())
-                    .tag("success", error == null ? "true" : "false")
+                    .tag("success", "true")
                     .register(meterRegistry));
-                
-                if (error == null) {
-                    meterRegistry.counter("peegeeq.queue.created").increment();
-                } else {
-                    meterRegistry.counter("peegeeq.queue.creation.failed").increment();
-                }
+                meterRegistry.counter("peegeeq.queue.created").increment();
+            })
+            .onFailure(error -> {
+                sample.stop(Timer.builder("peegeeq.queue.creation")
+                    .tag("queue", config.getQueueName())
+                    .tag("success", "false")
+                    .register(meterRegistry));
+                meterRegistry.counter("peegeeq.queue.creation.failed").increment();
+                logger.error("Queue creation failed: {}", config.getQueueName(), error);
             });
     }
 }
@@ -3171,7 +3160,7 @@ also drops its indexes and trigger; drop the `notify_{queueName}_changes` functi
 //   - notifications_queue
 
 // Dynamic: Tenant-specific queues at runtime
-public CompletableFuture<MessageProducer<Order>> getTenantProducer(String tenantId) {
+public Future<MessageProducer<Order>> getTenantProducer(String tenantId) {
     String queueName = "tenant_" + tenantId + "_orders";
     return getOrCreateProducer(queueName);
 }
@@ -3640,7 +3629,7 @@ void cleanup() {
 - **Faster**: Direct JDBC, no Vert.x startup
 - **Simpler**: No database creation, uses TestContainer database
 - **Granular**: Initialize only what you need
-- **Synchronous**: No CompletableFuture complexity
+- **Direct lifecycle**: No asynchronous service-manager lifecycle is required
 - **Ideal for unit tests**: Testing specific components
 
 ---
@@ -4065,10 +4054,10 @@ Failed to load template: base - Error: Template not found
 
 ## Related Documentation
 
-- **[VERTX_MULTISTATEMENT_SQL_BUG_ANALYSIS.md](devtest/VERTX_MULTISTATEMENT_SQL_BUG_ANALYSIS.md)** - Deep dive into Vert.x SQL execution limitation
-- **[PEEGEEQ_MIGRATIONS_DEPLOYMENT_GUIDE.md](../peegeeq-migrations/PEEGEEQ_MIGRATIONS_DEPLOYMENT_GUIDE.md)** - Production deployment patterns
-- **[PEEGEEQ_MIGRATIONS_README.md](../peegeeq-migrations/PEEGEEQ_MIGRATIONS_README.md)** - Migration module overview
-- **[TESTING-GUIDE.md](devtest/TESTING-GUIDE.md)** - Comprehensive testing guide
+- **[Vert.x multi-statement SQL bug analysis](../docs-design/_archived/VERTX_MULTI-STATEMENT_SQL_BUG_ANALYSIS.md)** - Historical investigation
+- **[Operations Guide](PEEGEEQ_OPERATIONS_GUIDE.md)** - Production deployment and lifecycle guidance
+- **[Contributor Guide](PEEGEEQ_CONTRIBUTOR_GUIDE.md)** - Development and migration workflow
+- **[Testing Guide](PEEGEEQ_TESTING_GUIDE.md)** - Current testing requirements
 - **[PEEGEEQ_COMPLETE_GUIDE.md](PEEGEEQ_COMPLETE_GUIDE.md)** - Full system architecture
 
 ---
