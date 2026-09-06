@@ -1,10 +1,10 @@
 # PeeGeeQ Consolidated Task Register
 
 **Status:** ACTIVE
-**Last reconciled:** 2026-09-05
-**Repository revision reviewed:** `19e3cbdb` plus the Tasks 4.2–4.6 and Task 7 working-tree implementation
+**Last reconciled:** 2026-09-06
+**Repository revision reviewed:** `7db748b8` (`feat(bitemporal): complete durable subscriptions and Jenkins UI reporting`)
 **Recorded from-beginning release baseline:** Jenkins build #36 at `e8d07e53`
-**Latest successful resumed gate:** Jenkins build #48 at `19e3cbdb` plus the checksummed Task 7 working-tree overlay (both UI modules only)
+**Latest successful resumed gate:** Jenkins build #48 at `19e3cbdb` plus the checksummed pre-commit Task 7 overlay (both UI modules only); those implementation files are now committed in `7db748b8`
 
 This is the **only live task register** under `docs-design`. Do not derive current work from
 handover notes, design proposals, unchecked boxes in archived plans, or historical narrative.
@@ -20,7 +20,7 @@ Those documents provide context only. New work must be added here before impleme
 - The approximately 90-minute `-Pall-tests` run is an explicit release gate, not the normal
   edit/test loop.
 - No Mockito or substitute mocking framework.
-- No blocking Future bridges, `Thread.sleep`, `LockSupport.parkNanos`, error swallowing, or
+- No blocking Future bridges, fixed-duration thread delays, error swallowing, or
   unobserved Futures.
 
 ## Verification Baseline
@@ -114,7 +114,7 @@ at the current revision:
   bitemporal metadata model. The final API scope passed 34/34: `SubscriptionOptionsDurableTest`
   6/6, `BiTemporalSubscriptionInfoTest` 2/2, and the existing `SubscriptionOptionsValidationTest`
   26/26. The six-module bitemporal dependency slice compiled cleanly and async guards passed 9/9.
-- Durable subscriptions Task 4.2 (2026-09-05, local working tree): the initial contract failed
+- Durable subscriptions Task 4.2 (implemented 2026-09-05; committed in `7db748b8`): the initial contract failed
   compilation on the missing coordinator/factory. A separate delivery-boundary contract then
   failed 1/1 when metadata registration incorrectly reported subscription success; registration
   is now a separate operation and durable delivery fails explicitly until implemented. The first
@@ -125,7 +125,7 @@ at the current revision:
   `SubscriptionOptionsDurableTest` 6/6, `BiTemporalSubscriptionInfoTest` 2/2,
   `SubscriptionOptionsValidationTest` 26/26 (nested classes: Builder 11, Equals/HashCode 4,
   ToString 1, EdgeCase 7, FluentAPI 3), and `OnSuccessExceptionSwallowingGuardTest` 8/8.
-  All 80 final checks passed without failures/errors/skips. This is focused local evidence,
+  All 80 final checks passed without failures/errors/skips. This is focused developer-machine evidence,
   not a Jenkins rerun or a new full-suite release gate.
 - Outbox capacity/filter fairness (`1dd6741b`): failing starvation and capacity contracts
   preceded the fix; the focused integration scope passed 74 tests and the async guard passed 8.
@@ -218,15 +218,15 @@ consumer and non-default behavioral evidence.
 **Priority:** High
 **Status:** COMPLETE — 2026-09-02
 
-All executable `Thread.sleep` and `LockSupport.parkNanos` calls covered by the workspace test
-guard have been removed. The `blocking-exempt` policy and empty Tier-5 baseline were deleted;
+All executable fixed-duration blocking delays covered by the workspace test guard have been
+removed. The `blocking-exempt` policy and empty Tier-5 baseline were deleted;
 the guard now enforces zero tolerance for both blocking calls and exemption annotations.
 
 Required phase order:
 
 1. **COMPLETE — 2026-09-02.** `CircuitBreakerRecoveryTest` now advances an injected mutable
    clock across the reset timeout without blocking. The obsolete `blocking-exempt` tag and all
-   three `LockSupport.parkNanos` calls are removed; focused recovery tests passed 2/2 and the
+   three fixed-duration blocking calls are removed; focused recovery tests passed 2/2 and the
    Tier-5 guard passed 1/1 after a clean reactor build.
 2. **COMPLETE — 2026-09-02.** `VertxEventLoopBlockingJoinTest` now proves event-loop queueing
    and worker/event-loop progress through ordered callbacks and a worker-thread phaser, without
@@ -324,7 +324,7 @@ reset while two logical clients multiplex one PgBouncer backend connection.
 ### 4. Durable subscriptions runtime
 
 **Priority:** Medium
-**Status:** COMPLETE — locally verified 2026-09-05; no new full-suite/Jenkins gate claimed
+**Status:** COMPLETE — committed in `7db748b8`; focused verification completed 2026-09-05; no new full-suite/Jenkins gate claimed
 
 Implementation record:
 
@@ -345,7 +345,7 @@ Implementation record:
    PostgreSQL tests cover recreation/re-registration, lifecycle, cursor integrity, concurrent
    registrations/advancement, tenant isolation, invalid inputs, failure propagation, and shared-pool
    ownership. There is no automatic handler restoration or delivery in this phase.
-3. **COMPLETE — 2026-09-05 (local working tree).** Typed finite replay fetches bounded ID-ordered
+3. **COMPLETE — 2026-09-05 (committed in `7db748b8`).** Typed finite replay fetches bounded ID-ordered
    batches, applies event/aggregate filters, and acknowledges only successful handlers. A short
    READ COMMITTED SHARE-lock barrier waits for pending inserts before capturing the boundary;
    the lock is released before handlers run. This requires the standard append-only ID sequence
@@ -354,13 +354,13 @@ Implementation record:
    TDD first failed on unsupported replay, then reproduced a delayed lower-ID commit being
    skipped. Final clean reactor rebuild and integration scope: replay 4/4, persistence 34/34;
    async guard 8/8. These are focused local results, not a new Jenkins release gate.
-4. **COMPLETE — 2026-09-05 (local working tree).** Typed subscribe establishes LISTEN before
+4. **COMPLETE — 2026-09-05 (committed in `7db748b8`).** Typed subscribe establishes LISTEN before
    its first finite replay. Notifications only request another ordered scan; coalesced scans
    and one-second reconciliation cover the handoff and missed notifications. Handlers are
    serialized, close drains delivery, and `deliveryCompletion` surfaces terminal errors.
    A real PostgreSQL test appends during catch-up and again during live delivery, asserting
    ordered, duplicate-free delivery. Focused replay/handoff 5/5, persistence 34/34, guard 8/8.
-5. **COMPLETE — 2026-09-05 (local working tree).** V020 and the fresh-schema template add
+5. **COMPLETE — 2026-09-05 (committed in `7db748b8`).** V020 and the fresh-schema template add
    expiring UUID owner leases and monotonically increasing generations. Each finite scan
    claims, renews, and releases its lease; live contenders reconcile as standbys while owned.
    Standalone catch-up fails explicitly when busy. Expiry permits takeover, but stale owners
@@ -368,7 +368,7 @@ Implementation record:
    advancement cannot bypass a live lease. Delivery remains at-least-once across crashes or
    takeover: external handler side effects require idempotency. Focused PostgreSQL replay,
    ownership, takeover, renewal, and persistence: 42/42; migrations 11/11; async guard 8/8.
-6. **COMPLETE — 2026-09-05 (local working tree).** Real PostgreSQL delivery contracts cover
+6. **COMPLETE — 2026-09-05 (committed in `7db748b8`).** Real PostgreSQL delivery contracts cover
    manager recreation, typed payloads, independent tenants, missed NOTIFY reconciliation,
    catch-up/live ordering, filters, handler acknowledgement/failure, competing owners, renewal,
    expiry, fencing, and pause/resume/cancel. New recovery contracts exposed and fixed a poisoned
@@ -452,8 +452,8 @@ Implemented 2026-09-05:
 Jenkins verification completed in
 [build #48](http://192.168.137.11:8080/job/PeeGeeQ/48/) by replaying the successful UI-only
 gate with `TEST_SUITE=all` and `ALL_TESTS_START_MODULE=peegeeq-management-ui`. Checkout used
-SCM revision `19e3cbdba2b6a5691f4473fc3e38033212dee3ec`, then applied the uncommitted Task 7
-working-tree files from `/tmp/peegeeq-task7-overlay.tar`. The replay verified the archive before
+SCM revision `19e3cbdba2b6a5691f4473fc3e38033212dee3ec`, then applied the pre-commit Task 7
+files from `/tmp/peegeeq-task7-overlay.tar`. The replay verified the archive before
 extraction with SHA-256
 `f9792a15ed11dfc0f4d9ae91466b22959d8d1e08e872618a0f7edbd280c96dfe`.
 
@@ -468,9 +468,10 @@ expected zero-failure summaries, and Jenkins published **1,629 passing tests, 0 
 | **Total** | **964** | **665** | **1,629** |
 
 The production XML files were retained under each module's top-level
-`target/ui-reports/{vitest,playwright}.xml`. The reporting implementation remains uncommitted;
-build #48 is reproducible evidence for the exact recorded SCM revision plus overlay hash, not a
-claim that a plain SCM build already contains the working-tree changes.
+`target/ui-reports/{vitest,playwright}.xml`. The reporting implementation is now committed in
+`7db748b8`. Build #48 remains reproducible evidence for the exact recorded SCM revision plus
+overlay hash; this register does not claim that Jenkins has run a plain SCM checkout of
+`7db748b8`.
 
 Focused reporting check (repository root):
 
@@ -492,8 +493,9 @@ Completion requires:
 - Missing expected UI reports are detected explicitly; Java-only selections do not require UI
   reports for suites they did not run.
 
-Tasks 4.3, 4.4, 4.5, 4.6, and 7 are complete. Task 4 remains focused local PostgreSQL evidence;
-Task 7 additionally has the successful remote Jenkins publication evidence recorded above.
+Tasks 4.3, 4.4, 4.5, 4.6, and 7 are complete and committed in `7db748b8`. Task 4 has focused
+developer-machine PostgreSQL evidence but no new Jenkins/full-suite gate; Task 7 additionally
+has the successful remote Jenkins publication evidence recorded above.
 
 ## Unscheduled Product and Coverage Backlog
 

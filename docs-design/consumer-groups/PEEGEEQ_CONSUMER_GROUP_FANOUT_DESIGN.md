@@ -6,7 +6,7 @@
 **Version**: 2.0
 **Last Updated**: 2026-08-26
 
-> **📖 Looking for the User Guide?** See [PEEGEEQ_CONSUMER_GROUP_FANOUT_GUIDE.md](PEEGEEQ_CONSUMER_GROUP_FANOUT_GUIDE.md) for practical usage instructions.
+> **📖 Looking for the User Guide?** See the [Consumer Groups Guide](../../docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md) for practical usage instructions.
 
 > **Note**: For a comparison of alternative design options considered, see [Design Alternatives Considered](#design-alternatives-considered) below.
 
@@ -277,7 +277,7 @@ group.addConsumer("consumer-1", handler);
 group.addConsumer("consumer-2", handler);
 group.addConsumer("consumer-3", handler);
 group.addConsumer("consumer-4", handler);
-group.start();
+group.start().onFailure(error -> logger.error("Consumer group start failed", error));
 ```
 
 In distributed systems, each instance must register its own consumers with no automatic coordination.
@@ -333,11 +333,11 @@ public class FanOutMessageHandler<T> implements MessageHandler<T> {
     private final List<MessageHandler<T>> handlers;
     
     @Override
-    public CompletableFuture<Void> handle(Message<T> message) {
-        List<CompletableFuture<Void>> futures = handlers.stream()
+    public Future<Void> handle(Message<T> message) {
+        List<Future<Void>> futures = handlers.stream()
             .map(handler -> handler.handle(message))
             .toList();
-        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
+        return Future.all(futures).mapEmpty();
     }
 }
 ```
@@ -349,9 +349,11 @@ public class FanOutMessageHandler<T> implements MessageHandler<T> {
 Consumer republishes to topic-specific outboxes:
 
 ```java
-emailProducer.send(message.getPayload());
-analyticsProducer.send(message.getPayload());
-inventoryProducer.send(message.getPayload());
+Future.all(
+    emailProducer.send(message.getPayload()),
+    analyticsProducer.send(message.getPayload()),
+    inventoryProducer.send(message.getPayload()))
+    .onFailure(error -> logger.error("Fan-out replication failed", error));
 ```
 
 **Verdict: ⚠️ Viable but inefficient** Complete isolation between consumers, but causes write amplification, additional latency, and complex topology.
@@ -423,7 +425,8 @@ This approach provides clear semantics and prevents race conditions. See Questio
 **Scenario 1: Start with Zero Members**
 ```java
 ConsumerGroup<OrderEvent> group = queueFactory.createConsumerGroup("analytics", "orders.events", OrderEvent.class);
-group.start(SubscriptionOptions.fromNow());  // ⚠️ No members yet!
+group.start(SubscriptionOptions.fromNow())  // ⚠️ No members yet!
+    .onFailure(error -> logger.error("Consumer group start failed", error));
 // Messages arrive...
 group.addConsumer("consumer-1", handler);  // Member joins later
 ```
@@ -642,15 +645,8 @@ private Future<Boolean> checkSubscriptions(String topic) {
 
 **Error Handling**:
 ```java
-try {
-    producer.send("orders.events", orderEvent).toCompletionStage().toCompletableFuture().join();
-} catch (CompletionException e) {
-    if (e.getCause() instanceof NoSubscriptionsException) {
-        // Handle: retry later, alert ops, fail transaction, etc.
-        logger.error("Cannot publish order event - no active consumers!", e);
-        throw new ServiceUnavailableException("Order processing unavailable");
-    }
-}
+return producer.send("orders.events", orderEvent)
+    .onFailure(error -> logger.error("Cannot publish order event", error));
 ```
 
 #### Configuration Best Practices
@@ -1978,17 +1974,17 @@ public class ResumableBackfillJob {
 
     private Future<BackfillResult> performBatch(long currentId) {
         // Check cancellation
-        if (cancelled.get()) {
+        if (cancelled.getAcquire()) {
             logger.info("Backfill cancelled for group '{}' at checkpoint: {}", groupName, currentId);
             return saveCheckpoint(currentId, "Cancelled by user")
-                .map(v -> BackfillResult.cancelled(processedCount.get()));
+                .map(v -> BackfillResult.cancelled(processedCount.longValue()));
         }
 
         // Check limit
-        if (processedCount.get() >= config.getMaxMessages()) {
-            logger.info("Backfill limit reached for group '{}': {} messages", groupName, processedCount.get());
+        if (processedCount.longValue() >= config.getMaxMessages()) {
+            logger.info("Backfill limit reached for group '{}': {} messages", groupName, processedCount.longValue());
             return markBackfillCompleted()
-                .map(v -> BackfillResult.limitReached(processedCount.get()));
+                .map(v -> BackfillResult.limitReached(processedCount.longValue()));
         }
 
         // Adaptive rate limiting: check if we need to throttle
@@ -2005,7 +2001,7 @@ public class ResumableBackfillJob {
                                 return performBatch(batchResult.lastId + 1);
                             } else {
                                 return markBackfillCompleted()
-                                    .map(v3 -> BackfillResult.completed(processedCount.get()));
+                                    .map(v3 -> BackfillResult.completed(processedCount.longValue()));
                             }
                         });
                 } else {
@@ -2013,16 +2009,11 @@ public class ResumableBackfillJob {
                         return performBatch(batchResult.lastId + 1);
                     } else {
                         return markBackfillCompleted()
-                            .map(v2 -> BackfillResult.completed(processedCount.get()));
+                            .map(v2 -> BackfillResult.completed(processedCount.longValue()));
                     }
                 }
             })
-            .recover(ex -> {
-                logger.error("Backfill failed for group '{}'", groupName, ex);
-                return saveCheckpoint(currentId, ex.getMessage())
-                    .compose(v -> markBackfillFailed(ex.getMessage()))
-                    .map(v -> BackfillResult.failed(processedCount.get(), ex));
-            });
+            .onFailure(error -> logger.error("Backfill failed for group '{}'", groupName, error));
     }
 
     /**
@@ -2109,7 +2100,7 @@ public class ResumableBackfillJob {
     }
 
     private boolean shouldSaveCheckpoint() {
-        return processedCount.get() % 100_000 == 0;  // Every 100k messages
+        return processedCount.longValue() % 100_000 == 0;  // Every 100k messages
     }
 
     /**
@@ -2125,9 +2116,9 @@ public class ResumableBackfillJob {
             """;
 
         return pool.preparedQuery(sql)
-            .execute(Tuple.of(checkpointId, processedCount.get(), errorMessage, topic, groupName))
+            .execute(Tuple.of(checkpointId, processedCount.longValue(), errorMessage, topic, groupName))
             .onSuccess(v -> logger.debug("Saved checkpoint for group '{}': {} (processed: {})",
-                groupName, checkpointId, processedCount.get()))
+                groupName, checkpointId, processedCount.longValue()))
             .mapEmpty();
     }
 
@@ -2141,9 +2132,9 @@ public class ResumableBackfillJob {
             """;
 
         return pool.preparedQuery(sql)
-            .execute(Tuple.of(processedCount.get(), topic, groupName))
+            .execute(Tuple.of(processedCount.longValue(), topic, groupName))
             .onSuccess(v -> logger.info("Backfill completed for group '{}': {} messages",
-                groupName, processedCount.get()))
+                groupName, processedCount.longValue()))
             .mapEmpty();
     }
 
@@ -2193,7 +2184,8 @@ job.cancel();
 
 // Resume after crash
 ResumableBackfillJob resumedJob = new ResumableBackfillJob(pool, "orders.events", "analytics", config);
-resumedJob.start();  // Automatically resumes from last checkpoint
+resumedJob.start()  // Automatically resumes from last checkpoint
+    .onFailure(error -> logger.error("Backfill resume failed", error));
 ```
 
 **Monitoring**:
@@ -2215,7 +2207,6 @@ WHERE backfill_status = 'IN_PROGRESS';
 - ✅ **Observable**: Track progress, rate, and ETA
 - ✅ **Adaptive**: Automatically throttles when database is under pressure
 - ✅ **Bounded impact**: Configurable rate limits protect OLTP workloads
-```
 
 #### Query with Start Position
 ```java
@@ -2249,17 +2240,20 @@ private Future<Void> processPubSubSemantics() {
 // Existing consumer - only new messages
 ConsumerGroup<OrderEvent> emailGroup =
     queueFactory.createConsumerGroup("email-service", "orders.events", OrderEvent.class);
-emailGroup.start(SubscriptionOptions.fromNow());
+emailGroup.start(SubscriptionOptions.fromNow())
+    .onFailure(error -> logger.error("Email group start failed", error));
 
 // Late-joining consumer - process ALL historical data
 ConsumerGroup<OrderEvent> analyticsGroup =
     queueFactory.createConsumerGroup("analytics-service", "orders.events", OrderEvent.class);
-analyticsGroup.start(SubscriptionOptions.fromBeginning(true));
+analyticsGroup.start(SubscriptionOptions.fromBeginning(true))
+    .onFailure(error -> logger.error("Analytics backfill start failed", error));
 
 // Late-joining consumer - only new messages (no backfill)
 ConsumerGroup<OrderEvent> reportingGroup =
     queueFactory.createConsumerGroup("reporting-service", "orders.events", OrderEvent.class);
-analyticsGroup.start(SubscriptionOptions.fromNow());
+analyticsGroup.start(SubscriptionOptions.fromNow())
+    .onFailure(error -> logger.error("Analytics group start failed", error));
 ```
 
 ---
@@ -2436,6 +2430,11 @@ public class OutboxConsumerGroup<T> {
 
     @Override
     public void close() {
+        closeAsync()
+            .onFailure(error -> logger.error("Failed to close consumer group '{}'", groupName, error));
+    }
+
+    public Future<Void> closeAsync() {
         if (heartbeatScheduler != null) {
             heartbeatScheduler.shutdown();
         }
@@ -2448,9 +2447,9 @@ public class OutboxConsumerGroup<T> {
             WHERE topic = $1 AND group_name = $2
             """;
 
-        pool.preparedQuery(sql)
+        return pool.preparedQuery(sql)
             .execute(Tuple.of(topic, groupName))
-            .await();
+            .mapEmpty();
     }
 }
 ```
@@ -3295,7 +3294,7 @@ public class ResilientHeartbeat {
 
 ```java
 @Test
-public void testDeadConsumerGroupDetection() {
+public void testDeadConsumerGroupDetection(VertxTestContext testContext) {
     // Setup: Create consumer group with short timeout
     TopicConfiguration config = TopicConfiguration.pubSub("test.topic", Duration.ofHours(1));
     queueFactory.configureTopic(config);
@@ -3309,56 +3308,38 @@ public void testDeadConsumerGroupDetection() {
     // Override timeout for testing
     setHeartbeatTimeout("test-group", 10);  // 10 seconds
 
-    group.start(SubscriptionOptions.fromNow());
-
-    // Publish message
-    producer.send(new TestEvent("test"));
-
-    // Verify message has required_consumer_groups = 1
-    assertMessageRequiredGroups("test.topic", 1);
-
-    // Simulate crash: stop heartbeat but don't close gracefully
-    group.stopHeartbeatOnly();  // ✅ Test helper method
-
-    // Wait for timeout + detection job interval
-    Thread.sleep(15000);
-
-    // Run dead consumer detection
-    deadConsumerCleanup.detectAndCleanupDeadConsumerGroups().await();
-
-    // Verify group marked as DEAD
-    assertSubscriptionStatus("test-group", "DEAD");
-
-    // Verify required_consumer_groups decremented
-    assertMessageRequiredGroups("test.topic", 0);
-
-    // Verify message can now be cleaned up
-    cleanupJob.cleanupCompletedMessages().await();
-    assertMessageDeleted("test.topic");
+    group.start(SubscriptionOptions.fromNow())
+        .compose(v -> producer.send(new TestEvent("test")))
+        .compose(v -> expireHeartbeat("test-group"))
+        .compose(v -> deadConsumerCleanup.detectAndCleanupDeadConsumerGroups())
+        .compose(v -> cleanupJob.cleanupCompletedMessages())
+        .onSuccess(v -> testContext.verify(() -> {
+            assertSubscriptionStatus("test-group", "DEAD");
+            assertMessageRequiredGroups("test.topic", 0);
+            assertMessageDeleted("test.topic");
+            testContext.completeNow();
+        }))
+        .onFailure(testContext::failNow);
 }
 
 @Test
-public void testConsumerGroupResurrection() {
+public void testConsumerGroupResurrection(VertxTestContext testContext) {
     // Setup: Create and kill consumer group
     ConsumerGroup<TestEvent> group = createAndKillConsumerGroup("test-group");
 
     // Publish messages while dead
-    for (int i = 0; i < 100; i++) {
-        producer.send(new TestEvent("msg-" + i));
-    }
+    List<Future<Void>> sends = IntStream.range(0, 100)
+        .mapToObj(i -> producer.send(new TestEvent("msg-" + i)))
+        .toList();
 
-    // Verify messages have required_consumer_groups = 0 (group is dead)
-    assertMessageRequiredGroups("test.topic", 0);
-
-    // Resurrect consumer group
-    group.start(SubscriptionOptions.fromBeginning(true));  // ✅ With backfill
-
-    // Verify messages have required_consumer_groups = 1 (group resurrected)
-    assertMessageRequiredGroups("test.topic", 1);
-
-    // Verify all 100 messages are processed
-    waitForProcessing();
-    assertMessagesProcessedByGroup("test-group", 100);
+    Future.all(sends)
+        // These helpers query PostgreSQL asynchronously and fail on a mismatch.
+        .compose(ignored -> verifyMessageRequiredGroups("test.topic", 0))
+        .compose(ignored -> group.start(SubscriptionOptions.fromBeginning(true)))
+        .compose(ignored -> verifyMessageRequiredGroups("test.topic", 1))
+        // This helper polls with Vert.x timers; it never blocks the event loop.
+        .compose(ignored -> verifyMessagesProcessedByGroup("test-group", 100))
+        .onComplete(testContext.succeedingThenComplete());
 }
 ```
 
@@ -3478,9 +3459,9 @@ public class OutboxMessageCleanupJob {
             })
             .onSuccess(v -> {
                 long duration = System.currentTimeMillis() - startTime;
-                if (totalDeleted.get() > 0) {
+                if (totalDeleted.longValue() > 0) {
                     logger.info("Cleanup cycle complete: {} messages deleted in {}ms",
-                        totalDeleted.get(), duration);
+                        totalDeleted.longValue(), duration);
                 }
             })
             .onFailure(ex -> logger.error("Cleanup cycle failed", ex));
@@ -4250,7 +4231,7 @@ public class OutboxProducer<T> {
         .refreshAfterWrite(Duration.ofSeconds(30))
         .build(this::loadTopicMetadata);
 
-    private TopicMetadata loadTopicMetadata(String topic) {
+    private Future<TopicMetadata> loadTopicMetadata(String topic) {
         String sql = """
             SELECT t.semantics,
                    COALESCE((
@@ -4274,8 +4255,7 @@ public class OutboxProducer<T> {
                     TopicSemantics.valueOf(row.getString("semantics")),
                     row.getInteger("active_consumer_count")
                 );
-            })
-            .await();
+            });
     }
 
     public Future<Long> send(T payload, Map<String, String> headers) {
@@ -4643,7 +4623,8 @@ public class AsyncCompletionProcessor {
                     completionQueue.drainTo(batch, 99);
 
                     // ✅ Process batch
-                    processBatch(batch);
+                    processBatch(batch)
+                        .onFailure(error -> logger.error("Completion batch failed", error));
                     batch.clear();
                 }
             } catch (InterruptedException e) {
@@ -4653,7 +4634,7 @@ public class AsyncCompletionProcessor {
         }
     }
 
-    private void processBatch(List<CompletionTask> batch) {
+    private Future<Void> processBatch(List<CompletionTask> batch) {
         // Group by consumer group name for efficiency
         Map<String, List<Long>> byGroup = batch.stream()
             .collect(Collectors.groupingBy(
@@ -4661,12 +4642,10 @@ public class AsyncCompletionProcessor {
                 Collectors.mapping(CompletionTask::getMessageId, Collectors.toList())
             ));
 
-        for (Map.Entry<String, List<Long>> entry : byGroup.entrySet()) {
-            String groupName = entry.getKey();
-            List<Long> messageIds = entry.getValue();
-
-            markBatchCompleted(groupName, messageIds).await();
-        }
+        List<Future<Void>> updates = byGroup.entrySet().stream()
+            .map(entry -> markBatchCompleted(entry.getKey(), entry.getValue()))
+            .toList();
+        return Future.all(updates).mapEmpty();
     }
 }
 ```
@@ -6364,10 +6343,10 @@ ConsumerGroup<OrderEvent> emailGroup = queueFactory.createConsumerGroup(
 emailGroup.addConsumer("email-worker-1", emailHandler);
 emailGroup.addConsumer("email-worker-2", emailHandler);
 
-// Start with different subscription options
-emailGroup.start(SubscriptionOptions.fromNow());                    // Only new messages
-emailGroup.start(SubscriptionOptions.fromBeginning(true));          // All messages + backfill
-emailGroup.start(SubscriptionOptions.fromTimestamp(timestamp));     // From specific time
+// Choose one start position. Alternatives are fromBeginning(true) and
+// fromTimestamp(timestamp); this example starts with only new messages.
+emailGroup.start(SubscriptionOptions.fromNow())
+    .onFailure(error -> logger.error("Email group start failed", error));
 ```
 
 ### Complete Example
@@ -6392,12 +6371,13 @@ analyticsGroup.addConsumer("analytics-1", orderEvent -> trackMetrics(orderEvent)
 inventoryGroup.addConsumer("inventory-1", orderEvent -> updateStock(orderEvent));
 
 // 4. Start all groups
-emailGroup.start(SubscriptionOptions.fromNow());
-analyticsGroup.start(SubscriptionOptions.fromNow());
-inventoryGroup.start(SubscriptionOptions.fromNow());
+emailGroup.start(SubscriptionOptions.fromNow()).onFailure(error -> logger.error("Email group start failed", error));
+analyticsGroup.start(SubscriptionOptions.fromNow()).onFailure(error -> logger.error("Analytics group start failed", error));
+inventoryGroup.start(SubscriptionOptions.fromNow()).onFailure(error -> logger.error("Inventory group start failed", error));
 
 // 5. Publish message - will be delivered to ALL three groups
-producer.send(new OrderCreatedEvent(...));
+producer.send(new OrderCreatedEvent(...))
+    .onFailure(error -> logger.error("Order event send failed", error));
 ```
 
 ---
@@ -6500,21 +6480,15 @@ This section documents the concrete work required to make the Consumer Groups ma
 
 ### Mandatory Pre-Work (applies to every phase)
 
-Before writing a single line of code for any phase, complete all six steps in `docs-design/dev/main-prompt.md`:
+Before writing a single line of code for any phase, follow the mandatory pre-work in
+[`AGENTS.md`](../../AGENTS.md):
 
 1. Read `docs-design/dev/pgq-coding-principles.md` in full.
 2. Read `docs-design/testing/PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md` in full.
 3. Read the **full content** of every file you intend to modify. Do not skim.
 4. Read existing tests in the same module. Follow their pattern exactly.
-5. Grep every file you intend to touch for banned patterns — all must return zero results, and your edits must not introduce any:
-   - `\.recover\(` — banned
-   - `\.otherwise\(` — banned
-   - `\.await\(` on a Future — banned
-   - `CompletableFuture|toCompletionStage|toCompletableFuture|\.join\(\)|\.get\(\)` — banned
-   - `Thread\.sleep|LockSupport\.parkNanos` — banned
-   - `Handler<AsyncResult` — banned
-   - `\.onComplete\(ar -> .*succeeded` — use `.onSuccess`/`.onFailure` instead
-   - fire-and-forget Future (every Future must be observed via `.onFailure(...)` or chained)
+5. Run the complete prohibited-pattern scan defined by the coding principles and testing standards.
+   Every returned `Future` must be chained, returned, or observed for failure.
 6. If any existing code in files you are reading uses a banned pattern, flag it. Do not copy it.
 
 **Only after all six steps are complete, proceed to the phase.**
@@ -6605,7 +6579,8 @@ The fixed method must:
 #### Phase 1 — Test discipline
 
 - Every `Future` chain in the new/modified methods must terminate with `.onSuccess(...)` and `.onFailure(...)`. No fire-and-forget.
-- Use `.compose(...)` for sequencing steps; `.map(...)` for transformation. Do not use `.onComplete(ar -> { if (ar.succeeded()) ... })`.
+- Use `.compose(...)` for sequencing steps and `.map(...)` for transformation. Prefer explicit
+  `.onSuccess(...)` and `.onFailure(...)` terminal handling.
 - Any new integration test must use `@Tag(TestCategories.INTEGRATION)`, `@Testcontainers`, `VertxTestContext`, and `Checkpoint`. No mocks for database behaviour.
 - After changes, run: `mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-YYYYMMDD.txt`
 - `Tests run: 0` means the test did not execute — check tagging and profile.
@@ -6789,12 +6764,12 @@ The consumer selection algorithm uses safe hash calculation to avoid the `Intege
 ```java
 public class OutboxConsumerGroup<T> {
 
-    private CompletableFuture<Void> distributeMessage(Message<T> message) {
+    private Future<Void> distributeMessage(Message<T> message) {
         // Apply group-level filter first
         if (groupFilter != null && !groupFilter.test(message)) {
             totalMessagesFiltered.incrementAndGet();
             logger.debug("Message {} filtered out by group filter", message.getId());
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         }
 
         // Find eligible consumers (those whose filters accept the message)
@@ -6807,7 +6782,7 @@ public class OutboxConsumerGroup<T> {
             // All member filters rejected the message - treat as successfully processed
             totalMessagesFiltered.incrementAndGet();
             logger.debug("Message {} filtered by all members in group '{}'", message.getId(), groupName);
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         }
 
         // Select consumer using safe hash calculation
@@ -6817,13 +6792,8 @@ public class OutboxConsumerGroup<T> {
             message.getId(), selectedConsumer.getConsumerId(), groupName);
 
         return selectedConsumer.processMessage(message)
-            .whenComplete((result, error) -> {
-                if (error != null) {
-                    totalMessagesFailed.incrementAndGet();
-                } else {
-                    totalMessagesProcessed.incrementAndGet();
-                }
-            });
+            .onSuccess(result -> totalMessagesProcessed.incrementAndGet())
+            .onFailure(error -> totalMessagesFailed.incrementAndGet());
     }
 
     /**
@@ -7297,13 +7267,13 @@ Success Criteria:
 // Before: Queue semantics (implicit)
 MessageConsumer<OrderEvent> consumer =
     queueFactory.createConsumer("orders", OrderEvent.class);
-consumer.subscribe(handler);
+consumer.subscribe(handler).onFailure(error -> logger.error("Subscription failed", error));
 
 // After: Explicit queue semantics (same behavior)
 queueFactory.configureTopic(TopicConfiguration.queue("orders"));
 MessageConsumer<OrderEvent> consumer =
     queueFactory.createConsumer("orders", OrderEvent.class);
-consumer.subscribe(handler);
+consumer.subscribe(handler).onFailure(error -> logger.error("Subscription failed", error));
 
 // New: Pub/Sub semantics
 queueFactory.configureTopic(
@@ -7313,8 +7283,8 @@ ConsumerGroup<OrderEvent> group1 =
     queueFactory.createConsumerGroup("service-1", "orders.events", OrderEvent.class);
 ConsumerGroup<OrderEvent> group2 =
     queueFactory.createConsumerGroup("service-2", "orders.events", OrderEvent.class);
-group1.start(SubscriptionOptions.fromNow());
-group2.start(SubscriptionOptions.fromNow());
+group1.start(SubscriptionOptions.fromNow()).onFailure(error -> logger.error("Group 1 start failed", error));
+group2.start(SubscriptionOptions.fromNow()).onFailure(error -> logger.error("Group 2 start failed", error));
 ```
 
 ---

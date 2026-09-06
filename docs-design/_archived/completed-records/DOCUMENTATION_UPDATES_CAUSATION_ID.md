@@ -54,23 +54,23 @@ public interface BiTemporalEvent<T> {
 
 **Before:**
 ```java
-BiTemporalEvent<OrderEvent> event1 = eventStore.append(
+Future<BiTemporalEvent<OrderEvent>> event1Future = eventStore.append(
     "OrderCreated", order1, baseTime,
     Map.of("source", "web", "region", "US"),
     "corr-001",
     "ORDER-001"  // Business key
-).join();
+);
 ```
 
 **After:**
 ```java
-BiTemporalEvent<OrderEvent> event1 = eventStore.append(
+Future<BiTemporalEvent<OrderEvent>> event1Future = eventStore.append(
     "OrderCreated", order1, baseTime,
     Map.of("source", "web", "region", "US"),
     "corr-001",      // Correlation ID
     null,            // Causation ID (null for root events) ← NEW
     "ORDER-001"      // Aggregate ID
-).join();
+);
 ```
 
 **Impact:** Example code now compiles and shows correct usage pattern.
@@ -136,30 +136,32 @@ eventStore.append("AccountCreated", event, Instant.now(),
 
 #### Example 4: Bi-Temporal Order Event (Root Event)
 ```java
-BiTemporalEvent<OrderEvent> orderEvent = eventStore.append(
+Future<BiTemporalEvent<OrderEvent>> orderEventFuture = eventStore.append(
     "OrderCreated", orderCreated, orderTime,
-    Map.of("source", "web"), "corr-001", null, "ORDER-001").join();
+    Map.of("source", "web"), "corr-001", null, "ORDER-001");
 ```
 
 #### Example 5: Bi-Temporal Payment Event (Demonstrates Causality Chain)
 ```java
 // Payment event CAUSED BY order event
-BiTemporalEvent<OrderEvent> paymentEvent = eventStore.append(
-    "PaymentProcessed", paymentProcessed, paymentTime,
-    Map.of("source", "payment-gateway"), 
-    "corr-002",              // Same correlation for workflow
-    orderEvent.getEventId(), // ← Causation: payment caused by order
-    "ORDER-001").join();
+Future<BiTemporalEvent<OrderEvent>> paymentEventFuture = orderEventFuture.compose(orderEvent ->
+    eventStore.append(
+        "PaymentProcessed", paymentProcessed, paymentTime,
+        Map.of("source", "payment-gateway"),
+        "corr-002",              // Same correlation for workflow
+        orderEvent.getEventId(), // ← Causation: payment caused by order
+        "ORDER-001"));
 ```
 
 #### Example 6: Correction Event (Demonstrates Causality Chain)
 ```java
-BiTemporalEvent<OrderEvent> correctionEvent = eventStore.append(
-    "PaymentProcessed", correctedPayment, actualPaymentTime,
-    Map.of("source", "payment-gateway", "correction", "true"),
-    "corr-003", 
-    paymentEvent.getEventId(), // ← Correction caused by original event
-    "ORDER-001").join();
+Future<BiTemporalEvent<OrderEvent>> correctionEventFuture = paymentEventFuture.compose(paymentEvent ->
+    eventStore.append(
+        "PaymentProcessed", correctedPayment, actualPaymentTime,
+        Map.of("source", "payment-gateway", "correction", "true"),
+        "corr-003",
+        paymentEvent.getEventId(), // ← Correction caused by original event
+        "ORDER-001"));
 ```
 
 **Impact:** 
@@ -274,30 +276,30 @@ eventStore.append(
 
 ### Pattern 1: Root Event (No Causation)
 ```java
-BiTemporalEvent<Order> orderEvent = eventStore.append(
+Future<BiTemporalEvent<Order>> orderEventFuture = eventStore.append(
     "OrderCreated", order, validTime, headers, 
     "workflow-123", null, "order-456"  // null causationId for root
-).join();
+);
 ```
 
 ### Pattern 2: Caused Event (Child Event)
 ```java
-BiTemporalEvent<Payment> paymentEvent = eventStore.append(
-    "PaymentProcessed", payment, validTime, headers,
-    "workflow-123",           // Same workflow
-    orderEvent.getEventId(),  // Caused by order event
-    "order-456"               // Same aggregate
-).join();
+Future<BiTemporalEvent<Payment>> paymentEventFuture = orderEventFuture.compose(orderEvent ->
+    eventStore.append(
+        "PaymentProcessed", payment, validTime, headers,
+        "workflow-123",           // Same workflow
+        orderEvent.getEventId(),  // Caused by order event
+        "order-456"));             // Same aggregate
 ```
 
 ### Pattern 3: Event Chain (Grandchild Event)
 ```java
-BiTemporalEvent<Shipment> shipmentEvent = eventStore.append(
-    "OrderShipped", shipment, validTime, headers,
-    "workflow-123",             // Same workflow
-    paymentEvent.getEventId(),  // Caused by payment event
-    "order-456"                 // Same aggregate
-).join();
+Future<BiTemporalEvent<Shipment>> shipmentEventFuture = paymentEventFuture.compose(paymentEvent ->
+    eventStore.append(
+        "OrderShipped", shipment, validTime, headers,
+        "workflow-123",             // Same workflow
+        paymentEvent.getEventId(),  // Caused by payment event
+        "order-456"));               // Same aggregate
 ```
 
 ---
@@ -393,4 +395,3 @@ BiTemporalEvent<Shipment> shipmentEvent = eventStore.append(
 **Documentation Version:** 1.1.0  
 **Last Updated:** January 2, 2026  
 **Status:** Production Ready
-

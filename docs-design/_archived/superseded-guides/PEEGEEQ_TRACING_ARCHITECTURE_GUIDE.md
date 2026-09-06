@@ -383,31 +383,30 @@ void testTracePropagationEndToEnd() {
 
 ```java
 @Test
-void testNoTraceBleedUnderConcurrency() {
+void testNoTraceBleedUnderConcurrency(VertxTestContext testContext) {
     int parallelRequests = 100;
-    CountDownLatch latch = new CountDownLatch(parallelRequests);
-    AtomicInteger failures = new AtomicInteger(0);
+    List<Future<Void>> checks = new ArrayList<>(parallelRequests);
     
     for (int i = 0; i < parallelRequests; i++) {
         String expectedTraceId = "trace-" + i;
-        
+        Promise<Void> check = Promise.promise();
+        checks.add(check.future());
+
         executor.submit(() -> {
             try (var scope = TraceContextUtil.mdcScope(createTraceWithId(expectedTraceId))) {
-                // Simulate work
-                Thread.sleep(random.nextInt(10));
-                
-                // Verify our trace wasn't overwritten
                 if (!expectedTraceId.equals(MDC.get("traceId"))) {
-                    failures.incrementAndGet();
+                    check.fail("Trace ID leaked for " + expectedTraceId);
+                } else {
+                    check.complete();
                 }
-            } finally {
-                latch.countDown();
+            } catch (Throwable error) {
+                check.fail(error);
             }
         });
     }
-    
-    latch.await();
-    assertEquals(0, failures.get(), "Trace IDs leaked between concurrent requests!");
+
+    Future.all(checks)
+        .onComplete(testContext.succeedingThenComplete());
 }
 ```
 

@@ -296,7 +296,8 @@ Without automatic cleanup, MDC leaks trace context:
 private void processMessage(Message message) {
     MDC.put("traceId", trace.traceId());
     MDC.put("spanId", trace.spanId());
-    handler.accept(message).get();
+    handler.accept(message)
+        .onFailure(error -> logger.error("Message handler failed", error));
     // MDC never cleared - leaks to next operation!
 }
 ```
@@ -307,15 +308,18 @@ private void processMessage(Message message) {
 
 ```java
 // ✅ CORRECT: Automatic cleanup via try-with-resources
-private void processMessage(Message message) {
+private Future<Void> processMessage(Message message) {
     TraceCtx trace = TraceContextUtil.parseOrCreate(traceparent);
-    
-    try (var scope = TraceContextUtil.mdcScope(trace)) {
-        logger.info("Processing...");  // Has trace context
-        handler.accept(message).get();
-    }  // MDC automatically cleared here
-    
-    logger.info("Cleanup...");  // No trace context (correct!)
+    var scope = TraceContextUtil.mdcScope(trace);
+
+    logger.info("Processing...");  // Has trace context
+    return handler.accept(message)
+        .onFailure(error -> logger.error("Message handler failed", error))
+        .eventually(() -> {
+            scope.close();
+            logger.info("Cleanup...");  // No trace context (correct!)
+            return Future.succeededFuture();
+        });
 }
 ```
 
@@ -673,26 +677,30 @@ worker.executeBlocking(promise -> {
 
 ```java
 @Test
-void testNoCrossThreadBleed() throws Exception {
+void testNoCrossThreadBleed(VertxTestContext testContext) {
     int parallelCount = 100;
-    CountDownLatch latch = new CountDownLatch(parallelCount);
-    AtomicInteger failures = new AtomicInteger(0);
+    List<Future<Void>> checks = new ArrayList<>(parallelCount);
     
     for (int i = 0; i < parallelCount; i++) {
         String expectedTraceId = "trace-" + i;
+        Promise<Void> check = Promise.promise();
+        checks.add(check.future());
+
         executor.submit(() -> {
             try (var scope = mdcScope(new TraceCtx(expectedTraceId, "span", null, null))) {
-                Thread.sleep(10);  // Allow interleaving
                 if (!expectedTraceId.equals(MDC.get("traceId"))) {
-                    failures.incrementAndGet();
+                    check.fail("Trace context leaked for " + expectedTraceId);
+                } else {
+                    check.complete();
                 }
+            } catch (Throwable error) {
+                check.fail(error);
             }
-            latch.countDown();
         });
     }
-    
-    latch.await();
-    assertEquals(0, failures.get(), "Trace context should not bleed between threads");
+
+    Future.all(checks)
+        .onComplete(testContext.succeedingThenComplete());
 }
 ```
 
@@ -981,29 +989,29 @@ Passing `null` for `causationId` is valid for root events (commands from externa
 ### Event Causality Chain Pattern
 
 ```java
-// Root event — caused by external user action, so causationId = null
-BiTemporalEvent<Order> orderEvent = eventStore.append(
-    "OrderCreated", order, now, headers,
-    "corr-123",  // correlationId — groups the whole workflow
-    null,        // causationId — root event, no parent
-    "order-456"  // aggregateId
-).toCompletionStage().toCompletableFuture().get();
+Future<BiTemporalEvent<Payment>> causalityChain =
+    // Root event — caused by external user action, so causationId = null
+    eventStore.append(
+        "OrderCreated", order, now, headers,
+        "corr-123",  // correlationId — groups the whole workflow
+        null,        // causationId — root event, no parent
+        "order-456") // aggregateId
+    // Child event — caused by OrderCreated
+    .compose(orderEvent -> eventStore.append(
+        "InventoryReserved", inventory, now, headers,
+        "corr-123",                  // same correlationId (same workflow)
+        orderEvent.getEventId(),     // causationId = parent event ID
+        "inventory-789"))
+    // Grandchild event — caused by InventoryReserved
+    .compose(inventoryEvent -> eventStore.append(
+        "PaymentProcessed", payment, now, headers,
+        "corr-123",
+        inventoryEvent.getEventId(), // causationId = immediate parent
+        "order-456"));
 
-// Child event — caused by OrderCreated
-BiTemporalEvent<Inventory> inventoryEvent = eventStore.append(
-    "InventoryReserved", inventory, now, headers,
-    "corr-123",                  // same correlationId (same workflow)
-    orderEvent.getEventId(),     // causationId = parent event ID
-    "inventory-789"
-).toCompletionStage().toCompletableFuture().get();
-
-// Grandchild event — caused by InventoryReserved
-eventStore.append(
-    "PaymentProcessed", payment, now, headers,
-    "corr-123",
-    inventoryEvent.getEventId(), // causationId = immediate parent
-    "order-456"
-);
+causalityChain
+    .onSuccess(paymentEvent -> logger.info("Causality chain stored: {}", paymentEvent.getEventId()))
+    .onFailure(error -> logger.error("Failed to store causality chain", error));
 ```
 
 This produces the chain:

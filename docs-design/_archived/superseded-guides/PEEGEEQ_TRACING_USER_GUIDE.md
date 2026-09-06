@@ -35,7 +35,9 @@ Add MDC placeholders to your `logback.xml`:
 
 ```java
 // Trace context is automatically created and propagated
-producer.send(payload, headers, correlationId).get();
+producer.send(payload, headers, correlationId)
+    .onSuccess(messageId -> logger.info("Sent message {}", messageId))
+    .onFailure(error -> logger.error("Message send failed", error));
 ```
 
 Or with explicit trace headers:
@@ -45,7 +47,9 @@ Map<String, String> headers = new HashMap<>();
 headers.put("traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01");
 headers.put("correlationId", "order-12345");
 
-producer.send(payload, headers, correlationId).get();
+producer.send(payload, headers, correlationId)
+    .onSuccess(messageId -> logger.info("Sent message {}", messageId))
+    .onFailure(error -> logger.error("Message send failed", error));
 ```
 
 ### 3. Consumer Automatically Gets Trace Context
@@ -56,7 +60,7 @@ consumer.subscribe(message -> {
     logger.info("Processing order");  
     // Output: [traceId=4bf92f... spanId=00f067... correlationId=order-12345] Processing order
     
-    return CompletableFuture.completedFuture(null);
+    return Future.succeededFuture();
 });
 ```
 
@@ -187,7 +191,9 @@ Add these patterns to your `logback.xml`:
 
 ```java
 // Trace context is automatically created
-String messageId = producer.send(payload, "order-123").get();
+Future<String> messageIdFuture = producer.send(payload, "order-123")
+    .onSuccess(messageId -> logger.info("Sent message {}", messageId))
+    .onFailure(error -> logger.error("Message send failed", error));
 ```
 
 ### Send with Explicit Headers
@@ -198,7 +204,9 @@ headers.put("traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7
 headers.put("tracestate", "vendor1=value1");
 headers.put("baggage", "userId=alice");
 
-String messageId = producer.send(payload, headers, "order-123").get();
+Future<String> messageIdFuture = producer.send(payload, headers, "order-123")
+    .onSuccess(messageId -> logger.info("Sent message {}", messageId))
+    .onFailure(error -> logger.error("Message send failed", error));
 ```
 
 ### Send Continuing Existing Trace
@@ -211,7 +219,9 @@ TraceCtx childSpan = currentTrace.childSpan("send-order");
 Map<String, String> headers = new HashMap<>();
 headers.put("traceparent", childSpan.traceparent());
 
-producer.send(payload, headers, correlationId).get();
+producer.send(payload, headers, correlationId)
+    .onSuccess(messageId -> logger.info("Sent message {}", messageId))
+    .onFailure(error -> logger.error("Message send failed", error));
 ```
 
 ---
@@ -229,7 +239,7 @@ consumer.subscribe(message -> {
     Map<String, String> headers = message.getHeaders();
     String traceparent = headers.get("traceparent");
     
-    return CompletableFuture.completedFuture(null);
+    return Future.succeededFuture();
 });
 ```
 
@@ -239,14 +249,13 @@ consumer.subscribe(message -> {
 consumer.subscribe(message -> {
     Map<String, String> headers = message.getHeaders();
     
-    // Forward trace context to downstream HTTP call
-    httpClient.post("/downstream-service")
+    // Forward trace context to downstream HTTP call and return its completion.
+    return httpClient.post("/downstream-service")
         .putHeader("traceparent", headers.get("traceparent"))
         .putHeader("tracestate", headers.get("tracestate"))
         .putHeader("baggage", headers.get("baggage"))
-        .send();
-    
-    return CompletableFuture.completedFuture(null);
+        .send()
+        .mapEmpty();
 });
 ```
 

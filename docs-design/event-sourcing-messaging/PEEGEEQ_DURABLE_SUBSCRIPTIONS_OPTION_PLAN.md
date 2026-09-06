@@ -1,7 +1,7 @@
 # PeeGeeQ Durable Subscriptions Option Plan (Outbox + Bi-Temporal)
 
-**Status:** Task 4 bitemporal runtime implemented and locally verified; broader outbox/operations proposals are not implemented
-**Reconciled:** 2026-09-05 against `19e3cbdb` plus the Tasks 4.2–4.6 working-tree implementation
+**Status:** Task 4 bitemporal runtime implemented, committed, and focused-verification complete; broader outbox/operations proposals are not implemented
+**Reconciled:** 2026-09-06 against commit `7db748b8`
 
 The only live execution order and verification record is [the consolidated task register](../tasks/tasks.md).
 This document is a design reference, not a second task list. Its proposed runtime flows and
@@ -863,8 +863,9 @@ are not all claimed as satisfied by focused local verification.
 
 ## 18. Immediate Next Steps
 
-Task 4 is locally verified. Follow [the consolidated register](../tasks/tasks.md) for CI reporting
-verification and any subsequently approved work.
+Task 4 is committed and has focused developer-machine verification. Follow
+[the consolidated register](../tasks/tasks.md) for release-gate status and any subsequently
+approved work.
 Do not treat the broader proposed phases above as authorization to implement extra features.
 
 ## Appendix A: Decisions Log

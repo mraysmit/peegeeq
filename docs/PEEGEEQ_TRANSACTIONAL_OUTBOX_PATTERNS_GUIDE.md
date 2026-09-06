@@ -114,14 +114,14 @@ The peegeeq-outbox module provides a **production-grade reactive implementation*
 
 The OutboxProducer provides three different approaches to meet various architectural needs. All three work identically in both Spring Boot and Vert.x applications.
 
-#### **A. Basic Reactive Operations** (`sendReactive`)
+#### **A. Basic Reactive Operations** (`send`)
 Non-blocking operations **without** transaction management:
 ```java
 // Simple reactive send
-CompletableFuture<Void> future = producer.sendReactive(payload);
+Future<Void> future = producer.send(payload);
 
 // With headers and metadata
-CompletableFuture<Void> future = producer.sendReactive(
+Future<Void> future = producer.send(
     payload, headers, correlationId, messageGroup);
 ```
 
@@ -129,10 +129,10 @@ CompletableFuture<Void> future = producer.sendReactive(
 Join existing transactions managed by the caller:
 ```java
 // Using existing SqlConnection transaction
-CompletableFuture<Void> future = producer.sendInExistingTransaction(payload, sqlConnection);
+Future<Void> future = producer.sendInExistingTransaction(payload, sqlConnection);
 
 // With full parameters
-CompletableFuture<Void> future = producer.sendInExistingTransaction(
+Future<Void> future = producer.sendInExistingTransaction(
     payload, headers, correlationId, messageGroup, sqlConnection);
 ```
 
@@ -140,70 +140,46 @@ CompletableFuture<Void> future = producer.sendInExistingTransaction(
 Full transaction lifecycle management with TransactionPropagation support:
 ```java
 // Basic automatic transaction
-CompletableFuture<Void> future = producer.sendInOwnTransaction(payload);
+Future<Void> future = producer.sendInOwnTransaction(payload);
 
 // With TransactionPropagation for layered services
-CompletableFuture<Void> future = producer.sendInOwnTransaction(
+Future<Void> future = producer.sendInOwnTransaction(
     payload, TransactionPropagation.CONTEXT);
 
 // Full parameter support with propagation
-CompletableFuture<Void> future = producer.sendInOwnTransaction(
+Future<Void> future = producer.sendInOwnTransaction(
     payload, headers, correlationId, messageGroup, TransactionPropagation.CONTEXT);
 ```
 
-**Note:** All three methods return `CompletableFuture<Void>`, which is the Java standard for reactive operations. This works seamlessly in both Spring Boot and Vert.x applications. See the [Getting Started](#getting-started-choosing-your-pattern) section for context-specific usage examples.
+**Note:** All three methods return `io.vertx.core.Future<Void>`. Return or compose that value so
+completion and failure remain visible to the caller.
 
-### **Why CompletableFuture Instead of Vert.x Future?**
+### **Why Native Vert.x Future?**
 
-You might wonder why the API returns `CompletableFuture<Void>` instead of Vert.x `Future<Void>`. This is a deliberate design choice:
+PeeGeeQ uses one asynchronous type throughout its API:
 
-**Reasons:**
-1. **Interoperability** - `CompletableFuture` is the Java standard and works seamlessly in both Spring Boot and Vert.x applications
-2. **Familiar API** - Most Java developers already know `CompletableFuture` methods like `thenAccept()`, `thenCompose()`, `exceptionally()`
-3. **Event Bus Integration** - Vert.x event bus handlers work naturally with `CompletableFuture` callbacks
-4. **Simplicity** - Avoids doubling the API surface area with separate `Future`-returning methods
+1. **Direct composition** — `.compose(...)` sequences database and messaging operations.
+2. **Transformation** — `.map(...)` changes successful values without changing failure behavior.
+3. **Failure visibility** — failures propagate through the returned chain and terminal callers use
+   `.onFailure(...)`.
+4. **Vert.x context preservation** — callbacks remain aligned with Vert.x execution contexts.
 
-**Trade-offs Considered:**
-- ❌ **Separate Future overloads** - Would require 48 methods instead of 24 (every method in two versions)
-- ❌ **Maintenance burden** - Duplicate logic, harder to keep in sync
-- ❌ **API confusion** - Developers would need to choose between similar methods
-- ✅ **Current approach** - Single, consistent API that works everywhere
+No completion-stage conversion is required:
 
-**In Practice:**
-- **Spring Boot**: Use `CompletableFuture` directly - it's what you expect
-- **Vert.x Event Bus**: Use `CompletableFuture` directly in handlers - no conversion needed
-- **Vert.x Future Composition** (rare): Only convert when composing with other Vert.x Futures like `pool.withConnection()`
-
-**When You Might Need Conversion:**
 ```java
-// Only needed when composing with Vert.x Future operations
-pool.withConnection(connection -> {
-    return connection.preparedQuery(sql).execute(params)
-        .compose(result -> {
-            // Convert CompletableFuture to Future only for composition
-            return producer.sendInExistingTransaction(event, connection)
-                .toCompletionStage().toCompletableFuture()
-                .handle((v, error) -> {
-                    if (error != null) return Future.failedFuture(error);
-                    return Future.succeededFuture();
-                });
-        });
-});
+Future<Void> writeAndPublish = pool.withConnection(connection ->
+    connection.preparedQuery(sql)
+        .execute(params)
+        .compose(result -> producer.sendInExistingTransaction(event, connection))
+);
+
+writeAndPublish
+    .onSuccess(ignored -> logger.info("Write and publish completed"))
+    .onFailure(error -> logger.error("Write and publish failed", error));
 ```
 
-This conversion is trivial and only needed in specific scenarios where you're composing with other Vert.x Futures. For the vast majority of use cases, `CompletableFuture` works directly without any conversion.
+### 2. **One Asynchronous Composition Model**
 
-### 2. **Dual-Pattern Support: Pure Java and Pure Vert.x**
-
-PeeGeeQ OutboxProducer is designed to work seamlessly with both development styles:
-
-#### **Pure Java Pattern (CompletableFuture)**
-- Ideal for Spring Boot applications
-- Familiar to Java developers
-- Works with traditional servlet-based frameworks
-- Easy integration with existing JDBC code
-
-#### **Pure Vert.x Pattern (Future)**
 - Ideal for reactive Vert.x applications
 - Verticles and event bus handlers
 - Full non-blocking event-driven architecture
@@ -224,7 +200,7 @@ The implementation uses official Vert.x patterns:
 
 ### **Quick Decision Guide**
 
-| Aspect | Pure Java (CompletableFuture) | Pure Vert.x (Future) |
+| Aspect | Spring-hosted (Vert.x `Future`) | Verticle-hosted (Vert.x `Future`) |
 |--------|-------------------------------|----------------------|
 | **Framework** | Spring Boot, Jakarta EE, Quarkus | Vert.x Verticles, Event Bus |
 | **Threading Model** | Thread pool based | Event loop based |
@@ -237,23 +213,20 @@ The implementation uses official Vert.x patterns:
 
 **Scenario**: Publishing an order event with automatic transaction management
 
-**Pure Java Pattern (Spring Boot):**
+**Spring-hosted Pattern:**
 ```java
 @Service
 public class OrderService {
     @Autowired
     private OutboxProducer<OrderEvent> producer;
 
-    public CompletableFuture<String> createOrder(Order order) {
+    public Future<String> createOrder(Order order) {
         return producer.sendInOwnTransaction(
             new OrderCreatedEvent(order),
             TransactionPropagation.CONTEXT
         )
-        .thenApply(v -> order.getId())
-        .exceptionally(error -> {
-            logger.error("Order creation failed", error);
-            throw new RuntimeException(error);
-        });
+        .map(v -> order.getId())
+        .onFailure(error -> logger.error("Order creation failed", error));
     }
 }
 ```
@@ -276,12 +249,10 @@ public class OrderVerticle extends AbstractVerticle {
                 new OrderCreatedEvent(order),
                 TransactionPropagation.CONTEXT
             )
-            .toCompletableFuture()
-            .thenAccept(v -> message.reply(order.getId()))
-            .exceptionally(error -> {
+            .onSuccess(v -> message.reply(order.getId()))
+            .onFailure(error -> {
                 logger.error("Order creation failed", error);
                 message.fail(500, error.getMessage());
-                return null;
             });
         });
 
@@ -309,7 +280,7 @@ Shares existing transactions within the same Vert.x context; starts new transact
 
 ```java
 // Service layer method
-public CompletableFuture<Void> processOrder(Order order) {
+public Future<Void> processOrder(Order order) {
     return producer.sendInOwnTransaction(
         orderEvent,
         TransactionPropagation.CONTEXT  // Shares context with caller
@@ -317,10 +288,10 @@ public CompletableFuture<Void> processOrder(Order order) {
 }
 
 // Controller layer - starts the transaction context
-public CompletableFuture<String> createOrder(OrderRequest request) {
+public Future<String> createOrder(OrderRequest request) {
     return producer.sendInOwnTransaction(request, TransactionPropagation.CONTEXT)
-        .thenCompose(v -> orderService.processOrder(order))  // Joins same transaction
-        .thenCompose(v -> notificationService.sendNotification(notification)); // Also joins
+        .compose(v -> orderService.processOrder(order))  // Joins same transaction
+        .compose(v -> notificationService.sendNotification(notification)); // Also joins
 }
 ```
 
@@ -330,16 +301,16 @@ The implementation ensures proper Vert.x context execution:
 
 ```java
 // Automatic context detection and execution
-private static <T> Future<T> executeOnVertxContext(Vertx vertx, Supplier<Future<T>> operation) {
+private static <T> Future<T> executeOnVertxContext(Vertx vertx, AsyncOperation<T> operation) {
     Context context = vertx.getOrCreateContext();
     if (context == Vertx.currentContext()) {
         // Already on Vert.x context, execute directly
-        return operation.get();
+        return operation.execute();
     } else {
         // Execute on Vert.x context using runOnContext
         io.vertx.core.Promise<T> promise = io.vertx.core.Promise.promise();
         context.runOnContext(v -> {
-            operation.get()
+            operation.execute()
                 .onSuccess(promise::complete)
                 .onFailure(promise::fail);
         });
@@ -513,12 +484,12 @@ public class OrderService {
 
     private final OutboxProducer<OrderCreatedEvent> outboxProducer;
 
-    public CompletableFuture<String> createOrder(Order order) {
+    public Future<String> createOrder(Order order) {
         return outboxProducer.sendInOwnTransaction(
             new OrderCreatedEvent(order),
             TransactionPropagation.CONTEXT
         )
-        .thenCompose(v -> {
+        .compose(v -> {
             // Insert order record in same transaction
             String sql = "INSERT INTO orders (id, customer_id, amount, status) VALUES ($1, $2, $3, $4)";
             Tuple params = Tuple.of(order.getId(), order.getCustomerId(), order.getAmount(), "CREATED");
@@ -526,7 +497,7 @@ public class OrderService {
             // Both operations are atomic - if either fails, both are rolled back
             return executeInSameTransaction(sql, params);
         })
-        .thenApply(v -> order.getId());
+        .map(v -> order.getId());
     }
 }
 ```
@@ -542,7 +513,7 @@ This design ensures that the "create order + publish event" operation maintains 
 OutboxProducer<OrderEvent> producer = factory.createProducer("orders", OrderEvent.class);
 
 // Basic reactive send
-CompletableFuture<Void> future = producer.sendReactive(orderEvent);
+Future<Void> future = producer.send(orderEvent);
 future.get(5, TimeUnit.SECONDS); // Wait for completion
 ```
 
@@ -553,7 +524,7 @@ Map<String, String> headers = Map.of(
     "version", "1.0"
 );
 
-CompletableFuture<Void> future = producer.sendReactive(
+Future<Void> future = producer.send(
     orderEvent,           // payload
     headers,             // headers
     "correlation-123",   // correlation ID
@@ -566,7 +537,7 @@ CompletableFuture<Void> future = producer.sendReactive(
 #### **Join Existing Transaction**
 ```java
 // In a service method that already has a transaction
-public CompletableFuture<String> processOrder(SqlConnection connection, Order order) {
+public Future<String> processOrder(SqlConnection connection, Order order) {
     // Business logic using the connection
     String sql = "INSERT INTO orders (id, customer_id, amount) VALUES ($1, $2, $3)";
     Tuple params = Tuple.of(order.getId(), order.getCustomerId(), order.getAmount());
@@ -585,7 +556,7 @@ public CompletableFuture<String> processOrder(SqlConnection connection, Order or
 
 #### **Transaction Participation with Full Parameters**
 ```java
-CompletableFuture<Void> future = producer.sendInExistingTransaction(
+Future<Void> future = producer.sendInExistingTransaction(
     orderEvent,
     headers,
     correlationId,
@@ -599,13 +570,11 @@ CompletableFuture<Void> future = producer.sendInExistingTransaction(
 #### **Basic Automatic Transaction**
 ```java
 // OutboxProducer handles the entire transaction lifecycle
-CompletableFuture<Void> future = producer.sendInOwnTransaction(orderEvent);
+Future<Void> future = producer.sendInOwnTransaction(orderEvent);
 
 // Automatic rollback on any failure
-future.exceptionally(error -> {
-    logger.error("Transaction failed and was rolled back: {}", error.getMessage());
-    return null;
-});
+future.onFailure(error ->
+    logger.error("Transaction failed and was rolled back: {}", error.getMessage(), error));
 ```
 
 #### **With TransactionPropagation for Layered Services**
@@ -613,7 +582,7 @@ future.exceptionally(error -> {
 // Service layer - can participate in existing transactions
 public class OrderService {
 
-    public CompletableFuture<Void> createOrder(Order order) {
+    public Future<Void> createOrder(Order order) {
         return producer.sendInOwnTransaction(
             new OrderCreatedEvent(order),
             TransactionPropagation.CONTEXT  // Join existing transaction if available
@@ -624,15 +593,15 @@ public class OrderService {
 // Controller layer - starts the transaction context
 public class OrderController {
 
-    public CompletableFuture<String> processOrderRequest(OrderRequest request) {
+    public Future<String> processOrderRequest(OrderRequest request) {
         return producer.sendInOwnTransaction(
             new OrderRequestEvent(request),
             TransactionPropagation.CONTEXT  // Starts new transaction
         )
-        .thenCompose(v -> orderService.createOrder(order))      // Joins same transaction
-        .thenCompose(v -> inventoryService.reserveItems(items)) // Also joins
-        .thenCompose(v -> paymentService.processPayment(payment)) // Also joins
-        .thenApply(v -> "Order processed successfully");
+        .compose(v -> orderService.createOrder(order))      // Joins same transaction
+        .compose(v -> inventoryService.reserveItems(items)) // Also joins
+        .compose(v -> paymentService.processPayment(payment)) // Also joins
+        .map(v -> "Order processed successfully");
     }
 }
 ```
@@ -643,29 +612,29 @@ public class OrderController {
 ```java
 public class BatchOrderProcessor {
 
-    public CompletableFuture<List<String>> processBatchOrders(List<Order> orders) {
+    public Future<List<String>> processBatchOrders(List<Order> orders) {
         // All operations share the same transaction context
         return producer.sendInOwnTransaction(
             new BatchStartedEvent(orders.size()),
             TransactionPropagation.CONTEXT
         )
-        .thenCompose(v -> {
+        .compose(v -> {
             // Process each order in the same transaction
-            List<CompletableFuture<String>> futures = orders.stream()
+            List<Future<String>> futures = orders.stream()
                 .map(order -> orderService.processOrder(order)) // Uses CONTEXT propagation
                 .collect(Collectors.toList());
 
-            return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                .thenApply(ignored -> futures.stream()
-                    .map(CompletableFuture::join)
-                    .collect(Collectors.toList()));
+            return Future.all(futures)
+                .map(composite -> IntStream.range(0, futures.size())
+                    .mapToObj(index -> composite.<String>resultAt(index))
+                    .toList());
         })
-        .thenCompose(results -> {
+        .compose(results -> {
             // Send completion event in same transaction
             return producer.sendInOwnTransaction(
                 new BatchCompletedEvent(results),
                 TransactionPropagation.CONTEXT
-            ).thenApply(v -> results);
+            ).map(v -> results);
         });
     }
 }
@@ -673,34 +642,32 @@ public class BatchOrderProcessor {
 
 ### **2. Error Handling and Rollback Scenarios**
 ```java
-public CompletableFuture<String> processOrderWithErrorHandling(Order order) {
+public Future<String> processOrderWithErrorHandling(Order order) {
     return producer.sendInOwnTransaction(
         new OrderProcessingStartedEvent(order),
         TransactionPropagation.CONTEXT
     )
-    .thenCompose(v -> {
+    .compose(v -> {
         // Business logic that might fail
         if (order.getAmount().compareTo(BigDecimal.valueOf(10000)) > 0) {
             // This will cause automatic rollback of the entire transaction
-            return CompletableFuture.failedFuture(
+            return Future.failedFuture(
                 new BusinessException("Order amount exceeds limit")
             );
         }
 
         return businessService.processOrder(order);
     })
-    .thenCompose(result -> {
+    .compose(result -> {
         // Success event - only sent if everything succeeds
         return producer.sendInOwnTransaction(
             new OrderProcessedEvent(order, result),
             TransactionPropagation.CONTEXT
-        ).thenApply(v -> result);
+        ).map(v -> result);
     })
-    .exceptionally(error -> {
-        // All events are automatically rolled back
-        logger.error("Order processing failed, all events rolled back: {}", error.getMessage());
-        throw new RuntimeException("Order processing failed", error);
-    });
+    .onFailure(error ->
+        // The failed Future preserves the cause and the transaction is rolled back.
+        logger.error("Order processing failed, all events rolled back: {}", error.getMessage(), error));
 }
 ```
 
@@ -729,11 +696,11 @@ public class HybridOrderService {
     }
 
     // New reactive method - full reactive stack
-    public CompletableFuture<String> processOrderReactive(Order order) {
+    public Future<String> processOrderReactive(Order order) {
         return producer.sendInOwnTransaction(
             new OrderCreatedEvent(order),
             TransactionPropagation.CONTEXT
-        ).thenApply(v -> order.getId());
+        ).map(v -> order.getId());
     }
 }
 ```
@@ -806,7 +773,7 @@ OutboxProducer<OrderEvent> producer = factory.createProducer("orders", OrderEven
 
 ## Solution: Spring Boot Integration for PeeGeeQ Outbox Pattern
 
-The current PeeGeeQ outbox implementation uses Vert.x internally for reactive operations, but this can be completely abstracted away from Spring Boot applications. Here's how to build a Spring Boot application using the transactional outbox services without any direct Vert.x dependencies.
+PeeGeeQ exposes Vert.x `Future` from its asynchronous APIs. Spring Boot applications can keep Spring configuration and controller conventions, but their service and controller code must compose the Vert.x futures directly as shown below.
 
 ### **1. Maven Dependencies**
 
@@ -986,19 +953,19 @@ public class OrderService {
      * Creates an order and publishes events using the transactional outbox pattern.
      * The reactive operations are handled internally by PeeGeeQ.
      */
-    public CompletableFuture<String> createOrder(CreateOrderRequest request) {
+    public Future<String> createOrder(CreateOrderRequest request) {
         return orderEventProducer.sendInOwnTransaction(
             new OrderCreatedEvent(request),
             TransactionPropagation.CONTEXT  // Uses Vert.x context internally
         )
-        .thenCompose(v -> {
+        .compose(v -> {
             // Business logic - save order to database
             // Note: Use simple repository, NOT JPA (JPA conflicts with PeeGeeQ transactions)
             Order order = new Order(request);
             Order savedOrder = orderRepository.save(order);
 
             // Send additional events in the same transaction
-            return CompletableFuture.allOf(
+            return Future.all(
                 orderEventProducer.sendInOwnTransaction(
                     new OrderValidatedEvent(savedOrder.getId()),
                     TransactionPropagation.CONTEXT
@@ -1007,26 +974,19 @@ public class OrderService {
                     new InventoryReservedEvent(savedOrder.getId(), request.getItems()),
                     TransactionPropagation.CONTEXT
                 )
-            ).thenApply(ignored -> savedOrder.getId());
+            ).map(ignored -> savedOrder.getId());
         })
-        .exceptionally(error -> {
-            log.error("Order creation failed: {}", error.getMessage());
-            throw new RuntimeException("Order creation failed", error);
-        });
+        .onFailure(error -> log.error("Order creation failed: {}", error.getMessage(), error));
     }
 
     /**
      * Alternative approach using the basic reactive method
      */
-    public CompletableFuture<Void> publishOrderEvent(OrderEvent event) {
-        return orderEventProducer.sendReactive(event)
-            .whenComplete((result, error) -> {
-                if (error != null) {
-                    log.error("Failed to publish order event: {}", error.getMessage());
-                } else {
-                    log.info("Order event published successfully");
-                }
-            });
+    public Future<Void> publishOrderEvent(OrderEvent event) {
+        return orderEventProducer.send(event)
+            .onSuccess(ignored -> log.info("Order event published successfully"))
+            .onFailure(error ->
+                log.error("Failed to publish order event: {}", error.getMessage(), error));
     }
 }
 ```
@@ -1046,15 +1006,20 @@ public class OrderController {
     }
 
     @PostMapping
-    public CompletableFuture<ResponseEntity<CreateOrderResponse>> createOrder(
+    public Future<ResponseEntity<CreateOrderResponse>> createOrder(
             @RequestBody CreateOrderRequest request) {
 
         return orderService.createOrder(request)
-            .thenApply(orderId -> ResponseEntity.ok(new CreateOrderResponse(orderId)))
-            .exceptionally(error -> {
-                log.error("Order creation failed", error);
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(new CreateOrderResponse(null, error.getMessage()));
+            .transform(result -> {
+                if (result.succeeded()) {
+                    return Future.succeededFuture(
+                        ResponseEntity.ok(new CreateOrderResponse(result.result())));
+                }
+
+                log.error("Order creation failed", result.cause());
+                return Future.succeededFuture(
+                    ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .body(new CreateOrderResponse(null, result.cause().getMessage())));
             });
     }
 }
@@ -1158,36 +1123,37 @@ public class Application {
 @Autowired
 private OutboxProducer<OrderEvent> producer;
 
-public void publishEvent(OrderEvent event) {
-    producer.sendReactive(event)
-        .thenRun(() -> log.info("Event published successfully"));
+public Future<Void> publishEvent(OrderEvent event) {
+    return producer.send(event)
+        .onSuccess(ignored -> log.info("Event published successfully"))
+        .onFailure(error -> log.error("Event publication failed", error));
 }
 ```
 
 #### **Transactional Event Publishing**
 ```java
 // Events participate in the same transaction as business logic
-public CompletableFuture<String> processOrder(Order order) {
+public Future<String> processOrder(Order order) {
     return producer.sendInOwnTransaction(
         new OrderCreatedEvent(order),
         TransactionPropagation.CONTEXT
-    ).thenApply(v -> order.getId());
+    ).map(v -> order.getId());
 }
 ```
 
 #### **Batch Operations**
 ```java
 // Multiple events in the same transaction
-public CompletableFuture<Void> publishOrderEvents(Order order) {
-    return CompletableFuture.allOf(
+public Future<Void> publishOrderEvents(Order order) {
+    return Future.all(
         producer.sendInOwnTransaction(new OrderCreatedEvent(order), TransactionPropagation.CONTEXT),
         producer.sendInOwnTransaction(new InventoryReservedEvent(order), TransactionPropagation.CONTEXT),
         producer.sendInOwnTransaction(new PaymentInitiatedEvent(order), TransactionPropagation.CONTEXT)
-    );
+    ).mapEmpty();
 }
 ```
 
-This Spring Boot integration provides a complete, production-ready way for Spring Boot applications to use PeeGeeQ's transactional outbox pattern without any direct Vert.x dependencies or complexity. The reactive benefits are preserved while maintaining familiar Spring Boot development patterns.
+This Spring Boot integration preserves familiar dependency-injection and configuration patterns while using PeeGeeQ's native Vert.x `Future` contract end to end.
 
 ## Microservices Architecture
 
@@ -1200,13 +1166,20 @@ public class OrderController {
     private final OutboxProducer<OrderEvent> producer;
 
     @PostMapping("/orders")
-    public CompletableFuture<ResponseEntity<String>> createOrder(@RequestBody OrderRequest request) {
+    public Future<ResponseEntity<String>> createOrder(@RequestBody OrderRequest request) {
         return producer.sendInOwnTransaction(
             new OrderCreatedEvent(request),
             TransactionPropagation.CONTEXT
         )
-        .thenApply(v -> ResponseEntity.ok("Order created"))
-        .exceptionally(error -> ResponseEntity.status(500).body("Order creation failed"));
+        .transform(result -> {
+            if (result.succeeded()) {
+                return Future.succeededFuture(ResponseEntity.ok("Order created"));
+            }
+
+            logger.error("Order creation failed", result.cause());
+            return Future.succeededFuture(
+                ResponseEntity.status(500).body("Order creation failed"));
+        });
     }
 }
 ```
@@ -1215,12 +1188,12 @@ public class OrderController {
 ```java
 // Producer service
 public class OrderService {
-    public CompletableFuture<Void> publishOrderEvents(Order order) {
-        return CompletableFuture.allOf(
+    public Future<Void> publishOrderEvents(Order order) {
+        return Future.all(
             producer.sendInOwnTransaction(new OrderCreatedEvent(order), TransactionPropagation.CONTEXT),
             producer.sendInOwnTransaction(new InventoryReservedEvent(order), TransactionPropagation.CONTEXT),
             producer.sendInOwnTransaction(new PaymentInitiatedEvent(order), TransactionPropagation.CONTEXT)
-        );
+        ).mapEmpty();
     }
 }
 ```
@@ -1240,14 +1213,14 @@ While the current implementation focuses on the producer side, a reactive consum
 public interface ReactiveOutboxConsumer<T> {
 
     // Stream-based consumption
-    CompletableFuture<Void> consume(Function<T, CompletableFuture<Void>> messageHandler);
+    Future<Void> consume(Function<T, Future<Void>> messageHandler);
 
     // Batch consumption
-    CompletableFuture<Void> consumeBatch(int batchSize,
-                                        Function<List<T>, CompletableFuture<Void>> batchHandler);
+    Future<Void> consumeBatch(int batchSize,
+                                        Function<List<T>, Future<Void>> batchHandler);
 
     // With TransactionPropagation
-    CompletableFuture<Void> consume(Function<T, CompletableFuture<Void>> messageHandler,
+    Future<Void> consume(Function<T, Future<Void>> messageHandler,
                                    TransactionPropagation propagation);
 }
 ```
@@ -1260,7 +1233,7 @@ public class ResilientOutboxProducer<T> {
     private final OutboxProducer<T> producer;
     private final CircuitBreaker circuitBreaker;
 
-    public CompletableFuture<Void> sendWithCircuitBreaker(T payload) {
+    public Future<Void> sendWithCircuitBreaker(T payload) {
         return circuitBreaker.executeSupplier(() ->
             producer.sendInOwnTransaction(payload, TransactionPropagation.CONTEXT)
         );
@@ -1274,21 +1247,21 @@ public class ResilientOutboxProducer<T> {
 // Built-in metrics support
 public class MetricsAwareOutboxProducer<T> {
 
-    public CompletableFuture<Void> sendWithMetrics(T payload) {
+    public Future<Void> sendWithMetrics(T payload) {
         Timer.Sample sample = Timer.start(meterRegistry);
 
         return producer.sendInOwnTransaction(payload, TransactionPropagation.CONTEXT)
-            .whenComplete((result, error) -> {
-                sample.stop(Timer.builder("outbox.send")
-                    .tag("success", error == null ? "true" : "false")
-                    .register(meterRegistry));
+            .onSuccess(ignored -> recordOutcome(sample, true))
+            .onFailure(error -> recordOutcome(sample, false));
+    }
 
-                if (error == null) {
-                    meterRegistry.counter("outbox.messages.sent").increment();
-                } else {
-                    meterRegistry.counter("outbox.messages.failed").increment();
-                }
-            });
+    private void recordOutcome(Timer.Sample sample, boolean success) {
+        sample.stop(Timer.builder("outbox.send")
+            .tag("success", Boolean.toString(success))
+            .register(meterRegistry));
+        meterRegistry.counter(success
+            ? "outbox.messages.sent"
+            : "outbox.messages.failed").increment();
     }
 }
 ```
@@ -1301,15 +1274,18 @@ public class OutboxWithDLQ<T> {
     private final OutboxProducer<T> producer;
     private final OutboxProducer<FailedMessage> dlqProducer;
 
-    public CompletableFuture<Void> sendWithDLQ(T payload, int maxRetries) {
+    public Future<Void> sendWithDLQ(T payload, int maxRetries) {
         return sendWithRetry(payload, maxRetries)
-            .exceptionally(error -> {
-                // Send to DLQ after max retries
-                dlqProducer.sendInOwnTransaction(
-                    new FailedMessage(payload, error.getMessage()),
+            .transform(result -> {
+                if (result.succeeded()) {
+                    return Future.succeededFuture();
+                }
+
+                logger.error("Outbox delivery exhausted retries; routing to DLQ", result.cause());
+                return dlqProducer.sendInOwnTransaction(
+                    new FailedMessage(payload, result.cause().getMessage()),
                     TransactionPropagation.CONTEXT
                 );
-                return null;
             });
     }
 }
@@ -1319,7 +1295,7 @@ public class OutboxWithDLQ<T> {
 
 ### **Phase 1: Gradual Adoption**
 1. **Keep existing JDBC methods** - No breaking changes
-2. **Add reactive methods** - New `sendReactive()` and `sendInOwnTransaction()` APIs
+2. **Add reactive methods** - New `send()` and `sendInOwnTransaction()` APIs
 3. **Update documentation** - Clear migration examples
 4. **Provide training** - Team education on reactive patterns
 
@@ -1348,7 +1324,7 @@ The reactive OutboxProducer implementation has been **successfully completed** w
 ### **✅ Accomplished Features**
 
 #### **1. Three Complementary Reactive Approaches**
-- ✅ **Basic Reactive Operations** (`sendReactive`) - Non-blocking operations
+- ✅ **Basic Reactive Operations** (`send`) - Non-blocking operations
 - ✅ **Transaction Participation** (`sendInExistingTransaction`) - Join existing transactions
 - ✅ **Automatic Transaction Management** (`sendInOwnTransaction`) - Full lifecycle with propagation
 
@@ -1404,14 +1380,14 @@ private static Vertx getOrCreateSharedVertx() {
 
 #### **Context-Aware Transaction Execution**
 ```java
-private static <T> Future<T> executeOnVertxContext(Vertx vertx, Supplier<Future<T>> operation) {
+private static <T> Future<T> executeOnVertxContext(Vertx vertx, AsyncOperation<T> operation) {
     Context context = vertx.getOrCreateContext();
     if (context == Vertx.currentContext()) {
-        return operation.get();
+        return operation.execute();
     } else {
         io.vertx.core.Promise<T> promise = io.vertx.core.Promise.promise();
         context.runOnContext(v -> {
-            operation.get()
+            operation.execute()
                 .onSuccess(promise::complete)
                 .onFailure(promise::fail);
         });
@@ -1538,9 +1514,9 @@ public class OutboxProducer<T> implements AutoCloseable {
     private static volatile Vertx sharedVertx;
 
     // Three API approaches
-    public CompletableFuture<Void> sendReactive(T payload);
-    public CompletableFuture<Void> sendInExistingTransaction(T payload, SqlConnection connection);
-    public CompletableFuture<Void> sendInOwnTransaction(T payload, TransactionPropagation propagation);
+    public Future<Void> send(T payload);
+    public Future<Void> sendInExistingTransaction(T payload, SqlConnection connection);
+    public Future<Void> sendInOwnTransaction(T payload, TransactionPropagation propagation);
 }
 ```
 
@@ -1596,7 +1572,7 @@ pool.withTransaction(propagation, client -> {
 #### **1. Automatic Rollback**
 - Transaction failures trigger automatic rollback
 - No manual transaction management required
-- Consistent error propagation through CompletableFuture
+- Consistent error propagation through Future
 
 #### **2. Connection Management**
 - Automatic connection acquisition and release
@@ -1689,6 +1665,3 @@ logging.level.io.vertx.sqlclient=DEBUG
 - **Developer Experience**: Clean APIs with three complementary approaches
 - **Production Ready**: Comprehensive testing, monitoring, and error handling
 - **Future Proof**: Built on official Vert.x 5.0.4 APIs with TransactionPropagation support
-
-
-

@@ -125,10 +125,11 @@ There are **three patterns** for starting consumer groups:
 // Add consumers and start immediately
 positionGroup.addConsumer("consumer-1", message -> {
     // Process message
-    return CompletableFuture.completedFuture(null);
+    return Future.succeededFuture();
 });
 
-positionGroup.start();  // Start consuming new messages
+positionGroup.start()
+    .onFailure(error -> logger.error("Consumer group start failed", error));
 ```
 
 #### Pattern 2: Two-Step with Subscription Options (Advanced)
@@ -143,11 +144,11 @@ SubscriptionOptions options = SubscriptionOptions.builder()
     .build();
 
 subscriptionManager.subscribe("trades.executed", "position-service", options)
-    .toCompletionStage().toCompletableFuture().get();
+    .onFailure(error -> logger.error("Subscription creation failed", error));
 
 // Step 2: Start the consumer group
 positionGroup.addConsumer("consumer-1", messageHandler);
-positionGroup.start();
+positionGroup.start().onFailure(error -> logger.error("Consumer group start failed", error));
 ```
 
 #### Pattern 3: Convenience Method (New in v1.1.0)
@@ -161,7 +162,8 @@ SubscriptionOptions options = SubscriptionOptions.builder()
     .build();
 
 positionGroup.addConsumer("consumer-1", messageHandler);
-positionGroup.start(options);  // Pass options directly
+positionGroup.start(options)
+    .onFailure(error -> logger.error("Consumer group start failed", error));
 ```
 
 **Note:** Pattern 2 requires access to `SubscriptionManager` from the database layer. Pattern 3 is a convenience wrapper that validates the options but delegates to the database layer internally.
@@ -182,11 +184,9 @@ TopicConfig config = TopicConfig.builder()
     .messageRetentionHours(24)
     .build();
 
-// Create the topic (Vert.x Future → CompletionStage → CompletableFuture → blocking get)
+// Create the topic asynchronously and observe failures.
 topicConfigService.createTopic(config)
-    .toCompletionStage()      // Convert Vert.x Future to Java CompletionStage
-    .toCompletableFuture()    // Convert to CompletableFuture
-    .get();                   // Block until topic creation completes
+    .onFailure(error -> logger.error("Topic creation failed", error));
 
 // 2. Create producer for sending trade events
 MessageProducer<TradeEvent> producer = queueFactory.createProducer(
@@ -230,19 +230,19 @@ for (int i = 1; i <= 3; i++) {
             logger.info("✅ {} completed trade {} in {}ms",
                 workerId, trade.tradeId(), processingTime);
 
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
 
         } catch (CustodianTimeoutException e) {
             // Transient error - will be retried
             logger.warn("⚠️ {} custodian timeout for trade {}: {}",
                 workerId, trade.tradeId(), e.getMessage());
-            return CompletableFuture.failedFuture(e);
+            return Future.failedFuture(e);
 
         } catch (Exception e) {
             // Permanent error - log and acknowledge
             logger.error("❌ {} failed to process trade {}: {}",
                 workerId, trade.tradeId(), e.getMessage());
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         }
     };
 
@@ -251,10 +251,12 @@ for (int i = 1; i <= 3; i++) {
 }
 
 // 6. Start the consumer group (all workers begin consuming)
-settlementWorkers.start();  // Simple start - processes new messages
+settlementWorkers.start()
+    .onFailure(error -> logger.error("Settlement group start failed", error));
 
-// 7. Send messages
+// 7. Send messages as a composed asynchronous batch
 logger.info("📤 Sending 10 trades for settlement processing...");
+List<Future<Void>> sends = new ArrayList<>();
 for (int i = 1; i <= 10; i++) {
     TradeEvent trade = new TradeEvent(
         "TRADE-" + i,
@@ -265,25 +267,19 @@ for (int i = 1; i <= 10; i++) {
         150.0   // price
     );
 
-    // Send trade event (Vert.x Future → CompletionStage → CompletableFuture → blocking get)
-    producer.send(trade)
-        .toCompletionStage()      // Convert Vert.x Future to Java CompletionStage
-        .toCompletableFuture()    // Convert to CompletableFuture
-        .get();                   // Block until message is sent
+    sends.add(producer.send(trade));
 }
 
-// 8. Wait for processing to complete
-Thread.sleep(5000);
-
-// 9. Display results
-logger.info("📊 Settlement Processing Results:");
-logger.info("   Total trades processed: {}", processedCount.get());
-workerStats.forEach((worker, count) ->
-    logger.info("   {} processed {} trades", worker, count));
-
-// 10. Cleanup
-settlementWorkers.stop();
-settlementWorkers.close();
+Future.all(sends)
+    .onSuccess(ignored -> {
+        logger.info("📊 Settlement Processing Results:");
+        logger.info("   Total trades processed: {}", processedCount.longValue());
+        workerStats.forEach((worker, count) ->
+            logger.info("   {} processed {} trades", worker, count));
+        settlementWorkers.stop();
+        settlementWorkers.close();
+    })
+    .onFailure(error -> logger.error("Settlement example failed", error));
 ```
 
 **Result**: 10 trades distributed across 3 settlement workers (round-robin)
@@ -321,7 +317,7 @@ TopicConfig config = TopicConfig.builder()
     .messageRetentionHours(24)
     .build();
 
-topicConfigService.createTopic(config).toCompletionStage().toCompletableFuture().get();
+topicConfigService.createTopic(config).onFailure(error -> logger.error("Asynchronous operation failed", error));
 
 // 2. Create producer
 MessageProducer<TradeEvent> producer = queueFactory.createProducer(
@@ -351,27 +347,27 @@ ConsumerGroup<TradeEvent> regulatoryService = queueFactory.createConsumerGroup(
 // 4. Set up handlers for each service (v1.1.0 convenience method)
 positionService.setMessageHandler(message -> {
     logger.info("📊 Position service: Updating positions for trade {}", message.getPayload().tradeId());
-    return CompletableFuture.completedFuture(null);
+    return Future.succeededFuture();
 });
 
 cashService.setMessageHandler(message -> {
     logger.info("💰 Cash service: Updating cash balances for trade {}", message.getPayload().tradeId());
-    return CompletableFuture.completedFuture(null);
+    return Future.succeededFuture();
 });
 
 regulatoryService.setMessageHandler(message -> {
     logger.info("📋 Regulatory service: Reporting trade {} to regulator", message.getPayload().tradeId());
-    return CompletableFuture.completedFuture(null);
+    return Future.succeededFuture();
 });
 
 // 5. Start all consumer groups
-positionService.start();
-cashService.start();
-regulatoryService.start();
+positionService.start().onFailure(error -> logger.error("Position group start failed", error));
+cashService.start().onFailure(error -> logger.error("Cash group start failed", error));
+regulatoryService.start().onFailure(error -> logger.error("Regulatory group start failed", error));
 
 // 6. Send one message
 TradeEvent trade = new TradeEvent("TRADE-123", "FUND-001", "AAPL", TradeType.BUY, 100.0, 150.0);
-producer.send(trade).toCompletionStage().toCompletableFuture().get();
+producer.send(trade).onFailure(error -> logger.error("Asynchronous operation failed", error));
 ```
 
 **Result**: One message delivered to **all 3 services** (position, cash, regulatory)
@@ -433,11 +429,11 @@ largeTradeProcessor.setMessageHandler(message -> {
         logger.debug("Skipping small trade: {}", trade.tradeId());
     }
 
-    return CompletableFuture.completedFuture(null);
+    return Future.succeededFuture();
 });
 
 // Start the consumer group
-largeTradeProcessor.start();
+largeTradeProcessor.start().onFailure(error -> logger.error("Large-trade group start failed", error));
 ```
 
 #### Server-Side Filtering (ServerSideFilter)
@@ -509,24 +505,25 @@ ConsumerGroup<TradeEvent> resilientProcessor = queueFactory.createConsumerGroup(
     TradeEvent.class
 );
 
-resilientProcessor.start(SubscriptionOptions.defaults());
+resilientProcessor.start(SubscriptionOptions.defaults())
+    .onFailure(error -> logger.error("Resilient processor start failed", error));
 
 // Set handler with error handling
 resilientProcessor.setMessageHandler(message -> {
     try {
         // Process settlement
         processSettlement(message.getPayload());
-        return CompletableFuture.completedFuture(null);
+        return Future.succeededFuture();
 
     } catch (CustodianTimeoutException e) {
         // Transient error - custodian system temporarily unavailable, retry
         logger.warn("Custodian timeout for trade {}: {}", message.getPayload().tradeId(), e.getMessage());
-        return CompletableFuture.failedFuture(e);
+        return Future.failedFuture(e);
 
     } catch (InvalidAccountException e) {
         // Permanent error - invalid account number, send to DLQ
         logger.error("Invalid account for trade {}: {}", message.getPayload().tradeId(), e.getMessage());
-        return CompletableFuture.completedFuture(null);
+        return Future.succeededFuture();
     }
 });
 ```
@@ -552,21 +549,19 @@ ConsumerGroup<TradeEvent> monitoredGroup = queueFactory.createConsumerGroup(
     TradeEvent.class
 );
 
-monitoredGroup.start(options);
+monitoredGroup.start(options).onFailure(error -> logger.error("Monitored group start failed", error));
 
 // Set up message handler
 monitoredGroup.setMessageHandler(message -> {
     // Process settlement...
     // Heartbeat is sent automatically by the consumer group
-    return CompletableFuture.completedFuture(null);
+    return Future.succeededFuture();
 });
 
 // Separately, run dead consumer detection (typically in a background job)
 DeadConsumerDetector detector = new DeadConsumerDetector(connectionManager, "detector-1");
 detector.detectDeadSubscriptions("trades.settlement")
-    .toCompletionStage()
-    .toCompletableFuture()
-    .get();
+    .onFailure(error -> logger.error("Dead-consumer detection failed", error));
 ```
 
 **📝 See Full Example**: [`DeadConsumerDetectionDemoTest.java`](../peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/outbox/DeadConsumerDetectionDemoTest.java)
@@ -591,10 +586,11 @@ ConsumerGroup<TradeEvent> realtimeRisk = queueFactory.createConsumerGroup(
 
 realtimeRisk.setMessageHandler(message -> {
     // Process real-time risk calculations
-    return CompletableFuture.completedFuture(null);
+    return Future.succeededFuture();
 });
 
-realtimeRisk.start();  // Default behavior: FROM_NOW
+realtimeRisk.start()
+    .onFailure(error -> logger.error("Real-time risk group start failed", error));
 ```
 
 **Behavior**: Ignores all historical messages, only processes messages sent **after** subscription
@@ -616,7 +612,7 @@ SubscriptionOptions options = SubscriptionOptions.builder()
     .build();
 
 subscriptionManager.subscribe("trades.executed", "new-analytics-service", options)
-    .toCompletionStage().toCompletableFuture().get();
+    .onFailure(error -> logger.error("Asynchronous operation failed", error));
 
 // Step 2: Create and start consumer group
 ConsumerGroup<TradeEvent> newAnalyticsService = queueFactory.createConsumerGroup(
@@ -627,10 +623,10 @@ ConsumerGroup<TradeEvent> newAnalyticsService = queueFactory.createConsumerGroup
 
 newAnalyticsService.setMessageHandler(message -> {
     // Process historical + new messages for analytics
-    return CompletableFuture.completedFuture(null);
+    return Future.succeededFuture();
 });
 
-newAnalyticsService.start();
+newAnalyticsService.start().onFailure(error -> logger.error("Analytics group start failed", error));
 ```
 
 **Approach B: Convenience Method (Single Call)**
@@ -652,10 +648,11 @@ ConsumerGroup<TradeEvent> newAnalyticsService = queueFactory.createConsumerGroup
 
 newAnalyticsService.setMessageHandler(message -> {
     // Process historical + new messages for analytics
-    return CompletableFuture.completedFuture(null);
+    return Future.succeededFuture();
 });
 
-newAnalyticsService.start(options);  // Pass options directly
+newAnalyticsService.start(options)
+    .onFailure(error -> logger.error("Analytics group start failed", error));
 ```
 
 **Behavior**: Processes **all** historical messages from the beginning, then continues with new messages
@@ -689,10 +686,11 @@ ConsumerGroup<TradeEvent> dailyReconciliation = queueFactory.createConsumerGroup
 
 dailyReconciliation.setMessageHandler(message -> {
     // Process messages from start of trading day
-    return CompletableFuture.completedFuture(null);
+    return Future.succeededFuture();
 });
 
-dailyReconciliation.start(options);
+dailyReconciliation.start(options)
+    .onFailure(error -> logger.error("Reconciliation group start failed", error));
 ```
 
 **Behavior**: Processes messages from the specified timestamp onwards
@@ -717,10 +715,10 @@ TopicConfig config = TopicConfig.builder()
     .messageRetentionHours(24)
     .build();
 
-topicConfigService.createTopic(config).toCompletionStage().toCompletableFuture().get();
+topicConfigService.createTopic(config).onFailure(error -> logger.error("Asynchronous operation failed", error));
 
 // Writes succeed even with zero subscriptions
-producer.send(trade).toCompletionStage().toCompletableFuture().get(); // ✅ Success
+producer.send(trade).onFailure(error -> logger.error("Asynchronous operation failed", error));
 ```
 
 ---
@@ -738,10 +736,10 @@ TopicConfig config = TopicConfig.builder()
     .zeroSubscriptionRetentionHours(24)     // Keep messages for 24 hours
     .build();
 
-topicConfigService.createTopic(config).toCompletionStage().toCompletableFuture().get();
+topicConfigService.createTopic(config).onFailure(error -> logger.error("Asynchronous operation failed", error));
 
 // Writes succeed, messages retained for 24 hours
-producer.send(trade).toCompletionStage().toCompletableFuture().get(); // ✅ Success
+producer.send(trade).onFailure(error -> logger.error("Asynchronous operation failed", error));
 ```
 
 **Option 2: Block Writes for Protection**
@@ -754,20 +752,16 @@ TopicConfig config = TopicConfig.builder()
     .blockWritesOnZeroSubscriptions(true)   // Block writes
     .build();
 
-topicConfigService.createTopic(config).toCompletionStage().toCompletableFuture().get();
+topicConfigService.createTopic(config).onFailure(error -> logger.error("Asynchronous operation failed", error));
 
 // Check if writes are allowed before sending
 ZeroSubscriptionValidator validator = new ZeroSubscriptionValidator(connectionManager, "validator-1");
-boolean allowed = validator.isWriteAllowed("trades.executed")
-    .toCompletionStage()
-    .toCompletableFuture()
-    .get();
-
-if (allowed) {
-    producer.send(trade).toCompletionStage().toCompletableFuture().get(); // ✅ Success
-} else {
-    logger.warn("Cannot send trade - no active subscriptions");
-}
+validator.isWriteAllowed("trades.executed")
+    .compose(allowed -> allowed
+        ? producer.send(trade)
+        : Future.failedFuture("Cannot send trade - no active subscriptions"))
+    .onSuccess(ignored -> logger.info("Trade accepted"))
+    .onFailure(error -> logger.error("Trade rejected", error));
 ```
 
 **📝 See Full Example**: [`ZeroSubscriptionProtectionDemoTest.java`](../peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/outbox/ZeroSubscriptionProtectionDemoTest.java)
@@ -871,33 +865,12 @@ SubscriptionManager subscriptionManager = new SubscriptionManager(connectionMana
 
 // Subscribe a consumer group
 subscriptionManager.subscribe("orders.events", "email-service", SubscriptionOptions.defaults())
-    .toCompletionStage()
-    .toCompletableFuture()
-    .get();
-
-// Pause a subscription (temporarily stop processing)
-subscriptionManager.pause("orders.events", "email-service")
-    .toCompletionStage()
-    .toCompletableFuture()
-    .get();
-
-// Resume a subscription (restart processing)
-subscriptionManager.resume("orders.events", "email-service")
-    .toCompletionStage()
-    .toCompletableFuture()
-    .get();
-
-// Cancel a subscription (terminal - cannot be resumed)
-subscriptionManager.cancel("orders.events", "email-service")
-    .toCompletionStage()
-    .toCompletableFuture()
-    .get();
-
-// Update heartbeat (prevents DEAD status)
-subscriptionManager.updateHeartbeat("orders.events", "email-service")
-    .toCompletionStage()
-    .toCompletableFuture()
-    .get();
+    .compose(v -> subscriptionManager.pause("orders.events", "email-service"))
+    .compose(v -> subscriptionManager.resume("orders.events", "email-service"))
+    .compose(v -> subscriptionManager.updateHeartbeat("orders.events", "email-service"))
+    .compose(v -> subscriptionManager.cancel("orders.events", "email-service"))
+    .onSuccess(ignored -> logger.info("Subscription lifecycle completed"))
+    .onFailure(error -> logger.error("Subscription lifecycle failed", error));
 ```
 
 #### Handling Consumer Group Failures
@@ -928,7 +901,7 @@ consumerGroup.setMessageHandler(message -> {
     // Check if already processed (application-level deduplication)
     if (orderRepository.isProcessed(order.getOrderId())) {
         logger.info("Order {} already processed, skipping", order.getOrderId());
-        return CompletableFuture.completedFuture(null);
+        return Future.succeededFuture();
     }
 
     // Process message
@@ -937,7 +910,7 @@ consumerGroup.setMessageHandler(message -> {
     // Mark as processed (in same transaction if possible)
     orderRepository.markProcessed(order.getOrderId());
 
-    return CompletableFuture.completedFuture(null);
+    return Future.succeededFuture();
 });
 ```
 
@@ -1083,7 +1056,7 @@ TopicConfig config = TopicConfig.builder()
     .blockWritesOnZeroSubscriptions(false)  // Allow writes (with retention)
     .build();
 
-topicConfigService.createTopic(config).toCompletionStage().toCompletableFuture().get();
+topicConfigService.createTopic(config).onFailure(error -> logger.error("Asynchronous operation failed", error));
 
 // 2. Trade Capture System - Publishes trade events
 MessageProducer<TradeEvent> tradeProducer = queueFactory.createProducer(
@@ -1097,7 +1070,8 @@ ConsumerGroup<TradeEvent> positionService = queueFactory.createConsumerGroup(
     "trades.executed",
     TradeEvent.class
 );
-positionService.start(SubscriptionOptions.defaults());
+positionService.start(SubscriptionOptions.defaults())
+    .onFailure(error -> logger.error("Position group start failed", error));
 positionService.setMessageHandler(message -> updatePositions(message.getPayload()));
 
 // 4. Cash Service - Updates cash balances
@@ -1106,7 +1080,8 @@ ConsumerGroup<TradeEvent> cashService = queueFactory.createConsumerGroup(
     "trades.executed",
     TradeEvent.class
 );
-cashService.start(SubscriptionOptions.defaults());
+cashService.start(SubscriptionOptions.defaults())
+    .onFailure(error -> logger.error("Cash group start failed", error));
 cashService.setMessageHandler(message -> updateCashBalances(message.getPayload()));
 
 // 5. Regulatory Reporting - Reports to regulator (late-joining, backfills historical data)
@@ -1118,12 +1093,13 @@ ConsumerGroup<TradeEvent> regulatoryService = queueFactory.createConsumerGroup(
 SubscriptionOptions regulatoryOptions = SubscriptionOptions.builder()
     .startPosition(StartPosition.FROM_BEGINNING)  // Backfill all historical trades
     .build();
-regulatoryService.start(regulatoryOptions);
+regulatoryService.start(regulatoryOptions)
+    .onFailure(error -> logger.error("Regulatory group start failed", error));
 regulatoryService.setMessageHandler(message -> reportToRegulator(message.getPayload()));
 
 // 6. Publish trade event
 TradeEvent trade = new TradeEvent("TRADE-123", "FUND-001", "AAPL", TradeType.BUY, 100.0, 150.0);
-tradeProducer.send(trade).toCompletionStage().toCompletableFuture().get();
+tradeProducer.send(trade).onFailure(error -> logger.error("Asynchronous operation failed", error));
 ```
 
 **Result**:
@@ -1145,7 +1121,7 @@ TopicConfig config = TopicConfig.builder()
     .messageRetentionHours(24)
     .build();
 
-topicConfigService.createTopic(config).toCompletionStage().toCompletableFuture().get();
+topicConfigService.createTopic(config).onFailure(error -> logger.error("Asynchronous operation failed", error));
 
 // 2. Create producer
 MessageProducer<TradeEvent> producer = queueFactory.createProducer(
@@ -1166,7 +1142,7 @@ SubscriptionOptions options = SubscriptionOptions.builder()
     .heartbeatTimeoutSeconds(120)
     .build();
 
-workers.start(options);
+workers.start(options).onFailure(error -> logger.error("Worker group start failed", error));
 
 // 5. Set up message handler with error handling
 workers.setMessageHandler(message -> {
@@ -1178,18 +1154,18 @@ workers.setMessageHandler(message -> {
         // Send settlement instruction to custodian
         processSettlement(trade);
 
-        return CompletableFuture.completedFuture(null);
+        return Future.succeededFuture();
 
     } catch (CustodianTimeoutException e) {
         logger.error("Custodian timeout for trade {}: {}", trade.tradeId(), e.getMessage());
-        return CompletableFuture.failedFuture(e); // Will be retried
+        return Future.failedFuture(e); // Will be retried
     }
 });
 
 // 6. Send batch of trades for settlement
 for (int i = 1; i <= 100; i++) {
     TradeEvent trade = new TradeEvent("TRADE-" + i, "FUND-001", "AAPL", TradeType.BUY, 100.0, 150.0);
-    producer.send(trade).toCompletionStage().toCompletableFuture().get();
+    producer.send(trade).onFailure(error -> logger.error("Asynchronous operation failed", error));
 }
 ```
 
@@ -1214,31 +1190,25 @@ ConsumerGroup<TradeEvent> processor = queueFactory.createConsumerGroup(
     TradeEvent.class
 );
 
-processor.start(options);
+processor.start(options).onFailure(error -> logger.error("Processor start failed", error));
 
 // 2. Set up message handler (heartbeats sent automatically)
 processor.setMessageHandler(message -> {
     // Process settlement...
-    return CompletableFuture.completedFuture(null);
+    return Future.succeededFuture();
 });
 
 // 3. Run dead consumer detection (in a background job)
 DeadConsumerDetector detector = new DeadConsumerDetector(connectionManager, "detector-1");
 
 // Detect dead subscriptions for specific topic
-int deadCount = detector.detectDeadSubscriptions("trades.settlement")
-    .toCompletionStage()
-    .toCompletableFuture()
-    .get();
-
-logger.info("Detected {} dead settlement processors", deadCount);
-
-// 4. Recovery: Restart the consumer group
-if (deadCount > 0) {
-    // Consumer group can be restarted by re-subscribing
-    processor.start(options);
-    logger.info("Settlement processor restarted");
-}
+detector.detectDeadSubscriptions("trades.settlement")
+    .compose(deadCount -> {
+        logger.info("Detected {} dead settlement processors", deadCount);
+        return deadCount > 0 ? processor.start(options) : Future.succeededFuture();
+    })
+    .onSuccess(ignored -> logger.info("Dead-consumer recovery check completed"))
+    .onFailure(error -> logger.error("Dead-consumer recovery failed", error));
 ```
 
 **📝 See Full Example**: [`DeadConsumerDetectionDemoTest.java`](../peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/outbox/DeadConsumerDetectionDemoTest.java)
@@ -1254,23 +1224,22 @@ if (deadCount > 0) {
 **Checklist**:
 1. ✅ **Verify subscription**: Check that `start()` was called
    ```java
-   consumerGroup.start(SubscriptionOptions.defaults());
+   consumerGroup.start(SubscriptionOptions.defaults())
+       .onFailure(error -> logger.error("Consumer group start failed", error));
    ```
 
 2. ✅ **Check topic semantics**: Ensure topic exists and has correct semantics
    ```java
-   TopicConfig config = topicConfigService.getTopic("orders.events")
-       .toCompletionStage()
-       .toCompletableFuture()
-       .get();
-   logger.info("Topic semantics: {}", config.getSemantics());
+   topicConfigService.getTopic("orders.events")
+       .onSuccess(config -> logger.info("Topic semantics: {}", config.getSemantics()))
+       .onFailure(error -> logger.error("Topic lookup failed", error));
    ```
 
 3. ✅ **Verify message handler**: Ensure handler is set
    ```java
    consumerGroup.setMessageHandler(message -> {
        logger.info("Received: {}", message.getPayload());
-       return CompletableFuture.completedFuture(null);
+       return Future.succeededFuture();
    });
    ```
 
@@ -1315,13 +1284,14 @@ if (deadCount > 0) {
            logger.warn("Slow processing detected: {}ms", duration);
        }
 
-       return CompletableFuture.completedFuture(null);
+       return Future.succeededFuture();
    });
    ```
 
 3. **Recover dead consumer**: Re-subscribe to resume
    ```java
-   consumerGroup.start(SubscriptionOptions.defaults());
+   consumerGroup.start(SubscriptionOptions.defaults())
+       .onFailure(error -> logger.error("Consumer group start failed", error));
    ```
 
 ---
@@ -1345,14 +1315,14 @@ if (deadCount > 0) {
        // Check if already processed (idempotency)
        if (isAlreadyProcessed(messageId)) {
            logger.info("Message {} already processed, skipping", messageId);
-           return CompletableFuture.completedFuture(null);
+           return Future.succeededFuture();
        }
 
        // Process and mark as processed
        processMessage(message.getPayload());
        markAsProcessed(messageId);
 
-       return CompletableFuture.completedFuture(null);
+       return Future.succeededFuture();
    });
    ```
 
@@ -1361,16 +1331,16 @@ if (deadCount > 0) {
    consumerGroup.setMessageHandler(message -> {
        try {
            processMessage(message.getPayload());
-           return CompletableFuture.completedFuture(null);  // Success
+           return Future.succeededFuture();  // Success
 
        } catch (TransientException e) {
            // Transient error - retry
-           return CompletableFuture.failedFuture(e);
+           return Future.failedFuture(e);
 
        } catch (PermanentException e) {
            // Permanent error - acknowledge to prevent infinite retries
            logger.error("Permanent error: {}", e.getMessage());
-           return CompletableFuture.completedFuture(null);
+           return Future.succeededFuture();
        }
    });
    ```
@@ -1514,9 +1484,9 @@ mvn test -Dtest="*DemoTest" -pl peegeeq-examples
 
 ### 2. Explore Advanced Guides
 
-- **[Consumer Group Architecture Guide](design/CONSUMER_GROUP_ARCHITECTURE_GUIDE.md)** - Deep dive into architecture and design
-- **[Consumer Group Fanout Design](design/CONSUMER_GROUP_FANOUT_DESIGN.md)** - Complete design specification
-- **[Implementation Review](devtest/IMPLEMENTATION_REVIEW_2025-11-13.md)** - Production readiness assessment
+- **[Messaging Features Guide](PEEGEEQ_MESSAGING_FEATURES_GUIDE.md)** - Current consumer-group architecture
+- **[Consumer Group Fanout Design](../docs-design/consumer-groups/PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md)** - Detailed design specification
+- **[Documentation Source Catalogue](PEEGEEQ_DOCUMENTATION_SOURCE_CATALOGUE.md)** - Historical implementation evidence
 
 ### 3. Review Example Code
 
@@ -1533,7 +1503,7 @@ mvn test -Dtest="*DemoTest" -pl peegeeq-examples
 
 Before deploying to production:
 
-1. ✅ **Review coding principles**: [`pgq-coding-principles.md`](devtest/pgq-coding-principles.md)
+1. ✅ **Review coding principles**: [`pgq-coding-principles.md`](../docs-design/dev/pgq-coding-principles.md)
 2. ✅ **Run integration tests**: `mvn test -Pintegration-tests`
 3. ✅ **Configure monitoring**: Set up heartbeat detection and alerting
 4. ✅ **Plan capacity**: Reference counting mode supports ≤16 consumer groups per topic
@@ -1558,12 +1528,9 @@ You've learned:
   - QUEUE to PUB_SUB migration
 - **Production Patterns**: Microservices integration, dead consumer recovery
 
-**Ready for production?** Review the [Implementation Review](devtest/IMPLEMENTATION_REVIEW_2025-11-13.md) for production readiness assessment.
+**Ready for production?** Use the [Operations Guide](PEEGEEQ_OPERATIONS_GUIDE.md) and verify the
+required behavior in your deployment environment.
 
 ---
 
 **End of Getting Started Guide**
-
-
-
-
