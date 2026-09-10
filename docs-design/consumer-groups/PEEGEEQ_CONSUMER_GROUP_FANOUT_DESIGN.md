@@ -6582,7 +6582,7 @@ The fixed method must:
 - Use `.compose(...)` for sequencing steps and `.map(...)` for transformation. Prefer explicit
   `.onSuccess(...)` and `.onFailure(...)` terminal handling.
 - Any new integration test must use `@Tag(TestCategories.INTEGRATION)`, `@Testcontainers`, `VertxTestContext`, and `Checkpoint`. No mocks for database behaviour.
-- After changes, run: `mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-YYYYMMDD.txt`
+- After changes, run: `mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-YYYYMMDD.log`
 - `Tests run: 0` means the test did not execute — check tagging and profile.
 - Validate the changed files against `PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md` before claiming phase complete.
 
@@ -6620,7 +6620,7 @@ See `docs-design/tasks/archive/CONSUMER-GROUPS-UI-REDESIGN-PLAN.md` for the hist
 - After each logical sub-change, run the Playwright consumer groups test to confirm no regression:
   ```powershell
   cd peegeeq-management-ui
-  npx playwright test --project=13-consumer-groups-scope-selectors --headed --reporter=list 2>&1 | Tee-Object -FilePath ..\logs\consumer-groups-YYYYMMDD.txt
+  npx playwright test --project=13-consumer-groups-scope-selectors --headed --reporter=list 2>&1 | Tee-Object -FilePath ..\logs\consumer-groups-YYYYMMDD.log
   ```
 - Do not update Playwright test selectors until the component renders the correct elements. Fix the component first, then align the tests to it.
 - Validate the changed file against `PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md` before claiming phase complete.
@@ -6669,7 +6669,7 @@ The management UI action menu must show **Pause** when status is `active`, **Res
 
 - Every `Future` chain must terminate with `.onSuccess(...)` and `.onFailure(...)`.
 - Any new integration test must use `@Tag(TestCategories.INTEGRATION)`, `@Testcontainers`, `VertxTestContext`, and `Checkpoint`.
-- After changes, run: `mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-YYYYMMDD.txt`
+- After changes, run: `mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-YYYYMMDD.log`
 - Validate the changed files against `PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md` before claiming phase complete.
 
 ---
@@ -6707,7 +6707,7 @@ This is lower priority than Phase 1–3 since backfill is typically triggered au
 
 - Every `Future` chain must terminate with `.onSuccess(...)` and `.onFailure(...)`.
 - Any new integration test must use `@Tag(TestCategories.INTEGRATION)`, `@Testcontainers`, `VertxTestContext`, and `Checkpoint`.
-- After changes, run: `mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-YYYYMMDD.txt`
+- After changes, run: `mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-YYYYMMDD.log`
 - Validate the changed files against `PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md` before claiming phase complete.
 
 ---
@@ -6716,13 +6716,13 @@ This is lower priority than Phase 1–3 since backfill is typically triggered au
 
 **After Phase 1:**
 ```powershell
-mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-YYYYMMDD.txt
+mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-YYYYMMDD.log
 ```
 
 **After Phase 2:**
 ```powershell
 cd peegeeq-management-ui
-npx playwright test --project=13-consumer-groups-scope-selectors --headed --reporter=list 2>&1 | Tee-Object -FilePath ..\logs\consumer-groups-YYYYMMDD.txt
+npx playwright test --project=13-consumer-groups-scope-selectors --headed --reporter=list 2>&1 | Tee-Object -FilePath ..\logs\consumer-groups-YYYYMMDD.log
 ```
 
 **Manual verification (Phases 1 + 2 combined):**
@@ -6733,7 +6733,7 @@ npx playwright test --project=13-consumer-groups-scope-selectors --headed --repo
 
 **After Phase 3:**
 ```powershell
-mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-YYYYMMDD.txt
+mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-YYYYMMDD.log
 ```
 5. Pause an ACTIVE group → confirm `subscription_status = 'PAUSED'` in DB
 6. Resume a PAUSED group → confirm `subscription_status = 'ACTIVE'` in DB

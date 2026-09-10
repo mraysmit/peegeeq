@@ -49,42 +49,42 @@ that name provide frontend lifecycle wiring, not Java tag selection.
 ```powershell
 
 # Full suite resume from — every tag, every module (~90m) — explicit release GATE
-mvn test -Pall-tests -rf :peegeeq-examples 2>&1 | Tee-Object -FilePath logs\all-tests-20260526.txt
+mvn test -Pall-tests -rf :peegeeq-examples 2>&1 | Tee-Object -FilePath logs\all-tests-20260526.log
 
 # Full suite — every tag, every module (~90m) — explicit release GATE
-mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260526.txt
+mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260526.log
 
 # Core tests — all modules, including both UI Vitest suites (default, ~4m)
-mvn test 2>&1 | Tee-Object -FilePath logs\core-tests-20260526.txt
+mvn test 2>&1 | Tee-Object -FilePath logs\core-tests-20260526.log
 
 # Core tests — single module
-mvn test -pl :peegeeq-db 2>&1 | Tee-Object -FilePath logs\peegeeq-db-core-20260526.txt
+mvn test -pl :peegeeq-db 2>&1 | Tee-Object -FilePath logs\peegeeq-db-core-20260526.log
 
 # Smoke tests — all modules (~20s)
-mvn test -Psmoke-tests 2>&1 | Tee-Object -FilePath logs\smoke-tests-20260526.txt
+mvn test -Psmoke-tests 2>&1 | Tee-Object -FilePath logs\smoke-tests-20260526.log
 
 # Integration tests — single module (~15m)
-mvn test -Pintegration-tests -pl :peegeeq-db 2>&1 | Tee-Object -FilePath logs\peegeeq-db-integration-20260526.txt
+mvn test -Pintegration-tests -pl :peegeeq-db 2>&1 | Tee-Object -FilePath logs\peegeeq-db-integration-20260526.log
 
 # Integration tests — all modules (~60m)
-mvn test -Pintegration-tests 2>&1 | Tee-Object -FilePath logs\integration-all-modules-20260526.txt
+mvn test -Pintegration-tests 2>&1 | Tee-Object -FilePath logs\integration-all-modules-20260526.log
 
 # Performance tests — single module (~30m)
-mvn test -Pperformance-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-performance-20260526.txt
+mvn test -Pperformance-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-performance-20260526.log
 
 # Audit — tests missing @Tag (should report Tests run: 0 if tagging is healthy)
-mvn test -Puntagged-tests 2>&1 | Tee-Object -FilePath logs\untagged-audit-20260526.txt
+mvn test -Puntagged-tests 2>&1 | Tee-Object -FilePath logs\untagged-audit-20260526.log
 ```
 
 **After the command finishes:**
 ```powershell
-Get-Content logs\<name>.txt -Tail 30
+Get-Content logs\<name>.log -Tail 30
 ```
 
 ---
 
 **Platform**: Windows / PowerShell only. Always pipe with `Tee-Object`. Never use `Select-String` or `Select-Object -Last N` on the live Maven stream.
-**Log naming**: `<description>-<YYYYMMDD>.txt`
+**Log naming**: `<description>-<YYYYMMDD>.log`
 
 > **Who runs what.** The agent runs scoped verification itself — `-Dtest=<Class>` or a single
 > module — after rebuilding the affected reactor slice. It reports the exact scope and
@@ -102,11 +102,11 @@ tests run. Scope the rebuild to the changed module and its upstream reactor depe
 ```powershell
 # One changed module
 mvn clean install -DskipTests -pl :peegeeq-db -am 2>&1 |
-    Tee-Object -FilePath logs\rebuild-peegeeq-db-20260526.txt
+    Tee-Object -FilePath logs\rebuild-peegeeq-db-20260526.log
 
 # Multiple changed modules
 mvn clean install -DskipTests -pl :peegeeq-db,:peegeeq-outbox -am 2>&1 |
-    Tee-Object -FilePath logs\rebuild-db-outbox-20260526.txt
+    Tee-Object -FilePath logs\rebuild-db-outbox-20260526.log
 ```
 
 `-DskipTests` is allowed only for this rebuild/install prerequisite. It compiles test
@@ -157,13 +157,13 @@ almost no core-tagged tests. Always select the profile that contains the target 
 # Example: D2.3 touches peegeeq-rest and peegeeq-db
 
 # peegeeq-rest core (146 tests)
-mvn test -pl :peegeeq-rest 2>&1 | Tee-Object -FilePath logs\peegeeq-rest-core-20260613.txt
+mvn test -pl :peegeeq-rest 2>&1 | Tee-Object -FilePath logs\peegeeq-rest-core-20260613.log
 
 # peegeeq-rest integration
-mvn test -Pintegration-tests -pl :peegeeq-rest 2>&1 | Tee-Object -FilePath logs\peegeeq-rest-integration-20260613.txt
+mvn test -Pintegration-tests -pl :peegeeq-rest 2>&1 | Tee-Object -FilePath logs\peegeeq-rest-integration-20260613.log
 
 # peegeeq-db integration (727 tests — peegeeq-db has no meaningful core count)
-mvn test -Pintegration-tests -pl :peegeeq-db 2>&1 | Tee-Object -FilePath logs\peegeeq-db-integration-20260613.txt
+mvn test -Pintegration-tests -pl :peegeeq-db 2>&1 | Tee-Object -FilePath logs\peegeeq-db-integration-20260613.log
 ```
 
 > **Always include `-Pintegration-tests` for integration baselines.** `mvn test -pl :module` (no profile) runs `@Tag("core")` only — it will silently skip all integration tests.
@@ -174,7 +174,7 @@ mvn test -Pintegration-tests -pl :peegeeq-db 2>&1 | Tee-Object -FilePath logs\pe
 
 Single module — fast feedback while writing core-tagged tests or fixing a known failure:
 ```powershell
-mvn test -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-core-20260526.txt
+mvn test -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-core-20260526.log
 ```
 
 ---
@@ -184,12 +184,12 @@ mvn test -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-cor
 Single module. Narrow to one class or method with `-Dtest=` while iterating —
 `-Dtest=MyIntegrationTest` or `-Dtest=MyIntegrationTest#oneMethod`:
 ```powershell
-mvn test -Pintegration-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-integration-20260526.txt
+mvn test -Pintegration-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-integration-20260526.log
 ```
 
 All modules (rarely needed — prefer `-Pall-tests`):
 ```powershell
-mvn test -Pintegration-tests 2>&1 | Tee-Object -FilePath logs\integration-all-modules-20260526.txt
+mvn test -Pintegration-tests 2>&1 | Tee-Object -FilePath logs\integration-all-modules-20260526.log
 ```
 
 ---
@@ -197,7 +197,7 @@ mvn test -Pintegration-tests 2>&1 | Tee-Object -FilePath logs\integration-all-mo
 ## 4 Performance
 
 ```powershell
-mvn test -Pperformance-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-performance-20260526.txt
+mvn test -Pperformance-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-performance-20260526.log
 ```
 
 ~~The `peegeeq-performance-test-harness` module additionally provides workload-tuning
@@ -212,7 +212,7 @@ peegeeq-db fanout suites.)*
 ## 5 Full Suite (release / nightly / regression boundary)
 
 ```powershell
-mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260526.txt
+mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260526.log
 ```
 
 `-Pall-tests` is the **single guarantee** that every test in every module
@@ -232,7 +232,7 @@ replaces them with each UI's `npm-test-all` execution.
 ## 6 Tagging Audit
 
 ```powershell
-mvn test -Puntagged-tests 2>&1 | Tee-Object -FilePath logs\untagged-audit-20260526.txt
+mvn test -Puntagged-tests 2>&1 | Tee-Object -FilePath logs\untagged-audit-20260526.log
 ```
 
 Excludes all five known tag groups (`core`, `integration`, `performance`,

@@ -2816,43 +2816,43 @@ Run from the repo root (`C:\Users\markr\dev\java\corejava\peegeeq`). All command
 ```powershell
 # ── REQUIRED after any code change ───────────────────────────────────────────
 
-mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260615.txt
+mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260615.log
 
 
 # ── Pre-change baseline (establish green before touching a module) ────────────
 
-mvn test -pl :peegeeq-rest 2>&1 | Tee-Object -FilePath logs\peegeeq-rest-core-20260615.txt
-mvn test -Pintegration-tests -pl :peegeeq-rest 2>&1 | Tee-Object -FilePath logs\peegeeq-rest-integration-20260615.txt
-mvn test -Pintegration-tests -pl :peegeeq-db 2>&1 | Tee-Object -FilePath logs\peegeeq-db-integration-20260615.txt
+mvn test -pl :peegeeq-rest 2>&1 | Tee-Object -FilePath logs\peegeeq-rest-core-20260615.log
+mvn test -Pintegration-tests -pl :peegeeq-rest 2>&1 | Tee-Object -FilePath logs\peegeeq-rest-integration-20260615.log
+mvn test -Pintegration-tests -pl :peegeeq-db 2>&1 | Tee-Object -FilePath logs\peegeeq-db-integration-20260615.log
 
 
 # ── Targeted debug (only after -Pall-tests identifies a specific failure) ─────
 
 # DB module — core
-mvn test -pl :peegeeq-db 2>&1 | Tee-Object -FilePath logs\peegeeq-db-core-20260615.txt
+mvn test -pl :peegeeq-db 2>&1 | Tee-Object -FilePath logs\peegeeq-db-core-20260615.log
 
 # DB module — integration (PostgreSQL container)
-mvn test -Pintegration-tests -pl :peegeeq-db 2>&1 | Tee-Object -FilePath logs\peegeeq-db-integration-20260615.txt
+mvn test -Pintegration-tests -pl :peegeeq-db 2>&1 | Tee-Object -FilePath logs\peegeeq-db-integration-20260615.log
 
 # REST module — core
-mvn test -pl :peegeeq-rest 2>&1 | Tee-Object -FilePath logs\peegeeq-rest-core-20260615.txt
+mvn test -pl :peegeeq-rest 2>&1 | Tee-Object -FilePath logs\peegeeq-rest-core-20260615.log
 
 # REST module — integration
-mvn test -Pintegration-tests -pl :peegeeq-rest 2>&1 | Tee-Object -FilePath logs\peegeeq-rest-integration-20260615.txt
+mvn test -Pintegration-tests -pl :peegeeq-rest 2>&1 | Tee-Object -FilePath logs\peegeeq-rest-integration-20260615.log
 
 # Integration-tests module
-mvn test -Pintegration-tests -pl :peegeeq-integration-tests 2>&1 | Tee-Object -FilePath logs\peegeeq-integration-tests-integration-20260615.txt
+mvn test -Pintegration-tests -pl :peegeeq-integration-tests 2>&1 | Tee-Object -FilePath logs\peegeeq-integration-tests-integration-20260615.log
 
 # Smoke tests — all modules
-mvn test -Psmoke-tests 2>&1 | Tee-Object -FilePath logs\smoke-tests-20260615.txt
+mvn test -Psmoke-tests 2>&1 | Tee-Object -FilePath logs\smoke-tests-20260615.log
 
 # Audit: find untagged tests (should report Tests run: 0 in every module)
-mvn test -Puntagged-tests 2>&1 | Tee-Object -FilePath logs\untagged-audit-20260615.txt
+mvn test -Puntagged-tests 2>&1 | Tee-Object -FilePath logs\untagged-audit-20260615.log
 
 
 # ── Coverage ─────────────────────────────────────────────────────────────────
 
-mvn test jacoco:report -Pintegration-tests -pl :peegeeq-db 2>&1 | Tee-Object -FilePath logs\peegeeq-db-coverage-20260615.txt
+mvn test jacoco:report -Pintegration-tests -pl :peegeeq-db 2>&1 | Tee-Object -FilePath logs\peegeeq-db-coverage-20260615.log
 # Report at: peegeeq-db/target/site/jacoco/index.html
 ```
 
@@ -2930,17 +2930,17 @@ After ANY code change, the mandatory validation command is `-Pall-tests`:
 
 ```powershell
 # REQUIRED after any code change — runs every test in every module
-mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260615.txt
+mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260615.log
 ```
 
 Only use targeted commands below when re-running a **specific already-identified failure** from a prior `-Pall-tests` run:
 
 ```powershell
 # Targeted debug — peegeeq-rest integration (after -Pall-tests identifies a failure here)
-mvn test -Pintegration-tests -pl :peegeeq-rest 2>&1 | Tee-Object -FilePath logs\peegeeq-rest-integration-20260615.txt
+mvn test -Pintegration-tests -pl :peegeeq-rest 2>&1 | Tee-Object -FilePath logs\peegeeq-rest-integration-20260615.log
 
 # Targeted debug — peegeeq-integration-tests (after -Pall-tests identifies a failure here)
-mvn test -Pintegration-tests -pl :peegeeq-integration-tests 2>&1 | Tee-Object -FilePath logs\peegeeq-integration-tests-integration-20260615.txt
+mvn test -Pintegration-tests -pl :peegeeq-integration-tests 2>&1 | Tee-Object -FilePath logs\peegeeq-integration-tests-integration-20260615.log
 ```
 
 **Remaining open gaps** (§10.5):
