@@ -1202,7 +1202,7 @@ unchanged.
 
 ### `docs-design/consumer-groups/PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md`
 
-- SHA-256: `d9d6fb30ec3496a1d21854979a8008b0425a7ab6085a200f4576e0e26dcd03c3`
+- SHA-256: `4e9eac92c3b3e088f432a2e80d119db37ea5494d39390742e2f865ffccc8f8f7`
 - Category: Messaging and Subscriptions
 - Disposition: Merge current contract into the consumer-group or ordering authority
 - Heading disposition:
@@ -1990,7 +1990,7 @@ unchanged.
 
 ### `docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md`
 
-- SHA-256: `98c1fb36a4cb618e0e782033524d572cc0684828f2e0c12e15702741c7640f69`
+- SHA-256: `b8a1a33949bfe68805cd208d2b6e62785a1199fe090c97cbe4698f6c19a1d3ce`
 - Category: Operations and Observability
 - Disposition: Merge supported operating guidance; retain dated evidence
 - Heading disposition:
@@ -3740,7 +3740,7 @@ unchanged.
 
 ### `docs-design/testing/PEEGEEQ_TEST_GUARD.md`
 
-- SHA-256: `c8ff413ef3d9d2c2c143940b73ff8732b531a42ef0b584f5bf4378bd83c34298`
+- SHA-256: `9ddd25f6e2b25219befbf559ea493234ac7240123b79248d1aeb62533173307c`
 - Category: Contributor, Testing, and CI
 - Disposition: Consolidate durable instructions; retain environment-specific and normative sources
 - Heading disposition:
@@ -3925,7 +3925,7 @@ unchanged.
 
 ### `docs-design/testing/PEEGEEQ-TEST-COMMANDS.md`
 
-- SHA-256: `3a2a276f78955b9db7a1913e9490143c10c399c9c37c2f9cc160ff731548b9d7`
+- SHA-256: `8349b8e525bd7a10a898c7e96844117239365ab50cd836fac63faa35ff7b1e2d`
 - Category: Contributor, Testing, and CI
 - Disposition: Consolidate durable instructions; retain environment-specific and normative sources
 - Heading disposition:
