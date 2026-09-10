@@ -40,41 +40,41 @@ no `clean`, `Tee-Object` for logs, run from the workspace root.
 ### Run all eight checks (whole codebase)
 
 ```powershell
-mvn test -pl :peegeeq-test-support -Dtest=OnSuccessExceptionSwallowingGuardTest 2>&1 | Tee-Object -FilePath logs\guard-tests-20260517.txt
+mvn test -pl :peegeeq-test-support -Dtest=OnSuccessExceptionSwallowingGuardTest 2>&1 | Tee-Object -FilePath logs\guard-tests-20260517.log
 ```
 
 ### Run a single tier
 
 ```powershell
 # Tier 2/3
-mvn test -pl :peegeeq-test-support -Dtest=OnSuccessExceptionSwallowingGuardTest#noTier3OnSuccessExceptionSwallowingInTestSources 2>&1 | Tee-Object -FilePath logs\guard-tier3-20260517.txt
+mvn test -pl :peegeeq-test-support -Dtest=OnSuccessExceptionSwallowingGuardTest#noTier3OnSuccessExceptionSwallowingInTestSources 2>&1 | Tee-Object -FilePath logs\guard-tier3-20260517.log
 
 # Tier 4 — Future.await()
-mvn test -pl :peegeeq-test-support -Dtest=OnSuccessExceptionSwallowingGuardTest#noFutureAwaitInTestSources 2>&1 | Tee-Object -FilePath logs\guard-tier4-20260517.txt
+mvn test -pl :peegeeq-test-support -Dtest=OnSuccessExceptionSwallowingGuardTest#noFutureAwaitInTestSources 2>&1 | Tee-Object -FilePath logs\guard-tier4-20260517.log
 
 # Tier 5 — Thread.sleep / parkNanos
-mvn test -pl :peegeeq-test-support -Dtest=OnSuccessExceptionSwallowingGuardTest#noBlockingThreadDelaysInTestSources 2>&1 | Tee-Object -FilePath logs\guard-tier5-20260517.txt
+mvn test -pl :peegeeq-test-support -Dtest=OnSuccessExceptionSwallowingGuardTest#noBlockingThreadDelaysInTestSources 2>&1 | Tee-Object -FilePath logs\guard-tier5-20260517.log
 
 # Blocking-exemption policy
-mvn test -pl :peegeeq-test-support -Dtest=OnSuccessExceptionSwallowingGuardTest#noBlockingExemptionsInTestSources 2>&1 | Tee-Object -FilePath logs\guard-blocking-exemptions-20260902.txt
+mvn test -pl :peegeeq-test-support -Dtest=OnSuccessExceptionSwallowingGuardTest#noBlockingExemptionsInTestSources 2>&1 | Tee-Object -FilePath logs\guard-blocking-exemptions-20260902.log
 
 # Tier 6 — onComplete swallow
-mvn test -pl :peegeeq-test-support -Dtest=OnSuccessExceptionSwallowingGuardTest#noOnCompleteSwallowingInTestSources 2>&1 | Tee-Object -FilePath logs\guard-tier6-20260517.txt
+mvn test -pl :peegeeq-test-support -Dtest=OnSuccessExceptionSwallowingGuardTest#noOnCompleteSwallowingInTestSources 2>&1 | Tee-Object -FilePath logs\guard-tier6-20260517.log
 
 # Tier 7 — discarded stop()/close() Future
-mvn test -pl :peegeeq-test-support -Dtest=OnSuccessExceptionSwallowingGuardTest#noDiscardedFuturesFromStopOrCloseInTestSources 2>&1 | Tee-Object -FilePath logs\guard-tier7-20260517.txt
+mvn test -pl :peegeeq-test-support -Dtest=OnSuccessExceptionSwallowingGuardTest#noDiscardedFuturesFromStopOrCloseInTestSources 2>&1 | Tee-Object -FilePath logs\guard-tier7-20260517.log
 
 # Tier 8 — async operation asserted only as non-null
-mvn test -pl :peegeeq-test-support -Dtest=OnSuccessExceptionSwallowingGuardTest#noAsyncOperationsAssertedOnlyAsNonNullInTestSources 2>&1 | Tee-Object -FilePath logs\guard-tier8-20260902.txt
+mvn test -pl :peegeeq-test-support -Dtest=OnSuccessExceptionSwallowingGuardTest#noAsyncOperationsAssertedOnlyAsNonNullInTestSources 2>&1 | Tee-Object -FilePath logs\guard-tier8-20260902.log
 
 # Tier 9 — discarded subscribe Future
-mvn test -pl :peegeeq-test-support -Dtest=OnSuccessExceptionSwallowingGuardTest#noDiscardedFuturesFromSubscribeInTestSources 2>&1 | Tee-Object -FilePath logs\guard-tier9-20260902.txt
+mvn test -pl :peegeeq-test-support -Dtest=OnSuccessExceptionSwallowingGuardTest#noDiscardedFuturesFromSubscribeInTestSources 2>&1 | Tee-Object -FilePath logs\guard-tier9-20260902.log
 ```
 
 ### Read the summary
 
 ```powershell
-Get-Content logs\guard-tests-20260517.txt | Where-Object { $_ -match '^Found |Tests run:|BUILD ' }
+Get-Content logs\guard-tests-20260517.log | Where-Object { $_ -match '^Found |Tests run:|BUILD ' }
 ```
 
 ## Scoping to specific files
@@ -85,13 +85,13 @@ rather than the scan:
 
 ```powershell
 # All violations in one file
-Get-Content logs\guard-tests-20260517.txt | Where-Object { $_ -match 'MultiConfigurationIntegrationTest' }
+Get-Content logs\guard-tests-20260517.log | Where-Object { $_ -match 'MultiConfigurationIntegrationTest' }
 
 # Tier 7 hits in one module
-Get-Content logs\guard-tests-20260517.txt | Where-Object { $_ -match '\[Tier 7\].*peegeeq-db' }
+Get-Content logs\guard-tests-20260517.log | Where-Object { $_ -match '\[Tier 7\].*peegeeq-db' }
 
 # All violations in one module across all tiers
-Get-Content logs\guard-tests-20260517.txt | Where-Object { $_ -match 'peegeeq-outbox' }
+Get-Content logs\guard-tests-20260517.log | Where-Object { $_ -match 'peegeeq-outbox' }
 ```
 
 To verify a single file is clean after a fix, run the guard and grep for that

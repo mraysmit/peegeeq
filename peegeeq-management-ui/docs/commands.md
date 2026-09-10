@@ -10,32 +10,32 @@ Logs go to `../logs/` (the workspace-root `logs/` folder).
 ### Unit tests (Vitest, no backend needed)
 ```powershell
 cd peegeeq-management-ui
-npm run test:run 2>&1 | Tee-Object -FilePath ..\logs\mgmt-unit-tests-20260603.txt
+npm run test:run 2>&1 | Tee-Object -FilePath ..\logs\mgmt-unit-tests-20260603.log
 ```
 
 ### E2E tests (Playwright, managed — starts backend automatically)
 ```powershell
-npm run test:e2e 2>&1 | Tee-Object -FilePath ..\logs\mgmt-e2e-tests-20260603.txt
+npm run test:e2e 2>&1 | Tee-Object -FilePath ..\logs\mgmt-e2e-tests-20260603.log
 ```
 
 ### All tests (unit + integration + e2e)
 ```powershell
-npm run test:all 2>&1 | Tee-Object -FilePath ..\logs\mgmt-all-tests-20260603.txt
+npm run test:all 2>&1 | Tee-Object -FilePath ..\logs\mgmt-all-tests-20260603.log
 ```
 
 ### Playwright inventory guard
 ```powershell
-npm run test:e2e:inventory 2>&1 | Tee-Object -FilePath ..\logs\mgmt-e2e-inventory-20260902.txt
+npm run test:e2e:inventory 2>&1 | Tee-Object -FilePath ..\logs\mgmt-e2e-inventory-20260902.log
 ```
 
 ### Documentation screenshots (dedicated Playwright configuration)
 ```powershell
-npm run test:e2e:screenshots 2>&1 | Tee-Object -FilePath ..\logs\mgmt-screenshots-20260902.txt
+npm run test:e2e:screenshots 2>&1 | Tee-Object -FilePath ..\logs\mgmt-screenshots-20260902.log
 ```
 
 ### E2E tests direct (no backend management)
 ```powershell
-npx playwright test --reporter=list 2>&1 | Tee-Object -FilePath ..\logs\mgmt-e2e-direct-20260603.txt
+npx playwright test --reporter=list 2>&1 | Tee-Object -FilePath ..\logs\mgmt-e2e-direct-20260603.log
 ```
 
 ---
@@ -85,5 +85,5 @@ npm run dev
 > ⚠️ **This run takes more than 60 minutes.** Do not run it for single-module changes — use the single-module command above instead.
 
 ```powershell
-mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260603.txt
+mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260603.log
 ```
