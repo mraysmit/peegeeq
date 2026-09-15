@@ -1,7 +1,7 @@
 # PeeGeeQ Consolidated Task Register
 
 **Status:** ACTIVE
-**Last reconciled:** 2026-09-06
+**Last reconciled:** 2026-09-14
 **Repository revision reviewed:** `7db748b8` (`feat(bitemporal): complete durable subscriptions and Jenkins UI reporting`)
 **Recorded from-beginning release baseline:** Jenkins build #36 at `e8d07e53`
 **Latest successful resumed gate:** Jenkins build #48 at `19e3cbdb` plus the checksummed pre-commit Task 7 overlay (both UI modules only); those implementation files are now committed in `7db748b8`
@@ -390,19 +390,6 @@ handler is covered by an exact expected-error log contract.
 The design reference is
 `docs-design/event-sourcing-messaging/PEEGEEQ_DURABLE_SUBSCRIPTIONS_OPTION_PLAN.md`; status and
 execution order are controlled here.
-
-### 5. Transactional REST API product decision
-
-**Priority:** Product decision
-**Status:** PROPOSED
-
-No domain-specific transactional REST endpoints currently exist. Decide whether PeeGeeQ should
-expose them. If approved, add a bounded implementation plan here covering transaction ownership,
-idempotency, authentication/authorization, failure semantics, and real-backend tests. Until that
-decision, the proposal is not an implementation task.
-
-Design reference:
-`docs-design/transactional-rest-api/PEEGEEQ_TRANSACTIONAL_REST_API_DESIGN.md`.
 
 ### 6. Partitioned consumption pre-GA gates
 
