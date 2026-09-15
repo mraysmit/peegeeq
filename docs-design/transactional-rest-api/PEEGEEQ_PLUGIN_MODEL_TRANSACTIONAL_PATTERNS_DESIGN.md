@@ -1,23 +1,25 @@
 # PeeGeeQ Transactional Pattern Plugin Model
 
-**Status:** PROPOSED — NOT APPROVED OR IMPLEMENTED
+**Status:** REJECTED — OUT OF PEEGEEQ PRODUCT SCOPE
 
-**Last reconciled:** 2026-09-06
+**Last reconciled:** 2026-09-14
 
 **Repository baseline:** `7db748b8e77f3aba850be7b73547d192dac5b83f`
 
 ## Purpose
 
-This document records a candidate plugin model for transactional REST coordination. It is a
-product-design input, not an implementation description or an approved delivery plan.
+This document records a rejected candidate plugin model for transactional REST coordination. It
+is retained as historical design analysis, not as an implementation description, delivery plan,
+or product roadmap.
 
 The repository currently has no `peegeeq-transactional-*` modules, transactional executor
 registry, saga or reservation runtime, or `/api/v1/transactional/*` endpoints. Examples in the
 superseded draft were illustrative and must not be interpreted as available APIs.
 
-The authoritative work item is
-[Task 5 in the consolidated register](../tasks/tasks.md#5-transactional-rest-api-product-decision).
-Until that product decision is approved, no implementation work is scheduled.
+The product decision is recorded in the
+[Transactional REST API design](PEEGEEQ_TRANSACTIONAL_REST_API_DESIGN.md#final-product-decision-not-part-of-peegeeq).
+The former task-register proposal was deleted because the capability is outside PeeGeeQ's generic
+transactional-outbox scope. No implementation work is scheduled.
 
 ## Problem under consideration
 
