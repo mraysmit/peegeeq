@@ -2,7 +2,7 @@
 
 **Status:** CURRENT CONSOLIDATION INDEX
 
-**Updated:** 2026-09-06
+**Updated:** 2026-09-14
 
 ## Purpose
 
@@ -322,14 +322,14 @@ describes the source at its reviewed revision; the archive path is its current a
 
 ### [PeeGeeQ Transactional Pattern Plugin Model](<../docs-design/transactional-rest-api/PEEGEEQ_PLUGIN_MODEL_TRANSACTIONAL_PATTERNS_DESIGN.md>)
 
-- Recorded status: **Status:** PROPOSED — NOT APPROVED OR IMPLEMENTED
-- Route: Retain as design material; do not present as a current contract
+- Recorded status: **Status:** REJECTED — OUT OF PEEGEEQ PRODUCT SCOPE
+- Route: Retain as historical design analysis; do not present as a current contract or roadmap
 - Source: `docs-design/transactional-rest-api/PEEGEEQ_PLUGIN_MODEL_TRANSACTIONAL_PATTERNS_DESIGN.md`
 
 ### [Transactional REST API Design](<../docs-design/transactional-rest-api/PEEGEEQ_TRANSACTIONAL_REST_API_DESIGN.md>)
 
-- Recorded status: **Status:** PROPOSED — NOT IMPLEMENTED
-- Route: Retain as design material; do not present as a current contract
+- Recorded status: **Status:** REJECTED — OUT OF PEEGEEQ PRODUCT SCOPE
+- Route: Retain as historical design analysis; the final product-decision note is authoritative
 - Source: `docs-design/transactional-rest-api/PEEGEEQ_TRANSACTIONAL_REST_API_DESIGN.md`
 
 ## Historical Evidence and Completed Work

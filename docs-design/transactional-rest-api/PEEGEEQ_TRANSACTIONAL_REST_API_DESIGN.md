@@ -7,8 +7,9 @@
 
 ## Current Implementation Status
 
-**Status:** PROPOSED — NOT IMPLEMENTED
+**Status:** REJECTED — OUT OF PEEGEEQ PRODUCT SCOPE
 **Verified:** August 26, 2026 against repository commit `09157c82`
+**Product decision:** September 14, 2026
 
 The transactional participation primitives described by this design exist:
 `ConnectionProvider.withTransaction()`, `EventStore.appendInTransaction()`, and
@@ -23,6 +24,57 @@ implemented; that claim was incorrect and has been reconciled here.
 
 Historical examples in this design now use composable Vert.x `Future` chains. They remain
 proposals and must be validated against current interfaces before implementation.
+
+## Final Product Decision: Not Part of PeeGeeQ
+
+This proposal has been rejected. Domain-specific transactional REST coordination is not part of
+PeeGeeQ and must not be added to the core product. The remainder of this document is retained only
+as historical design analysis; its proposed endpoints, implementation phases, selected options,
+and readiness claims are not an implementation plan or product roadmap.
+
+PeeGeeQ is generic PostgreSQL messaging infrastructure whose central purpose is to provide the
+**transactional outbox pattern**. The consistency problem described by this proposal is already
+solved by the outbox and native Java APIs:
+
+- The application owns its business transaction.
+- The application writes its domain data using that transaction's `SqlConnection`.
+- `OutboxProducer.sendInExistingTransaction(...)` writes the outgoing message using the same
+  connection, so the domain change and outbox record commit or roll back together.
+- When required, `EventStore.appendInTransaction(...)` can participate through the same
+  connection as an additional application-controlled operation.
+- PeeGeeQ subsequently delivers the committed outbox record asynchronously. Consumers must still
+  use the documented delivery and idempotency contracts.
+
+An order, trade, inventory reservation, or any other business record belongs to the application,
+not to PeeGeeQ. Such records may be carried as typed or JSON message/event payloads, and their
+tables may coexist with PeeGeeQ tables in the same PostgreSQL database, but PeeGeeQ does not own
+their schemas, repositories, validation rules, authorization rules, or REST resources.
+
+A REST client cannot pass a live server-side `SqlConnection` across HTTP or extend its own
+database transaction across separate requests. Consequently, a generic PeeGeeQ REST endpoint
+cannot atomically mutate arbitrary application-owned data. Hardcoded endpoints such as
+`/transactional/orders`, `/transactional/trades`, and `/transactional/inventory-reservations`
+would instead make PeeGeeQ responsible for domain-specific persistence and would contradict its
+generic infrastructure boundary.
+
+The rejected alternatives do not change that conclusion:
+
+- An HTTP callback cannot join the callback service's independent database work to PeeGeeQ's
+  local PostgreSQL transaction. Holding a PeeGeeQ transaction open across that call also creates
+  timeout, connection-pool, and indeterminate-outcome risks.
+- Accepting arbitrary SQL or client-selected tables over REST creates an unacceptable security,
+  authorization, schema-coupling, and operational boundary.
+- Saga orchestration and reservation workflows provide eventual coordination, not the atomic
+  transactional outbox guarantee, and belong in application/workflow infrastructure rather than
+  PeeGeeQ core.
+- A single-request batch endpoint may atomically combine PeeGeeQ-owned operations, but it cannot
+  include arbitrary business writes performed outside the PeeGeeQ server transaction.
+
+Applications that need an HTTP business API should implement that API in the domain service. The
+domain service then uses PeeGeeQ's native Java transaction-participation APIs internally. This
+keeps the business boundary with the application and preserves the exact guarantee PeeGeeQ is
+designed to provide: business data and its outgoing outbox message are committed atomically in
+one PostgreSQL transaction.
 
 ---
 
@@ -5020,6 +5072,6 @@ transactional endpoints.
 
 ---
 
-**Document Status:** READY FOR REVIEW
-**Next Steps:** Review by stakeholders, approval, implementation
+**Document Status:** REJECTED — RETAINED AS HISTORICAL DESIGN ANALYSIS
+**Next Steps:** None. Do not implement these endpoints in PeeGeeQ core.
 **Contact:** Mark Andrew Ray-Smith, Cityline Ltd
