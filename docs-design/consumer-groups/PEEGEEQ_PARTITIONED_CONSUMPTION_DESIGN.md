@@ -1,18 +1,21 @@
 # Partitioned Consumption Design and Implementation Record
 
-**Status:** IMPLEMENTED BASELINE — PRE-GA VALIDATION OPEN
+**Status:** IMPLEMENTED — TASK 6 RELEASE GATE COMPLETE
 
 **Created:** 2026-04-09
 
-**Last reconciled:** 2026-09-06
+**Last reconciled:** 2026-09-17
 
-**Repository baseline:** `7db748b8e77f3aba850be7b73547d192dac5b83f`
+**Repository baseline:** `263309d8e5df311704cdd1b866b79aeb8ecdcb28`
+
+**Release-gate source SHA-256:**
+`485c930dd264864cd9157fe3378e25e661c51b97afa2120d1cc5bde6c0b54f27`
 
 ## Authority and scope
 
 This document records the implemented `OFFSET_WATERMARK` partitioned-consumption design. It does
-not maintain a separate numbered task list. The only authoritative remaining work is
-[Task 6 in the consolidated register](../tasks/tasks.md#6-partitioned-consumption-pre-ga-gates).
+not maintain a separate numbered task list. The dated acceptance evidence for completed
+[Task 6 is in the consolidated register](../tasks/tasks.md#6-partitioned-consumption-pre-ga-gates).
 
 Earlier revisions called the release gates “Task 4” and mixed them with local implementation
 phases. That numbering is retired to prevent it from being mistaken for consolidated Task 4,
@@ -34,8 +37,9 @@ The following implementation areas are complete:
 - fan-out trace branching; and
 - focused lifecycle, ordering, failure, and concurrency tests.
 
-The implementation is not being declared generally available from static inspection. Long-running
-capacity, chaos, contention, isolation, and recovery evidence remains a release gate.
+The implementation is not declared generally available from static inspection. Jenkins build #11
+provided the dated runtime evidence for the documented Task 6 capacity, chaos, contention,
+isolation, recovery, and cleanup envelope.
 
 ## Completion modes
 
@@ -144,16 +148,43 @@ The design is covered by focused suites for:
 Historical counts from old revisions are not current verification. Accepted test and Jenkins
 evidence belongs in the consolidated register.
 
-## Remaining release gates
+## Release-gate evidence — complete
 
-Consolidated Task 6 requires dated and reproducible evidence for:
+Jenkins build #10 qualified the stack-safe release harness for two minutes. Jenkins build #11 then
+completed a clean reactor build, **89/89** focused database, native, schema-isolation, and OLTP
+contention tests, followed by the explicitly selected `PartitionedConsumptionReleaseGate` at
+**1/1**. The full build therefore published **90 passing tests** with zero failures, errors, or
+skips. The release class deliberately has no normal `Test` suffix, so this one-hour owner gate is
+not part of routine test profiles.
 
-- long-duration fan-out and partition stability;
-- consumer death, lease expiry, rebalance, and recovery chaos;
-- transaction, table, and connection-pool contention;
-- tenant/schema isolation under concurrent partition activity;
-- cleanup correctness after interrupted work; and
-- an operating envelope tied to a documented VM and database configuration.
+The sustained workload ran on an Ubuntu 24.04 host with 12 vCPU, 31 GiB RAM, 2 GiB swap, Docker
+`29.1.3`, and a PostgreSQL `15.13-alpine3.20` Testcontainer. It ran for 3,600 seconds at 200
+messages/second total across two isolated tenant schemas. Each tenant used two independent
+consumer groups, four pool connections, a 512-byte payload, 50-row publish batches, and 16 initial
+partitions. The test expanded both tenants live to 17 partitions and rebalanced at the midpoint.
+
+Accepted results:
+
+- each tenant published 360,033 messages at a measured 99.99 messages/second;
+- every group received all 360,033 messages, for 720,066 stored messages and 1,440,132 handler
+  deliveries overall;
+- assertions found zero within-partition ordering violations and zero cross-tenant deliveries;
+- both groups drained completely after the sustained window;
+- each tenant reached watermark `360017`, with zero pending messages at or below the watermark
+  and a bounded 16-row cross-partition tail above it;
+- completed plus pending rows exactly matched published rows in both schemas;
+- 34,792 and 34,789 OLTP probes succeeded, with bucketed p50/p95/p99 latency of 10 ms and no
+  probe failures;
+- bucketed delivery p50/p95/p99 latency was 1,000 ms;
+- all assignments were removed after orderly engine shutdown;
+- cluster-wide WAL growth was approximately 2.61 GB; and
+- minute host samples generally showed 96–97% CPU idle, no swap use, and no capacity pressure.
+
+Build #9 is diagnostic evidence only: its full-hour data workload completed, but recursively
+composed harness futures overflowed the JVM stack during completion. Timer-scheduled, stack-safe
+asynchronous publisher, probe, and drain loops were qualified in build #10 and accepted in build
+#11. The consolidated register is authoritative for the exact focused-suite counts, host baseline,
+source checksum, and release conclusion.
 
 ## Evaluated but unapproved ideas
 
@@ -171,7 +202,6 @@ TDD plan before implementation.
 ## References
 
 - [Consolidated task register](../tasks/tasks.md)
-- [Ordering patterns guide](../../docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md)
 - [Ordering patterns guide](../../docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md)
 - [Fan-out design](PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md)
 - [Testing standards](../testing/PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md)

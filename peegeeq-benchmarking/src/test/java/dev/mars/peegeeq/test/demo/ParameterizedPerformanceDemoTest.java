@@ -21,8 +21,6 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -148,11 +146,9 @@ public class ParameterizedPerformanceDemoTest extends PeeGeeQTestBase {
 
             log.info("--- Running test with profile: {} ---", profile.getDisplayName());
 
-            // Simulate running the test with this profile
+            // Run the same real database workload for each profile.
             Instant startTime = Instant.now();
-
-            // Perform some database work (simulated)
-            new CountDownLatch(1).await(50 + (int)(Math.random() * 100), TimeUnit.MILLISECONDS);
+            performSimpleDatabaseOperations();
 
             Instant endTime = Instant.now();
             Duration duration = Duration.between(startTime, endTime);

@@ -37,8 +37,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -69,7 +67,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * This test class has been refactored to eliminate poorly structured test design patterns:
  * <ul>
  *   <li><strong>Property Management</strong>: Uses standardized TestContainers configuration</li>
- *   <li><strong>Thread Management</strong>: Uses chained {@link io.vertx.core.Future} composition with {@link java.util.concurrent.CountDownLatch} instead of manual ExecutorService</li>
+ *   <li><strong>Thread Management</strong>: Uses chained {@link io.vertx.core.Future} composition instead of manual executors or blocking waits</li>
  *   <li><strong>Test Independence</strong>: Each test uses unique queue and consumer group names</li>
  *   <li><strong>Clean Structure</strong>: Simplified setup/teardown with essential logging only</li>
  * </ul>
@@ -84,11 +82,6 @@ import static org.junit.jupiter.api.Assertions.*;
 class HighFrequencyProducerConsumerTest {
     private static final Logger logger = LoggerFactory.getLogger(HighFrequencyProducerConsumerTest.class);
     static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
-
-    @DynamicPropertySource
-    static void configureProperties(DynamicPropertyRegistry registry) {
-        SharedTestContainers.configureSharedProperties(registry);
-    }
 
     private PeeGeeQManager manager;
     private QueueFactory queueFactory;
@@ -543,5 +536,3 @@ class HighFrequencyProducerConsumerTest {
         }
     }
 }
-
-

@@ -41,18 +41,22 @@ PeeGeeQManager manager = new PeeGeeQManager(
     new PeeGeeQConfiguration("development"),
     new SimpleMeterRegistry()
 );
-manager.start();
+manager.start()
+    .onSuccess(ignored -> {
+        BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager);
 
-// Create event store factory
-BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager);
+        // Create event store for your event type with explicit table name
+        EventStore<OrderEvent> eventStore =
+            factory.createEventStore(OrderEvent.class, "order_events");
 
-// Create event store for your event type with explicit table name
-EventStore<OrderEvent> eventStore = factory.createEventStore(OrderEvent.class, "order_events");
-
-// Or use Map for flexible JSON payloads
-@SuppressWarnings("unchecked")
-Class<Map<String, Object>> mapClass = (Class<Map<String, Object>>) (Class<?>) Map.class;
-EventStore<Map<String, Object>> flexibleStore = factory.createEventStore(mapClass, "flexible_events");
+        // Or use Map for flexible JSON payloads
+        @SuppressWarnings("unchecked")
+        Class<Map<String, Object>> mapClass =
+            (Class<Map<String, Object>>) (Class<?>) Map.class;
+        EventStore<Map<String, Object>> flexibleStore =
+            factory.createEventStore(mapClass, "flexible_events");
+    })
+    .onFailure(error -> logger.error("Failed to start PeeGeeQ", error));
 ```
 
 ### 3. Append Events
@@ -63,14 +67,14 @@ OrderEvent order = new OrderEvent("ORDER-001", "CUST-123", new BigDecimal("99.99
 
 // Append with valid time (when it actually happened)
 Instant validTime = Instant.now().minus(1, ChronoUnit.HOURS);
-BiTemporalEvent<OrderEvent> event = eventStore.append(
+Future<BiTemporalEvent<OrderEvent>> eventFuture = eventStore.append(
     "OrderCreated",
     order,
     validTime,
     Map.of("source", "web", "region", "US"),
     "correlation-123",
     "ORDER-001"
-).join();
+);
 
 // Or use the reactive API with Vert.x Future
 Future<BiTemporalEvent<OrderEvent>> futureEvent = eventStore.append(
@@ -82,31 +86,31 @@ Future<BiTemporalEvent<OrderEvent>> futureEvent = eventStore.append(
 
 ```java
 // Query all events
-List<BiTemporalEvent<OrderEvent>> allEvents = eventStore.query(EventQuery.all()).join();
+Future<List<BiTemporalEvent<OrderEvent>>> allEvents = eventStore.query(EventQuery.all());
 
 // Query by event type
-List<BiTemporalEvent<OrderEvent>> orderEvents = eventStore.query(
+Future<List<BiTemporalEvent<OrderEvent>>> orderEvents = eventStore.query(
     EventQuery.forEventType("OrderCreated")
-).join();
+);
 
 // Query by aggregate
-List<BiTemporalEvent<OrderEvent>> order1Events = eventStore.query(
+Future<List<BiTemporalEvent<OrderEvent>>> order1Events = eventStore.query(
     EventQuery.forAggregate("ORDER-001")
-).join();
+);
 
 // Query by aggregate and type (common pattern)
-List<BiTemporalEvent<OrderEvent>> specificEvents = eventStore.query(
+Future<List<BiTemporalEvent<OrderEvent>>> specificEvents = eventStore.query(
     EventQuery.forAggregateAndType("ORDER-001", "OrderCreated")
-).join();
+);
 
 // Temporal range query
-List<BiTemporalEvent<OrderEvent>> recentEvents = eventStore.query(
+Future<List<BiTemporalEvent<OrderEvent>>> recentEvents = eventStore.query(
     EventQuery.builder()
         .validTimeRange(TemporalRange.from(Instant.now().minus(24, ChronoUnit.HOURS)))
         .sortOrder(EventQuery.SortOrder.VALID_TIME_DESC)
         .limit(100)
         .build()
-).join();
+);
 
 // Reactive query with Vert.x Future
 Future<List<BiTemporalEvent<OrderEvent>>> futureEvents = eventStore.query(
@@ -120,16 +124,16 @@ Future<List<BiTemporalEvent<OrderEvent>>> futureEvents = eventStore.query(
 // Append a correction for a previous event
 OrderEvent correctedOrder = new OrderEvent("ORDER-001", "CUST-123", new BigDecimal("89.99"), "CREATED");
 
-BiTemporalEvent<OrderEvent> correction = eventStore.appendCorrection(
+Future<BiTemporalEvent<OrderEvent>> correction = eventStore.appendCorrection(
     originalEvent.getEventId(),
     "OrderCreated",
     correctedOrder,
     validTime,
     "Price correction due to discount"
-).join();
+);
 
 // Get all versions of an event
-List<BiTemporalEvent<OrderEvent>> versions = eventStore.getAllVersions(originalEvent.getEventId()).join();
+Future<List<BiTemporalEvent<OrderEvent>>> versions = eventStore.getAllVersions(originalEvent.getEventId());
 ```
 
 ### 6. Point-in-Time Queries
@@ -137,20 +141,20 @@ List<BiTemporalEvent<OrderEvent>> versions = eventStore.getAllVersions(originalE
 ```java
 // Get event as it existed at a specific transaction time
 Instant pointInTime = Instant.now().minus(1, ChronoUnit.HOURS);
-BiTemporalEvent<OrderEvent> historicalEvent = eventStore.getAsOfTransactionTime(
+Future<BiTemporalEvent<OrderEvent>> historicalEvent = eventStore.getAsOfTransactionTime(
     eventId,
     pointInTime
-).join();
+);
 
 // Query events as they were valid at a specific time
-List<BiTemporalEvent<OrderEvent>> historicalView = eventStore.query(
+Future<List<BiTemporalEvent<OrderEvent>>> historicalView = eventStore.query(
     EventQuery.asOfValidTime(pointInTime)
-).join();
+);
 
 // Query events as of a specific transaction time
-List<BiTemporalEvent<OrderEvent>> transactionView = eventStore.query(
+Future<List<BiTemporalEvent<OrderEvent>>> transactionView = eventStore.query(
     EventQuery.asOfTransactionTime(pointInTime)
-).join();
+);
 ```
 
 ### 7. Real-time Subscriptions
@@ -159,37 +163,38 @@ List<BiTemporalEvent<OrderEvent>> transactionView = eventStore.query(
 // Subscribe to all events
 eventStore.subscribe(null, event -> {
     System.out.println("New event: " + event.getEventType());
-    return CompletableFuture.completedFuture(null);
-}).join();
+    return Future.succeededFuture();
+}).onFailure(error -> logger.error("Subscription failed", error));
 
 // Subscribe to specific event type
 eventStore.subscribe("OrderCreated", event -> {
     System.out.println("New order: " + event.getPayload());
-    return CompletableFuture.completedFuture(null);
-}).join();
+    return Future.succeededFuture();
+}).onFailure(error -> logger.error("Subscription failed", error));
 
 // Subscribe to events for specific aggregate
 eventStore.subscribe("OrderCreated", "ORDER-001", event -> {
     System.out.println("Order 001 updated: " + event.getPayload());
-    return CompletableFuture.completedFuture(null);
-}).join();
+    return Future.succeededFuture();
+}).onFailure(error -> logger.error("Subscription failed", error));
 
 // Wildcard subscriptions (pattern matching)
 eventStore.subscribe("order.*", event -> {  // Matches order.created, order.shipped, etc.
     System.out.println("Order event: " + event.getEventType());
-    return CompletableFuture.completedFuture(null);
-}).join();
+    return Future.succeededFuture();
+}).onFailure(error -> logger.error("Subscription failed", error));
 
 eventStore.subscribe("*.created", event -> {  // Matches order.created, payment.created, etc.
     System.out.println("Created event: " + event.getEventType());
-    return CompletableFuture.completedFuture(null);
-}).join();
+    return Future.succeededFuture();
+}).onFailure(error -> logger.error("Subscription failed", error));
 
 // Reactive subscription with Vert.x Future
 Future<Void> subscription = eventStore.subscribe("OrderCreated", event -> {
     System.out.println("Reactive: " + event.getEventType());
-    return CompletableFuture.completedFuture(null);
+    return Future.succeededFuture();
 });
+subscription.onFailure(error -> logger.error("Subscription failed", error));
 ```
 
 ### 8. Transaction Participation
@@ -237,7 +242,7 @@ List<BatchEventData<OrderEvent>> events = List.of(
 
 // Batch append for maximum throughput (PgBiTemporalEventStore specific)
 PgBiTemporalEventStore<OrderEvent> pgStore = (PgBiTemporalEventStore<OrderEvent>) eventStore;
-List<BiTemporalEvent<OrderEvent>> results = pgStore.appendBatch(events).join();
+Future<List<BiTemporalEvent<OrderEvent>>> results = pgStore.appendBatch(events);
 ```
 
 ## Database Schema
@@ -373,7 +378,7 @@ Integration tests in `peegeeq-bitemporal/src/test/java/dev/mars/peegeeq/bitempor
 - `PgBiTemporalEventStoreIntegrationTest.java` - Core integration tests
 - `TransactionParticipationIntegrationTest.java` - Transaction participation tests
 - `WildcardPatternComprehensiveTest.java` - Wildcard subscription tests
-- `PgBiTemporalEventStorePerformanceTest.java` - Performance benchmarks
+- `peegeeq-benchmarking/.../PgBiTemporalEventStorePerformanceTest.java` - Performance benchmarks
 - `BiTemporalEventStoreExampleTest.java` - Example usage patterns
 - `ReactiveNotificationHandlerIntegrationTest.java` - Real-time notification tests
 
@@ -410,7 +415,7 @@ mvn test -pl peegeeq-bitemporal -Pintegration-tests
 
 Run performance tests:
 ```bash
-mvn test -pl peegeeq-bitemporal -Pperformance-tests
+mvn test -Pperformance-tests -pl :peegeeq-benchmarking -am
 ```
 
 Run all tests:

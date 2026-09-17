@@ -1,10 +1,11 @@
 # PeeGeeQ Consolidated Task Register
 
 **Status:** ACTIVE
-**Last reconciled:** 2026-09-14
-**Repository revision reviewed:** `7db748b8` (`feat(bitemporal): complete durable subscriptions and Jenkins UI reporting`)
+**Last reconciled:** 2026-09-17
+**Repository revision reviewed:** `263309d8` (`fix(docs): update reconciliation dates and status for transactional REST API designs`)
 **Recorded from-beginning release baseline:** Jenkins build #36 at `e8d07e53`
-**Latest successful resumed gate:** Jenkins build #48 at `19e3cbdb` plus the checksummed pre-commit Task 7 overlay (both UI modules only); those implementation files are now committed in `7db748b8`
+**Latest successful release gate:** Jenkins build #11 at `263309d8` plus the checksummed
+Task 6 release-gate overlay (`485c930dd264864cd9157fe3378e25e661c51b97afa2120d1cc5bde6c0b54f27`)
 
 This is the **only live task register** under `docs-design`. Do not derive current work from
 handover notes, design proposals, unchecked boxes in archived plans, or historical narrative.
@@ -394,17 +395,75 @@ execution order are controlled here.
 ### 6. Partitioned consumption pre-GA gates
 
 **Priority:** Release gate
-**Status:** OPEN
+**Status:** COMPLETE — Jenkins build #11, 2026-09-17 UTC
 
-Before GA, run and record:
+The release gate is implemented by the explicitly selected
+`PartitionedConsumptionReleaseGate`. Its filename deliberately omits the normal `Test` suffix, so
+the one-hour workload is not added to routine core, integration, performance, or `all-tests`
+runs. Jenkins build #10 qualified the stack-safe harness for two minutes; build #11 performed the
+clean rebuild, focused fault suites, and full one-hour gate. Build #11 used source SHA-256
+`485c930dd264864cd9157fe3378e25e661c51b97afa2120d1cc5bde6c0b54f27` over SCM revision
+`263309d8`.
 
-- long-duration fanout/partition stability;
-- consumer death, lease expiry, and rebalance chaos;
-- OLTP contention and pool-pressure behavior;
-- schema/tenant isolation under concurrent partition activity;
-- partition creation, assignment, recovery, and cleanup validation.
+Release workload and operating envelope:
 
-These are explicit owner/release runs, not automatic requirements after every code phase.
+- Ubuntu 24.04 host `zorin-nuc`, Linux `7.0.0-31-generic`, 12 vCPU, 31 GiB RAM, 2 GiB swap,
+  457 GiB filesystem with 417 GiB free, Docker `29.1.3`;
+- PostgreSQL `15.13-alpine3.20` Testcontainer;
+- 3,600-second window at 200 messages/second total: 100 messages/second in each of two isolated
+  tenant schemas, 512-byte payloads, 50-row publish batches, four pool connections per tenant,
+  two independent consumer groups per tenant, and 16 initial partitions;
+- live expansion to 17 partitions and an explicit rebalance at the midpoint;
+- 360,033 published messages per tenant and 360,033 deliveries to each group: 720,066 published
+  rows and 1,440,132 handler deliveries across the two tenants;
+- 99.99 messages/second measured per tenant, bucketed delivery p50/p95/p99 of 1,000 ms, and
+  bucketed OLTP p50/p95/p99 of 10 ms;
+- 34,792 and 34,789 successful OLTP probes, with zero probe failure and OLTP p95 well inside the
+  five-second connection-timeout envelope;
+- both groups drained completely after the sustained window, with zero order violations and zero
+  cross-tenant deliveries;
+- watermark `360017` in both schemas, zero pending rows at or below the safe watermark, and only
+  the bounded 16-row cross-partition tail above it (`360017` completed + `16` pending = `360033`);
+- all consumer assignments removed after orderly engine shutdown; and
+- approximately 2.61 GB cluster WAL growth. Minute host samples generally showed 96–97% CPU
+  idle; the final sample retained 31 GiB total / 2.2 GiB used memory, zero swap use, and 5% disk
+  use.
+
+The accepted Linux invocation, after the required clean reactor build and focused suites, was:
+
+```bash
+mvn test -Pperformance-tests -pl :peegeeq-native \
+  -Dtest=PartitionedConsumptionReleaseGate \
+  -Dpeegeeq.task6.duration.seconds=3600 \
+  -Dpeegeeq.task6.message.rate=200 \
+  -Dpeegeeq.task6.partition.count=16 \
+  -Dpeegeeq.task6.groups.per.tenant=2 \
+  -Dpeegeeq.task6.pool.size=4 \
+  -Dtest.timeout.default=100m \
+  -Dtest.timeout.method=95m \
+  2>&1 | tee task6-sustained.log
+```
+
+The focused release suites in build #11 passed **89/89** before the sustained gate:
+
+- database assignment, watermark, dead-group cleanup/detection, and flapping protection:
+  `12 + 15 + 12 + 11 + 10 = 60`;
+- native partitioned integration, safety, and fault handling: `13 + 6 + 7 = 26`;
+- outbox schema isolation: `1`; and
+- OLTP/backfill contention: `2`.
+
+The sustained class then passed `1/1`, so the complete build published **90 passing tests**, zero
+failures/errors/skips, plus archived clean-build, focused-suite, sustained-workload, host-baseline,
+and per-minute `vmstat` logs. The gate covers long-duration fan-out/partition stability, consumer
+death and lease/rebalance recovery, pool pressure, concurrent schema isolation, live partition
+creation, final drain, watermark cleanup, and assignment cleanup for the documented envelope.
+
+Build #9 is intentionally not accepted as release evidence: its data workload reached the full
+hour, but the first harness retained recursively composed publisher/probe futures and overflowed
+the JVM stack while completing them. The harness was changed to timer-scheduled, stack-safe
+asynchronous loops, qualified in build #10, and accepted only after build #11 completed cleanly.
+
+This remains an explicit owner/release run, not an automatic requirement after every code phase.
 
 ### 7. Jenkins UI test-result publishing
 
@@ -488,7 +547,7 @@ has the successful remote Jenkins publication evidence recorded above.
 
 | Item | Current verified state | Next decision/work |
 |---|---|---|
-| Schema Registry | Proposed; UI remains a “coming soon” placeholder; no backend exists | Approve product scope before implementation |
+| Schema Registry | **PROPOSED — NOT IMPLEMENTED**; UI remains a “coming soon” placeholder; no backend exists | Approve product scope before implementation |
 | Authentication and Authorization | Proposed; no auth module, JWT middleware, or tenant-management implementation exists | Define threat model and product boundary |
 | TypeScript REST client coverage | Shared client is used by two UI pages | Add dedicated unit tests and live-server integration tests |
 

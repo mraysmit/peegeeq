@@ -15,21 +15,21 @@ fi
 
 echo "Found PeeGeeQ root directory"
 
-# Check if test-support module exists
-if [ ! -d "peegeeq-test-support" ]; then
-    echo "❌ Error: peegeeq-test-support module not found"
+# Check if benchmarking module exists
+if [ ! -d "peegeeq-benchmarking" ]; then
+    echo "❌ Error: peegeeq-benchmarking module not found"
     exit 1
 fi
 
-echo "Found peegeeq-test-support module"
+echo "Found peegeeq-benchmarking module"
 
 # Check if hardware profiling classes exist
 HARDWARE_CLASSES=(
-    "peegeeq-test-support/src/main/java/dev/mars/peegeeq/test/hardware/HardwareProfile.java"
-    "peegeeq-test-support/src/main/java/dev/mars/peegeeq/test/hardware/HardwareProfiler.java"
-    "peegeeq-test-support/src/main/java/dev/mars/peegeeq/test/hardware/SystemResourceMonitor.java"
-    "peegeeq-test-support/src/main/java/dev/mars/peegeeq/test/hardware/ResourceUsageSnapshot.java"
-    "peegeeq-test-support/src/main/java/dev/mars/peegeeq/test/hardware/HardwareAwarePerformanceResult.java"
+    "peegeeq-benchmarking/src/main/java/dev/mars/peegeeq/test/hardware/HardwareProfile.java"
+    "peegeeq-benchmarking/src/main/java/dev/mars/peegeeq/test/hardware/HardwareProfiler.java"
+    "peegeeq-benchmarking/src/main/java/dev/mars/peegeeq/test/hardware/SystemResourceMonitor.java"
+    "peegeeq-benchmarking/src/main/java/dev/mars/peegeeq/test/hardware/ResourceUsageSnapshot.java"
+    "peegeeq-benchmarking/src/main/java/dev/mars/peegeeq/test/hardware/HardwareAwarePerformanceResult.java"
 )
 
 echo ""
@@ -43,7 +43,7 @@ for class_file in "${HARDWARE_CLASSES[@]}"; do
 done
 
 # Check if integration test exists
-INTEGRATION_TEST="peegeeq-test-support/src/test/java/dev/mars/peegeeq/test/hardware/HardwareProfilingIntegrationTest.java"
+INTEGRATION_TEST="peegeeq-benchmarking/src/test/java/dev/mars/peegeeq/test/hardware/HardwareProfilingIntegrationTest.java"
 if [ -f "$INTEGRATION_TEST" ]; then
     echo "$INTEGRATION_TEST"
 else
@@ -51,7 +51,7 @@ else
 fi
 
 # Check if PerformanceMetricsCollector was updated
-METRICS_COLLECTOR="peegeeq-test-support/src/main/java/dev/mars/peegeeq/test/metrics/PerformanceMetricsCollector.java"
+METRICS_COLLECTOR="peegeeq-benchmarking/src/main/java/dev/mars/peegeeq/test/metrics/PerformanceMetricsCollector.java"
 if [ -f "$METRICS_COLLECTOR" ]; then
     echo "$METRICS_COLLECTOR"
     
@@ -66,7 +66,7 @@ else
 fi
 
 # Check if OSHI dependency was added
-POM_FILE="peegeeq-test-support/pom.xml"
+POM_FILE="peegeeq-benchmarking/pom.xml"
 if [ -f "$POM_FILE" ]; then
     if grep -q "oshi-core" "$POM_FILE"; then
         echo "OSHI dependency added to pom.xml"
@@ -129,6 +129,6 @@ echo "Cross-environment performance comparison capabilities"
 echo "Resource bottleneck identification and analysis"
 echo "Production-ready hardware profiling for performance testing"
 echo ""
-echo "Ready to proceed with Phase 2.2: Module Migration"
+echo "Hardware profiling is consolidated in peegeeq-benchmarking"
 echo ""
 echo "=== Hardware Profiling Infrastructure Implementation COMPLETE! ==="

@@ -45,7 +45,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Performance tests for PgBiTemporalEventStore.
  * Tests batch operations, concurrent access, and subscription throughput.
  */
-@Tag(TestCategories.INTEGRATION)
+@Tag(TestCategories.PERFORMANCE)
 @ExtendWith(VertxExtension.class)
 @Testcontainers
 class PgBiTemporalEventStorePerformanceTest {

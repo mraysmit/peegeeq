@@ -5,7 +5,10 @@ import { pathToFileURL } from 'node:url'
 const frontends = ['peegeeq-management-ui', 'peegeeq-utilities-ui']
 
 export function expectedReports(suite, start, modules) {
-  if (!['core', 'smoke', 'integration', 'untagged', 'all'].includes(suite)) throw new Error('Unknown suite: ' + suite)
+  if (!['core', 'smoke', 'integration', 'untagged', 'performance', 'partitioned-release', 'all'].includes(suite)) {
+    throw new Error('Unknown suite: ' + suite)
+  }
+  if (['performance', 'partitioned-release'].includes(suite)) return []
   const first = suite !== 'all' || start === 'beginning' ? 0 : modules.indexOf(start)
   if (first < 0) throw new Error('Unknown start module: ' + start)
   const runners = suite === 'all' ? ['vitest', 'playwright'] : ['vitest']

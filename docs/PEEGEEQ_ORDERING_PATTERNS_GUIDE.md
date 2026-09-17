@@ -1,12 +1,15 @@
 # PeeGeeQ Ordering Patterns Guide
 *© Mark Andrew Ray-Smith Cityline Ltd 2025*  
-*Version 1.1*
+*Version 1.2*
 
-**Status:** IMPLEMENTED BASELINE — PRE-GA VALIDATION OPEN
+**Status:** IMPLEMENTED — TASK 6 RELEASE GATE COMPLETE
 
-**Last reconciled:** 2026-09-06
+**Last reconciled:** 2026-09-17
 
-**Repository baseline:** `7db748b8e77f3aba850be7b73547d192dac5b83f`
+**Repository baseline:** `263309d8e5df311704cdd1b866b79aeb8ecdcb28`
+
+**Release-gate source SHA-256:**
+`485c930dd264864cd9157fe3378e25e661c51b97afa2120d1cc5bde6c0b54f27`
 
 **How to choose and apply the right ordering model for your workload.**
 
@@ -432,20 +435,31 @@ Historical test counts describe only the revisions on which they were recorded. 
 [consolidated task register](../docs-design/tasks/tasks.md) is authoritative for accepted current
 verification.
 
-### Remaining pre-GA gates
+### Task 6 release evidence — complete
 
-The only approved outstanding ordering work is the evidence required by
-[consolidated Task 6](../docs-design/tasks/tasks.md#6-partitioned-consumption-pre-ga-gates):
+[Consolidated Task 6](../docs-design/tasks/tasks.md#6-partitioned-consumption-pre-ga-gates) is
+complete. Jenkins build #11 passed **89/89** focused database, native, schema-isolation, and OLTP
+contention tests, then passed the explicitly selected one-hour
+`PartitionedConsumptionReleaseGate` at **1/1**. The full build therefore published **90 passing
+tests** with zero failures, errors, or skips. The release class has no normal `Test` suffix and is
+not part of routine test profiles.
 
-- long-duration partition and fan-out stability;
-- consumer death, lease expiry, rebalance, and recovery chaos;
-- database contention and connection-pool pressure;
-- tenant and schema isolation under concurrent activity;
-- cleanup correctness after interrupted processing; and
-- a documented performance envelope from a controlled environment.
+The controlled workload used an Ubuntu 24.04 host with 12 vCPU and 31 GiB RAM, Docker `29.1.3`,
+and PostgreSQL `15.13-alpine3.20`. Over 3,600 seconds it sustained 200 messages/second total across
+two isolated tenant schemas, each with two consumer groups, four pool connections, and 16 initial
+partitions. Both tenants expanded live to 17 partitions and rebalanced at the midpoint.
 
-The implementation is not declared generally available from static inspection alone. Those gates
-require dated, reproducible runtime evidence.
+Each tenant published 360,033 messages at 99.99 messages/second, and each group received all
+360,033 messages. The assertions recorded zero within-partition ordering violations, zero
+cross-tenant deliveries, a complete final drain, zero pending rows at or below watermark `360017`,
+the expected bounded 16-row tail above the watermark, and zero remaining assignments after engine
+shutdown. The two tenants completed 34,792 and 34,789 successful OLTP probes respectively, with
+bucketed p50/p95/p99 latency of 10 ms and no probe failures. Bucketed delivery p50/p95/p99 latency
+was 1,000 ms. Host samples showed no CPU, memory, swap, or disk pressure in this envelope.
+
+This is dated runtime evidence for the documented operating envelope, not a claim inferred from
+static inspection or a guarantee outside that envelope. The consolidated task register remains
+authoritative for the source checksum, exact focused-suite counts, and release conclusion.
 
 ---
 

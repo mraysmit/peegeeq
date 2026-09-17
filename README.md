@@ -111,6 +111,7 @@ peegeeq/
 ├── peegeeq-bitemporal/             # Bi-temporal event store (3k+ msg/sec)
 ├── peegeeq-rest/                   # REST API with WebSocket/SSE support
 ├── peegeeq-service-manager/        # Service discovery and federation
+├── peegeeq-benchmarking/            # Performance workloads and retained benchmark evidence
 ├── peegeeq-management-ui/          # React-based web management interface
 ├── peegeeq-examples/               # Comprehensive examples and demos
 └── docs/                           # Documentation
@@ -160,24 +161,22 @@ npm run dev
 ```java
 // Initialize PeeGeeQ
 PeeGeeQManager manager = new PeeGeeQManager(
-    new PeeGeeQConfiguration("development"), 
+    new PeeGeeQConfiguration("development"),
     new SimpleMeterRegistry());
-manager.start();
 
-// Create producer and consumer
-QueueFactory factory = new PgQueueFactoryProvider()
-    .createFactory("native", new PgDatabaseService(manager));
+manager.start()
+    .compose(ignored -> {
+        QueueFactory factory = new PgQueueFactoryProvider()
+            .createFactory("native", new PgDatabaseService(manager));
+        MessageProducer<String> producer = factory.createProducer("orders", String.class);
+        MessageConsumer<String> consumer = factory.createConsumer("orders", String.class);
 
-MessageProducer<String> producer = factory.createProducer("orders", String.class);
-MessageConsumer<String> consumer = factory.createConsumer("orders", String.class);
-
-// Send and receive messages
-producer.send("Order #12345 created");
-
-consumer.subscribe(message -> {
-    System.out.println("Received: " + message.getPayload());
-    return CompletableFuture.completedFuture(null);
-});
+        return consumer.subscribe(message -> {
+            System.out.println("Received: " + message.getPayload());
+            return Future.succeededFuture();
+        }).compose(subscribed -> producer.send("Order #12345 created"));
+    })
+    .onFailure(error -> logger.error("PeeGeeQ workflow failed", error));
 ```
 
 ## Performance
@@ -206,7 +205,7 @@ consumer.subscribe(message -> {
 ./scripts/testing/run-tests.sh integration
 
 # Performance benchmarks (~20-30 minutes)
-./scripts/testing/run-tests.sh performance
+mvn test -Pperformance-tests -pl :peegeeq-benchmarking -am
 
 # All tests (~45+ minutes)
 ./scripts/testing/run-tests.sh all

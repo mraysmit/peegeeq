@@ -45,7 +45,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Focused parity tests that preserve benchmark functionality from the deprecated benchmark class.
  */
-@Tag(TestCategories.INTEGRATION)
+@Tag(TestCategories.PERFORMANCE)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 class BiTemporalPerformanceParityTest {
