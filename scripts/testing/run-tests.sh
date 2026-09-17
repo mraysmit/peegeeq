@@ -31,7 +31,7 @@ CATEGORIZED_MODULES=(
     "peegeeq-rest-client"
     "peegeeq-test-support"
     "peegeeq-service-manager"
-    "peegeeq-performance-test-harness"
+    "peegeeq-benchmarking"
     "peegeeq-migrations"
     "peegeeq-examples"
     "peegeeq-examples-spring"

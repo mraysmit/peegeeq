@@ -246,8 +246,7 @@ public class OutboxPerformanceTest {
         AtomicLong maxLatency = new AtomicLong(0);
 
         // Subscribe first; only start sending after subscribe completes so we don't race
-        // the consumer start-up. Sends are paced 10 ms apart via vertx.timer()  no
-        // blocking, no .await(), no LockSupport.parkNanos.
+        // the consumer start-up. Sends are paced 10 ms apart with a Vert.x timer.
         consumer.subscribe(message -> {
             long receiveTime = System.nanoTime();
             long sendTime = Long.parseLong(message.getHeaders().get("sendTime"));
@@ -366,8 +365,7 @@ public class OutboxPerformanceTest {
 
     /**
      * Recursively sends {@code total} latency-tagged messages, each separated by a 10 ms
-     * Vert.x timer. Replaces a blocking loop that used {@code LockSupport.parkNanos} and
-     * {@code producer.send(...).await()}.
+     * Vert.x timer so the event-loop flow remains asynchronous.
      */
     private Future<Void> sendPacedLatency(Vertx vertx, int i, int total) {
         if (i >= total) {
@@ -395,8 +393,7 @@ public class OutboxPerformanceTest {
 
     /**
      * Serially sends {@code total} messages from a single producer via composed futures.
-     * Replaces a blocking per-producer loop that used {@code producer.send(...).await()}
-     * inside an {@code ExecutorService.submit}.
+     * The composed chain keeps each producer lane asynchronous.
      */
     private Future<Void> sendConcurrent(MessageProducer<String> p, int producerId, int i, int total) {
         if (i >= total) {
@@ -406,4 +403,3 @@ public class OutboxPerformanceTest {
             .compose(v -> sendConcurrent(p, producerId, i + 1, total));
     }
 }
-

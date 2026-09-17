@@ -12,8 +12,6 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.util.Map;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -128,9 +126,6 @@ class ConsumerModePerformanceTestBaseTest extends ConsumerModePerformanceTestBas
         logger.debug("Scenario details: {}", scenario.getDescription());
         
         ConsumerModeTestResult result = runConsumerModeTest(scenario, (testScenario) -> {
-            // Simulate consumer mode operation based on scenario
-            simulateConsumerModeWork(testScenario);
-            
             // Generate realistic metrics based on the scenario
             return generateRealisticMetrics(testScenario);
         });
@@ -188,30 +183,6 @@ class ConsumerModePerformanceTestBaseTest extends ConsumerModePerformanceTestBas
         
         logger.info("Consumer mode test result accessor methods test passed");
         logger.info("=== TEST METHOD COMPLETED: testConsumerModeTestResultAccessors ===");
-    }
-    
-    /**
-     * Simulate consumer mode work based on the scenario configuration.
-     */
-    private void simulateConsumerModeWork(ConsumerModeTestScenario scenario) throws InterruptedException {
-        // Simulate work time based on message count and processing complexity
-        int baseWorkTime = 10; // Base 10ms per message
-        int workTime = baseWorkTime * Math.min(scenario.getMessageCount() / 100, 5); // Cap at 50ms
-        
-        // Adjust work time based on consumer mode
-        switch (scenario.getConsumerMode()) {
-            case LISTEN_NOTIFY_ONLY:
-                workTime = (int) (workTime * 0.8); // LISTEN/NOTIFY is more efficient
-                break;
-            case POLLING_ONLY:
-                workTime = (int) (workTime * 1.2); // Polling has overhead
-                break;
-            case HYBRID:
-                workTime = (int) (workTime * 1.0); // Balanced approach
-                break;
-        }
-        
-        new CountDownLatch(1).await(workTime, TimeUnit.MILLISECONDS);
     }
     
     /**

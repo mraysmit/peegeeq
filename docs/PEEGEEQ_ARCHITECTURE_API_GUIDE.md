@@ -343,20 +343,29 @@ PeeGeeQ consists of 19 modules organized into the following groups:
 
 #### peegeeq-test-support (Shared Test Infrastructure)
 
-**Purpose**: Reusable test infrastructure library shared across integration and performance tests
+**Purpose**: Reusable test infrastructure library shared across module tests
 **Key Components**:
 - `PeeGeeQTestContainerFactory` - TestContainers setup with consistent PostgreSQL configuration
 - `PeeGeeQTestSchemaInitializer` - Automated schema and fixture initialisation
-- `PerformanceMetricsCollector` - Metrics capture during test runs
-- `HardwareProfiler` - Hardware resource monitoring for performance baselines
 
-#### peegeeq-performance-test-harness (Performance Testing)
+#### peegeeq-benchmarking (Performance Testing)
 
-**Purpose**: Comprehensive performance test suites for all queue implementations
+**Purpose**: Dedicated home for benchmark infrastructure and comprehensive performance test suites across the core reactor
 **Key Components**:
-- `PerformanceTestHarness` - Test orchestrator
-- `PerformanceTestRunner` - Configurable runner for throughput and latency benchmarks
-- Separate test suites for native queue, outbox, bitemporal, and database operations
+- `ParameterizedPerformanceTestBase` and `ConsumerModePerformanceTestBase` - Reusable scenario orchestration
+- `PerformanceMetricsCollector`, `HardwareProfiler`, and `SystemResourceMonitor` - Metrics and host-baseline capture
+- `PerformanceHistoryRepository` and `PerformanceHistoryAnalyzer` - H2-backed retained history and comparisons
+- `PerformanceTestResultsGenerator` - Human-readable retained results
+- Workload suites for native queue, outbox, bitemporal, fanout/backfill, database, REST, and examples
+
+Run the complete benchmark category with:
+
+```bash
+mvn test -Pperformance-tests -pl :peegeeq-benchmarking -am
+```
+
+The standalone `peegeeq-examples-spring` reactor retains its Spring-specific performance
+tests because it is intentionally outside the core reactor.
 
 #### peegeeq-integration-tests (End-to-End Tests)
 
@@ -1832,4 +1841,3 @@ OutboxConsumerConfig config = OutboxConsumerConfig.builder()
 - **Correction Queries**: `queryCorrections(eventId)` - Event correction history
 
 ---
-

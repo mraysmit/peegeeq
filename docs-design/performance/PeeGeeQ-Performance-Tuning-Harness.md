@@ -4,6 +4,19 @@
 
 This document provides comprehensive performance test results, analysis, and breakthrough optimizations for the PeeGeeQ message queue system. All tests were conducted using the pure Vert.x 5.x reactive architecture with PostgreSQL 15.13-alpine3.20 in TestContainers.
 
+> **Current implementation (September 2026):** all core-reactor benchmark infrastructure
+> and performance workloads are consolidated in `peegeeq-benchmarking`. Historical results
+> below remain evidence of earlier runs; they are not claims about current hardware. The
+> authoritative full benchmark command is:
+>
+> ```bash
+> mvn test -Pperformance-tests -pl :peegeeq-benchmarking -am
+> ```
+>
+> Jenkins retains Maven logs, Surefire XML, generated performance results, hardware
+> baselines, and runtime samples for performance runs. Spring-only benchmarks remain in
+> the standalone `peegeeq-examples-spring` reactor.
+
 ## 📊 Executive Performance Summary
 
 | Implementation | Status | Duration | Key Metrics | Performance Evolution |
@@ -220,36 +233,34 @@ peegeeq.database.use.event.bus.distribution=false
 
 #### Bi-Temporal Performance Tests
 ```bash
-mvn test -pl peegeeq-bitemporal -Dtest=BiTemporalAppendPerformanceTest
-mvn test -pl peegeeq-bitemporal -Dtest=BiTemporalQueryPerformanceTest
-mvn test -pl peegeeq-bitemporal -Dtest=BiTemporalThroughputValidationTest
+mvn test -Pperformance-tests -pl :peegeeq-benchmarking -Dtest=BiTemporalPerformanceParityTest,PgBiTemporalEventStorePerformanceTest,VertxPerformanceOptimizationValidationTest
 ```
 
 #### Core Database Performance Tests
 ```bash
-mvn test -pl peegeeq-db -Dtest=PeeGeeQPerformanceTest "-Dpeegeeq.performance.tests=true"
+mvn test -Pperformance-tests -pl :peegeeq-benchmarking -Dtest=PeeGeeQPerformanceTest,PeeGeeQReactiveConnectionPoolPerformanceTest
 ```
 
 #### Native Queue Performance Tests
 ```bash
-mvn test -pl peegeeq-native -Dtest="ConsumerModePerformanceTest,NativeQueueIntegrationTest"
+mvn test -Pperformance-tests -pl :peegeeq-benchmarking -Dtest=ConsumerModePerformanceTest,ConsumerModePerformanceStandardizedTest
 ```
 
 #### Outbox Performance Tests
 ```bash
-mvn test -pl peegeeq-outbox -Dtest="PerformanceBenchmarkTest,OutboxPerformanceTest" "-Dpeegeeq.performance.tests=true"
+mvn test -Pperformance-tests -pl :peegeeq-benchmarking -Dtest=PerformanceBenchmarkTest,OutboxPerformanceTest
 ```
 
 #### Performance History Tests (H2 Database)
 ```bash
 # Run parameterized performance demo with H2 persistence
-mvn test -Dtest=ParameterizedPerformanceDemoTest#testPerformanceMetricsDemo -pl peegeeq-test-support
+mvn test -Pslow-tests -Dtest=ParameterizedPerformanceDemoTest#testPerformanceMetricsDemo -pl :peegeeq-benchmarking
 
 # Run with specific H2 database configuration
-mvn test -Dtest=ParameterizedPerformanceDemoTest -pl peegeeq-test-support -Dpeegeeq.performance.history.enabled=true
+mvn test -Pslow-tests -Dtest=ParameterizedPerformanceDemoTest -pl :peegeeq-benchmarking -Dpeegeeq.performance.history.enabled=true
 
 # Run with debug logging for H2 operations
-mvn test -Dtest=ParameterizedPerformanceDemoTest -pl peegeeq-test-support -Dlogging.level.dev.mars.peegeeq.test.persistence=DEBUG
+mvn test -Pslow-tests -Dtest=ParameterizedPerformanceDemoTest -pl :peegeeq-benchmarking -Dlogging.level.dev.mars.peegeeq.test.persistence=DEBUG
 ```
 
 **Expected H2 Performance History Output:**
@@ -397,7 +408,7 @@ CREATE TABLE performance_comparisons (
 #### **Running Performance History Tests**
 ```bash
 # Run parameterized performance demo with H2 persistence
-mvn test -Dtest=ParameterizedPerformanceDemoTest#testPerformanceMetricsDemo -pl peegeeq-test-support
+mvn test -Pslow-tests -Dtest=ParameterizedPerformanceDemoTest#testPerformanceMetricsDemo -pl :peegeeq-benchmarking
 
 # Expected output includes:
 # - Performance data collection across all profiles
@@ -1212,45 +1223,32 @@ mvn test -pl peegeeq-bitemporal -Dtest=PeeGeeQBiTemporalIntegrationTest -Dloggin
 
 #### Bi-Temporal Performance Tests
 ```bash
-# Run all bi-temporal performance tests
-mvn test -pl peegeeq-bitemporal -Dtest="BiTemporal*PerformanceTest,BiTemporal*ValidationTest,BiTemporal*AnalysisTest"
-
-# Individual performance test categories
-mvn test -pl peegeeq-bitemporal -Dtest=BiTemporalAppendPerformanceTest
-mvn test -pl peegeeq-bitemporal -Dtest=BiTemporalQueryPerformanceTest
-mvn test -pl peegeeq-bitemporal -Dtest=BiTemporalThroughputValidationTest
-mvn test -pl peegeeq-bitemporal -Dtest=BiTemporalLatencyAnalysisTest
-mvn test -pl peegeeq-bitemporal -Dtest=BiTemporalResourceManagementTest
-
-# Run with performance optimization flags
-mvn test -pl peegeeq-bitemporal -Dtest=BiTemporalAppendPerformanceTest -Xmx2g -XX:+UseG1GC
+# Run the current bi-temporal benchmark workloads
+mvn test -Pperformance-tests -pl :peegeeq-benchmarking -Dtest=BiTemporalPerformanceParityTest,PgBiTemporalEventStorePerformanceTest,VertxPerformanceOptimizationValidationTest
 ```
 
 #### Core Database Performance Tests
 ```bash
 # Run core database performance tests
-mvn test -pl peegeeq-db -Dtest=PeeGeeQPerformanceTest -Dpeegeeq.performance.tests=true
-
-# Run with specific performance profiles
-mvn test -pl peegeeq-db -Dtest=PeeGeeQPerformanceTest -Dpeegeeq.performance.tests=true -Dpeegeeq.migration.enabled=false
+mvn test -Pperformance-tests -pl :peegeeq-benchmarking -Dtest=PeeGeeQPerformanceTest,PeeGeeQReactiveConnectionPoolPerformanceTest
 ```
 
 #### Native Queue Performance Tests
 ```bash
 # Run native queue performance tests
-mvn test -pl peegeeq-native -Dtest="ConsumerModePerformanceTest,NativeQueueIntegrationTest"
+mvn test -Pperformance-tests -pl :peegeeq-benchmarking -Dtest=ConsumerModePerformanceTest,ConsumerModePerformanceStandardizedTest
 
 # Run with specific consumer modes
-mvn test -pl peegeeq-native -Dtest=ConsumerModePerformanceTest -Dpeegeeq.consumer.mode=HYBRID
+mvn test -Pperformance-tests -pl :peegeeq-benchmarking -Dtest=ConsumerModePerformanceTest -Dpeegeeq.consumer.mode=HYBRID
 ```
 
 #### Outbox Pattern Performance Tests
 ```bash
 # Run outbox performance tests
-mvn test -pl peegeeq-outbox -Dtest="PerformanceBenchmarkTest,OutboxPerformanceTest" -Dpeegeeq.performance.tests=true
+mvn test -Pperformance-tests -pl :peegeeq-benchmarking -Dtest=PerformanceBenchmarkTest,OutboxPerformanceTest
 
 # Run with specific configurations
-mvn test -pl peegeeq-outbox -Dtest=PerformanceBenchmarkTest -Dpeegeeq.outbox.batch.size=100
+mvn test -Pperformance-tests -pl :peegeeq-benchmarking -Dtest=PerformanceBenchmarkTest -Dpeegeeq.outbox.batch.size=100
 ```
 
 ### 3. Comprehensive Test Suite
@@ -1259,7 +1257,7 @@ mvn test -pl peegeeq-outbox -Dtest=PerformanceBenchmarkTest -Dpeegeeq.outbox.bat
 mvn test -Dpeegeeq.performance.tests=true
 
 # Run all performance tests only
-mvn test -Dtest="*PerformanceTest,*ValidationTest,*AnalysisTest" -Dpeegeeq.performance.tests=true
+mvn test -Pperformance-tests -pl :peegeeq-benchmarking -am
 
 # Run with memory optimization for large test suites
 mvn test -Dtest="*PerformanceTest" -Xmx4g -XX:+UseG1GC -XX:MaxGCPauseMillis=200
@@ -1443,17 +1441,17 @@ mvn test -Dtest=BiTemporalResourceManagementTest -Dpeegeeq.database.pool.max-siz
 ```bash
 # Solution: Clean H2 database files and restart
 rm -rf target/performance-history*
-mvn test -Dtest=ParameterizedPerformanceDemoTest -pl peegeeq-test-support
+mvn test -Pslow-tests -Dtest=ParameterizedPerformanceDemoTest -pl :peegeeq-benchmarking
 
 # Check H2 database connectivity
-mvn test -Dtest=ParameterizedPerformanceDemoTest -pl peegeeq-test-support -Dlogging.level.dev.mars.peegeeq.test.persistence=DEBUG
+mvn test -Pslow-tests -Dtest=ParameterizedPerformanceDemoTest -pl :peegeeq-benchmarking -Dlogging.level.dev.mars.peegeeq.test.persistence=DEBUG
 ```
 
 **Problem**: Performance history data inconsistencies
 ```bash
 # Solution: Reset H2 database and verify schema
 rm -rf target/performance-history*
-mvn clean test -Dtest=ParameterizedPerformanceDemoTest -pl peegeeq-test-support
+mvn clean test -Pslow-tests -Dtest=ParameterizedPerformanceDemoTest -pl :peegeeq-benchmarking
 
 # Verify H2 database file creation
 ls -la target/performance-history*
@@ -1462,7 +1460,7 @@ ls -la target/performance-history*
 **Problem**: H2 AUTO_SERVER mode conflicts
 ```bash
 # Solution: Use unique database names for concurrent tests
-mvn test -Dtest=ParameterizedPerformanceDemoTest -pl peegeeq-test-support \
+mvn test -Pslow-tests -Dtest=ParameterizedPerformanceDemoTest -pl :peegeeq-benchmarking \
   -Dpeegeeq.performance.history.database.url="jdbc:h2:./target/perf-history-$(date +%s);AUTO_SERVER=TRUE;DB_CLOSE_DELAY=-1"
 ```
 
@@ -1510,8 +1508,8 @@ df -h
 
 #### Baseline Performance Check
 ```bash
-# Run a quick baseline test to verify environment
-mvn test -pl peegeeq-bitemporal -Dtest=BiTemporalTestBase -Dpeegeeq.performance.tests=true
+# Run a focused baseline workload to verify the benchmark environment
+mvn test -Pperformance-tests -pl :peegeeq-benchmarking -Dtest=VertxPerformanceOptimizationValidationTest
 
 # Verify database connectivity
 mvn test -pl peegeeq-db -Dtest=PgConnectionManagerTest
@@ -1561,15 +1559,14 @@ pipeline {
         stage('Performance Tests') {
             steps {
                 sh '''
-                    mvn test -Dtest="*PerformanceTest" \
-                      -Dpeegeeq.performance.tests=true \
-                      -Xmx2g -XX:+UseG1GC
+                    mvn test -Pperformance-tests \
+                      -pl :peegeeq-benchmarking -am
                 '''
             }
             post {
                 always {
                     publishTestResults testResultsPattern: 'target/surefire-reports/*.xml'
-                    archiveArtifacts artifacts: 'target/surefire-reports/**/*'
+                    archiveArtifacts artifacts: '**/target/surefire-reports/**/*, **/target/performance-results/**/*, logs/**/*'
                 }
             }
         }
@@ -1598,7 +1595,5 @@ mvn test -Dtest="*PerformanceTest" \
 ```
 
 This comprehensive running instructions section provides everything needed to execute, troubleshoot, and integrate the PeeGeeQ performance test suite into development workflows.
-
-
 
 

@@ -1,5 +1,14 @@
 # Test Categorization Guide - peegeeq-test-support
 
+> **Historical module inventory.** Performance infrastructure and benchmark tests listed
+> in this document moved to `peegeeq-benchmarking` in September 2026. The retained lists
+> below explain the original categorisation but no longer describe files owned by
+> `peegeeq-test-support`. Use
+> `mvn test -Pperformance-tests -pl :peegeeq-benchmarking -am` for the current suite and
+> `docs-design/testing/PEEGEEQ-TEST-COMMANDS.md` for authoritative commands. Mockito and
+> substitute mocking frameworks are prohibited; current tests use real implementations,
+> focused fakes, or Testcontainers as appropriate.
+
 ## ⚠️ CRITICAL: Integration Tests Run By Default
 
 **As of January 12, 2026, integration tests are MANDATORY and run by default with `mvn test`.**
@@ -49,7 +58,7 @@ The peegeeq-test-support module uses JUnit 5 `@Tag` annotations with Maven profi
 ### 🚀 CORE Tests (Default)
 **Target: <30 seconds total, <1 second per test**
 - **Purpose**: Fast unit tests for daily development
-- **Dependencies**: Mocked dependencies only, no external infrastructure
+- **Dependencies**: No external infrastructure; real implementations or focused purpose-built fakes
 - **Examples**: Constants validation, utility class tests, metrics creation
 - **Parallel Execution**: Methods (4 threads)
 
@@ -125,8 +134,8 @@ mvn test -Pcore-integration-tests  # Same as default
 
 ### Performance Benchmarking
 ```bash
-# Performance tests with hardware profiling
-mvn test -Pperformance-tests       # ~5 minutes
+# Performance tests with hardware profiling (dedicated module)
+mvn test -Pperformance-tests -pl :peegeeq-benchmarking -am
 ```
 
 ### Comprehensive Testing
@@ -197,7 +206,7 @@ mvn test                          # Best for daily development
 ## Adding New Tests
 
 ### Step 1: Determine Category
-1. **CORE**: Fast unit test with mocked dependencies?
+1. **CORE**: Fast unit test without external infrastructure?
 2. **INTEGRATION**: Requires TestContainers or real infrastructure? **[RUNS BY DEFAULT]**
 3. **PERFORMANCE**: Measures performance or includes hardware profiling?
 4. **SLOW**: Long-running comprehensive test?
@@ -229,7 +238,7 @@ mvn test                           # Comprehensive validation
 # Test specific categories (if needed)
 mvn test -Pcore-tests              # Core only (no integration - NOT recommended)
 mvn test -Pintegration-tests       # Integration only
-mvn test -Pperformance-tests       # Performance benchmarking
+mvn test -Pperformance-tests -pl :peegeeq-benchmarking -am  # Performance benchmarking
 mvn test -Pslow-tests              # Long-running comprehensive tests
 ```
 

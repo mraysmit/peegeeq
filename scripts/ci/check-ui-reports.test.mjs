@@ -25,6 +25,10 @@ test('core requires unit reports only', () => {
 test('Java-only reactors do not require UI reports', () => {
   assert.deepEqual(expectedReports('all', 'beginning', ['peegeeq-api']), [])
 })
+test('performance-only suites do not require UI reports', () => {
+  assert.deepEqual(expectedReports('performance', 'beginning', modules), [])
+  assert.deepEqual(expectedReports('partitioned-release', 'beginning', modules), [])
+})
 test('unknown selection fails explicitly', () => {
   assert.throws(() => expectedReports('wrong', 'beginning', modules), /Unknown suite/)
   assert.throws(() => expectedReports('all', 'wrong', modules), /Unknown start module/)

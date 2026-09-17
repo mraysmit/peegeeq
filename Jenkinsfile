@@ -4,8 +4,8 @@ pipeline {
     parameters {
         choice(
             name: 'TEST_SUITE',
-            choices: ['core', 'smoke', 'integration', 'untagged', 'all'],
-            description: 'The all suite is the explicit approximately 90-minute regression gate.'
+            choices: ['core', 'smoke', 'integration', 'untagged', 'performance', 'partitioned-release', 'all'],
+            description: 'Performance runs retain raw and structured statistics. The all suite is the explicit approximately 90-minute regression gate.'
         )
         choice(
             name: 'ALL_TESTS_START_MODULE',
@@ -23,6 +23,7 @@ pipeline {
                 'peegeeq-service-manager',
                 'peegeeq-pg-sidecar',
                 'peegeeq-examples',
+                'peegeeq-benchmarking',
                 'peegeeq-migrations',
                 'peegeeq-openapi',
                 'peegeeq-integration-tests',
@@ -168,6 +169,92 @@ pipeline {
             }
         }
 
+        stage('Performance tests') {
+            when {
+                expression { params.TEST_SUITE == 'performance' }
+            }
+            steps {
+                sh '''
+                    set -eu
+                    mkdir -p logs performance-results
+                    {
+                        date --iso-8601=seconds
+                        git rev-parse HEAD
+                        uname -a
+                        nproc
+                        free -h
+                        df -h .
+                        docker version --format '{{.Server.Version}}'
+                    } > performance-results/host-baseline.log
+
+                    vmstat 60 > performance-results/host-vmstat.log &
+                    metrics_pid=$!
+                    finish_metrics() {
+                        rc=$?
+                        trap - EXIT
+                        kill "$metrics_pid" 2>/dev/null || true
+                        wait "$metrics_pid" 2>/dev/null || true
+                        free -h >> performance-results/host-vmstat.log
+                        df -h . >> performance-results/host-vmstat.log
+                        exit "$rc"
+                    }
+                    trap finish_metrics EXIT
+
+                    bash -o pipefail -c \
+                      'mvn --no-transfer-progress test -Pperformance-tests \
+                      -pl :peegeeq-benchmarking -am \
+                      2>&1 | tee logs/performance-tests.log'
+                '''
+            }
+        }
+
+        stage('Partitioned consumption release gate') {
+            when {
+                expression { params.TEST_SUITE == 'partitioned-release' }
+            }
+            steps {
+                sh '''
+                    set -eu
+                    mkdir -p logs performance-results
+                    {
+                        date --iso-8601=seconds
+                        git rev-parse HEAD
+                        uname -a
+                        nproc
+                        free -h
+                        df -h .
+                        docker version --format '{{.Server.Version}}'
+                    } > performance-results/host-baseline.log
+
+                    vmstat 60 > performance-results/host-vmstat.log &
+                    metrics_pid=$!
+                    finish_metrics() {
+                        rc=$?
+                        trap - EXIT
+                        kill "$metrics_pid" 2>/dev/null || true
+                        wait "$metrics_pid" 2>/dev/null || true
+                        free -h >> performance-results/host-vmstat.log
+                        df -h . >> performance-results/host-vmstat.log
+                        exit "$rc"
+                    }
+                    trap finish_metrics EXIT
+
+                    bash -o pipefail -c \
+                      'mvn --no-transfer-progress test -Pperformance-tests \
+                      -pl :peegeeq-benchmarking \
+                      -Dtest=PartitionedConsumptionReleaseGate \
+                      -Dpeegeeq.task6.duration.seconds=3600 \
+                      -Dpeegeeq.task6.message.rate=200 \
+                      -Dpeegeeq.task6.partition.count=16 \
+                      -Dpeegeeq.task6.groups.per.tenant=2 \
+                      -Dpeegeeq.task6.pool.size=4 \
+                      -Dtest.timeout.default=100m \
+                      -Dtest.timeout.method=95m \
+                      2>&1 | tee logs/partitioned-release.log'
+                '''
+            }
+        }
+
         stage('Full regression') {
             when {
                 expression { params.TEST_SUITE == 'all' }
@@ -195,6 +282,10 @@ pipeline {
     post {
         always {
             script {
+                // Performance evidence is immutable: retain successful, failed, and aborted runs.
+                if (params.TEST_SUITE in ['performance', 'partitioned-release']) {
+                    currentBuild.keepLog = true
+                }
                 // A missing expected report is a build failure, even if another suite published.
                 catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
                     sh '''
@@ -209,7 +300,7 @@ pipeline {
                     )
                 } finally {
                     archiveArtifacts(
-                        artifacts: 'logs/**,**/playwright-report/**,**/test-results/**,**/target/ui-reports/*.xml',
+                        artifacts: 'logs/**,performance-results/**,**/target/performance-results/**,**/target/surefire-reports/**,**/target/failsafe-reports/**,**/playwright-report/**,**/test-results/**,**/target/ui-reports/*.xml',
                         allowEmptyArchive: true
                     )
                 }
