@@ -59,9 +59,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Properties;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -160,131 +158,140 @@ class PerformanceComparisonExampleTest {
     }
 
     @Test
-    void testSingleThreadedConfiguration(Vertx vertx) throws Exception {
+    void testSingleThreadedConfiguration(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Single-Threaded Configuration ===");
 
-        PerformanceResult result = testConfiguration("Single-Threaded", 1, 1, "PT1S", vertx);
-
-        // Verify single-threaded configuration worked
-        assertNotNull(result, "Performance result should not be null");
-        assertEquals("Single-Threaded", result.configName);
-        assertEquals(1, result.threads);
-        assertEquals(1, result.batchSize);
-        assertTrue(result.completed, "Single-threaded test should complete");
-        assertTrue(result.processedMessages > 0, "Should process some messages");
-
-        logger.info("Single-threaded configuration test completed successfully!");
+        testConfiguration("Single-Threaded", 1, 1, "PT1S", vertx)
+            .onSuccess(result -> testContext.verify(() -> {
+                assertNotNull(result, "Performance result should not be null");
+                assertEquals("Single-Threaded", result.configName);
+                assertEquals(1, result.threads);
+                assertEquals(1, result.batchSize);
+                assertTrue(result.completed, "Single-threaded test should complete");
+                assertTrue(result.processedMessages > 0, "Should process some messages");
+                logger.info("Single-threaded configuration test completed successfully!");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testMultiThreadedConfiguration(Vertx vertx) throws Exception {
+    void testMultiThreadedConfiguration(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Multi-Threaded Configuration ===");
 
-        PerformanceResult result = testConfiguration("Multi-Threaded", 4, 1, "PT1S", vertx);
-
-        // Verify multi-threaded configuration worked
-        assertNotNull(result, "Performance result should not be null");
-        assertEquals("Multi-Threaded", result.configName);
-        assertEquals(4, result.threads);
-        assertEquals(1, result.batchSize);
-        assertTrue(result.completed, "Multi-threaded test should complete");
-        assertTrue(result.processedMessages > 0, "Should process some messages");
-
-        logger.info("Multi-threaded configuration test completed successfully!");
+        testConfiguration("Multi-Threaded", 4, 1, "PT1S", vertx)
+            .onSuccess(result -> testContext.verify(() -> {
+                assertNotNull(result, "Performance result should not be null");
+                assertEquals("Multi-Threaded", result.configName);
+                assertEquals(4, result.threads);
+                assertEquals(1, result.batchSize);
+                assertTrue(result.completed, "Multi-threaded test should complete");
+                assertTrue(result.processedMessages > 0, "Should process some messages");
+                logger.info("Multi-threaded configuration test completed successfully!");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testBatchedProcessingConfiguration(Vertx vertx) throws Exception {
+    void testBatchedProcessingConfiguration(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Batched Processing Configuration ===");
 
-        PerformanceResult result = testConfiguration("Batched Processing", 2, 25, "PT1S", vertx);
-
-        // Verify batched processing configuration worked
-        assertNotNull(result, "Performance result should not be null");
-        assertEquals("Batched Processing", result.configName);
-        assertEquals(2, result.threads);
-        assertEquals(25, result.batchSize);
-        assertTrue(result.completed, "Batched processing test should complete");
-        assertTrue(result.processedMessages > 0, "Should process some messages");
-
-        logger.info("Batched processing configuration test completed successfully!");
+        testConfiguration("Batched Processing", 2, 25, "PT1S", vertx)
+            .onSuccess(result -> testContext.verify(() -> {
+                assertNotNull(result, "Performance result should not be null");
+                assertEquals("Batched Processing", result.configName);
+                assertEquals(2, result.threads);
+                assertEquals(25, result.batchSize);
+                assertTrue(result.completed, "Batched processing test should complete");
+                assertTrue(result.processedMessages > 0, "Should process some messages");
+                logger.info("Batched processing configuration test completed successfully!");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testFastPollingConfiguration(Vertx vertx) throws Exception {
+    void testFastPollingConfiguration(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Fast Polling Configuration ===");
 
-        PerformanceResult result = testConfiguration("Fast Polling", 2, 10, "PT0.1S", vertx);
-
-        // Verify fast polling configuration worked
-        assertNotNull(result, "Performance result should not be null");
-        assertEquals("Fast Polling", result.configName);
-        assertEquals(2, result.threads);
-        assertEquals(10, result.batchSize);
-        assertEquals("PT0.1S", result.pollingInterval);
-        assertTrue(result.completed, "Fast polling test should complete");
-        assertTrue(result.processedMessages > 0, "Should process some messages");
-
-        logger.info("Fast polling configuration test completed successfully!");
+        testConfiguration("Fast Polling", 2, 10, "PT0.1S", vertx)
+            .onSuccess(result -> testContext.verify(() -> {
+                assertNotNull(result, "Performance result should not be null");
+                assertEquals("Fast Polling", result.configName);
+                assertEquals(2, result.threads);
+                assertEquals(10, result.batchSize);
+                assertEquals("PT0.1S", result.pollingInterval);
+                assertTrue(result.completed, "Fast polling test should complete");
+                assertTrue(result.processedMessages > 0, "Should process some messages");
+                logger.info("Fast polling configuration test completed successfully!");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testOptimizedConfiguration(Vertx vertx) throws Exception {
+    void testOptimizedConfiguration(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Optimized Configuration ===");
 
-        PerformanceResult result = testConfiguration("Optimized", 6, 50, "PT0.2S", vertx);
-
-        // Verify optimized configuration worked
-        assertNotNull(result, "Performance result should not be null");
-        assertEquals("Optimized", result.configName);
-        assertEquals(6, result.threads);
-        assertEquals(50, result.batchSize);
-        assertEquals("PT0.2S", result.pollingInterval);
-        assertTrue(result.completed, "Optimized test should complete");
-        assertTrue(result.processedMessages > 0, "Should process some messages");
-
-        logger.info("Optimized configuration test completed successfully!");
+        testConfiguration("Optimized", 6, 50, "PT0.2S", vertx)
+            .onSuccess(result -> testContext.verify(() -> {
+                assertNotNull(result, "Performance result should not be null");
+                assertEquals("Optimized", result.configName);
+                assertEquals(6, result.threads);
+                assertEquals(50, result.batchSize);
+                assertEquals("PT0.2S", result.pollingInterval);
+                assertTrue(result.completed, "Optimized test should complete");
+                assertTrue(result.processedMessages > 0, "Should process some messages");
+                logger.info("Optimized configuration test completed successfully!");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testPerformanceComparison(Vertx vertx) throws Exception {
+    void testPerformanceComparison(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Complete Performance Comparison ===");
 
-        // Test all configurations and compare performance
-        PerformanceResult singleThreaded = testConfiguration("Single-Threaded", 1, 1, "PT1S", vertx);
-
-        PerformanceResult multiThreaded = testConfiguration("Multi-Threaded", 4, 1, "PT1S", vertx);
-
-        PerformanceResult batched = testConfiguration("Batched Processing", 2, 25, "PT1S", vertx);
-
-        PerformanceResult fastPolling = testConfiguration("Fast Polling", 2, 10, "PT0.1S", vertx);
-
-        PerformanceResult optimized = testConfiguration("Optimized", 6, 50, "PT0.2S", vertx);
-
-        // Display comparison results
-        displayPerformanceComparison(singleThreaded, multiThreaded, batched, fastPolling, optimized);
-
-        // Verify all tests completed
-        assertTrue(singleThreaded.completed, "Single-threaded should complete");
-        assertTrue(multiThreaded.completed, "Multi-threaded should complete");
-        assertTrue(batched.completed, "Batched processing should complete");
-        assertTrue(fastPolling.completed, "Fast polling should complete");
-        assertTrue(optimized.completed, "Optimized should complete");
-
-        // Verify performance metrics are reasonable
-        assertTrue(singleThreaded.throughputMsgPerSec > 0, "Single-threaded should have positive throughput");
-        assertTrue(multiThreaded.throughputMsgPerSec > 0, "Multi-threaded should have positive throughput");
-        assertTrue(batched.throughputMsgPerSec > 0, "Batched should have positive throughput");
-        assertTrue(fastPolling.throughputMsgPerSec > 0, "Fast polling should have positive throughput");
-        assertTrue(optimized.throughputMsgPerSec > 0, "Optimized should have positive throughput");
-
-        logger.info("Performance comparison test completed successfully!");
+        List<PerformanceResult> results = new ArrayList<>();
+        testConfiguration("Single-Threaded", 1, 1, "PT1S", vertx)
+            .compose(result -> {
+                results.add(result);
+                return testConfiguration("Multi-Threaded", 4, 1, "PT1S", vertx);
+            })
+            .compose(result -> {
+                results.add(result);
+                return testConfiguration("Batched Processing", 2, 25, "PT1S", vertx);
+            })
+            .compose(result -> {
+                results.add(result);
+                return testConfiguration("Fast Polling", 2, 10, "PT0.1S", vertx);
+            })
+            .compose(result -> {
+                results.add(result);
+                return testConfiguration("Optimized", 6, 50, "PT0.2S", vertx);
+            })
+            .onSuccess(result -> testContext.verify(() -> {
+                results.add(result);
+                PerformanceResult[] comparisonResults = results.toArray(PerformanceResult[]::new);
+                displayPerformanceComparison(comparisonResults);
+                for (PerformanceResult performanceResult : comparisonResults) {
+                    assertTrue(performanceResult.completed,
+                        performanceResult.configName + " should complete");
+                    assertTrue(performanceResult.throughputMsgPerSec > 0,
+                        performanceResult.configName + " should have positive throughput");
+                }
+                logger.info("Performance comparison test completed successfully!");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     /**
      * Tests a specific configuration and measures performance.
      */
-    private PerformanceResult testConfiguration(String configName, int threads, int batchSize, String pollingInterval, Vertx vertx) throws Exception {
+    private Future<PerformanceResult> testConfiguration(
+            String configName, int threads, int batchSize, String pollingInterval, Vertx vertx) {
         logger.info("\n=== Testing Configuration: {} ===", configName);
         logger.info(" Threads: {}, Batch Size: {}, Polling Interval: {}", threads, batchSize, pollingInterval);
 
@@ -353,54 +360,58 @@ class PerformanceComparisonExampleTest {
                     .onSuccess(v -> logger.debug("Sent message {} for config {}", messageIndex, configName)));
             }
             AtomicLong sendingTime = new AtomicLong();
-            Future.all(sends)
-                .onSuccess(v -> {
+            Future<PerformanceResult> resultFuture = Future.all(sends)
+                .compose(v -> {
                     long elapsed = Duration.between(sendingStartTime, Instant.now()).toMillis();
                     sendingTime.set(elapsed);
                     logger.info(" Sent {} messages in {}ms", MESSAGE_COUNT, elapsed);
+                    return allProcessed.future();
                 })
-                .onFailure(allProcessed::tryFail);
+                .map(v -> {
+                    Instant endTime = Instant.now();
+                    long totalTimeMs = Duration.between(startTime, endTime).toMillis();
+                    long processingTimeMs = Duration.between(consumerStartTime, endTime).toMillis();
+                    long sendingTimeMs = sendingTime.get();
+                    int processed = processedCount.get();
+                    double throughputMsgPerSec = processed > 0
+                        ? (processed * 1000.0) / Math.max(totalTimeMs, 1L)
+                        : 0.0;
+                    double avgProcessingTimeMs = processed > 0
+                        ? (double) totalProcessingTime.get() / processed
+                        : 0.0;
 
-            // Wait for processing to complete (with timeout)
-            AtomicBoolean succeededRef = new AtomicBoolean(false);
-            CountDownLatch completionLatch = new CountDownLatch(1);
-            vertx.setTimer(30000, id -> allProcessed.tryFail("Timeout waiting for all messages"));
-            allProcessed.future()
-                .onSuccess(v -> { succeededRef.set(true); completionLatch.countDown(); })
-                .onFailure(err -> completionLatch.countDown());
-            boolean completed = completionLatch.await(35, TimeUnit.SECONDS) && succeededRef.get();
-            Instant endTime = Instant.now();
+                    logger.info(" Performance Results for {}:", configName);
+                    logger.info("   Completed: true");
+                    logger.info("    Processed: {}/{} messages", processed, MESSAGE_COUNT);
+                    logger.info("    Total Time: {}ms", totalTimeMs);
+                    logger.info("    Sending Time: {}ms", sendingTimeMs);
+                    logger.info("    Processing Time: {}ms", processingTimeMs);
+                    logger.info("    Throughput: {:.2f} messages/second", throughputMsgPerSec);
+                    logger.info("    Avg Processing Time: {:.2f}ms per message", avgProcessingTimeMs);
 
-            long totalTimeMs = Duration.between(startTime, endTime).toMillis();
-            long processingTimeMs = Duration.between(consumerStartTime, endTime).toMillis();
-            long sendingTimeMs = sendingTime.get();
+                    return new PerformanceResult(
+                        configName, threads, batchSize, pollingInterval, true,
+                        processed, totalTimeMs, sendingTimeMs, processingTimeMs,
+                        throughputMsgPerSec, avgProcessingTimeMs);
+                });
 
-            int processed = processedCount.get();
-            double throughputMsgPerSec = processed > 0 ? (processed * 1000.0) / totalTimeMs : 0.0;
-            double avgProcessingTimeMs = processed > 0 ? (double) totalProcessingTime.get() / processed : 0.0;
+            vertx.setTimer(30000, id ->
+                allProcessed.tryFail("Timeout waiting for all messages for " + configName));
 
-            logger.info(" Performance Results for {}:", configName);
-            logger.info("   Completed: {}", completed);
-            logger.info("    Processed: {}/{} messages", processed, MESSAGE_COUNT);
-            logger.info("    Total Time: {}ms", totalTimeMs);
-            logger.info("    Sending Time: {}ms", sendingTimeMs);
-            logger.info("    Processing Time: {}ms", processingTimeMs);
-            logger.info("    Throughput: {:.2f} messages/second", throughputMsgPerSec);
-            logger.info("    Avg Processing Time: {:.2f}ms per message", avgProcessingTimeMs);
-
-            // Close resources
-            consumer.close();
-            producer.close();
-
-            return new PerformanceResult(
-                configName, threads, batchSize, pollingInterval, completed,
-                processed, totalTimeMs, sendingTimeMs, processingTimeMs,
-                throughputMsgPerSec, avgProcessingTimeMs
-            );
+            return resultFuture.eventually(() -> {
+                try {
+                    consumer.close();
+                    producer.close();
+                    return Future.<Void>succeededFuture();
+                } catch (Exception closeError) {
+                    logger.error("Failed to close resources for configuration {}", configName, closeError);
+                    return Future.failedFuture(closeError);
+                }
+            });
 
         } catch (Exception e) {
             logger.error("Configuration test failed for {}: {}", configName, e.getMessage(), e);
-            throw e;
+            return Future.failedFuture(e);
         }
     }
 

@@ -69,8 +69,8 @@ mvn test -Pintegration-tests -pl :peegeeq-db 2>&1 | Tee-Object -FilePath logs\pe
 # Integration tests — all modules (~60m)
 mvn test -Pintegration-tests 2>&1 | Tee-Object -FilePath logs\integration-all-modules-20260526.log
 
-# Performance tests — single module (~30m)
-mvn test -Pperformance-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-performance-20260526.log
+# Performance tests — consolidated benchmark module (~30m)
+mvn test -Pperformance-tests -pl :peegeeq-benchmarking -am 2>&1 | Tee-Object -FilePath logs\peegeeq-benchmarking-performance-20260526.log
 
 # Audit — tests missing @Tag (should report Tests run: 0 if tagging is healthy)
 mvn test -Puntagged-tests 2>&1 | Tee-Object -FilePath logs\untagged-audit-20260526.log
@@ -197,15 +197,15 @@ mvn test -Pintegration-tests 2>&1 | Tee-Object -FilePath logs\integration-all-mo
 ## 4 Performance
 
 ```powershell
-mvn test -Pperformance-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-performance-20260526.log
+mvn test -Pperformance-tests -pl :peegeeq-benchmarking -am 2>&1 | Tee-Object -FilePath logs\peegeeq-benchmarking-performance-20260526.log
 ```
 
 ~~The `peegeeq-performance-test-harness` module additionally provides workload-tuning
 profiles (`-Pperformance`, `-Pload-test`, `-Pstress-test`).~~
 *(Deleted 2026-08-09: every figure that module reported was a hardcoded constant returned
 after `Thread.sleep` — fabricated performance results, found by the metrics-stack review.
-Real load tests are the `-Pperformance-tests`-tagged tests in the actual modules, e.g. the
-peegeeq-db fanout suites.)*
+Real load tests are now consolidated in `peegeeq-benchmarking`; package names are retained
+so each workload still identifies the product surface it exercises.)*
 
 ---
 

@@ -25,7 +25,7 @@ It will grow to include key runtime interactions across all modules and services
 | `peegeeq-management-ui` | UI action to API to backend to DB round trips | Planned |
 | `peegeeq-openapi` | OpenAPI generation/publish flow | Planned |
 | `peegeeq-integration-tests` | End-to-end test harness orchestration flow | Planned |
-| `peegeeq-performance-test-harness` | Performance run setup, workload, metrics capture | Planned |
+| `peegeeq-benchmarking` | Performance run setup, cross-module workloads, hardware/metrics capture, retained result generation | Implemented |
 | `peegeeq-test-support` | Shared test infrastructure lifecycle (containers, schema) | Planned |
 | `peegeeq-examples` | Canonical usage flows by pattern | Planned |
 | `peegeeq-examples-spring` | Spring wiring and auto-start integration flows | Planned |
@@ -247,10 +247,10 @@ Notes:
 - Purpose: Shared test infrastructure and helpers.
 - Key sequences to capture: shared container lifecycle and test setup orchestration.
 
-## Module: `peegeeq-performance-test-harness`
+## Module: `peegeeq-benchmarking`
 
-- Purpose: Performance scenario execution and metric collection.
-- Key sequences to capture: run initialization, workload drive, result collection.
+- Purpose: Own all core-reactor performance scenarios, benchmark infrastructure, hardware profiling, historical result storage, and CI-retained benchmark evidence.
+- Key sequences to capture: run initialization, Testcontainers workload drive, metric/statistic collection, H2 history persistence, report generation, and Jenkins artifact publication.
 
 ## Module: `peegeeq-examples`
 
@@ -294,9 +294,9 @@ Notes:
 - Backfill integration tests:
   - `peegeeq-db/src/test/java/dev/mars/peegeeq/db/fanout/BackfillServiceIntegrationTest.java`
 - Backfill scope/perf tests:
-  - `peegeeq-db/src/test/java/dev/mars/peegeeq/db/fanout/BackfillScopePerformanceTest.java`
+  - `peegeeq-benchmarking/src/test/java/dev/mars/peegeeq/db/fanout/BackfillScopePerformanceTest.java`
 - OLTP interaction tests:
-  - `peegeeq-db/src/test/java/dev/mars/peegeeq/db/fanout/P4_BackfillVsOLTPTest.java`
+  - `peegeeq-benchmarking/src/test/java/dev/mars/peegeeq/db/fanout/P4_BackfillVsOLTPTest.java`
 
 ## Next Diagrams To Add
 

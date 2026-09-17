@@ -3,6 +3,7 @@ package dev.mars.peegeeq.db.performance;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -201,7 +202,7 @@ public class PerformanceTestResultsGenerator {
     /**
      * Saves the report to a file.
      */
-    public void saveToFile(String filename) {
+    public void saveToFile(String filename) throws IOException {
         try {
             java.nio.file.Files.write(
                 java.nio.file.Paths.get(filename), 
@@ -210,6 +211,10 @@ public class PerformanceTestResultsGenerator {
             logger.info("Performance test results saved to: {}", filename);
         } catch (Exception e) {
             logger.error("Failed to save performance test results to file: {}", filename, e);
+            if (e instanceof IOException ioException) {
+                throw ioException;
+            }
+            throw new IOException("Failed to save performance test results to " + filename, e);
         }
     }
     
