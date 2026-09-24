@@ -419,10 +419,10 @@ class AdvancedProducerConsumerGroupTest {
     }
 
     /**
-     * Test concurrent consumer groups processing the same message stream.
+     * Test concurrent consumer groups competing to process one message stream.
      */
     @Test
-    void testConcurrentConsumerGroups(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testConcurrentConsumerGroups(VertxTestContext testContext) throws Exception {
         logger.info("Testing concurrent consumer groups");
 
         // Create multiple consumer groups with unique names that will process the same messages
@@ -436,56 +436,58 @@ class AdvancedProducerConsumerGroupTest {
         ConsumerGroup<OrderEvent> analyticsGroup = queueFactory.createConsumerGroup(
             analyticsGroupName, testQueueName, OrderEvent.class);
 
-        // Counters for each group
+        final int messageCount = 30;
+
+        // Counters for each group and for completion across the competing groups
         AtomicInteger orderProcessedCount = new AtomicInteger(0);
         AtomicInteger paymentProcessedCount = new AtomicInteger(0);
         AtomicInteger analyticsProcessedCount = new AtomicInteger(0);
+        AtomicInteger totalProcessedCount = new AtomicInteger(0);
+        Promise<Void> allMessagesProcessed = Promise.promise();
 
         // Add consumers to each group
         orderGroup.addConsumer("Order-Consumer",
-            createCountingHandler("ORDER", orderProcessedCount, vertx),
+            createCountingHandler("ORDER", orderProcessedCount, totalProcessedCount,
+                messageCount, allMessagesProcessed),
             MessageFilter.acceptAll());
 
         paymentGroup.addConsumer("Payment-Consumer",
-            createCountingHandler("PAYMENT", paymentProcessedCount, vertx),
+            createCountingHandler("PAYMENT", paymentProcessedCount, totalProcessedCount,
+                messageCount, allMessagesProcessed),
             MessageFilter.acceptAll());
 
         analyticsGroup.addConsumer("Analytics-Consumer",
-            createCountingHandler("ANALYTICS", analyticsProcessedCount, vertx),
+            createCountingHandler("ANALYTICS", analyticsProcessedCount, totalProcessedCount,
+                messageCount, allMessagesProcessed),
             MessageFilter.acceptAll());
 
-        // Start all consumer groups
-        orderGroup.start();
-        paymentGroup.start();
-        analyticsGroup.start();
-
-        // Send test messages - 30 messages ensures each group (batchSize=10) gets at least 10
-        final int messageCount = 30;
-        sendSimpleMessages(messageCount)
-            .onFailure(testContext::failNow)
-            .onSuccess(sent -> {
-                // Wait for processing using Vert.x periodic polling
-                vertx.setPeriodic(100, timerId -> {
-                    if (orderProcessedCount.get() + paymentProcessedCount.get() + analyticsProcessedCount.get() >= messageCount) {
-                        vertx.cancelTimer(timerId);
-                        try {
-                            int totalProcessed = orderProcessedCount.get() + paymentProcessedCount.get() + analyticsProcessedCount.get();
-                            assertEquals(messageCount, totalProcessed, "Total messages processed should equal messages sent");
-
-                            assertTrue(orderProcessedCount.get() > 0, "Order group should process some messages");
-                            assertTrue(paymentProcessedCount.get() > 0, "Payment group should process some messages");
-                            assertTrue(analyticsProcessedCount.get() > 0, "Analytics group should process some messages");
-
-                            orderGroup.close().onFailure(testContext::failNow);
-                            paymentGroup.close().onFailure(testContext::failNow);
-                            analyticsGroup.close().onFailure(testContext::failNow);
-                            testContext.completeNow();
-                        } catch (Throwable t) {
-                            testContext.failNow(t);
-                        }
-                    }
+        // Await LISTEN registration for every group before publishing to the shared stream.
+        Future.all(orderGroup.start(), paymentGroup.start(), analyticsGroup.start())
+            .compose(started -> {
+                testContext.verify(() -> {
+                    assertTrue(orderGroup.isActive(), "Order group should be active before sending");
+                    assertTrue(paymentGroup.isActive(), "Payment group should be active before sending");
+                    assertTrue(analyticsGroup.isActive(), "Analytics group should be active before sending");
                 });
-            });
+                return sendSimpleMessages(messageCount);
+            })
+            .compose(sent -> allMessagesProcessed.future())
+            .eventually(() -> Future.all(
+                orderGroup.close(), paymentGroup.close(), analyticsGroup.close()).mapEmpty())
+            .onSuccess(ignored -> testContext.verify(() -> {
+                int totalProcessed = orderProcessedCount.get()
+                    + paymentProcessedCount.get()
+                    + analyticsProcessedCount.get();
+                assertEquals(messageCount, totalProcessed,
+                    "Competing consumer groups should process each message exactly once");
+                assertEquals(messageCount, totalProcessedCount.get(),
+                    "Completion counter should match messages sent");
+
+                logger.info("Concurrent group distribution: order={}, payment={}, analytics={}",
+                    orderProcessedCount.get(), paymentProcessedCount.get(), analyticsProcessedCount.get());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
         testContext.awaitCompletion(30, TimeUnit.SECONDS);
         logger.info("Concurrent consumer groups test completed successfully");
@@ -572,11 +574,20 @@ class AdvancedProducerConsumerGroupTest {
     /**
      * Creates a simple counting message handler.
      */
-    private MessageHandler<OrderEvent> createCountingHandler(String handlerName, AtomicInteger counter, Vertx vertx) {
+    private MessageHandler<OrderEvent> createCountingHandler(
+            String handlerName,
+            AtomicInteger counter,
+            AtomicInteger totalCounter,
+            int expectedTotal,
+            Promise<Void> allMessagesProcessed) {
         return message -> {
             counter.incrementAndGet();
-            // Simulate minimal processing time using Vert.x timer
-            return vertx.timer(10).<Void>mapEmpty();
+            int processed = totalCounter.incrementAndGet();
+            logger.debug("[{}] Processed message {} of {}", handlerName, processed, expectedTotal);
+            if (processed == expectedTotal) {
+                allMessagesProcessed.tryComplete();
+            }
+            return Future.succeededFuture();
         };
     }
 
@@ -756,5 +767,3 @@ class AdvancedProducerConsumerGroupTest {
         }
     }
 }
-
-
