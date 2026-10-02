@@ -35,7 +35,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.Isolated;
-import org.testcontainers.containers.BindMode;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
 import org.testcontainers.containers.wait.strategy.Wait;
@@ -87,14 +86,19 @@ class PgBouncerTransactionModeTest {
 
         pgbouncer = new GenericContainer<>("edoburu/pgbouncer:v1.25.2-p0")
             .withNetwork(network)
-            .withClasspathResourceMapping(
-                "pgbouncer-transaction.ini",
-                "/etc/pgbouncer/pgbouncer.ini",
-                BindMode.READ_ONLY)
-            .withClasspathResourceMapping(
-                "pgbouncer-userlist.txt",
-                "/etc/pgbouncer/userlist.txt",
-                BindMode.READ_ONLY)
+            .withEnv("DB_HOST", "postgres")
+            .withEnv("DB_PORT", "5432")
+            .withEnv("DB_NAME", DATABASE)
+            .withEnv("DB_USER", USERNAME)
+            .withEnv("DB_PASSWORD", PASSWORD)
+            .withEnv("AUTH_TYPE", "scram-sha-256")
+            .withEnv("POOL_MODE", "transaction")
+            .withEnv("MAX_CLIENT_CONN", "20")
+            .withEnv("DEFAULT_POOL_SIZE", "1")
+            .withEnv("MAX_PREPARED_STATEMENTS", "32")
+            .withEnv("IGNORE_STARTUP_PARAMETERS", "extra_float_digits,search_path")
+            .withEnv("SERVER_RESET_QUERY", "DISCARD ALL")
+            .withEnv("SERVER_RESET_QUERY_ALWAYS", "1")
             .withExposedPorts(5432)
             .waitingFor(Wait.forListeningPort().withStartupTimeout(Duration.ofSeconds(30)));
         pgbouncer.start();
@@ -120,7 +124,7 @@ class PgBouncerTransactionModeTest {
 
     @Test
     @Timeout(value = 60, unit = TimeUnit.SECONDS)
-    void transactionPoolingResetsSessionStateAndPreservesTenantSearchPath(
+    void composeEquivalentTransactionPoolingPreservesTenantSearchPath(
             Vertx vertx, VertxTestContext testContext) {
         connectionManager = new PgConnectionManager(vertx);
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
@@ -155,6 +159,14 @@ class PgBouncerTransactionModeTest {
             })
             .compose(observation -> {
                 observations.add(observation);
+                return readMessage(TENANT_A_SERVICE, 1);
+            })
+            .compose(observation -> {
+                observations.add(observation);
+                return readMessage(TENANT_B_SERVICE, 2);
+            })
+            .compose(observation -> {
+                observations.add(observation);
                 return consumeMessage(TENANT_A_SERVICE, 1);
             })
             .compose(observation -> {
@@ -166,13 +178,17 @@ class PgBouncerTransactionModeTest {
                 return countRemainingMessages();
             })
             .onComplete(testContext.succeeding(remaining -> testContext.verify(() -> {
-                assertEquals(4, observations.size());
+                assertEquals(6, observations.size());
                 assertEquals(TENANT_A, observations.get(0).schema());
                 assertEquals(TENANT_B, observations.get(1).schema());
                 assertEquals(TENANT_A, observations.get(2).schema());
                 assertEquals(TENANT_B, observations.get(3).schema());
                 assertEquals("tenant-a-message", observations.get(2).payload());
                 assertEquals("tenant-b-message", observations.get(3).payload());
+                assertEquals(TENANT_A, observations.get(4).schema());
+                assertEquals(TENANT_B, observations.get(5).schema());
+                assertEquals("tenant-a-message", observations.get(4).payload());
+                assertEquals("tenant-b-message", observations.get(5).payload());
                 assertTrue(observations.subList(1, observations.size()).stream()
                         .allMatch(observation -> observation.sessionMarker() == null
                             || observation.sessionMarker().isBlank()),
@@ -239,6 +255,19 @@ class PgBouncerTransactionModeTest {
             observeTransaction(connection)
                 .compose(observation -> connection.preparedQuery(
                     "DELETE FROM transaction_pool_messages WHERE id = $1 RETURNING payload")
+                    .execute(Tuple.of(id))
+                    .map(rows -> new TransactionObservation(
+                        observation.schema(),
+                        observation.backendPid(),
+                        observation.sessionMarker(),
+                        rows.iterator().next().getString("payload")))));
+    }
+
+    private Future<TransactionObservation> readMessage(String serviceId, int id) {
+        return connectionManager.withConnection(serviceId, connection ->
+            observeTransaction(connection)
+                .compose(observation -> connection.preparedQuery(
+                    "SELECT payload FROM transaction_pool_messages WHERE id = $1")
                     .execute(Tuple.of(id))
                     .map(rows -> new TransactionObservation(
                         observation.schema(),

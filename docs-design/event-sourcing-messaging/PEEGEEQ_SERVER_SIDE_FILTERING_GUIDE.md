@@ -478,7 +478,7 @@ ON queue_messages ((headers->>'type'));
    consumer.subscribe(message -> {
        // Only receives messages where headers->>'type' = 'order-created'
        processOrder(message.getPayload());
-       return CompletableFuture.completedFuture(null);
+       return Future.succeededFuture();
    });
    ```
 
@@ -492,7 +492,7 @@ ConsumerGroup<OrderEvent> group = factory.createConsumerGroup(
 group.addConsumer("order-created-processor", handler,
     MessageFilter.byHeader("type", "order-created"));
 
-group.start();
+group.start().onFailure(error -> logger.error("Consumer group start failed", error));
 ```
 
 **After (server-side + optional client-side):**
@@ -504,7 +504,7 @@ ConsumerConfig config = ConsumerConfig.builder()
 
 MessageConsumer<OrderEvent> consumer = factory.createConsumer(
     "order-events", OrderEvent.class, config);
-consumer.subscribe(handler);
+consumer.subscribe(handler).onFailure(error -> logger.error("Subscription failed", error));
 
 // Option 2: Hybrid (server-side coarse filter + client-side fine filter)
 ConsumerConfig config = ConsumerConfig.builder()
@@ -518,7 +518,7 @@ ConsumerGroup<OrderEvent> group = factory.createConsumerGroup(
 group.addConsumer("high-value-processor", handler,
     message -> message.getPayload().getAmount() > 1000);
 
-group.start();
+group.start().onFailure(error -> logger.error("Consumer group start failed", error));
 ```
 
 ---
@@ -531,8 +531,10 @@ group.start();
 
 ```java
 // Producer sends messages with different types
-producer.send(orderCreatedEvent, Map.of("type", "order-created"));
-producer.send(orderUpdatedEvent, Map.of("type", "order-updated"));
+producer.send(orderCreatedEvent, Map.of("type", "order-created"))
+    .onFailure(error -> logger.error("Order-created send failed", error));
+producer.send(orderUpdatedEvent, Map.of("type", "order-updated"))
+    .onFailure(error -> logger.error("Order-updated send failed", error));
 
 // Consumer only receives "order-created" messages
 ConsumerConfig config = ConsumerConfig.builder()
@@ -546,7 +548,7 @@ MessageConsumer<OrderEvent> consumer = factory.createConsumer(
 consumer.subscribe(message -> {
     // Only receives messages where headers->>'type' = 'order-created'
     processOrderCreated(message.getPayload());
-    return CompletableFuture.completedFuture(null);
+    return Future.succeededFuture();
 });
 ```
 
@@ -680,7 +682,7 @@ group.addConsumer("high-value-processor", handler,
         return order.getAmount() > 1000 && order.getCustomer().isPremium();
     });
 
-group.start();
+group.start().onFailure(error -> logger.error("Consumer group start failed", error));
 ```
 
 **Why Hybrid?**
@@ -706,7 +708,7 @@ OutboxConsumer consumer = outboxFactory.createConsumer(
 consumer.subscribe(message -> {
     // Only receives messages destined for email service
     sendEmail(message.getPayload());
-    return CompletableFuture.completedFuture(null);
+    return Future.succeededFuture();
 });
 ```
 
@@ -907,12 +909,7 @@ Located in: `OutboxServerSideFilteringTest.java`
 
 ```java
 @Test
-void testServerSideFilterEquals() throws Exception {
-    // Send messages with different types
-    producer.send("order-1", Map.of("type", "order-created"));
-    producer.send("order-2", Map.of("type", "order-updated"));
-    producer.send("order-3", Map.of("type", "order-created"));
-
+void testServerSideFilterEquals(VertxTestContext testContext) {
     // Create consumer with server-side filter
     ConsumerConfig config = ConsumerConfig.builder()
         .serverSideFilter(ServerSideFilter.headerEquals("type", "order-created"))
@@ -922,17 +919,21 @@ void testServerSideFilterEquals() throws Exception {
         "orders", String.class, config);
 
     List<String> received = new CopyOnWriteArrayList<>();
+    Checkpoint expectedDeliveries = testContext.checkpoint(2);
+
     consumer.subscribe(msg -> {
-        received.add(msg.getPayload());
-        return CompletableFuture.completedFuture(null);
-    });
-
-    // Wait for messages
-    await().atMost(Duration.ofSeconds(10))
-           .until(() -> received.size() == 2);
-
-    // Verify only "order-created" messages received
-    assertThat(received).containsExactlyInAnyOrder("order-1", "order-3");
+        testContext.verify(() -> {
+            received.add(msg.getPayload());
+            assertThat(msg.getHeaders().get("type")).isEqualTo("order-created");
+            assertThat(received).doesNotContain("order-2");
+            expectedDeliveries.flag();
+        });
+        return Future.succeededFuture();
+    }).compose(ignored -> Future.all(List.of(
+        producer.send("order-1", Map.of("type", "order-created")),
+        producer.send("order-2", Map.of("type", "order-updated")),
+        producer.send("order-3", Map.of("type", "order-created")))))
+      .onFailure(testContext::failNow);
 }
 ```
 
@@ -1218,7 +1219,7 @@ ConsumerGroup<Event> group = factory.createConsumerGroup(
    ```java
    consumer.subscribe(message -> {
        System.out.println("Headers: " + message.getHeaders());
-       return CompletableFuture.completedFuture(null);
+       return Future.succeededFuture();
    });
    ```
 

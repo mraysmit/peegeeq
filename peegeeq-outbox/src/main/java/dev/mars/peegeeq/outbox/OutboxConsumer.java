@@ -54,6 +54,7 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Outbox pattern message consumer implementation.
@@ -82,6 +83,9 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private final AtomicBoolean claimInProgress = new AtomicBoolean(false);
     private final AtomicInteger processingInFlight = new AtomicInteger(0);
+    // Per-consumer scan position, not an acknowledgement: rejected rows stay PENDING.
+    // Wrap after an empty scan so changed filters can accept older rows later.
+    private final AtomicLong filteredScanPosition = new AtomicLong(0);
 
     // Client ID for pool lookup - null means use default pool (resolved by
     // PgClientFactory)
@@ -362,7 +366,15 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                 String filterCondition = filter.toSqlCondition(nextParameter);
                 additionalConditions.append(" AND ").append(filterCondition).append('\n');
                 queryParams.addAll(filter.getParameters());
+                nextParameter += filter.getParameters().size();
                 logger.debug("OUTBOX-DEBUG: Using server-side filter: {}, SQL filter: {}", filter, filterCondition);
+            }
+
+            long scanPosition = filteredScanPosition.get();
+            if (scanPosition > 0) {
+                additionalConditions.append(" AND outbox_message.id > $")
+                        .append(nextParameter).append('\n');
+                queryParams.add(scanPosition);
             }
 
             String sql = """
@@ -401,6 +413,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                         }
                         releaseProcessingCapacity(admittedCapacity - claimedMessages);
                         if (rowSet.size() == 0) {
+                            filteredScanPosition.compareAndSet(scanPosition, 0);
                             logger.debug("No pending messages found for topic {}", topic);
                             return Future.<Void>succeededFuture();
                         }
@@ -494,6 +507,16 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
         return processing.eventually(() -> {
             releaseProcessingCapacity(1);
+            return Future.succeededFuture();
+        }).compose(v -> {
+            // Refill released capacity while draining a backlog. The periodic timer
+            // is for idle scans; it must not throttle every individual message.
+            // Queue the continuation to avoid recursive completion on the event loop.
+            synchronized (lifecycleLock) {
+                if (subscribed.get() && !closed.get()) {
+                    vertx.runOnContext(ignored -> scheduledProcessMessages());
+                }
+            }
             return Future.succeededFuture();
         });
     }
@@ -825,6 +848,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                 .compose(pool -> pool.preparedQuery(sql)
                         .execute(Tuple.of(Long.parseLong(messageId))))
                 .compose(result -> {
+                    filteredScanPosition.accumulateAndGet(Long.parseLong(messageId), Math::max);
                     logger.debug("Reset filtered message {} to PENDING", messageId);
                     return Future.succeededFuture();
                 })

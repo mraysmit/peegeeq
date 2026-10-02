@@ -2,13 +2,8 @@ package dev.mars.peegeeq.test.base;
 
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile;
-import io.vertx.core.Vertx;
-import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -145,73 +140,5 @@ class PeeGeeQTestBaseTest extends PeeGeeQTestBase {
         logger.info("System properties test passed");
         
         logger.info("=== TEST METHOD COMPLETED: testSystemProperties ===");
-    }
-}
-
-/**
- * Test class for ParameterizedPerformanceTestBase functionality.
- */
-@Tag(TestCategories.INTEGRATION)
-@Testcontainers
-@ExtendWith(VertxExtension.class)
-class ParameterizedPerformanceTestBaseTest extends ParameterizedPerformanceTestBase {
-    
-    private static final Logger logger = LoggerFactory.getLogger(ParameterizedPerformanceTestBaseTest.class);
-    
-    @ParameterizedTest
-    @EnumSource(value = PerformanceProfile.class, names = {"BASIC", "STANDARD", "HIGH_PERFORMANCE"})
-    void testPerformanceAcrossProfiles(PerformanceProfile profile, Vertx vertx) {
-        logger.info("=== TEST METHOD STARTED: testPerformanceAcrossProfiles({}) ===", profile);
-        
-        logger.info("Testing performance with profile: {}", profile.getDisplayName());
-        
-        PerformanceTestResult result = runTestWithProfile(profile, () -> {
-            // No simulated work: runTestWithProfile's operation contract is synchronous,
-            // so a reactive timer await is not possible here without changing that API.
-            // The test validates the framework wiring and the mocked metrics below;
-            // duration is not asserted.
-
-            // Return some mock performance metrics
-            return createPerformanceMetrics(
-                1000.0,  // throughput: 1000 ops/sec
-                50.0,    // average latency: 50ms
-                75.0,    // p95 latency: 75ms
-                0.0      // error rate: 0%
-            );
-        });
-        
-        // Validate result
-        assertNotNull(result, "Result should not be null");
-        assertEquals(profile, result.getProfile(), "Profile should match");
-        assertTrue(result.isSuccess(), "Test should be successful");
-        assertNotNull(result.getThroughput(), "Throughput should be recorded");
-        assertEquals(1000.0, result.getThroughput(), 0.1, "Throughput should match expected value");
-        
-        // Validate performance thresholds
-        validatePerformanceThresholds(result, profile);
-        
-        logger.info("Performance test passed for profile: {} (duration: {}ms, throughput: {} ops/sec)", 
-                   profile.getDisplayName(), result.getDurationMs(), result.getThroughput());
-        
-        logger.info("=== TEST METHOD COMPLETED: testPerformanceAcrossProfiles({}) ===", profile);
-    }
-    
-    @Test
-    void testPerformanceMetricsCreation() {
-        logger.info("=== TEST METHOD STARTED: testPerformanceMetricsCreation ===");
-        
-        logger.info("Testing performance metrics creation");
-        
-        Map<String, Object> metrics = createPerformanceMetrics(500.0, 25.0, 40.0, 1.5);
-        
-        assertNotNull(metrics, "Metrics should not be null");
-        assertEquals(500.0, metrics.get("throughput"), "Throughput should match");
-        assertEquals(25.0, metrics.get("average_latency"), "Average latency should match");
-        assertEquals(40.0, metrics.get("p95_latency"), "P95 latency should match");
-        assertEquals(1.5, metrics.get("error_rate"), "Error rate should match");
-        
-        logger.info("Performance metrics creation test passed");
-        
-        logger.info("=== TEST METHOD COMPLETED: testPerformanceMetricsCreation ===");
     }
 }
