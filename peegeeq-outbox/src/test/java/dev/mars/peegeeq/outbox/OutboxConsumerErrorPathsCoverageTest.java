@@ -183,26 +183,33 @@ public class OutboxConsumerErrorPathsCoverageTest {
     @Test
     @DisplayName("Test handler throws error (not exception)")
     void testHandlerThrowsError(Vertx vertx, VertxTestContext testContext) throws Exception {
+        AtomicInteger attempts = new AtomicInteger();
         MessageHandler<TestMessage> errorHandler = message -> {
             logger.info("Test: handler throws error");
-            // Throw Error instead of Exception
-            throw new AssertionError("Simulated assertion error");
+            if (attempts.incrementAndGet() == 1) {
+                // Throw Error instead of Exception on the first attempt.
+                throw new AssertionError("Simulated assertion error");
+            }
+            return Future.succeededFuture();
         };
         
         TestMessage testMsg = new TestMessage("error-test", "Error test message");
         consumer.subscribe(errorHandler)
                 .compose(v -> producer.send(testMsg))
-                .compose(v -> awaitFailureMetric(vertx, System.currentTimeMillis() + 10_000))
+                .compose(v -> awaitProcessedMetric(vertx, System.currentTimeMillis() + 10_000))
                 .onSuccess(count -> testContext.verify(() -> {
-                    assertEquals(1.0, count,
+                    assertEquals(1.0, count, "Retry should successfully process the message once");
+                    assertEquals(2, attempts.get(), "The failed attempt should be retried exactly once");
+                    assertEquals(1.0, meterRegistry.get("peegeeq.messages.failed.by.topic")
+                                    .tag("topic", testTopic).counter().count(),
                             "Thrown Error should be contained and recorded as a handler failure");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
     }
 
-    private Future<Double> awaitFailureMetric(Vertx vertx, long deadline) {
-        var counter = meterRegistry.find("peegeeq.messages.failed.by.topic")
+    private Future<Double> awaitProcessedMetric(Vertx vertx, long deadline) {
+        var counter = meterRegistry.find("peegeeq.messages.processed.by.topic")
                 .tag("topic", testTopic)
                 .counter();
         if (counter != null && counter.count() > 0) {
@@ -210,10 +217,10 @@ public class OutboxConsumerErrorPathsCoverageTest {
         }
         if (System.currentTimeMillis() >= deadline) {
             return Future.failedFuture(
-                    "Handler Error was not recorded for topic " + testTopic);
+                    "Message did not succeed after its handler Error for topic " + testTopic);
         }
         return vertx.timer(50)
-                .compose(v -> awaitFailureMetric(vertx, deadline));
+                .compose(v -> awaitProcessedMetric(vertx, deadline));
     }
 
     @Test

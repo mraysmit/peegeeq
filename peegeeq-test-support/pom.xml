@@ -119,21 +119,6 @@
             <scope>compile</scope>
         </dependency>
 
-        <!-- Hardware Profiling Dependencies -->
-        <dependency>
-            <groupId>com.github.oshi</groupId>
-            <artifactId>oshi-core</artifactId>
-            <version>6.4.8</version>
-            <scope>compile</scope>
-        </dependency>
-
-        <!-- H2 Database for local performance history storage -->
-        <dependency>
-            <groupId>com.h2database</groupId>
-            <artifactId>h2</artifactId>
-            <scope>compile</scope>
-        </dependency>
-
         <!-- Test Dependencies -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>

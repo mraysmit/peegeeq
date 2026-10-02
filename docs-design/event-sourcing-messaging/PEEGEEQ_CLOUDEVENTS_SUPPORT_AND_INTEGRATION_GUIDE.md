@@ -169,8 +169,10 @@ CloudEvent event = CloudEventBuilder.v1()
 // Create producer for CloudEvents
 MessageProducer<CloudEvent> producer = factory.createProducer("orders", CloudEvent.class);
 
-// Send CloudEvent
-producer.send(event, Map.of("priority", "HIGH")).get();
+// Send CloudEvent and observe both outcomes without blocking
+producer.send(event, Map.of("priority", "HIGH"))
+    .onSuccess(ignored -> logger.info("CloudEvent accepted for delivery"))
+    .onFailure(error -> logger.error("CloudEvent delivery failed", error));
 ```
 
 ### Storing CloudEvents in Bi-Temporal Event Store
@@ -181,7 +183,9 @@ EventStore<CloudEvent> eventStore = factory.createEventStore(CloudEvent.class);
 
 // Append with valid time
 Instant validTime = Instant.now();
-eventStore.append("OrderCreated", event, validTime).get();
+eventStore.append("OrderCreated", event, validTime)
+    .onSuccess(storedEvent -> logger.info("Stored event {}", storedEvent.getEventId()))
+    .onFailure(error -> logger.error("Failed to store CloudEvent", error));
 ```
 
 ### Querying CloudEvents with PostgreSQL JSONB
@@ -429,7 +433,9 @@ CloudEvent settlementEvent = builder.buildCloudEvent(
 ```java
 // Trade executed at 10:00 AM but recorded at 10:05 AM
 Instant validTime = Instant.parse("2025-01-15T10:00:00Z");  // Business time
-eventStore.append("TradeExecuted", event, validTime).get();
+eventStore.append("TradeExecuted", event, validTime)
+    .onSuccess(storedEvent -> logger.info("Stored event {}", storedEvent.getEventId()))
+    .onFailure(error -> logger.error("Failed to store trade event", error));
 // transaction_time will be 2025-01-15T10:05:00Z (system time)
 ```
 

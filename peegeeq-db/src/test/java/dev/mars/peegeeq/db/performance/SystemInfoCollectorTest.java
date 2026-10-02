@@ -90,29 +90,6 @@ class SystemInfoCollectorTest {
     }
     
     @Test
-    void testPerformanceTestResultsGenerator() {
-        PerformanceTestResultsGenerator generator = new PerformanceTestResultsGenerator.Builder(
-            "Test Suite",
-            "Test Environment"
-        )
-        .addTest("Sample Test", "PASSED", "10.5 seconds")
-        .addInfo("Test Info", "Sample information")
-        .build();
-        
-        String report = generator.generateReport();
-        
-        assertNotNull(report, "Report should not be null");
-        assertFalse(report.trim().isEmpty(), "Report should not be empty");
-        
-        // Verify report structure
-        assertTrue(report.contains("# Test Suite Performance Test Results"), "Should contain title");
-        assertTrue(report.contains("##  Executive Summary"), "Should contain executive summary");
-        assertTrue(report.contains("## System Configuration"), "Should contain system configuration");
-        assertTrue(report.contains("##  Detailed Test Results"), "Should contain detailed results");
-        assertTrue(report.contains("Sample Test"), "Should contain test name");
-    }
-    
-    @Test
     void testSystemInfoWithCustomProperties() {
         // Build a configuration with custom properties using the 2-arg constructor
         Properties props = new Properties();

@@ -208,7 +208,7 @@ native-image --version     # should print GraalVM native-image version
 
 ```powershell
 cd <workspace-root>
-mvn package -pl :peegeeq-pg-sidecar -DskipTests 2>&1 | Tee-Object -FilePath logs\pg-sidecar-build.txt
+mvn package -pl :peegeeq-pg-sidecar -DskipTests 2>&1 | Tee-Object -FilePath logs\pg-sidecar-build.log
 ```
 
 Output: `peegeeq-pg-sidecar/target/peegeeq-pg-sidecar-1.0-SNAPSHOT.jar`
@@ -232,7 +232,7 @@ java `
 
 ```powershell
 cd <workspace-root>
-mvn package -Pnative -pl :peegeeq-pg-sidecar -DskipTests 2>&1 | Tee-Object -FilePath logs\pg-sidecar-native.txt
+mvn package -Pnative -pl :peegeeq-pg-sidecar -DskipTests 2>&1 | Tee-Object -FilePath logs\pg-sidecar-native.log
 ```
 
 The build takes 2–5 minutes.  Output:

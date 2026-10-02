@@ -6,6 +6,8 @@ import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.messaging.ConsumerGroup;
 import dev.mars.peegeeq.api.messaging.ConsumerGroupMember;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
+import dev.mars.peegeeq.api.messaging.Message;
+import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
@@ -22,6 +24,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
+import io.vertx.sqlclient.Tuple;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -31,8 +35,12 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
+import java.util.function.Predicate;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -57,6 +65,7 @@ public class OutboxConsumerGroupIntegrationTest {
     private MessageProducer<String> producer;
     private ConsumerGroup<String> consumerGroup;
     private String testTopic;
+    private final Promise<Void> releaseAcceptedMessage = Promise.promise();
 
     @BeforeEach
     void setUp(VertxTestContext testContext) {
@@ -67,22 +76,24 @@ public class OutboxConsumerGroupIntegrationTest {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.5S")
+                .property("peegeeq.consumer.threads", "1")
                 .build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start()
-                .onSuccess(v -> {
+                .onSuccess(v -> testContext.verify(() -> {
                     DatabaseService databaseService = new PgDatabaseService(manager);
                     outboxFactory = new OutboxFactory(databaseService, config);
                     producer = outboxFactory.createProducer(testTopic, String.class);
                     consumerGroup = outboxFactory.createConsumerGroup("test-group", testTopic, String.class);
                     testContext.completeNow();
-                })
+                }))
                 .onFailure(testContext::failNow);
     }
 
     @AfterEach
     void tearDown(VertxTestContext testContext) {
+        releaseAcceptedMessage.tryComplete();
         logger.info("Tearing down: closing factory resources and manager");
         Future<Void> closeFactory = outboxFactory != null
                 ? outboxFactory.close()
@@ -278,6 +289,72 @@ public class OutboxConsumerGroupIntegrationTest {
                 .onFailure(testContext::failNow);
     }
 
+    @Test
+    void groupRejectionsDoNotStarveLaterMessages(VertxTestContext testContext) {
+        verifyFilteredMessagesDoNotStarve(true, testContext);
+    }
+
+    @Test
+    void memberRejectionsDoNotStarveLaterMessages(VertxTestContext testContext) {
+        verifyFilteredMessagesDoNotStarve(false, testContext);
+    }
+
+    private void verifyFilteredMessagesDoNotStarve(boolean groupFilter, VertxTestContext testContext) {
+        AtomicBoolean acceptPreviouslyFiltered = new AtomicBoolean();
+        Set<String> received = ConcurrentHashMap.newKeySet();
+        Promise<Void> acceptedMessageEntered = Promise.promise();
+        Promise<Void> allMessagesEntered = Promise.promise();
+        Predicate<Message<String>> filter = message ->
+                acceptPreviouslyFiltered.get() || message.getPayload().equals("Keep");
+        MessageHandler<String> handler = message -> {
+            received.add(message.getPayload());
+            if (received.size() == 5) {
+                allMessagesEntered.tryComplete();
+            }
+            if (message.getPayload().equals("Keep")) {
+                acceptedMessageEntered.tryComplete();
+                return releaseAcceptedMessage.future();
+            }
+            return Future.succeededFuture();
+        };
+        if (groupFilter) {
+            consumerGroup.setGroupFilter(filter);
+            consumerGroup.addConsumer("member-1", handler);
+        } else {
+            consumerGroup.addConsumer("member-1", handler, filter);
+        }
+
+        // All rejected rows precede the accepted row, exceeding the single claim slot.
+        producer.send("Drop-0")
+                .compose(v -> producer.send("Drop-1"))
+                .compose(v -> producer.send("Drop-2"))
+                .compose(v -> producer.send("Drop-3"))
+                .compose(v -> producer.send("Keep"))
+                .compose(v -> consumerGroup.start())
+                .compose(v -> acceptedMessageEntered.future())
+                .compose(v -> manager.getPool().preparedQuery("SELECT COUNT(*) AS pending FROM "
+                        + PostgreSQLTestConstants.TEST_SCHEMA + ".outbox WHERE topic = $1 "
+                        + "AND status = 'PENDING' AND retry_count = 0").execute(Tuple.of(testTopic)))
+                .compose(rows -> {
+                    assertEquals(4L, rows.iterator().next().getLong("pending"),
+                            "Rejected rows must remain available without consuming retries");
+                    acceptPreviouslyFiltered.set(true);
+                    releaseAcceptedMessage.tryComplete();
+                    return allMessagesEntered.future();
+                })
+                .compose(v -> consumerGroup.stop())
+                .compose(v -> manager.getPool().preparedQuery("SELECT COUNT(*) AS completed FROM "
+                        + PostgreSQLTestConstants.TEST_SCHEMA + ".outbox WHERE topic = $1 "
+                        + "AND status = 'COMPLETED'").execute(Tuple.of(testTopic)))
+                .onSuccess(rows -> testContext.verify(() -> {
+                    assertEquals(Set.of("Drop-0", "Drop-1", "Drop-2", "Drop-3", "Keep"), received);
+                    assertEquals(5L, rows.iterator().next().getLong("completed"),
+                            "The active consumer must revisit previously filtered rows");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
+    }
+
     private Future<Void> awaitCondition(io.vertx.core.Vertx vertx, Supplier<Boolean> condition,
                                         long deadline, String failureMessage) {
         final boolean ready;
@@ -296,4 +373,3 @@ public class OutboxConsumerGroupIntegrationTest {
                 .compose(v -> awaitCondition(vertx, condition, deadline, failureMessage));
     }
 }
-
