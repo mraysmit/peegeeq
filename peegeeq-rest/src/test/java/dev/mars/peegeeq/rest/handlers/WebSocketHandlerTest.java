@@ -30,6 +30,7 @@ import io.vertx.core.http.WebSocketConnectOptions;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
@@ -41,6 +42,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -241,7 +243,7 @@ class WebSocketHandlerTest {
                             JsonObject ping = new JsonObject()
                                 .put("type", "ping")
                                 .put("id", "test-ping-123");
-                            ws.writeTextMessage(ping.encode());
+                            ws.writeTextMessage(ping.encode()).onFailure(testContext::failNow);
                             logger.info("Sent ping");
                         } else if ("pong".equals(msg.getString("type"))) {
                             assertEquals("test-ping-123", msg.getString("id"));
@@ -265,7 +267,8 @@ class WebSocketHandlerTest {
 
     @Test
     @Order(4)
-    void testWebSocketSubscription(Vertx vertx, VertxTestContext testContext) {
+    @Timeout(value = 5, timeUnit = TimeUnit.SECONDS)
+    void testWebSocketSubscription(VertxTestContext testContext) {
         logger.info("=== Test 4: WebSocket Subscription ===");
 
         String wsPath = "/ws/queues/" + testSetupId + "/" + testQueueName;
@@ -284,29 +287,29 @@ class WebSocketHandlerTest {
                         JsonObject msg = new JsonObject(message);
                         logger.info("Received: {}", msg.encode());
 
-                        if ("welcome".equals(msg.getString("type"))) {
-                            // Send subscribe message
+                        if ("subscribed".equals(msg.getString("type")) && msg.containsKey("queueName")) {
+                            // The automatic tail-ready frame is distinct from the configuration acknowledgement.
+                            assertEquals(testQueueName, msg.getString("queueName"));
+                            assertNotNull(msg.getString("connectionId"));
+                            assertFalse(msg.containsKey("consumerGroup"));
                             JsonObject subscribe = new JsonObject()
                                 .put("type", "subscribe")
                                 .put("consumerGroup", "test-group")
                                 .put("filters", new JsonObject()
                                     .put("messageType", "OrderCreated"));
-                            ws.writeTextMessage(subscribe.encode());
+                            ws.writeTextMessage(subscribe.encode()).onFailure(testContext::failNow);
                             logger.info("Sent subscribe");
                         } else if ("subscribed".equals(msg.getString("type"))) {
                             assertEquals("test-group", msg.getString("consumerGroup"));
+                            assertEquals(new JsonObject().put("messageType", "OrderCreated"),
+                                msg.getJsonObject("filters"));
                             ws.close()
                                 .onSuccess(v -> testContext.completeNow())
                                 .onFailure(testContext::failNow);
+                        } else if ("error".equals(msg.getString("type"))) {
+                            testContext.failNow(new AssertionError("Subscription failed: " + msg.encode()));
                         }
                     });
-                });
-
-                // Fail the test if the expected 'subscribed' response never arrives.
-                vertx.setTimer(5000, id -> {
-                    AssertionError timeout = new AssertionError(
-                        "WebSocket subscription confirmation not received within 5 s");
-                    closeAndFail(ws, timeout, testContext);
                 });
 
                 ws.exceptionHandler(err -> {
@@ -322,7 +325,8 @@ class WebSocketHandlerTest {
 
     @Test
     @Order(5)
-    void testWebSocketConfiguration(Vertx vertx, VertxTestContext testContext) {
+    @Timeout(value = 5, timeUnit = TimeUnit.SECONDS)
+    void testWebSocketConfiguration(VertxTestContext testContext) {
         logger.info("=== Test 5: WebSocket Configuration ===");
 
         String wsPath = "/ws/queues/" + testSetupId + "/" + testQueueName;
@@ -347,7 +351,7 @@ class WebSocketHandlerTest {
                                 .put("type", "configure")
                                 .put("batchSize", 10)
                                 .put("maxWaitTime", 30000L);
-                            ws.writeTextMessage(configure.encode());
+                            ws.writeTextMessage(configure.encode()).onFailure(testContext::failNow);
                             logger.info("Sent configure");
                         } else if ("configured".equals(msg.getString("type"))) {
                             assertEquals(10, msg.getInteger("batchSize"));
@@ -357,13 +361,6 @@ class WebSocketHandlerTest {
                                 .onFailure(testContext::failNow);
                         }
                     });
-                });
-
-                // Fail the test if the expected 'configured' response never arrives.
-                vertx.setTimer(5000, id -> {
-                    AssertionError timeout = new AssertionError(
-                        "WebSocket configuration confirmation not received within 5 s");
-                    closeAndFail(ws, timeout, testContext);
                 });
 
                 ws.exceptionHandler(err -> {
@@ -397,12 +394,4 @@ class WebSocketHandlerTest {
             .onFailure(testContext::failNow);
     }
 
-    private static void closeAndFail(WebSocket ws, AssertionError failure, VertxTestContext testContext) {
-        ws.close()
-            .onSuccess(v -> testContext.failNow(failure))
-            .onFailure(closeError -> {
-                failure.addSuppressed(closeError);
-                testContext.failNow(failure);
-            });
-    }
 }

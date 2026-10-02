@@ -13,7 +13,7 @@
     "test:run": "vitest run",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
-    "test:integration": "vitest run src/tests/integration --passWithNoTests",
+    "test:integration": "vitest run src/tests/integration --passWithNoTests --outputFile.junit=target/ui-reports/integration.xml",
     "test:e2e": "node scripts/run-e2e-tests.js",
     "test:e2e:direct": "playwright test",
     "test:e2e:list": "playwright test --list",
@@ -23,8 +23,8 @@
     "test:e2e:debug": "playwright test --debug",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:report": "playwright show-report",
-    "test:all": "npm run test:e2e:inventory && npm run test:run && npm run test:integration && npm run test:e2e",
-    "test:ci": "npm run test:e2e:inventory && npm run test:run && npm run test:integration && npm run test:e2e --reporter=junit"
+    "test:all": "npm run test:e2e:inventory && npm run test:run && npm run test:e2e",
+    "test:ci": "npm run test:all"
   },
   "dependencies": {
     "@reduxjs/toolkit": "^2.10.1",

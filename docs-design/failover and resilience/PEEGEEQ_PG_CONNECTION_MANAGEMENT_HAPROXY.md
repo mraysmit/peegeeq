@@ -708,7 +708,7 @@ In docker-compose, mount it as `/docker-entrypoint-initdb.d/init-haproxy-check.s
 
 ```powershell
 cd c:\Users\mraysmit\dev\idea-projects\peegeeq
-mvn package -pl :peegeeq-pg-sidecar -DskipTests 2>&1 | Tee-Object -FilePath logs\pg-sidecar-build.txt
+mvn package -pl :peegeeq-pg-sidecar -DskipTests 2>&1 | Tee-Object -FilePath logs\pg-sidecar-build.log
 
 java `
   -Dpg.host=localhost `
@@ -723,7 +723,7 @@ java `
 #### Native binary (GraalVM JDK 21+)
 
 ```powershell
-mvn package -Pnative -pl :peegeeq-pg-sidecar -DskipTests 2>&1 | Tee-Object -FilePath logs\pg-sidecar-native.txt
+mvn package -Pnative -pl :peegeeq-pg-sidecar -DskipTests 2>&1 | Tee-Object -FilePath logs\pg-sidecar-native.log
 # Build takes 2–5 minutes.
 # Output: peegeeq-pg-sidecar\target\peegeeq-pg-sidecar.exe  (Windows)
 #         peegeeq-pg-sidecar/target/peegeeq-pg-sidecar       (Linux/macOS)
@@ -857,7 +857,7 @@ deploys the verticle, and verifies all three response cases (200, 404, 503):
 
 ```powershell
 cd c:\Users\mraysmit\dev\idea-projects\peegeeq
-mvn test -pl :peegeeq-pg-sidecar -Pintegration-tests 2>&1 | Tee-Object -FilePath logs\pg-sidecar-integration-20260510.txt
+mvn test -pl :peegeeq-pg-sidecar -Pintegration-tests 2>&1 | Tee-Object -FilePath logs\pg-sidecar-integration-20260510.log
 ```
 
 Requirements: Docker Desktop running.  The test uses `postgres:15.13-alpine3.20` (pulled once,
@@ -1253,7 +1253,7 @@ native-image --version     # should print GraalVM native-image version
 
 ```powershell
 cd c:\Users\mraysmit\dev\idea-projects\peegeeq
-mvn package -pl :peegeeq-pg-sidecar -DskipTests 2>&1 | Tee-Object -FilePath logs\pg-sidecar-build.txt
+mvn package -pl :peegeeq-pg-sidecar -DskipTests 2>&1 | Tee-Object -FilePath logs\pg-sidecar-build.log
 ```
 
 Output: `peegeeq-pg-sidecar/target/peegeeq-pg-sidecar-1.0-SNAPSHOT.jar`
@@ -1275,7 +1275,7 @@ java `
 
 ```powershell
 cd c:\Users\mraysmit\dev\idea-projects\peegeeq
-mvn package -Pnative -pl :peegeeq-pg-sidecar -DskipTests 2>&1 | Tee-Object -FilePath logs\pg-sidecar-native.txt
+mvn package -Pnative -pl :peegeeq-pg-sidecar -DskipTests 2>&1 | Tee-Object -FilePath logs\pg-sidecar-native.log
 ```
 
 The build takes 2–5 minutes. Output:

@@ -3244,7 +3244,7 @@ Gets a specific event by ID. Returns the latest version of the event.
 
 **Endpoint:** `GET /api/v1/eventstores/:setupId/:eventStoreName/events/:eventId`
 **Handler:** `EventStoreHandler.getEvent()`
-**Service:** `DatabaseSetupService.getSetupResult()`, `BiTemporalEventStore.get()`
+**Service:** `DatabaseSetupService.getSetupResult`, `BiTemporalEventStore.get`
 
 **Path Parameters:**
 
@@ -4825,7 +4825,7 @@ The core `QueueFactory.createConsumer()` method supports custom consumer configu
 
 **Status:** ⚠️ **INCONSISTENCY**
 
-**Core API:** `MessageProducer.send()` returns `CompletableFuture<Void>` - no message ID returned
+**Core API:** `MessageProducer.send()` returns `Future<Void>` - no message ID returned
 
 **REST API:** Returns `messageId` in the response, using `correlationId` as the message ID
 
@@ -4842,9 +4842,9 @@ The core `QueueFactory.createConsumer()` method supports custom consumer configu
 
 **Status:** ⚠️ **FEATURE GAP**
 
-**Core API:** Provides reactive methods (`sendReactive()`, `subscribeReactive()`) using Vert.x `Future`
+**Core API:** Uses Vert.x `Future` directly for asynchronous producer and consumer operations.
 
-**REST API:** Does not expose reactive endpoints. All endpoints use blocking `CompletableFuture` style.
+**REST API:** HTTP remains the external protocol while handlers compose Vert.x `Future` results internally without blocking.
 
 **Impact:** Cannot leverage reactive programming benefits in REST API.
 
