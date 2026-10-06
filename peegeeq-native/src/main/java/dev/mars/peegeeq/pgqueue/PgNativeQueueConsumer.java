@@ -90,6 +90,8 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     private int listenBackoffMs = 1000;
     private long pollingTimerId = -1;
     private long cleanupTimerId = -1;
+    // One-shot wake-up for the earliest delayed message (LISTEN_NOTIFY_ONLY mode only)
+    private long delayedWakeupTimerId = -1;
     private Future<Void> closeFuture;
 
     private record HandlerSettlement(Throwable failure, boolean visibilityExpired) {
@@ -213,6 +215,9 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             } else {
                 logger.info("Skipping polling setup for LISTEN_NOTIFY_ONLY mode on topic: {}", topic);
             }
+
+            // A lock that expires produces no NOTIFY, so every mode needs the cleanup timer.
+            startExpiredLockCleanup();
 
             // Start LISTEN/NOTIFY based on mode returns Future that completes when LISTEN is established
             if (mode == ConsumerMode.LISTEN_NOTIFY_ONLY || mode == ConsumerMode.HYBRID) {
@@ -437,6 +442,24 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             }
         });
 
+        logger.info("Started polling for topic {} with interval: {}", topic, pollingInterval);
+    }
+
+    /**
+     * Starts the periodic release of expired locks. It runs in every consumer mode: a message
+     * whose lock expired becomes deliverable without a NOTIFY, so a LISTEN_NOTIFY_ONLY consumer
+     * would otherwise never see it.
+     */
+    private void startExpiredLockCleanup() {
+        Vertx vertx = poolAdapter.getVertx();
+        if (vertx == null && Vertx.currentContext() != null) {
+            vertx = Vertx.currentContext().owner();
+        }
+        if (vertx == null) {
+            logger.error("No Vert.x instance available; cannot start expired-lock cleanup for topic: {}", topic);
+            return;
+        }
+
         // Expired lock cleanup every 10 seconds
         cleanupTimerId = vertx.setPeriodic(10_000, id -> {
             if (closed.get())
@@ -449,8 +472,6 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 }
             }
         });
-
-        logger.info("Started polling for topic {} with interval: {}", topic, pollingInterval);
     }
 
     private void processAvailableMessages() {
@@ -622,6 +643,9 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                         releaseProcessingCapacity(admittedCapacity - claimedMessages);
                         if (rows.size() == 0) {
                             logger.debug("No messages found for topic {}", topic);
+                            if (isListenOnlyMode()) {
+                                scheduleDelayedMessageWakeup();
+                            }
                             return Future.succeededFuture();
                         }
                         logger.debug("Processing {} messages for topic {}", rows.size(), topic);
@@ -1047,6 +1071,89 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     // This completely eliminates ExclusiveLock warnings by letting PostgreSQL
     // handle cleanup
 
+    /**
+     * Schedules a one-shot drain for the moment the earliest delayed message on this topic
+     * becomes visible. A delayed message's NOTIFY fires when the send commits, before
+     * {@code visible_at}, and nothing notifies when it becomes visible. A LISTEN_NOTIFY_ONLY
+     * consumer has no poll, so without this wake-up the message would wait for an unrelated
+     * NOTIFY or a LISTEN reconnect. Called after a drain that claimed nothing.
+     */
+    private void scheduleDelayedMessageWakeup() {
+        Future<Void> lookup;
+        synchronized (lifecycleLock) {
+            if (closed.get() || !subscribed.get()) {
+                return;
+            }
+            try {
+                lookup = scheduleDelayedMessageWakeupInternal();
+                inFlightProcessing.add(lookup);
+            } catch (Exception error) {
+                logger.error("Error starting delayed-message lookup for topic {}: {}",
+                        topic, error.getMessage(), error);
+                return;
+            }
+        }
+
+        lookup
+                .eventually(() -> {
+                    synchronized (lifecycleLock) {
+                        inFlightProcessing.remove(lookup);
+                    }
+                    return Future.succeededFuture();
+                })
+                .onFailure(error -> {
+                    if (closed.get()) {
+                        logger.debug("Delayed-message lookup aborted for topic {} during shutdown: {}",
+                                topic, error.getMessage());
+                    } else {
+                        logger.error("Failed to look up delayed messages for topic {}: {}",
+                                topic, error.getMessage(), error);
+                    }
+                });
+    }
+
+    private Future<Void> scheduleDelayedMessageWakeupInternal() {
+        final Pool pool = poolAdapter.getPoolOrThrow();
+        // The delay is computed on the database clock, the same clock the claim query uses.
+        String sql = """
+                SELECT EXTRACT(EPOCH FROM (MIN(visible_at) - now())) * 1000.0 AS delay_ms
+                FROM queue_messages
+                WHERE topic = $1 AND status = 'AVAILABLE' AND visible_at > now()
+                """;
+
+        return pool.withConnection(conn -> conn.preparedQuery(sql).execute(Tuple.of(topic)))
+                .map(rows -> {
+                    Double delayMs = rows.iterator().next().getDouble("delay_ms");
+                    if (delayMs == null) {
+                        return (Void) null;
+                    }
+                    Vertx vertx = poolAdapter.getVertx();
+                    if (vertx == null) {
+                        throw new IllegalStateException(
+                                "No Vert.x instance available to schedule delayed-message wake-up for topic " + topic);
+                    }
+                    long delay = Math.max(1L, (long) Math.ceil(delayMs) + 1L);
+                    synchronized (lifecycleLock) {
+                        if (closed.get() || !subscribed.get()) {
+                            return (Void) null;
+                        }
+                        if (delayedWakeupTimerId != -1) {
+                            vertx.cancelTimer(delayedWakeupTimerId);
+                        }
+                        delayedWakeupTimerId = vertx.setTimer(delay, id -> {
+                            delayedWakeupTimerId = -1;
+                            if (closed.get()) {
+                                return;
+                            }
+                            logger.debug("Delayed message became visible on topic {}; draining", topic);
+                            processAvailableMessages();
+                        });
+                    }
+                    logger.debug("Scheduled delayed-message wake-up for topic {} in {} ms", topic, delay);
+                    return (Void) null;
+                });
+    }
+
     private void releaseExpiredLocks() {
         Future<Void> cleanup;
         synchronized (lifecycleLock) {
@@ -1140,6 +1247,10 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 if (cleanupTimerId != -1) {
                     vertx.cancelTimer(cleanupTimerId);
                     cleanupTimerId = -1;
+                }
+                if (delayedWakeupTimerId != -1) {
+                    vertx.cancelTimer(delayedWakeupTimerId);
+                    delayedWakeupTimerId = -1;
                 }
             }
 

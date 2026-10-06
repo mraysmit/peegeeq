@@ -2,7 +2,7 @@
 
 **Status:** CURRENT CONSOLIDATION INDEX
 
-**Updated:** 2026-09-14
+**Updated:** 2026-10-06
 
 ## Purpose
 
@@ -42,7 +42,7 @@ describes the source at its reviewed revision; the archive path is its current a
 
 ### [PeeGeeQ Management UI - Architecture and Design](<../docs-design/peegeeq-management-ui/PEEGEEQ_MANAGMENT_UI_ARCHITECTURE.md>)
 
-- Recorded status: Implementation Status:
+- Recorded status: **Status:** CURRENT ARCHITECTURE REFERENCE
 - Route: Consolidate current architecture into Architecture or REST documentation
 - Source: `docs-design/peegeeq-management-ui/PEEGEEQ_MANAGMENT_UI_ARCHITECTURE.md`
 
@@ -50,7 +50,7 @@ describes the source at its reviewed revision; the archive path is its current a
 
 ### [Consumer Group Fan-Out Design: Hybrid Queue/Pub-Sub](<../docs-design/consumer-groups/PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md>)
 
-- Recorded status: **Status**: Design Specification (with Implementation Status)
+- Recorded status: **Status:** IMPLEMENTED CONTRACT WITH RETAINED DESIGN RATIONALE
 - Route: Consolidate current behavior into Consumer Groups or Ordering
 - Source: `docs-design/consumer-groups/PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md`
 
@@ -124,15 +124,15 @@ describes the source at its reviewed revision; the archive path is its current a
 
 ## Operations and Observability
 
-### [PeeGeeQ Outbox Consumer Crash Recovery: Complete Guide](<../docs-design/analysis/PEEGEEQ_CRASH_RECOVERY_GUIDE.md>)
+### [PeeGeeQ Outbox Consumer Crash Recovery](<../docs-design/analysis/PEEGEEQ_CRASH_RECOVERY_GUIDE.md>)
 
-- Recorded status: **Status:** ✅ **CONFIRMED AND ADDRESSED** - The system has a comprehensive recovery mechanism in place.
+- Recorded status: **Status:** IMPLEMENTED — `StuckMessageRecoveryManager`
 - Route: Consolidate supported operations; retain dated evidence and open gaps
 - Source: `docs-design/analysis/PEEGEEQ_CRASH_RECOVERY_GUIDE.md`
 
-### [PeeGeeq Connection Management and HAProxy Failover](<../docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md>)
+### [PeeGeeQ Connection Management and HAProxy Failover](<../docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md>)
 
-- Recorded status: **Status**: REFERENCE
+- Recorded status: **Status**: CURRENT OPERATING REFERENCE
 - Route: Consolidate supported operations; retain dated evidence and open gaps
 - Source: `docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md`
 
@@ -228,9 +228,9 @@ describes the source at its reviewed revision; the archive path is its current a
 - Route: Consolidate stable instructions into contributor/testing guides; retain normative sources
 - Source: `docs-design/dev/PEEGEEQ_WSL_PASSWORDLESS_SSH_SETUP.md`
 
-### [PeeGeeQ Coding Principles & Standards](<../docs-design/dev/pgq-coding-principles.md>)
+### [PeeGeeQ Coding Principles and Standards](<../docs-design/dev/pgq-coding-principles.md>)
 
-- Recorded status: Not explicitly stated
+- Recorded status: **Status:** CURRENT CODING STANDARD
 - Route: Consolidate stable instructions into contributor/testing guides; retain normative sources
 - Source: `docs-design/dev/pgq-coding-principles.md`
 
@@ -252,15 +252,15 @@ describes the source at its reviewed revision; the archive path is its current a
 - Route: Consolidate stable instructions into contributor/testing guides; retain normative sources
 - Source: `docs-design/_archived/historical-evidence/PEEGEEQ_SUBSCRIPTION_PERSISTENCE_TEST_COVERAGE.md`
 
-### [PeeGeeQ Async Test Guard](<../docs-design/testing/PEEGEEQ_TEST_GUARD.md>)
+### [PeeGeeQ Test Guards](<../docs-design/testing/PEEGEEQ_TEST_GUARD.md>)
 
-- Recorded status: Not explicitly stated
+- Recorded status: **Status:** CURRENT
 - Route: Consolidate stable instructions into contributor/testing guides; retain normative sources
 - Source: `docs-design/testing/PEEGEEQ_TEST_GUARD.md`
 
-### [PeeGeeQ Error Handling Antipatterns](<../docs-design/testing/PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md>)
+### [PeeGeeQ Testing Standards and Antipatterns](<../docs-design/testing/PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md>)
 
-- Recorded status: Not explicitly stated
+- Recorded status: **Status:** CURRENT MANDATORY STANDARD
 - Route: Consolidate stable instructions into contributor/testing guides; retain normative sources
 - Source: `docs-design/testing/PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md`
 
@@ -272,7 +272,7 @@ describes the source at its reviewed revision; the archive path is its current a
 
 ### [PeeGeeQ Test Commands Quick Reference](<../docs-design/testing/PEEGEEQ-TEST-COMMANDS.md>)
 
-- Recorded status: Not explicitly stated
+- Recorded status: **Status:** CURRENT COMMAND REFERENCE
 - Route: Consolidate stable instructions into contributor/testing guides; retain normative sources
 - Source: `docs-design/testing/PEEGEEQ-TEST-COMMANDS.md`
 

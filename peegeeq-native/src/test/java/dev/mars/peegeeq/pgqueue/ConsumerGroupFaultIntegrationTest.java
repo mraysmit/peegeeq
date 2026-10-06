@@ -38,7 +38,6 @@ import io.vertx.core.VertxException;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
-import io.vertx.sqlclient.ClosedConnectionException;
 import io.vertx.sqlclient.SqlConnection;
 import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.*;
@@ -263,12 +262,6 @@ class ConsumerGroupFaultIntegrationTest {
 
     @Test
     @Order(3)
-    @ExpectedErrorLog(
-            logger = "dev.mars.peegeeq.db.consumer.WatermarkJob",
-            message = "Watermark sweep #1 failed: topic=test-fault-dbloss-",
-            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
-            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
-            throwableType = ClosedConnectionException.class)
     @DisplayName("F2: live PostgreSQL backend termination is recovered without losing delivery")
     void dbConnectionLoss_engineRecovers(VertxTestContext testContext) {
         String topic = "test-fault-dbloss-" + System.nanoTime();
@@ -378,12 +371,6 @@ class ConsumerGroupFaultIntegrationTest {
 
     @Test
     @Order(5)
-    @ExpectedErrorLog(
-            logger = "dev.mars.peegeeq.db.consumer.WatermarkJob",
-            message = "Watermark sweep #1 failed: topic=test-fault-leave-",
-            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
-            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
-            throwableType = VertxException.class)
     @DisplayName("F8: repository loss during close is surfaced and a later rebalance removes the orphan")
     void leaveGroupFailure_isSurfacedAndRebalanceRepairsAssignment(VertxTestContext testContext) {
         String topic = "test-fault-leave-" + System.nanoTime();

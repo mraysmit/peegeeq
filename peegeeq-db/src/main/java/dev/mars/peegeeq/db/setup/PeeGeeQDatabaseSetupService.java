@@ -46,6 +46,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import dev.mars.peegeeq.api.QueueFactoryRegistrar;
@@ -921,7 +922,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 List<Future<Void>> closes = new ArrayList<>();
                 if (setup.getQueueFactories() != null) {
                     setup.getQueueFactories().values().forEach(factory ->
-                            closes.add(factory.close()
+                            closes.add(closeCapturingThrow(() -> factory.close())
                                     .onFailure(e -> {
                                         logger.error("Failed to close queue factory for setup {}: {}",
                                                 setupId, e.getMessage(), e);
@@ -931,7 +932,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 }
                 if (setup.getEventStores() != null) {
                     setup.getEventStores().values().forEach(store ->
-                            closes.add(store.close()
+                            closes.add(closeCapturingThrow(() -> store.close())
                                     .onFailure(e -> {
                                         logger.error("Failed to close event store for setup {}: {}",
                                                 setupId, e.getMessage(), e);
@@ -974,6 +975,24 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
             return shutdownFuture;
         } catch (Exception e) {
             return Future.failedFuture(new RuntimeException("Failed to destroy setup: " + setupId, e));
+        }
+    }
+
+    /**
+     * Invokes one resource's close call and turns a synchronous throw, a null resource, or a null
+     * returned Future into a failed Future. destroySetup has already removed the setup from the
+     * service's maps when it closes resources, so one resource must not stop the manager close
+     * that follows.
+     */
+    private static Future<Void> closeCapturingThrow(Supplier<Future<Void>> closeCall) {
+        try {
+            Future<Void> closing = closeCall.get();
+            if (closing == null) {
+                return Future.failedFuture(new IllegalStateException("close() returned null instead of a Future"));
+            }
+            return closing;
+        } catch (RuntimeException e) {
+            return Future.failedFuture(e);
         }
     }
 
@@ -1430,6 +1449,10 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     }
 
     /**
+     * Creates one factory per requested queue. Fails with an {@link IllegalStateException} when a
+     * factory cannot be created or the provider returns null, so a caller never reports a setup
+     * that is missing a requested queue.
+     *
      * @param configsByName        if non-null, populated with the QueueConfig for each queue that got a factory
      * @param resolvedKindsByName  if non-null, populated with the RESOLVED implementation kind (native/outbox)
      *                             actually used to create each queue's factory — the value recorded in the
@@ -1486,6 +1509,10 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 try {
                     // Create a queue factory for this queue using the resolved type WITH configuration
                     QueueFactory factory = queueFactoryProvider.createFactory(implementationType, databaseService, factoryConfig);
+                    if (factory == null) {
+                        throw new IllegalStateException("Queue factory provider returned null for queue '"
+                                + queueConfig.getQueueName() + "' (type '" + implementationType + "')");
+                    }
                     factories.put(queueConfig.getQueueName(), factory);
                     if (configsByName != null) {
                         configsByName.put(queueConfig.getQueueName(), queueConfig);
@@ -1498,7 +1525,16 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                             queueConfig.getQueueName(), configuration.getDatabaseConfig().getSchema());
                 } catch (Exception e) {
                     logger.error("Failed to create queue factory for queue: {}", queueConfig.getQueueName(), e);
-                    // Continue with other queues rather than failing completely
+                    // A requested queue without a factory must fail the operation. Continuing here
+                    // reported the setup ACTIVE with the queue missing.
+                    // Factories already created for earlier queues are owned by no setup once this
+                    // call fails, so close them here.
+                    factories.forEach((createdQueueName, createdFactory) -> createdFactory.close()
+                            .onFailure(closeError -> logger.error(
+                                    "Failed to close queue factory for queue '{}' after a later factory failed: {}",
+                                    createdQueueName, closeError.getMessage(), closeError)));
+                    throw new IllegalStateException("Failed to create queue factory for queue '"
+                            + queueConfig.getQueueName() + "' (type '" + implementationType + "')", e);
                 }
             }
         }
@@ -1567,6 +1603,10 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                         // honor per-store options (e.g. the aggregate summary).
                         String tableName = eventStoreConfig.getTableName();
                         EventStore<?> eventStore = factory.createEventStore(Object.class, eventStoreConfig);
+                        if (eventStore == null) {
+                            throw new IllegalStateException("Event store factory returned null for event store '"
+                                    + eventStoreConfig.getEventStoreName() + "'");
+                        }
                         stores.put(eventStoreConfig.getEventStoreName(), eventStore);
 
                         logger.info("Created event store '{}' using table '{}' (schema resolved via search_path)",
@@ -1574,7 +1614,16 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                                 tableName);
                     } catch (Exception e) {
                         logger.error("Failed to create event store for: {}", eventStoreConfig.getEventStoreName(), e);
-                        // Continue with other event stores rather than failing completely
+                        // A requested event store that was not created must fail the operation.
+                        // Continuing here reported the setup ACTIVE with the event store missing.
+                        // Event stores already created for earlier entries are owned by no setup once
+                        // this call fails, so close them here.
+                        stores.forEach((createdStoreName, createdStore) -> createdStore.close()
+                                .onFailure(closeError -> logger.error(
+                                        "Failed to close event store '{}' after a later event store failed: {}",
+                                        createdStoreName, closeError.getMessage(), closeError)));
+                        throw new IllegalStateException("Failed to create event store '"
+                                + eventStoreConfig.getEventStoreName() + "'", e);
                     }
                 }
             } else {
@@ -1608,6 +1657,9 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 registration.accept(registrar);
             } catch (Exception e) {
                 logger.error("Failed to apply factory registration: {}", e.getMessage(), e);
+                // A registration that failed leaves its implementation type unavailable. Continuing
+                // here let the setup start without a factory type its queues depend on.
+                throw new IllegalStateException("Failed to apply queue factory registration", e);
             }
         }
 

@@ -1,6 +1,6 @@
 # PeeGeeQ Testing Guide
 
-**Status:** CURRENT CATEGORY GUIDE — NORMATIVE SOURCES RETAINED
+**Status:** CURRENT CATEGORY GUIDE — NORMATIVE SOURCES CONDENSED 2026-10-06
 
 This guide is the maintained navigation point for test classification, TDD, PostgreSQL integration
 testing, asynchronous verification, build profiles, guard tests, and CI evidence.
@@ -13,8 +13,12 @@ testing, asynchronous verification, build profiles, guard tests, and CI evidence
 - [Test guard](../docs-design/testing/PEEGEEQ_TEST_GUARD.md)
 - JDK toolchain and management UI E2E procedure: sections in [Test commands](../docs-design/testing/PEEGEEQ-TEST-COMMANDS.md). The earlier standalone explainers are archived under `docs-design/_archived/superseded-guides/`.
 
-The normative source documents remain intact until every rule and example has a recorded
-destination. Historical test reports remain evidence rather than permanent claims.
+Commit `9e14170e` (2026-10-06) rewrote and condensed the antipatterns, test commands, and test
+guard documents. The text removed from them is in git history at `f1c5d25d`. The removed
+material was not mapped rule by rule to a recorded destination; the
+[consolidation ledger](../docs-design/tasks/DOCUMENTATION_CONSOLIDATION_LEDGER.md) records which
+entries describe the earlier revisions. Historical test reports remain evidence rather than
+permanent claims.
 
 ## Core rules
 

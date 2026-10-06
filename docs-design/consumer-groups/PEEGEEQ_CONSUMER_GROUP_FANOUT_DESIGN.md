@@ -748,7 +748,7 @@ records the pre-implementation ordering guidance.
 
 Task 6 (`docs-design/tasks/tasks.md` §6, status COMPLETE, Jenkins build #11, 2026-09-17)
 executed the `OFFSET_WATERMARK` release gate with
-`peegeeq-benchmarking/src/test/java/dev/mars/peegeeq/db/fanout/PartitionedConsumptionReleaseGate.java`:
+`peegeeq-benchmarking/src/test/java/dev/mars/peegeeq/pgqueue/PartitionedConsumptionReleaseGate.java`:
 a 3,600-second run at 200 messages per second total across two isolated tenant schemas,
 two consumer groups per tenant, 16 initial partitions expanded live to 17 with a rebalance
 at the midpoint, concurrent OLTP probes, and a full drain. Accepted results: every group
