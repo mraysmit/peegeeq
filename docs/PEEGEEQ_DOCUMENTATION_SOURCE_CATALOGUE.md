@@ -234,17 +234,17 @@ describes the source at its reviewed revision; the archive path is its current a
 - Route: Consolidate stable instructions into contributor/testing guides; retain normative sources
 - Source: `docs-design/dev/pgq-coding-principles.md`
 
-### [Maven Toolchains - How It Works](<../docs-design/testing/MAVEN_TOOLCHAINS_EXPLAINER.md>)
+### [Maven Toolchains - How It Works](<../docs-design/_archived/superseded-guides/MAVEN_TOOLCHAINS_EXPLAINER.md>)
 
-- Recorded status: Not explicitly stated
-- Route: Consolidate stable instructions into contributor/testing guides; retain normative sources
-- Source: `docs-design/testing/MAVEN_TOOLCHAINS_EXPLAINER.md`
+- Recorded status: Superseded 2026-10-06 (described JDK 21 and a JaCoCo workaround that no longer apply)
+- Route: Current toolchain guidance is the "JDK toolchain" section of `docs-design/testing/PEEGEEQ-TEST-COMMANDS.md`
+- Source: `docs-design/_archived/superseded-guides/MAVEN_TOOLCHAINS_EXPLAINER.md`
 
-### [E2E Test Execution Guide (Multi-Terminal Setup)](<../docs-design/testing/PEEGEEQ_E2E_TEST_SETUP_GUIDE.md>)
+### [E2E Test Execution Guide (Multi-Terminal Setup)](<../docs-design/_archived/superseded-guides/PEEGEEQ_E2E_TEST_SETUP_GUIDE.md>)
 
-- Recorded status: Not explicitly stated
-- Route: Consolidate stable instructions into contributor/testing guides; retain normative sources
-- Source: `docs-design/testing/PEEGEEQ_E2E_TEST_SETUP_GUIDE.md`
+- Recorded status: Superseded 2026-10-06 (manual two-terminal procedure replaced by Playwright global setup)
+- Route: Current procedure is the "Management UI E2E tests" section of `docs-design/testing/PEEGEEQ-TEST-COMMANDS.md`
+- Source: `docs-design/_archived/superseded-guides/PEEGEEQ_E2E_TEST_SETUP_GUIDE.md`
 
 ### [Subscription Persistence - Test Coverage](<../docs-design/_archived/historical-evidence/PEEGEEQ_SUBSCRIPTION_PERSISTENCE_TEST_COVERAGE.md>)
 
