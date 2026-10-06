@@ -2,7 +2,7 @@
 
 **Status:** CURRENT COMPANION GUIDE
 
-**Last reconciled:** 2026-09-06
+**Last reconciled:** 2026-10-06
 
 ## Authority
 
@@ -10,11 +10,6 @@ The mandatory rules are defined in
 [PeeGeeQ Testing Standards and Antipatterns](PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md).
 This shorter document shows approved test structure and repository conventions. If the two
 documents differ, the mandatory standards document wins.
-
-The former executable “pitfalls” fixture was intentionally deleted because prohibited examples in
-compiled test sources were repeatedly mistaken for acceptable patterns. The old broken link to that
-fixture has been removed. Historical remediation is recorded under Task 2 in the
-[consolidated task register](../tasks/tasks.md).
 
 ## Core principles
 

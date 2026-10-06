@@ -1,942 +1,555 @@
 # PeeGeeQ Management UI - Architecture and Design
 
-Last Updated: 2026-05-30
+**Status:** CURRENT ARCHITECTURE REFERENCE
+**Last reconciled:** 2026-10-06 against commit `f1c5d25d`
+
+Every file, route, class, and script named below was confirmed to exist at that commit. Line
+references point at the files as they were at that commit; re-check them after later edits.
+
+## Contents
+
+1. [Overview](#overview)
+2. [Design constraints](#design-constraints)
+3. [Architecture](#architecture)
+4. [Deployment models](#deployment-models)
+5. [Technology stack](#technology-stack)
+6. [Component architecture](#component-architecture)
+7. [State management](#state-management)
+8. [API integration](#api-integration)
+9. [REST and streaming reference](#rest-and-streaming-reference)
+10. [Security](#security)
+11. [Development workflow](#development-workflow)
+12. [Related documentation](#related-documentation)
 
 ## Overview
 
-The PeeGeeQ Management UI is a modern web-based administration console for managing PeeGeeQ message queues, consumer groups, and event stores. It provides real-time monitoring, configuration management, and operational tools inspired by RabbitMQ Management Console.
+The PeeGeeQ Management UI is a web-based administration console for PeeGeeQ message queues,
+consumer groups, event stores, and database setups. It lives in `peegeeq-management-ui` and
+talks only to `peegeeq-rest` over HTTP, Server-Sent Events (SSE), and WebSocket.
 
-### Key Features
+### Key features
 
-- Real-time monitoring with live statistics and system health
-- Queue management (create, configure, pause, resume, delete)
-- Consumer group management and monitoring
-- Message browsing and inspection
-- Event store configuration and monitoring
+- System overview dashboard with live statistics
 - Database setup management
-- System overview dashboard
+- Queue list, queue detail tabs, create, pause, resume, purge, delete
+- Consumer group list, create, delete
+- Non-destructive message browsing with a live observe stream
+- Event store list, event posting, event query, causation tree, aggregate stream
+- Notifications page and header bell
+- Settings page with REST, WebSocket, and SSE connectivity checks
 
-### Target Users
+### Target users
 
-- System Administrators: Monitor system health and performance
-- DevOps Engineers: Troubleshoot issues and manage deployments
-- Developers: Test message flows and debug applications
+- System administrators monitoring health and throughput
+- Operations engineers diagnosing incidents
+- Developers inspecting message and event flows
+
+## Design constraints
+
+### 1. Non-destructive viewing
+
+The UI is an administration tool. Viewing data must never consume, acknowledge, or alter a
+message. Every API the UI calls for display must be read-only against the queue.
+
+This constraint is implemented in the code:
+
+- Message listing: `ManagementApiHandler.getRealMessages` (`peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/ManagementApiHandler.java` L1035-1076) calls
+  `queueFactory.createBrowser(queueName, Object.class)` and then `browser.browse(limit, offset)`.
+  No consumer is created.
+- Live stream: `ServerSentEventsHandler.handleQueueMessageStream`
+  (`peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/ServerSentEventsHandler.java`
+  L49-55) is documented as a non-destructive stream backed by `QueueBrowser.tail(...)`, a plain
+  `SELECT` that observes new rows and pushes them over SSE. The browser is closed when the client
+  disconnects.
+- UI side: `peegeeq-management-ui/src/pages/MessageBrowser.tsx` L166-169 states that live mode is
+  a non-destructive observe, that the UI must never consume messages to display them, and that it
+  subscribes to `/queues/{setupId}/{queueName}/messages/stream`.
+
+Consumer subscriptions are never opened for display. Any new display feature must follow the same
+rule and must be covered by a Playwright contract such as
+`src/tests/e2e/specs/message-browser-nondestructive-live.spec.ts`.
+
+### 2. Backend-first development
+
+No UI feature ships against mock data. If an endpoint does not exist, the backend is implemented
+first. Playwright end-to-end tests run against a real `peegeeq-rest` server and a Testcontainers
+PostgreSQL instance; see `src/tests/global-setup.ts`.
+
+### 3. Operational clarity
+
+Every page shows explicit loading, error, and empty states. Errors surface to the user; no catch
+block swallows a failure silently.
 
 ## Architecture
 
-### High-Level Architecture
-
-PeeGeeQ follows a strict **hexagonal/ports & adapters** architecture with layered separation. The Management UI is the topmost layer that interacts with the system via REST APIs.
+PeeGeeQ uses a layered ports-and-adapters architecture. The Management UI is the topmost layer.
 
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                         MANAGEMENT UI LAYER                              │
-│                        peegeeq-management-ui                             │
-│                    (React/TypeScript web application)                    │
-│                  Uses: peegeeq-rest via HTTP REST client                 │
-└──────────────────────────────────────────────────────────────────────────┘
-                                   │
-                                   │ HTTP/REST
-                                   ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│                            REST LAYER                                    │
-│                           peegeeq-rest                                   │
-│                     (HTTP handlers, routing)                             │
-│         Exposes: peegeeq-runtime services over REST/SSE endpoints        │
-│              Uses: peegeeq-api (types) + peegeeq-runtime (services)      │
-└──────────────────────────────────────────────────────────────────────────┘
-                                   │
-                                   ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│                       RUNTIME/COMPOSITION LAYER                          │
-│                          peegeeq-runtime                                 │
-│         Provides DatabaseSetupService facade via PeeGeeQRuntime          │
-│            Wires together: peegeeq-db, native, outbox, bitemporal        │
-│                  Single entry point for all PeeGeeQ services             │
-└──────────────────────────────────────────────────────────────────────────┘
-                                   │
-                    ┌──────────────┼──────────────┐
-                    │              │              │
-                    ▼              ▼              ▼
-      ┌─────────────────┐ ┌─────────────────┐ ┌──────────────────┐
-      │ peegeeq-native  │ │ peegeeq-outbox  │ │peegeeq-bitemporal│
-      │ (Native queues) │ │ (Outbox pattern)│ │ (Event store)    │
-      └─────────────────┘ └─────────────────┘ └──────────────────┘
-                    │              │              │
-                    └──────────────┼──────────────┘
-                                   │
-                                   ▼
-      ┌──────────────────────────────────────────────────────────┐
-      │                    DATABASE LAYER                        │
-      │                      peegeeq-db                          │
-      │   (PostgreSQL connectivity + service implementations)    │
-      └──────────────────────────────────────────────────────────┘
-                                   ▲
-                                   │
-      ┌──────────────────────────────────────────────────────────┐
-      │                   CONTRACTS LAYER                        │
-      │                     peegeeq-api                          │
-      │            (Interfaces, DTOs, configs)                   │
-      │              NO implementations                          │
-      │              NO infrastructure                           │
-      └──────────────────────────────────────────────────────────┘
+peegeeq-management-ui   React/TypeScript SPA; calls peegeeq-rest over HTTP, SSE, WebSocket
+        |
+peegeeq-rest            Vert.x HTTP server, routing, handlers; depends on peegeeq-api + peegeeq-runtime
+        |
+peegeeq-runtime         Composition layer; DatabaseSetupService facade; wires db, native, outbox, bitemporal
+        |
+peegeeq-native | peegeeq-outbox | peegeeq-bitemporal
+        |
+peegeeq-db              PostgreSQL connectivity and service implementations
+        |
+peegeeq-api             Contracts only: interfaces, DTOs, configuration; no implementations
 ```
 
-**Key Architectural Principles:**
+Principles:
 
-1. **peegeeq-api**: Pure contracts only (interfaces, DTOs, configs) with NO implementations
-2. **peegeeq-runtime**: Composition layer that wires all modules together and exposes factory methods
-3. **peegeeq-rest**: REST layer depends ONLY on peegeeq-api and peegeeq-runtime (never on db/native/outbox/bitemporal directly)
-4. **Strict layering**: Each layer depends only on the layer directly below it - no cross-layer dependencies
-5. **Dependency inversion**: All modules depend on peegeeq-api contracts, not concrete implementations
+1. `peegeeq-api` holds contracts only.
+2. `peegeeq-runtime` composes modules and exposes factory methods.
+3. `peegeeq-rest` depends only on `peegeeq-api` and `peegeeq-runtime`.
+4. Each layer depends only on the layer below it.
 
-For complete architecture details, see: `docs-design/design/peegeeq-call-propagation/PEEGEEQ_CALL_PROPAGATION_GUIDE.md`
+Full call-propagation detail: `docs-design/peegeeq-call-propagation/PEEGEEQ_CALL_PROPAGATION_GUIDE.md`.
 
-### Deployment Models
+## Deployment models
 
-#### Development Mode
-- Frontend: Vite dev server on port 3000
-- Backend: Java REST server on port **8088** (default configured in `configService.ts`: `http://127.0.0.1:8088`)
-- CORS: Enabled (allows all origins - suitable for development only)
-- **Why:** Separate dev server enables fast HMR and better debugging; CORS allows frontend to call backend on different port
+### Development
 
-#### Production Mode
-- Frontend: Built static files served from /webroot by REST server
-- Backend: Java REST server on port **8088**
-- Access: http://localhost:8088/ui/
-- CORS: Enabled but not required (same origin)
-- **Why:** Single-server deployment simplifies operations; no CORS issues; reduces infrastructure complexity and attack surface
-- **Note:** CORS handler currently allows all origins; consider restricting to specific origins in production deployments
+- Frontend: Vite dev server on port 3000 (`vite.config.ts` L17).
+- Vite proxies `/api` to `http://localhost:8088` and `/ws` to `ws://localhost:8088`
+  (`vite.config.ts` L19-29).
+- Backend: `peegeeq-rest` on port 8088 (`peegeeq-rest/src/main/resources/conf/rest-server.json` L2).
+- The UI's runtime backend URL comes from `src/services/configService.ts`; its default is
+  `http://127.0.0.1:8088` (L15) and the value is persisted in `localStorage`.
 
-## Technology Stack
+### Production
 
-### Frontend
+- `npm run build` writes static files to `../peegeeq-rest/src/main/resources/webroot`
+  (`vite.config.ts` L32).
+- `peegeeq-rest` serves them at `/ui/*` and redirects `/` to `/ui/`
+  (`PeeGeeQRestServer.java` L532-533).
+- Same origin; CORS is not needed for the bundled UI.
 
-| Technology | Version | Purpose | Why Chosen |
-|------------|---------|---------|------------|
-| React | 18.2.0 | UI framework | Industry standard with excellent ecosystem, component reusability, and strong TypeScript support |
-| TypeScript | 5.2.2 | Type safety | Catches errors at compile time, improves IDE support, and makes refactoring safer |
-| Vite | 5.0.8 | Build tool and dev server | Extremely fast HMR (Hot Module Replacement), modern ESM-based builds, superior developer experience compared to Webpack |
-| Redux Toolkit | 2.10.1 | State management | Includes RTK Query for API state management, eliminates boilerplate, provides automatic caching/refetching and optimistic updates |
-| React Router | 7.7.0 | Client-side routing | De facto standard for React routing, supports nested routes and lazy loading |
-| Ant Design | 5.12.8 | UI component library | Enterprise-grade React components with comprehensive design system, accessibility support, and extensive customization options |
-| Recharts | 3.1.2 | Data visualization | React-native charting library with composable components, easier to customize than D3.js while maintaining good performance |
-| Zustand | 5.0.8 | Lightweight state management | Simple, unopinionated state management for local UI state, complements Redux Toolkit for global state |
-| Axios | 1.6.2 | HTTP client | Promise-based HTTP client with interceptors, request/response transformation, and automatic JSON handling |
-| Vitest | 3.2.4 | Unit testing | Vite-native testing framework with same config, extremely fast execution, Jest-compatible API |
-| Playwright | 1.54.1 | E2E testing | Cross-browser support, reliable auto-waiting, excellent debugging tools, better than Selenium/Cypress for modern web apps |
+### Known port inconsistency in the code
+
+`src/api/endpoints.ts` L7 declares `API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080'`.
+That fallback (`8080`) differs from the `configService.ts` default (`127.0.0.1:8088`) and from
+`rest-server.json` (`8088`). This is recorded here as an inconsistency in the code. It is not
+fixed by this document.
+
+## Technology stack
+
+### Frontend (`peegeeq-management-ui/package.json`)
+
+| Technology | Declared version | Purpose |
+|---|---|---|
+| React | `^18.2.0` | UI framework |
+| TypeScript | `^5.2.2` | Type safety |
+| Vite | `^6.0.0` | Build tool and dev server |
+| Redux Toolkit | `^2.10.1` | RTK Query for queue API state |
+| React Router | `^7.7.0` | Client-side routing |
+| Ant Design | `^5.12.8` | UI component library |
+| Recharts | `^3.1.2` | Charts |
+| Zustand | `^5.0.8` | Lightweight UI state |
+| Axios | `^1.6.2` | HTTP client in `PeeGeeQClient.ts` |
+| Zod | `^4.2.1` | Response validation (`src/types/queue.validation.ts`) |
+| Vitest | `^3.2.4` | Unit tests |
+| Playwright | `1.60.0` | End-to-end tests |
+| @testcontainers/postgresql | `^12.0.1` | PostgreSQL container for E2E setup |
 
 ### Backend
 
-| Technology | Purpose | Why Chosen |
-|------------|---------|------------|
-| Java 21 | Runtime | Latest LTS version with virtual threads, pattern matching, and modern language features |
-| Vert.x | HTTP server and routing | Non-blocking I/O for high performance, lightweight compared to Spring Boot, excellent for REST APIs |
-| Jackson | JSON serialization | Industry standard, fast performance, extensive annotation support for complex serialization scenarios |
-| PeeGeeQ Core | Message queue engine | Core business logic for queue operations, provides PostgreSQL-backed message queue functionality |
+| Technology | Purpose |
+|---|---|
+| Java 25 (root `pom.xml` L75-77, `maven.compiler.release` 25) | Runtime |
+| Vert.x | HTTP server, router, SSE, WebSocket |
+| Jackson | JSON serialization |
+| PeeGeeQ core modules | Queue, outbox, and event-store engines |
 
-## Design Principles
+## Component architecture
 
-### 1. Progressive Enhancement
-- Start with core functionality
-- Add advanced features incrementally
-- Graceful degradation for missing features
-- **Why:** Allows rapid delivery of MVP while maintaining path to advanced features; reduces risk of over-engineering
-
-### 2. Backend-First Development
-- UI development is blocked until backend endpoints are implemented
-- No mock data or placeholder data - all data comes from real backend APIs
-- If an endpoint doesn't exist, implement the backend first before building the UI
-- **Why:** Prevents building UI that doesn't work with real data; ensures integration issues are discovered early, not late in development
-
-### 3. Responsive Design
-- Mobile-first approach
-- Tablet and desktop optimizations
-- Accessible on all screen sizes
-- **Why:** System administrators need to monitor queues from anywhere; mobile-first ensures core functionality works on smallest screens
-
-### 4. Performance
-- Lazy loading for routes and components
-- Efficient re-rendering with React.memo
-- Debounced search and filters
-- Pagination for large datasets
-- **Why:** Management UI must remain responsive even with thousands of queues/messages; poor performance leads to operational delays
-
-### 5. Developer Experience
-- TypeScript for type safety
-- Comprehensive testing (unit, integration, E2E)
-- Clear error messages
-- Hot module replacement in development
-- **Why:** Fast feedback loops and type safety reduce bugs and development time; good DX leads to better code quality
-
-### 6. User Experience
-- Consistent UI patterns
-- Clear loading and error states
-- Helpful empty states
-- Keyboard navigation support
-- **Why:** Operators use this tool under pressure during incidents; consistent, clear UI reduces cognitive load and prevents mistakes
-
-## Component Architecture
-
-### Directory Structure
+### Directory structure (`peegeeq-management-ui/src/`)
 
 ```
 src/
-├── api/                # HTTP client layer
-│   ├── PeeGeeQClient.ts  # Axios-based REST client
-│   ├── endpoints.ts      # Typed endpoint constants
-│   ├── types.ts          # API request/response types
+├── api/
+│   ├── PeeGeeQClient.ts        Axios client; resolves the base URL from configService at call time
+│   ├── endpoints.ts            Endpoint constants (see "Known port inconsistency" and the note below)
+│   ├── types.ts                API request/response types
 │   └── index.ts
-├── components/          # Reusable UI components
-│   ├── layout/          # Header.tsx (Sidebar is inline in App.tsx)
-│   ├── common/          # ConnectionStatus, StatCard, FilterBar, ConfirmDialog, ErrorBoundary
-│   └── EventVisualization.tsx  # Causation tree + aggregate stream component
-├── pages/               # Page components (one per route)
+├── components/
+│   ├── layout/Header.tsx       Page title, ConnectionStatus, refresh, notification bell, user menu
+│   └── common/
+│       ├── ConnectionStatus.tsx   WS/SSE status badge (checks /ws/health and /api/v1/sse/health)
+│       ├── StatCard.tsx
+│       ├── FilterBar.tsx
+│       ├── ConfirmDialog.tsx
+│       ├── ErrorBoundary.tsx
+│       └── SetupScopeBar.tsx      Setup selector shared by scoped pages
+├── pages/
 │   ├── Overview.tsx
 │   ├── DatabaseSetups.tsx
-│   ├── QueuesEnhanced.tsx          # Active queue list (replaces Queues.tsx)
-│   ├── QueueDetailsEnhanced.tsx   # Active queue detail tabs (replaces QueueDetails.tsx)
-│   ├── Queues.tsx                 # Legacy — mounted at /queues-old
-│   ├── QueueDetails.tsx           # Legacy — mounted at /queues-old/:queueName
+│   ├── QueuesEnhanced.tsx         Active queue list
+│   ├── QueueDetailsEnhanced.tsx   Active queue detail tabs
+│   ├── Queues.tsx                 Legacy list, mounted at /queues-old
+│   ├── QueueDetails.tsx           Legacy detail, mounted at /queues-old/:queueName
 │   ├── ConsumerGroups.tsx
 │   ├── EventStores.tsx
-│   ├── EventsPage.tsx             # Post event + query events
-│   ├── EventVisualizationPage.tsx # /event-visualization
-│   ├── MessageBrowser.tsx
+│   ├── EventsPage.tsx             Post event + query events
+│   ├── CausationTreePage.tsx      /causation-tree
+│   ├── AggregateStreamPage.tsx    /aggregate-stream
+│   ├── MessageBrowser.tsx         Non-destructive browse + live observe stream
+│   ├── NotificationsPage.tsx      /notifications
 │   ├── Settings.tsx
-│   ├── Monitoring.tsx             # Stub — placeholder only
-│   ├── DeveloperPortal.tsx        # Stub — placeholder only
-│   ├── SchemaRegistry.tsx         # Stub — placeholder only
-│   ├── QueueDesigner.tsx          # Stub — placeholder only
-│   └── TestHarness.tsx
-├── services/            # Runtime service layer
-│   ├── apiConstants.ts  # API path constants (no base URL — resolved at runtime)
-│   ├── configService.ts # Backend URL config persisted in localStorage
-│   └── websocketService.ts  # WS + SSE service factories
-├── store/               # RTK Query state
+│   ├── TestHarness.tsx            Rendered by pathname check, not a Route (see below)
+│   ├── Monitoring.tsx             On disk; not imported or routed
+│   ├── DeveloperPortal.tsx        On disk; not imported or routed
+│   ├── SchemaRegistry.tsx         On disk; not imported or routed
+│   └── QueueDesigner.tsx          On disk; not imported or routed
+├── services/
+│   ├── apiConstants.ts            API_PREFIX = /api/v1 and relative endpoint names
+│   ├── configService.ts           Backend URL config persisted in localStorage
+│   └── websocketService.ts        WebSocket (/ws/monitoring) and SSE (sse/metrics, sse/queues/:setupId) services
+├── store/
+│   ├── index.ts                   Redux store
 │   └── api/
-│       ├── apiBase.ts   # RTK Query base API (createApi)
-│       └── queuesApi.ts # Queue endpoints
-├── stores/              # Zustand stores (UI state)
-├── hooks/               # Custom React hooks
-├── types/               # TypeScript type definitions
-└── App.tsx              # Router + sidebar layout (no separate Sidebar component)
+│       ├── apiBase.ts             RTK Query createApi; baseUrl = configService apiUrl + /api/v1
+│       └── queuesApi.ts           Queue endpoints
+├── stores/
+│   └── managementStore.ts         Zustand store: notifications and shared UI state
+├── hooks/
+│   └── useRealTimeUpdates.ts      WebSocket/SSE hook
+├── types/
+│   ├── queue.ts
+│   └── queue.validation.ts        Zod schemas
+├── tests/                         Vitest setup, fixtures, Playwright specs and page objects
+├── App.tsx                        Router + inline Ant Design Sider/Menu (no separate Sidebar component)
+└── main.tsx
 ```
 
-### Core Components
+### Routes (`src/App.tsx` L148-165)
 
-#### Layout Components
+| Path | Page |
+|---|---|
+| `/` | `Overview` |
+| `/database-setups` | `DatabaseSetups` |
+| `/queues` | `QueuesEnhanced` |
+| `/queues/:setupId/:queueName` | `QueueDetailsEnhanced` |
+| `/queues-old` | `Queues` |
+| `/queues-old/:setupId/:queueName` | `QueueDetailsEnhanced` |
+| `/queues-old/:queueName` | `QueueDetails` |
+| `/consumer-groups` | `ConsumerGroups` |
+| `/event-stores` | `EventStores` |
+| `/events` | `EventsPage` |
+| `/causation-tree` | `CausationTreePage` |
+| `/aggregate-stream` | `AggregateStreamPage` |
+| `/messages` | `MessageBrowser` |
+| `/notifications` | `NotificationsPage` |
+| `/settings` | `Settings` |
 
-- `Header.tsx` (`src/components/layout/`): App header — page title, `ConnectionStatus`, refresh button, notification bell (inert), user menu (hardcoded "Admin", logout is a no-op).
-- **No separate Sidebar component** — the sidebar nav is implemented inline inside `App.tsx` using Ant Design `<Layout.Sider>` and `<Menu>`.
+Notes:
 
-#### Common Components (`src/components/common/`)
+- `TestHarness.tsx` is rendered when `location.pathname === '/test-harness'` (`App.tsx` L134-135).
+  It is not a `<Route>`.
+- `Monitoring.tsx`, `DeveloperPortal.tsx`, `SchemaRegistry.tsx`, and `QueueDesigner.tsx` exist
+  on disk but are not imported in `App.tsx` and have no route or menu entry. They are unreachable.
+- The notification bell in `Header.tsx` is wired: L75-80 read `notifications`, `unreadCount`,
+  and `markAllNotificationsRead` from `useManagementStore`, and L119-123 bind `BellOutlined` to
+  `openNotifications`. The user menu's logout item is a no-op (`Header.tsx` L95-96).
+- The Queue Details "Bindings" tab is a placeholder with no API call
+  (`QueueDetailsEnhanced.tsx` L818-823). Bindings are a RabbitMQ concept and do not exist in PeeGeeQ.
+- There is no separate Sidebar component; the sidebar is inline in `App.tsx`.
+- No generic `Card`, `Table`, `LoadingSpinner`, or `ErrorMessage` components exist; Ant Design
+  components are used directly.
 
-- `ConnectionStatus.tsx`: WS/SSE status badge displayed in the header.
-- `StatCard.tsx`: Statistics display card with metric value and label.
-- `FilterBar.tsx`: Generic search + dropdown filter toolbar used by multiple pages.
-- `ConfirmDialog.tsx`: Reusable confirmation modal wrapper.
-- `ErrorBoundary.tsx`: React error boundary for component crash isolation.
+## State management
 
-> **Note:** The generic `Card.tsx`, `Table.tsx`, `LoadingSpinner.tsx`, and `ErrorMessage.tsx` described in the original plan were not created — Ant Design components are used directly instead.
+### RTK Query (`src/store/api/queuesApi.ts`)
 
-#### Feature Components
+`queuesApi.ts` is the only RTK Query slice. Its endpoints and the backend paths they call
+(relative to `/api/v1`):
 
-- `EventVisualization.tsx` (`src/components/`): Causation tree (Ant Design `Tree`) + aggregate stream (list + event table). Used inside `EventVisualizationPage.tsx`.
+| Endpoint | Method and path |
+|---|---|
+| `getQueues` | `GET /management/queues?type&status&setupId&search&sortBy&sortOrder&page&pageSize` |
+| `getQueueDetails` | `GET /queues/:setupId/:queueName` |
+| `createQueue` | `POST /management/queues` |
+| `updateQueueConfig` | `PATCH /management/queues/:setupId/:queueName/config` |
+| `getMessages` | `GET /queues/:setupId/:queueName/messages?count&ackMode&offset&filter` |
+| `publishMessage` | `POST /queues/:setupId/:queueName/publish` |
+| `performQueueOperation` | `POST .../purge`, `POST .../pause`, `POST .../resume`, `DELETE /management/queues/:setupId/:queueName` |
+| `moveMessages` | `POST /management/queues/:setupId/:queueName/move` |
+| `getQueueChartData` | see `queuesApi.ts` L236 |
 
-> **Note:** The planned Queue, Consumer Group, and Message sub-components (`QueueList`, `QueueCard`, `CreateQueueForm`, etc.) were not created as separate files. All queue functionality is self-contained inside `QueuesEnhanced.tsx` and `QueueDetailsEnhanced.tsx`.
+`updateQueueConfig` and `moveMessages` target paths that `PeeGeeQRestServer.java` does not
+register. They are recorded here as UI-side constants without a backend route.
 
-## State Management
+### Direct Axios calls from pages
 
-### RTK Query API Slices
+Most pages call the backend directly with `axios` and `getVersionedApiUrl(...)` from
+`configService.ts` (for example `QueuesEnhanced.tsx` L94, `ConsumerGroups.tsx` L90,
+`EventStores.tsx` L94, `DatabaseSetups.tsx` L68, `Overview.tsx` L121, `EventsPage.tsx` L141,
+`MessageBrowser.tsx` L126, `QueueDetailsEnhanced.tsx` L121).
 
-Only one RTK Query slice is implemented:
+### Shared client (`src/api/PeeGeeQClient.ts`)
 
-#### queuesApi.ts (`src/store/api/queuesApi.ts`)
+`peeGeeQClient` is imported by two pages only: `CausationTreePage.tsx` (L23, `queryEvents`) and
+`AggregateStreamPage.tsx` (L25, `getUniqueAggregates`, `queryEvents`). Its other methods (setups,
+dead-letter, subscriptions, health, webhooks, consumer groups, ack/nack) are defined but not called
+by any page. It resolves the backend base URL from `configService.ts` at call time and takes its
+paths from `src/api/endpoints.ts`.
 
-Endpoints:
-- List queues (with setupId / search filters)
-- Get queue details
-- Create queue
-- Delete queue
-- Queue operations: pause, resume, purge
+`endpoints.ts` also declares constants with no registered backend route at commit `f1c5d25d`:
+`QUEUE_ENDPOINTS.ACK`, `QUEUE_ENDPOINTS.NACK`, `EVENT_STORE_ENDPOINTS.LIST` (`/eventstores/:setupId`),
+`CONSUMER_GROUP_ENDPOINTS.STATS`, `MANAGEMENT_ENDPOINTS.QUEUE_DETAILS` (GET),
+`MANAGEMENT_ENDPOINTS.INFO`, `SSE_ENDPOINTS.QUEUE_UPDATES` (`/sse/queues/:setupId/:queueName`),
+and `SSE_ENDPOINTS.ALL_QUEUES` (`/sse/queues`). Treat them as unimplemented.
 
-> **Note:** `consumerGroupsApi.ts` and `eventStoresApi.ts` described in the original plan were **not created**. Consumer groups, event stores, events, and database setups are fetched using direct `axios` calls via `PeeGeeQClient.ts` (`src/api/PeeGeeQClient.ts`), not RTK Query.
+### Zustand (`src/stores/managementStore.ts`)
 
-### Direct API Client (`src/api/PeeGeeQClient.ts`)
+Holds notifications and cross-page UI state consumed by `Header.tsx` and `NotificationsPage.tsx`.
 
-Axios-based client that resolves the backend base URL from `configService.ts` at call time. Used by most pages outside of the Queues feature.
+### Local state
 
-### Local State Management
+React `useState` holds form inputs, modal visibility, and per-page loading and error state.
+There is no theme or user-preference context.
 
-**Zustand** stores (`src/stores/`) are used for lightweight cross-component UI state.
+## API integration
 
-**React `useState`** is used for all form inputs, modal open/close, and per-page loading/error state.
+### Base URL resolution
 
-> **Note:** React Context for theme/user settings was not implemented — there is no theme switching or user preference system in the current UI.
+1. `configService.ts` returns the stored backend config or `DEFAULT_CONFIG`
+   (`apiUrl: 'http://127.0.0.1:8088'`, `wsUrl: 'ws://127.0.0.1:8088'`, L14-16).
+2. `apiBase.ts` builds the RTK Query `baseUrl` as `<apiUrl>/api/v1` (L16).
+3. `PeeGeeQClient.ts` and `websocketService.ts` resolve URLs the same way at call time.
+4. `endpoints.ts` L7 still carries the unused `8080` fallback described above.
 
-## API Integration
+### Error handling
 
-### Base Configuration
+- Network and HTTP errors surface as Ant Design messages or inline alerts on the page.
+- Form validation errors render inline.
+- `ErrorBoundary.tsx` isolates render crashes.
+- Backend error responses are JSON objects with `error` or `message` fields; see the handler
+  classes in `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/`.
 
-```typescript
-// src/config/api.ts
-export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
-export const API_TIMEOUT = 30000; // 30 seconds
+## REST and streaming reference
+
+Source of truth: `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/PeeGeeQRestServer.java`
+L349-543 (routes) and L202-221 (`routeWebSocket`). Only registered routes are listed. Paths are
+relative to the server root. "UI caller" names the module that issues the call.
+
+### Health
+
+| Method | Path | Handler | UI caller |
+|---|---|---|---|
+| GET | `/api/v1/health` | inline (L349) | `Settings.tsx`, `ConnectionStatus.tsx` |
+| GET | `/api/v1/sse/health` | inline (L362) | `ConnectionStatus.tsx`, `configService.ts` |
+| GET | `/health` | inline (L536) | none |
+| GET | `/metrics` | inline (L543) | none |
+
+### Database setups
+
+| Method | Path | Handler | UI caller |
+|---|---|---|---|
+| GET | `/api/v1/setups` | `setupHandler::listSetups` | `DatabaseSetups.tsx` L68, `QueuesEnhanced.tsx` L94, `ConsumerGroups.tsx` L129, `EventStores.tsx` L122, `EventsPage.tsx` L100, `CausationTreePage.tsx` L63 |
+| POST | `/api/v1/setups` | `setupHandler::createSetup` | none (`DatabaseSetups.tsx` uses the legacy create route) |
+| GET | `/api/v1/setups/:setupId` | `setupHandler::getSetupDetails` | `DatabaseSetups.tsx` L74, `Overview.tsx` L91 |
+| GET | `/api/v1/setups/:setupId/status` | `setupHandler::getSetupStatus` | `PeeGeeQClient` method only |
+| DELETE | `/api/v1/setups/:setupId` | `setupHandler::deleteSetup` | `DatabaseSetups.tsx` L159 |
+| POST | `/api/v1/setups/:setupId/detach` | `setupHandler::detachSetup` | `DatabaseSetups.tsx` L142 |
+| POST | `/api/v1/setups/:setupId/database/drop` | `setupHandler::dropSetupDatabase` | `DatabaseSetups.tsx` L179 |
+| GET | `/api/v1/setups/:setupId/queues` | `setupHandler::listQueues` | `PeeGeeQClient` method only |
+| POST | `/api/v1/setups/:setupId/queues` | `setupHandler::addQueue` | `PeeGeeQClient` method only |
+| GET | `/api/v1/setups/:setupId/eventstores` | `setupHandler::listEventStores` | `PeeGeeQClient` method only |
+| POST | `/api/v1/setups/:setupId/eventstores` | `setupHandler::addEventStore` | `PeeGeeQClient` method only |
+| POST | `/api/v1/database-setup/create` | `setupHandler::createSetup` (legacy) | `DatabaseSetups.tsx` L230 |
+| POST | `/api/v1/database-setup/connect` | `setupHandler::connectToExistingSetup` (legacy) | `DatabaseSetups.tsx` L273 |
+| DELETE | `/api/v1/database-setup/:setupId` | `setupHandler::destroySetup` (legacy) | none |
+| GET | `/api/v1/database-setup/:setupId/status` | `setupHandler::getSetupStatus` (legacy) | `endpoints.ts` constant only |
+| POST | `/api/v1/database-setup/:setupId/queues` | `setupHandler::addQueue` (legacy) | none |
+
+There is no `/api/v1/database-setup/list` route. Setup listing is `GET /api/v1/setups`.
+
+### Management overview, queues, metrics
+
+| Method | Path | Handler | UI caller |
+|---|---|---|---|
+| GET | `/api/v1/management/overview` | `managementHandler::getSystemOverview` | `Overview.tsx` L121 |
+| GET | `/api/v1/management/queues` | `managementHandler::getQueues` | `queuesApi.getQueues`, `MessageBrowser.tsx` L101 |
+| POST | `/api/v1/management/queues` | `managementHandler::createQueue` | `queuesApi.createQueue`, `QueuesEnhanced.tsx` L164 |
+| PUT | `/api/v1/management/queues/:setupId/:queueName` | `managementHandler::updateQueue` | none |
+| DELETE | `/api/v1/management/queues/:setupId/:queueName` | `managementHandler::deleteQueue` | `queuesApi.performQueueOperation` |
+| GET | `/api/v1/management/messages` | `managementHandler::getMessages` | `MessageBrowser.tsx` L126 |
+| GET | `/api/v1/management/metrics` | `managementHandler::getMetrics` | `apiConstants.ENDPOINTS.METRICS` constant |
+
+`GET /api/v1/management/queues` accepts `type`, `status`, `setupId`, `search`, `sortBy`,
+`sortOrder`, `page`, and `pageSize` (see `queuesApi.getQueues`). The `search` filter is covered by
+`peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/handlers/ManagementQueueSearchIntegrationTest.java`.
+
+### Queue details and operations
+
+| Method | Path | Handler | UI caller |
+|---|---|---|---|
+| GET | `/api/v1/queues/:setupId/:queueName` | `managementHandler::getQueueDetails` | `queuesApi.getQueueDetails` (`QueueDetailsEnhanced.tsx` L43) |
+| GET | `/api/v1/queues/:setupId/:queueName/stats` | `queueHandler::getQueueStats` | `PeeGeeQClient` method only |
+| GET | `/api/v1/queues/:setupId/:queueName/consumers` | `managementHandler::getQueueConsumers` | `QueueDetailsEnhanced.tsx` L121 |
+| GET | `/api/v1/queues/:setupId/:queueName/bindings` | `managementHandler::getQueueBindings` | none; always returns an empty array |
+| GET | `/api/v1/queues/:setupId/:queueName/messages` | `managementHandler::getQueueMessages` (browse, non-destructive) | `QueueDetailsEnhanced.tsx` L152, L370; `queuesApi.getMessages` |
+| POST | `/api/v1/queues/:setupId/:queueName/messages` | `queueHandler::sendMessage` | `QueueDetailsEnhanced.tsx` L347 |
+| POST | `/api/v1/queues/:setupId/:queueName/messages/batch` | `queueHandler::sendMessages` | none |
+| POST | `/api/v1/queues/:setupId/:queueName/publish` | `queueHandler::sendMessage` | `queuesApi.publishMessage` |
+| POST | `/api/v1/queues/:setupId/:queueName/purge` | `managementHandler::purgeQueue` | `QueueDetailsEnhanced.tsx` L251; `queuesApi.performQueueOperation` |
+| POST | `/api/v1/queues/:setupId/:queueName/pause` | `managementHandler::pauseQueue` | `QueueDetailsEnhanced.tsx` L221; `queuesApi.performQueueOperation` |
+| POST | `/api/v1/queues/:setupId/:queueName/resume` | `managementHandler::resumeQueue` | `QueueDetailsEnhanced.tsx` L221; `queuesApi.performQueueOperation` |
+| DELETE | `/api/v1/queues/:setupId/:queueName` | `managementHandler::deleteQueueByName` | `QueueDetailsEnhanced.tsx` L287 |
+
+Pause and resume act on the queue's consumer-group subscriptions and return the affected count.
+Purge deletes rows from the queue's message tables and returns the purged count.
+
+### Consumer groups
+
+Management (cross-setup) routes:
+
+| Method | Path | Handler | UI caller |
+|---|---|---|---|
+| GET | `/api/v1/management/consumer-groups` | `managementHandler::getConsumerGroups` | `ConsumerGroups.tsx` L90 |
+| POST | `/api/v1/management/consumer-groups` | `managementHandler::createConsumerGroup` | `ConsumerGroups.tsx` L194 |
+| DELETE | `/api/v1/management/consumer-groups/:setupId/:queueName/:groupName` | `managementHandler::deleteConsumerGroup` | `ConsumerGroups.tsx` L178 |
+| POST | `/api/v1/management/consumer-groups/:setupId/:queueName/:groupName/pause` | `managementHandler::pauseConsumerGroup` | `ConsumerGroups.tsx` L243 |
+| POST | `/api/v1/management/consumer-groups/:setupId/:queueName/:groupName/resume` | `managementHandler::resumeConsumerGroup` | `ConsumerGroups.tsx` L255 |
+| POST | `/api/v1/management/consumer-groups/:setupId/:queueName/:groupName/backfill` | `managementHandler::backfillConsumerGroup` | `ConsumerGroups.tsx` L267 |
+
+Queue-scoped routes (no page calls these; `PeeGeeQClient` defines methods for some of them):
+
+| Method | Path | Handler |
+|---|---|---|
+| POST | `/api/v1/queues/:setupId/:queueName/consumer-groups` | `consumerGroupHandler::createConsumerGroup` |
+| GET | `/api/v1/queues/:setupId/:queueName/consumer-groups` | `consumerGroupHandler::listConsumerGroups` |
+| GET | `/api/v1/queues/:setupId/:queueName/consumer-groups/:groupName` | `consumerGroupHandler::getConsumerGroup` |
+| DELETE | `/api/v1/queues/:setupId/:queueName/consumer-groups/:groupName` | `consumerGroupHandler::deleteConsumerGroup` |
+| POST | `/api/v1/queues/:setupId/:queueName/consumer-groups/:groupName/members` | `consumerGroupHandler::joinConsumerGroup` |
+| DELETE | `/api/v1/queues/:setupId/:queueName/consumer-groups/:groupName/members/:memberId` | `consumerGroupHandler::leaveConsumerGroup` |
+| POST/GET/DELETE | `/api/v1/consumer-groups/:setupId/:queueName/:groupName/subscription` | `consumerGroupHandler::*SubscriptionOptions` |
+
+Subscription lifecycle, backfill, and partitioned-consumption routes under
+`/api/v1/setups/:setupId/subscriptions/:topic/...` (L497-516) are registered. `PeeGeeQClient`
+defines methods for list, get, pause, resume, heartbeat, and cancel; no page calls them.
+
+### Event stores
+
+| Method | Path | Handler | UI caller |
+|---|---|---|---|
+| GET | `/api/v1/management/event-stores` | `managementHandler::getEventStores` | `EventStores.tsx` |
+| POST | `/api/v1/management/event-stores` | `managementHandler::createEventStore` | `EventStores.tsx` |
+| DELETE | `/api/v1/management/event-stores/:storeId` | `managementHandler::deleteEventStore` | `EventStores.tsx` |
+| DELETE | `/api/v1/eventstores/:setupId/:eventStoreName` | `managementHandler::deleteEventStoreByName` | none |
+| GET | `/api/v1/eventstores/:setupId/:eventStoreName/events/stream` | `eventStoreHandler::handleEventStream` (SSE) | `PeeGeeQClient.ts` (`EVENT_STORE_ENDPOINTS.STREAM`) |
+| POST | `/api/v1/eventstores/:setupId/:eventStoreName/events` | `eventStoreHandler::storeEvent` | `EventsPage.tsx` |
+| GET | `/api/v1/eventstores/:setupId/:eventStoreName/events` | `eventStoreHandler::queryEvents` | `EventsPage.tsx`, `CausationTreePage.tsx`, `AggregateStreamPage.tsx` |
+| GET | `/api/v1/eventstores/:setupId/:eventStoreName/events/:eventId` | `eventStoreHandler::getEvent` | `PeeGeeQClient.ts` |
+| GET | `/api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/versions` | `eventStoreHandler::getAllVersions` | `PeeGeeQClient.ts` |
+| GET | `/api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/at` | `eventStoreHandler::getAsOfTransactionTime` | none |
+| POST | `/api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/corrections` | `eventStoreHandler::appendCorrection` | `PeeGeeQClient.ts` |
+| GET | `/api/v1/eventstores/:setupId/:eventStoreName/aggregates` | `eventStoreHandler::getUniqueAggregates` | `AggregateStreamPage.tsx` |
+| POST | `/api/v1/eventstores/:setupId/:eventStoreName/aggregate-summary/reconcile` | `eventStoreHandler::reconcileAggregateSummary` | none |
+| GET | `/api/v1/eventstores/:setupId/:eventStoreName/stats` | `eventStoreHandler::getStats` | none |
+
+There is no `GET /api/v1/management/event-stores/:storeId` detail route.
+
+### Dead-letter, health, telemetry, alerts, webhooks
+
+Routes under `/api/v1/setups/:setupId/deadletter/...` (L489-494),
+`/api/v1/setups/:setupId/health[...]` (L527-529), `/api/v1/setups/:setupId/db-telemetry` (L519),
+`/api/v1/setups/:setupId/consumer-alerts/...` (L522-524), and the webhook-subscription routes
+(L414-417) are registered. `DEAD_LETTER_ENDPOINTS`, `HEALTH_ENDPOINTS`, and `WEBHOOK_ENDPOINTS`
+in `endpoints.ts` cover the dead-letter, health, and webhook routes.
+
+### Server-Sent Events
+
+| Path | Handler | UI caller |
+|---|---|---|
+| `/api/v1/sse/health` | inline (L362) | `ConnectionStatus.tsx`, `configService.ts`, `Settings.tsx` |
+| `/api/v1/sse/metrics` | `monitoringHandler::handleSSEMetrics` | `websocketService.ts` L267, `Overview.tsx` |
+| `/sse/metrics` | `monitoringHandler::handleSSEMetrics` (legacy unversioned) | none |
+| `/api/v1/sse/queues/:setupId` | `sseHandler::handleQueueUpdates` (`event: queue-changed`) | `websocketService.ts` L286, `useRealTimeUpdates.ts` L170 |
+| `/api/v1/queues/:setupId/:queueName/messages/stream` | `sseHandler::handleQueueMessageStream` (non-destructive tail) | `MessageBrowser.tsx` L190 |
+| `/api/v1/queues/:setupId/:queueName/stats/stream` | `sseHandler::handleQueueStatsStream` | `QueueDetailsEnhanced.tsx` |
+
+### WebSocket (`PeeGeeQRestServer.routeWebSocket`, L202-221)
+
+| Path | Behaviour | UI caller |
+|---|---|---|
+| `/ws/queues/...` | `webSocketHandler.handleQueueStream` | none in the management UI |
+| `/ws/monitoring` | System stats stream | `websocketService.ts` L150 |
+| `/ws/health` | One-shot health reply | `ConnectionStatus.tsx` L50, `Settings.tsx` L90 |
+
+## Security
+
+Current state at `f1c5d25d`:
+
+- No authentication or authorization exists in `peegeeq-rest` or the UI. The header's user menu
+  shows a static label and a no-op logout.
+- CORS: `PeeGeeQRestServer.java` L149-161 requires a non-empty `allowedOrigins` list and installs
+  a `CorsHandler` (L317, L592). `rest-server.json` L3-12 lists localhost and 127.0.0.1 origins on
+  ports 3000, 3001, 5173, and 8088. A single `*` entry is handled separately at L155; its exact
+  effect was not verified for this document.
+- Credentials entered in the Database Setups form are sent to the backend and are not masked in
+  transit; use HTTPS in front of `peegeeq-rest` outside a trusted network.
+
+Authentication, RBAC, CSRF protection, and rate limiting are not implemented. They remain a
+product decision; see `docs-design/tasks/tasks.md` backlog.
+
+## Development workflow
+
+### Start the backend
+
+```bash
+cd peegeeq-rest
+mvn exec:java -Dexec.mainClass="dev.mars.peegeeq.rest.StartRestServer"
 ```
 
-### Error Handling
+`StartRestServer.main` (`peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/StartRestServer.java`
+L82) ignores command-line arguments. The port comes from `conf/rest-server.json` (8088), overridden
+by environment variables and then system properties (L87-104).
 
-Error Types:
-1. Network Errors: Connection refused, timeout
-2. HTTP Errors: 4xx, 5xx status codes
-3. Validation Errors: Invalid request data
-4. Business Logic Errors: Queue already exists, etc.
+### Start the frontend
 
-Error Display:
-- Toast notifications for transient errors
-- Inline error messages for form validation
-- Error boundaries for component crashes
-- Retry mechanisms for failed requests
-
-**Why this approach:** Different error types require different UX; transient errors (network) should be retryable, validation errors need inline context, crashes need graceful degradation. This layered approach ensures users always know what went wrong and what to do next.
-
-## REST API Reference
-
-### System and Health APIs
-
-#### Health Check
-
-```
-GET /api/v1/health
+```bash
+cd peegeeq-management-ui
+npm install
+npm run dev
 ```
 
-Purpose: Check if backend service is running
-Response: 200 OK
+Open `http://localhost:3000`. The Vite proxy forwards `/api` and `/ws` to port 8088.
 
-#### System Overview
-
-```
-GET /api/v1/management/overview
-```
-
-Purpose: Get system statistics and overview data
-
-Response:
-```json
-{
-  "systemStats": {
-    "totalQueues": 15,
-    "totalConsumerGroups": 8,
-    "totalEventStores": 3,
-    "totalMessages": 12500,
-    "messagesPerSecond": 45.2,
-    "activeConnections": 12,
-    "uptime": "5d 3h 22m"
-  },
-  "recentActivity": []
-}
-```
-
-Implementation Status:
-- ✅ Endpoint exists
-- ✅ Queue statistics use real database queries
-- ✅ Consumer group counts use actual subscription data
-- ✅ Event store counts use real event store stats
-- ✅ recentActivity queries all event stores for events from last hour (returns empty if no events exist)
-
-### Queue Management APIs
-
-#### List All Queues
-
-```
-GET /api/v1/management/queues
-```
-
-Query Parameters:
-- type: Filter by queue type (comma-separated)
-- status: Filter by status (comma-separated)
-- setupId: Filter by setup ID
-- search: Search query string
-- sortBy: Field to sort by
-- sortOrder: Sort order (asc, desc)
-- page: Page number (1-based)
-- pageSize: Items per page
-
-Status: Implemented
-
-#### Get Queue Details
-
-```
-GET /api/v1/queues/:setupId/:queueName
-```
-
-Status: Implemented
-
-#### Create Queue
-
-```
-POST /api/v1/management/queues
-```
-
-Request Body:
-```json
-{
-  "name": "orders-queue",
-  "setup": "production",
-  "type": "standard",
-  "durability": "durable",
-  "maxLength": 10000,
-  "autoDelete": false,
-  "ttl": 3600000
-}
-```
-
-Status: Implemented
-
-#### Delete Queue
-
-```
-DELETE /api/v1/management/queues/:queueName
-```
-
-Query Parameters:
-- ifEmpty: Only delete if queue is empty
-- ifUnused: Only delete if no consumers
-
-Status: Implemented
-
-#### Queue Operations
-
-Pause Queue:
-```
-POST /api/v1/queues/:setupId/:queueName/pause
-```
-
-Status: Implemented (December 24, 2025)
-- Pauses all consumer group subscriptions for the queue
-- Returns count of paused subscriptions
-
-Resume Queue:
-```
-POST /api/v1/queues/:setupId/:queueName/resume
-```
-
-Status: Implemented (December 24, 2025)
-- Resumes all consumer group subscriptions for the queue
-- Returns count of resumed subscriptions
-
-Purge Queue:
-```
-POST /api/v1/queues/:setupId/:queueName/purge
-```
-
-Status: ✅ **FULLY IMPLEMENTED** - Executes DELETE queries on queue_messages/outbox tables, returns purged count
-
-Get Queue Consumers:
-```
-GET /api/v1/queues/:setupId/:queueName/consumers
-```
-
-Status: ✅ **FULLY IMPLEMENTED** - Returns real subscription data from SubscriptionService (empty if no consumer groups subscribed)
-
-Get Queue Bindings:
-```
-GET /api/v1/queues/:setupId/:queueName/bindings
-```
-
-Status: ❌ **NOT APPLICABLE** - Bindings are a RabbitMQ concept that doesn't exist in PeeGeeQ's architecture. Will always return empty array. The Bindings tab in `QueueDetailsEnhanced.tsx` is a stub placeholder ("Coming in Week 5") with no API call.
-
-### Consumer Group APIs
-
-#### List Consumer Groups
-
-```
-GET /api/v1/management/consumer-groups
-```
-
-Query Parameters:
-- queueName: Filter by queue name
-- status: Filter by status
-- page: Page number
-- pageSize: Items per page
-
-Status: Implemented (uses real subscription data)
-
-#### Get Consumer Group Details
-
-```
-GET /api/v1/management/consumer-groups/:groupName
-```
-
-Status: Implemented
-
-#### Create Consumer Group
-
-```
-POST /api/v1/management/consumer-groups
-```
-
-Request Body:
-```json
-{
-  "name": "new-processors",
-  "queueName": "orders-queue",
-  "prefetchCount": 10,
-  "ackMode": "auto"
-}
-```
-
-Status: Implemented
-
-#### Delete Consumer Group
-
-```
-DELETE /api/v1/management/consumer-groups/:groupName
-```
-
-Status: Implemented
-
-### Event Store APIs
-
-#### List Event Stores
-
-```
-GET /api/v1/management/event-stores
-```
-
-Status: Implemented (uses real event store data)
-
-#### Get Event Store Details
-
-```
-GET /api/v1/management/event-stores/:storeName
-```
-
-Status: Implemented (uses real event store stats)
-
-#### Create Event Store
-
-```
-POST /api/v1/management/event-stores
-```
-
-Status: Partial (endpoint exists, needs completion)
-
-#### Delete Event Store
-
-```
-DELETE /api/v1/management/event-stores/:storeName
-```
-
-Status: Partial (endpoint exists, needs completion)
-
-### Message APIs
-
-#### Browse Messages
-
-```
-GET /api/v1/management/queues/:queueName/messages
-```
-
-Query Parameters:
-- limit: Max messages to return (default: 50)
-- offset: Offset for pagination
-- filter: Filter expression
-
-Status: Partial (endpoint exists, returns empty array)
-
-#### Get Message Details
-
-```
-GET /api/v1/management/queues/:queueName/messages/:messageId
-```
-
-Status: Partial
-
-#### Publish Message
-
-```
-POST /api/v1/queues/:setupId/:queueName/publish
-```
-
-Request Body:
-```json
-{
-  "payload": "{\"orderId\": 12345}",
-  "headers": {
-    "content-type": "application/json"
-  }
-}
-```
-
-Status: Implemented
-
-### Database Setup APIs
-
-#### List Database Setups
-
-```
-GET /api/v1/database-setup/list
-```
-
-Status: Implemented
-
-#### Create Database Setup
-
-```
-POST /api/v1/database-setup/create
-```
-
-Request Body:
-```json
-{
-  "setupId": "production",
-  "host": "localhost",
-  "port": 5432,
-  "database": "peegeeq_prod",
-  "username": "peegeeq",
-  "password": "secret",
-  "schema": "public",
-  "sslEnabled": false
-}
-```
-
-Status: Implemented
-
-#### Delete Database Setup
-
-```
-DELETE /api/v1/database-setup/:setupId
-```
-
-Status: Implemented
-
-### Error Handling
-
-Standard Error Response:
-```json
-{
-  "error": {
-    "code": "QUEUE_NOT_FOUND",
-    "message": "Queue 'orders-queue' not found",
-    "details": {
-      "queueName": "orders-queue",
-      "setupId": "prod-01"
-    },
-    "timestamp": "2024-11-20T10:30:00Z"
-  }
-}
-```
-
-HTTP Status Codes:
-- 200 OK: Success
-- 201 Created: Resource created
-- 204 No Content: Success, no response body
-- 400 Bad Request: Invalid request data
-- 401 Unauthorized: Authentication required
-- 403 Forbidden: Insufficient permissions
-- 404 Not Found: Resource not found
-- 409 Conflict: Resource conflict
-- 422 Unprocessable Entity: Validation error
-- 500 Internal Server Error: Server error
-- 503 Service Unavailable: Service temporarily unavailable
-
-## UI/UX Design
-
-### Design System
-
-**Why a design system:** Ensures consistency across all UI components, speeds up development by providing reusable patterns, and makes the application feel professional and cohesive.
-
-#### Color Palette
-
-Light Mode:
-- Primary: Blue (#3B82F6)
-- Success: Green (#10B981)
-- Warning: Yellow (#F59E0B)
-- Error: Red (#EF4444)
-- Background: White (#FFFFFF)
-- Surface: Gray-50 (#F9FAFB)
-- Text: Gray-900 (#111827)
-
-Dark Mode:
-- Primary: Blue (#60A5FA)
-- Success: Green (#34D399)
-- Warning: Yellow (#FBBF24)
-- Error: Red (#F87171)
-- Background: Gray-900 (#111827)
-- Surface: Gray-800 (#1F2937)
-- Text: Gray-50 (#F9FAFB)
-
-**Why these colors:** Blue conveys trust and stability (appropriate for infrastructure tools); semantic colors (green/yellow/red) match universal conventions for success/warning/error; dark mode reduces eye strain during long monitoring sessions.
-
-#### Typography
-
-- Font Family: Inter (system fallback: -apple-system, BlinkMacSystemFont, "Segoe UI")
-- Headings:
-  - H1: 2.25rem (36px), font-weight: 700
-  - H2: 1.875rem (30px), font-weight: 600
-  - H3: 1.5rem (24px), font-weight: 600
-- Body: 1rem (16px), font-weight: 400
-- Small: 0.875rem (14px)
-
-**Why Inter font:** Designed specifically for UI/screens with excellent readability at small sizes; open-source; system font fallbacks ensure fast loading and native feel.
-
-#### Spacing
-
-- Base unit: 4px
-- Common spacing: 8px, 12px, 16px, 24px, 32px, 48px
-- Container max-width: 1280px
-
-#### Components
-
-Buttons:
-- Primary: Blue background, white text
-- Secondary: Gray background, dark text
-- Danger: Red background, white text
-- Ghost: Transparent background, colored text
-- Sizes: sm (32px), md (40px), lg (48px)
-
-Cards:
-- Border radius: 8px
-- Shadow: 0 1px 3px rgba(0,0,0,0.1)
-- Padding: 16px (sm), 24px (md), 32px (lg)
-
-Tables:
-- Striped rows for better readability
-- Hover state on rows
-- Sticky header for long tables
-- Responsive: horizontal scroll on mobile
-
-### Page Layouts
-
-#### Overview Dashboard
-
-```
-┌─────────────────────────────────────────────────────────┐
-│  Header: System Health | Connection Status              │
-├─────────────────────────────────────────────────────────┤
-│ ┌─────┐  ┌─────────────────────────────────────────┐   │
-│ │     │  │  Statistics Cards (4 columns)           │   │
-│ │ S   │  │  ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐   │   │
-│ │ i   │  │  │Queues│ │Groups│ │Stores│ │ Msgs │   │   │
-│ │ d   │  │  └──────┘ └──────┘ └──────┘ └──────┘   │   │
-│ │ e   │  ├─────────────────────────────────────────┤   │
-│ │ b   │  │  Charts (2 columns)                     │   │
-│ │ a   │  │  ┌──────────────┐ ┌──────────────┐     │   │
-│ │ r   │  │  │ Message Rate │ │ Queue Status │     │   │
-│ │     │  │  └──────────────┘ └──────────────┘     │   │
-│ │     │  ├─────────────────────────────────────────┤   │
-│ │     │  │  Recent Activity Table                  │   │
-│ └─────┘  └─────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────┘
-```
-
-#### Queue Management
-
-```
-┌─────────────────────────────────────────────────────────┐
-│  Header: Queues | Create Queue Button                   │
-├─────────────────────────────────────────────────────────┤
-│ ┌─────┐  ┌─────────────────────────────────────────┐   │
-│ │     │  │  Filters & Search                       │   │
-│ │ S   │  │  [Search] [Type▾] [Status▾] [Clear]    │   │
-│ │ i   │  ├─────────────────────────────────────────┤   │
-│ │ d   │  │  Queue Table                            │   │
-│ │ e   │  │  ┌────────────────────────────────────┐ │   │
-│ │ b   │  │  │Name│Setup│Msgs│Consumers│Actions  │ │   │
-│ │ a   │  │  ├────────────────────────────────────┤ │   │
-│ │ r   │  │  │ ... queue rows ...                 │ │   │
-│ │     │  │  └────────────────────────────────────┘ │   │
-│ │     │  │  Pagination: [< 1 2 3 >]               │   │
-│ └─────┘  └─────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────┘
-```
-
-### Responsive Breakpoints
-
-- Mobile: < 640px (sm)
-- Tablet: 640px - 1024px (md, lg)
-- Desktop: > 1024px (xl, 2xl)
-
-Mobile Adaptations:
-- Collapsible sidebar (hamburger menu)
-- Stacked statistics cards (1 column)
-- Horizontal scroll for tables
-- Simplified charts
-- Bottom navigation (optional)
-
-### Accessibility
-
-WCAG 2.1 Level AA Compliance:
-- Color contrast ratios (4.5:1 for text)
-- Keyboard navigation support
-- ARIA labels and roles
-- Focus indicators
-- Screen reader support
-
-Keyboard Shortcuts:
-- Ctrl/Cmd + K: Global search (future)
-- Esc: Close modals/dialogs
-- Tab: Navigate between elements
-- Enter: Activate buttons/links
-- Arrow keys: Navigate tables
-
-**Why accessibility matters:** System administrators may have disabilities; keyboard navigation is faster for power users; WCAG compliance is often a legal requirement for enterprise software; accessible design benefits all users.
-
-## Security and Performance
-
-### Security Considerations
-
-#### Authentication and Authorization
-
-Current State: No authentication (development only)
-
-Production Requirements:
-1. Authentication:
-   - JWT-based authentication
-   - Session management
-   - Secure token storage (httpOnly cookies)
-   - Token refresh mechanism
-   - **Why JWT:** Stateless authentication scales horizontally; httpOnly cookies prevent XSS attacks; refresh tokens enable long sessions without security risk
-
-2. Authorization:
-   - Role-based access control (RBAC)
-   - Permission levels: Admin, Operator, Viewer
-   - Resource-level permissions
-   - **Why RBAC:** Prevents unauthorized queue deletion/purging; separates read-only monitoring from write operations; supports principle of least privilege
-
-3. API Security:
-   - CORS configuration (currently allows all origins; should be restricted in production)
-   - CSRF protection
-   - Rate limiting
-   - Input validation and sanitization
-   - **Why these measures:** CORS prevents unauthorized domains from calling API; CSRF protection prevents malicious sites from triggering actions; rate limiting prevents DoS attacks; input validation prevents injection attacks
-
-#### Data Security
-
-- Sensitive Data: Mask credentials in UI
-- Audit Logging: Track all management operations
-- Secure Communication: HTTPS in production
-- Content Security Policy: Prevent XSS attacks
-
-### Performance Optimization
-
-#### Frontend Performance
-
-Current Optimizations:
-1. Code Splitting: Route-based lazy loading
-2. Memoization: React.memo for expensive components
-3. Debouncing: Search and filter inputs (300ms)
-4. Pagination: Limit data fetching (20 items/page)
-5. Caching: RTK Query automatic caching
-
-**Why these optimizations:** Code splitting reduces initial bundle size (faster first load); memoization prevents unnecessary re-renders; debouncing reduces API calls during typing; pagination prevents loading thousands of queues at once; caching eliminates redundant network requests.
-
-Planned Optimizations:
-1. Virtual Scrolling: For large tables (1000+ rows)
-2. Image Optimization: Lazy loading, WebP format
-3. Bundle Size: Tree shaking, code splitting
-4. Service Worker: Offline support, caching
-5. Web Workers: Heavy computations off main thread
-
-#### Backend Performance
-
-API Response Times (Target):
-- Health check: < 50ms
-- List endpoints: < 200ms
-- Detail endpoints: < 100ms
-- Mutations: < 500ms
-
-**Why these targets:** Health checks must be fast for load balancer probes; list endpoints are called frequently so 200ms keeps UI responsive; mutations can be slower since they're less frequent and users expect some delay for write operations.
-
-Optimization Strategies:
-1. Caching: Redis for frequently accessed data
-2. Pagination: Server-side pagination for large datasets
-3. Compression: Gzip/Brotli for responses
-4. Connection Pooling: Efficient database connections
-5. Async Processing: Non-blocking I/O
-
-**Why these strategies:** Caching reduces database load for read-heavy workloads; pagination prevents transferring megabytes of data; compression reduces bandwidth (especially for JSON); connection pooling eliminates connection overhead; async I/O maximizes throughput on limited threads.
-
-#### Monitoring and Metrics
-
-Frontend Metrics:
-- Page load time (target: < 2s)
-- Time to interactive (target: < 3s)
-- First contentful paint (target: < 1s)
-- API call latency
-- Error rates
-
-Backend Metrics:
-- Request throughput (requests/sec)
-- Response times (p50, p95, p99)
-- Error rates (4xx, 5xx)
-- Active connections
-- Resource utilization (CPU, memory)
-
-## Development Workflow
-
-### Local Development
-
-1. Start Backend:
-   ```bash
-   cd peegeeq-rest
-   mvn exec:java -Dexec.mainClass="dev.mars.peegeeq.rest.PeeGeeQRestServer" -Dexec.args="8088"
-   ```
-
-2. Start Frontend:
-   ```bash
-   cd peegeeq-management-ui
-   npm install
-   npm run dev
-   ```
-
-3. Access UI: http://localhost:3000 (Vite dev server proxies API calls to http://127.0.0.1:8088)
-
-### Building for Production
+### Build for production
 
 ```bash
 npm run build
 ```
 
-Output: ../peegeeq-rest/src/main/resources/webroot
+Output goes to `../peegeeq-rest/src/main/resources/webroot`.
 
-### Code Quality
+### Code quality and tests (`package.json` scripts)
 
 ```bash
-# Linting
-npm run lint
-
-# Type checking
-npm run type-check
-
-# Format code
-npm run format
+npm run lint          # eslint
+npm run type-check    # tsc --noEmit
+npm run test:run      # vitest run
+npm run test:e2e      # node scripts/run-e2e-tests.js (headed Playwright, real backend)
+npm run test:all      # inventory guard + unit + e2e; used by the Maven all-tests profile
 ```
 
-## References
+There is no `format` script. The Playwright inventory guard
+(`scripts/check-playwright-inventory.js --functional 419 --screenshots 72`) runs first in
+`test:all`. Documentation screenshots are regenerated by
+`src/tests/e2e/specs/take-screenshots.spec.ts` into `docs-design/peegeeq-management-ui/screenshots/`.
 
-### Related Documentation
+## Related documentation
 
-- **EXECUTION_CHECKLIST.md**: Focused 4-6 week execution plan
-- **PEEGEEQ_MANAGMENT_UI_STATUS.md**: Implementation status and production readiness
-- **PEEGEEQ_MANAGMENT_UI_TESTING.md**: Testing approach and design
-- **MANAGEMENT_UI_ENHANCEMENTS.md**: Complete functionality inventory, screenshots, stub features catalogue, proposed enhancements
-- **peegeeq-management-ui/docs/archive/IMPLEMENTATION_PLAN.md**: Original 14-19 week plan (archived)
+- `docs-design/peegeeq-management-ui/archive/EXECUTION_CHECKLIST.md` — archived execution plan
+- `peegeeq-management-ui/docs/PEEGEEQ_MANAGMENT_UI_TESTING_GUIDE.md` — testing approach
+- `peegeeq-management-ui/docs/tasks/MANAGEMENT_UI_ENHANCEMENTS-14-Jun-2026.md` — functionality inventory, screenshots, stub catalogue
+- `peegeeq-management-ui/docs/archive/IMPLEMENTATION_PLAN.md` — original plan (archived)
+- `docs-design/peegeeq-call-propagation/PEEGEEQ_CALL_PROPAGATION_GUIDE.md` — layer call propagation
+- `docs-design/testing/PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md` — test standards
+- `docs-design/tasks/tasks.md` — live task register
 
-### External Resources
-
-- React Documentation: https://react.dev/
-- TypeScript Handbook: https://www.typescriptlang.org/docs/
-- Redux Toolkit & RTK Query: https://redux-toolkit.js.org/
-- Ant Design: https://ant.design/
-- Vite Guide: https://vitejs.dev/guide/
-- Playwright: https://playwright.dev/
-
-### Inspiration
-
-- RabbitMQ Management Console: https://www.rabbitmq.com/management.html
-- Apache Kafka UI: https://github.com/provectus/kafka-ui
-- Redis Commander: https://github.com/joeferner/redis-commander
-
+External references: React (https://react.dev/), Redux Toolkit (https://redux-toolkit.js.org/),
+Ant Design (https://ant.design/), Vite (https://vitejs.dev/guide/), Playwright (https://playwright.dev/).

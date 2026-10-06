@@ -11,8 +11,7 @@ testing, asynchronous verification, build profiles, guard tests, and CI evidence
 - [Testing patterns](../docs-design/testing/PEEGEEQ_TESTING_STANDARDS_PATTERNS.md)
 - [Test commands](../docs-design/testing/PEEGEEQ-TEST-COMMANDS.md)
 - [Test guard](../docs-design/testing/PEEGEEQ_TEST_GUARD.md)
-- [Maven toolchains](../docs-design/testing/MAVEN_TOOLCHAINS_EXPLAINER.md)
-- [E2E setup](../docs-design/testing/PEEGEEQ_E2E_TEST_SETUP_GUIDE.md)
+- JDK toolchain and management UI E2E procedure: sections in [Test commands](../docs-design/testing/PEEGEEQ-TEST-COMMANDS.md). The earlier standalone explainers are archived under `docs-design/_archived/superseded-guides/`.
 
 The normative source documents remain intact until every rule and example has a recorded
 destination. Historical test reports remain evidence rather than permanent claims.
