@@ -193,7 +193,9 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
                         metrics.recordMessageSent(topic,
                             (System.nanoTime() - sendStartNanos) / 1_000_000L);
 
-                        // Send NOTIFY to wake up consumers using the database-generated ID
+                        // Send NOTIFY to wake up consumers using the database-generated ID.
+                        // A rejected NOTIFY aborts this transaction, so the INSERT is rolled back and
+                        // the failure must reach the caller. It cannot be treated as optional.
                         return conn.preparedQuery("SELECT pg_notify($1, $2)")
                             .execute(Tuple.of(notifyChannel, String.valueOf(generatedId)))
                             .onSuccess(ignored -> logger.debug("Notification sent for message: {} (DB ID: {})",
@@ -201,7 +203,7 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
                             .onFailure(notifyError -> logger.warn(
                                 "Failed to send notification for message {} (DB ID: {}): {}",
                                 messageId, generatedId, notifyError.getMessage()))
-                            .transform(ar -> Future.<Void>succeededFuture());
+                            .<Void>mapEmpty();
                         }))
                     .onFailure(error -> {
                         String errorMsg = error.getMessage();
@@ -317,7 +319,9 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
                         metrics.recordMessageSent(topic,
                             (System.nanoTime() - sendStartNanos) / 1_000_000L);
 
-                        // Send NOTIFY to wake up consumers using the database-generated ID
+                        // Send NOTIFY to wake up consumers using the database-generated ID.
+                        // A rejected NOTIFY aborts this transaction, so the INSERT is rolled back and
+                        // the failure must reach the caller. It cannot be treated as optional.
                         return conn.preparedQuery("SELECT pg_notify($1, $2)")
                             .execute(Tuple.of(notifyChannel, String.valueOf(generatedId)))
                             .onSuccess(ignored -> logger.debug("Notification sent for message: {} (DB ID: {})",
@@ -325,7 +329,7 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
                             .onFailure(notifyError -> logger.warn(
                                 "Failed to send notification for message {} (DB ID: {}): {}",
                                 messageId, generatedId, notifyError.getMessage()))
-                            .transform(ar -> Future.succeededFuture());
+                            .mapEmpty();
                         })
                         .transform(ar -> {
                                 if (ar.failed()) {

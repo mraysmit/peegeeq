@@ -6,6 +6,15 @@
 **Recorded from-beginning release baseline:** Jenkins build #36 at `e8d07e53`
 **Latest successful release gate:** Jenkins build #11 at `263309d8` plus the checksummed
 Task 6 release-gate overlay (`485c930dd264864cd9157fe3378e25e661c51b97afa2120d1cc5bde6c0b54f27`)
+**Partial reconciliation:** 2026-10-06 at `9e14170e` — structure, references, numbering, and the
+backlog were checked against the repository. Jenkins results and recorded test counts were not
+re-verified
+
+**Commit references predate a history rewrite.** The abbreviated hashes cited in this register
+(`263309d8`, `e8d07e53`, `b19b708b`, `fe676bda`, `c62af5c3`, `7db748b8`, `32ab0371`, `322b7f06`,
+`1dd6741b`, `19e3cbdb`) do not resolve in the repository as of `9e14170e`. The commit carrying
+the subject recorded for `263309d8` is now `227d12d7`. The other nine have no recorded subject
+and are not mapped. They remain as identifiers for the Jenkins builds that ran them.
 
 This is the **only live task register** under `docs-design`. Do not derive current work from
 handover notes, design proposals, unchecked boxes in archived plans, or historical narrative.
@@ -15,7 +24,8 @@ Those documents provide context only. New work must be added here before impleme
 
 - Execute one numbered phase at a time and report it before starting the next phase.
 - Follow TDD for behavioral changes: failing focused contract, implementation, passing contract.
-- Before Java/Maven edits, follow the mandatory pre-work in the repository `AGENTS.md`.
+- Before Java/Maven edits, follow the mandatory pre-work in `.claude/CLAUDE.md`. The root
+  `AGENTS.md` carries the same text for tools that read that filename.
 - Rebuild the affected reactor slice before targeted testing.
 - Run the smallest applicable tagged test scope and report per-class test counts.
 - The approximately 90-minute `-Pall-tests` run is an explicit release gate, not the normal
@@ -56,7 +66,7 @@ remaining UI modules, not the preceding Java modules.
 
 Build #46's resumed Maven test reactor took **30 minutes 48 seconds**, finishing at
 2026-09-05 06:45 UTC. Its 665 browser tests are the functional gate; they must not be confused
-with the larger functional-plus-screenshot inventory recorded below.
+with the larger functional-plus-screenshot inventory recorded under Completed Work.
 
 These passes belong to their respective revisions. They do **not** establish a fresh,
 from-beginning full-suite pass at `b19b708b`. Such a run remains an explicit release validation,
@@ -67,89 +77,13 @@ Jenkins publisher selects Surefire/Failsafe XML and allows empty results. The UI
 were verified from execution logs, not Jenkins' published test-result totals. This does not
 change the observed SUCCESS result. Task 7 closed this gap in build #48.
 
-### Focused verification and remediation evidence
-
-Earlier focused verification is retained below. It must not be read as a single full gate
-at the current revision:
-
-- D23 SSE readiness: guard 2/2; real-backend Playwright 36/36.
-- Outbox concurrency: strict TDD failed 3/3 before implementation; final scope 6/6; async
-  guard 1/1.
-- Diagnostics isolation: `SystemInfoCollectorTest` 8/8; async guard 1/1; clean reactor build.
-- O4 duplicate metrics: strict TDD initially failed because the meter was absent; final
-  real-PostgreSQL contract 1/1; async guard 1/1; clean five-module build.
-- O2 options-start lifecycle: controlled subscription-failure contract 1/1; state returned to
-  `NEW`, no member became active, and the failure reached the caller.
-- Schema contracts in commit `32ab0371`: TC-S14 1/1, TC-S15 1/1, P3 1/1, and applicable
-  asynchronous guards green.
-- UI semantic coverage in commit `322b7f06`: Management UI Vitest 128/128 across 14 files
-  and Playwright 419/419; Utilities UI Vitest 836/836 across 55 files and Playwright 246/246.
-  Inventory guards found 491 unique Management UI tests (419 functional + 72 screenshots)
-  and 817 unique Utilities UI tests (246 functional + 571 screenshots), with type checks,
-  builds, and lint green. The 2026-09-02 remediation wires both inventory guards into
-  `test:all`, the command invoked by the Maven `all-tests` profiles and Jenkins full gate.
-- Tier-5 Task 2: strict TDD exposed the missing circuit-breaker clock seam and both remaining
-  event-loop test sleeps. The final 11-module reactor slice built cleanly;
-  `CircuitBreakerRecoveryTest` passed 2/2, `VertxEventLoopBlockingJoinTest` passed 2/2, and
-  `OnSuccessExceptionSwallowingGuardTest` passed all 8 checks with no blocking exemptions.
-- HAProxy Task 3.1: strict TDD first failed the proxy endpoint contracts and then exposed a
-  one-attempt-only LISTEN reconnect defect. The final six-module reactor slice built cleanly;
-  configuration suites passed 31/31, notification failure paths passed 8/8, the real two-node
-  HAProxy LISTEN/pool failover contract passed 1/1, and the workspace guard passed 8/8.
-- Pool circuit breaking Task 3.2: strict TDD first proved two real connection failures left the
-  breaker uncreated (`UNKNOWN`). The final four-module reactor slice built cleanly; the dedicated
-  PostgreSQL/HAProxy outage and replacement-node contract passed 1/1, `CircuitBreakerManagerTest`
-  passed 10/10, and the connection-manager, client-factory, and manager regression classes passed
-  73/73.
-- Streaming-replication failover Task 3.3: strict TDD first failed 1/1 with PostgreSQL `42P01`
-  because the independent secondary did not contain the primary's durable marker. The final real
-  `pg_basebackup` primary/standby contract passed 1/1 after explicit primary fencing and standby
-  promotion, and the unchanged independent-node HAProxy regression passed 6/6.
-- PgBouncer transaction pooling Task 3.4: strict TDD first failed 1/1 because PgBouncer rejected
-  the `search_path` startup parameter, then failed with PostgreSQL `42P01` after PgBouncer accepted
-  but could not restore that parameter on a multiplexed backend. The final real PgBouncer contract
-  passed 1/1 with one backend PID shared across four alternating tenant transactions. Connection-
-  manager regressions passed 22/22, schema regressions passed 9/9, the pool circuit-breaker
-  regression passed 1/1, and the four-module reactor slice built cleanly.
-- Durable subscriptions Task 4.1: strict TDD compilation failed on the absent durable options and
-  bitemporal metadata model. The final API scope passed 34/34: `SubscriptionOptionsDurableTest`
-  6/6, `BiTemporalSubscriptionInfoTest` 2/2, and the existing `SubscriptionOptionsValidationTest`
-  26/26. The six-module bitemporal dependency slice compiled cleanly and async guards passed 9/9.
-- Durable subscriptions Task 4.2 (implemented 2026-09-05; committed in `7db748b8`): the initial contract failed
-  compilation on the missing coordinator/factory. A separate delivery-boundary contract then
-  failed 1/1 when metadata registration incorrectly reported subscription success; registration
-  is now a separate operation and durable delivery fails explicitly until implemented. The first
-  complete persistence run exposed four lifecycle failures; explicit SQL parameter typing fixed
-  them and the four-test rerun passed. After the required clean six-module rebuild, the final
-  `integration-tests` scope passed `DurableBiTemporalSubscriptionIntegrationTest` 34/34 and
-  `BiTemporalAppendMetricsIntegrationTest` 4/4. Core regressions passed
-  `SubscriptionOptionsDurableTest` 6/6, `BiTemporalSubscriptionInfoTest` 2/2,
-  `SubscriptionOptionsValidationTest` 26/26 (nested classes: Builder 11, Equals/HashCode 4,
-  ToString 1, EdgeCase 7, FluentAPI 3), and `OnSuccessExceptionSwallowingGuardTest` 8/8.
-  All 80 final checks passed without failures/errors/skips. This is focused developer-machine evidence,
-  not a Jenkins rerun or a new full-suite release gate.
-- Outbox capacity/filter fairness (`1dd6741b`): failing starvation and capacity contracts
-  preceded the fix; the focused integration scope passed 74 tests and the async guard passed 8.
-  Subsequent full-module verification passed 673 tests in #44 after the retry-metrics fix.
-- Outbox retry metrics (`fe676bda`): three focused contracts failed before deterministic
-  fail-once/succeed fixtures replaced permanently failing handlers. The two regression classes
-  passed 10 and 14 tests, respectively; the async guard passed 8/8.
-- WebSocket subscription ordering (`c62af5c3`): the test now distinguishes automatic queue-tail
-  readiness from the explicit subscription acknowledgement. `WebSocketHandlerTest` passed 6/6,
-  `WebSocketMessageStreamIntegrationTest` passed 2/2, and the async guard passed 8/8. The original
-  failure was observed in CI; the local pre-change run did not reproduce it deterministically.
-- Queue-name search (`b19b708b`): #45's SSE browser test failed before publishing because the
-  management endpoint ignored the search query, leaving the target queue off the first page.
-  A real HTTP/PostgreSQL regression failed 4 of 7 cases before the production fix. Afterwards,
-  `ManagementQueueSearchIntegrationTest` passed 7/7, `ManagementApiIntegrationTest` passed 28/28,
-  and the async guard passed 8/8. The focused filter/SSE Playwright scope passed 45/45 with
-  retries disabled, followed by the successful #46 UI gate. Required reactor rebuilds passed;
-  the browser test was not weakened to hide the endpoint defect.
-
 A green gate proves that the selected implementation and tests passed. It does not prove that
 an unimplemented proposal exists or replace explicitly planned load, chaos, or failover gates.
 
 ## Current Execution Order
+
+As of 2026-10-06 no numbered task is OPEN or ACTIVE. Tasks 1, 2, 3, 4, 6, and 7 are COMPLETE.
+Task 5 is REJECTED. The document status ACTIVE means this register is the live register.
 
 ### 1. Configuration property/runtime reconciliation
 
@@ -239,6 +173,11 @@ Required phase order:
    for blocking delays and exemption annotations. Direct source and generated-inventory scans
    found zero live `@Tag("blocking-exempt")` annotations.
 
+Verification: strict TDD exposed the missing circuit-breaker clock seam and both remaining
+event-loop test sleeps. The final 11-module reactor slice built cleanly;
+`CircuitBreakerRecoveryTest` passed 2/2, `VertxEventLoopBlockingJoinTest` passed 2/2, and
+`OnSuccessExceptionSwallowingGuardTest` passed all 8 checks with no blocking exemptions.
+
 Tier 4 and Tier 7 remain complete. Do not reopen them unless a current scan finds a real violation.
 
 ### 3. PostgreSQL/HAProxy resilience gaps
@@ -266,6 +205,10 @@ reset while two logical clients multiplex one PgBouncer backend connection.
 - The failover red phase exposed that a failed reconnect was never rescheduled. The handler now
   executes all bounded exponential-backoff attempts, treats intermediate failures as transient,
   and observes connection-close Futures; the deterministic retry regression passed 1/1.
+- Verification: strict TDD first failed the proxy endpoint contracts and then exposed the
+  one-attempt-only LISTEN reconnect defect. The final six-module reactor slice built cleanly;
+  configuration suites passed 31/31, notification failure paths passed 8/8, the real two-node
+  HAProxy LISTEN/pool failover contract passed 1/1, and the workspace guard passed 8/8.
 
 #### 3.2 Add circuit breaking to pool operations — COMPLETE 2026-09-02
 
@@ -289,6 +232,10 @@ reset while two logical clients multiplex one PgBouncer backend connection.
   10/10; real outage/recovery 1/1; `PgConnectionManagerCoreTest` 9/9;
   `PgClientFactoryCoreTest` 36/36; `PgClientFactoryTest` 11/11; and
   `PeeGeeQManagerIntegrationTest` 17/17.
+- The red phase also proved that two real connection failures left the breaker uncreated
+  (`UNKNOWN`). The final reactor slice was four modules. The circuit-breaker core class is
+  `CircuitBreakerManagerTest`; the connection-manager, client-factory, and manager regression
+  classes total 73/73.
 
 #### 3.3 Add a real streaming-replication failover test — COMPLETE 2026-09-02
 
@@ -335,6 +282,10 @@ Implementation record:
    stable subscription and consumer identity, and a positive bounded replay batch size while
    preserving non-durable defaults. This phase defines contracts only; it does not claim a runtime
    implementation or database behavior.
+   Verification: strict TDD compilation failed on the absent durable options and bitemporal
+   metadata model. The final API scope passed 34/34: `SubscriptionOptionsDurableTest` 6/6,
+   `BiTemporalSubscriptionInfoTest` 2/2, and the existing `SubscriptionOptionsValidationTest`
+   26/26. The six-module bitemporal dependency slice compiled cleanly and async guards passed 9/9.
 2. **COMPLETE — 2026-09-05.** `DurableBiTemporalSubscriptionCoordinator` persists definitions,
    lifecycle/heartbeat state, and cursors in the existing tenant-local schema. The supported
    entry point is `EventStoreFactory.createBiTemporalSubscriptionService()` implemented by
@@ -346,6 +297,19 @@ Implementation record:
    PostgreSQL tests cover recreation/re-registration, lifecycle, cursor integrity, concurrent
    registrations/advancement, tenant isolation, invalid inputs, failure propagation, and shared-pool
    ownership. There is no automatic handler restoration or delivery in this phase.
+   Verification (committed in `7db748b8`): the initial contract failed compilation on the missing
+   coordinator/factory. A separate delivery-boundary contract then failed 1/1 when metadata
+   registration incorrectly reported subscription success; registration became a separate
+   operation and durable delivery failed explicitly until phases 3 to 6 implemented it. The first
+   complete persistence run exposed four lifecycle failures; explicit SQL parameter typing fixed
+   them and the four-test rerun passed. After the required clean six-module rebuild, the final
+   `integration-tests` scope passed `DurableBiTemporalSubscriptionIntegrationTest` 34/34 and
+   `BiTemporalAppendMetricsIntegrationTest` 4/4. Core regressions passed
+   `SubscriptionOptionsDurableTest` 6/6, `BiTemporalSubscriptionInfoTest` 2/2,
+   `SubscriptionOptionsValidationTest` 26/26 (nested classes: Builder 11, Equals/HashCode 4,
+   ToString 1, EdgeCase 7, FluentAPI 3), and `OnSuccessExceptionSwallowingGuardTest` 8/8.
+   All 80 final checks passed without failures/errors/skips. This is focused developer-machine
+   evidence, not a Jenkins rerun or a new full-suite release gate.
 3. **COMPLETE — 2026-09-05 (committed in `7db748b8`).** Typed finite replay fetches bounded ID-ordered
    batches, applies event/aggregate filters, and acknowledges only successful handlers. A short
    READ COMMITTED SHARE-lock barrier waits for pending inserts before capturing the boundary;
@@ -392,6 +356,19 @@ The design reference is
 `docs-design/event-sourcing-messaging/PEEGEEQ_DURABLE_SUBSCRIPTIONS_OPTION_PLAN.md`; status and
 execution order are controlled here.
 
+### 5. Transactional REST API product decision
+
+**Priority:** Product decision
+**Status:** REJECTED — 2026-09-15
+
+The proposal to expose domain-specific transactional REST endpoints was rejected as out of
+PeeGeeQ product scope. Both design documents under `docs-design/transactional-rest-api/`
+(`PEEGEEQ_TRANSACTIONAL_REST_API_DESIGN.md` and
+`PEEGEEQ_PLUGIN_MODEL_TRANSACTIONAL_PATTERNS_DESIGN.md`) carry the status
+`REJECTED — OUT OF PEEGEEQ PRODUCT SCOPE`. Commit `227d12d7` removed this section from the
+register without recording the outcome. The number is retained so that Tasks 6 and 7 keep
+their identifiers.
+
 ### 6. Partitioned consumption pre-GA gates
 
 **Priority:** Release gate
@@ -404,6 +381,12 @@ runs. Jenkins build #10 qualified the stack-safe harness for two minutes; build 
 clean rebuild, focused fault suites, and full one-hour gate. Build #11 used source SHA-256
 `485c930dd264864cd9157fe3378e25e661c51b97afa2120d1cc5bde6c0b54f27` over SCM revision
 `263309d8`.
+
+Builds #9, #10, and #11 are in a different build-number sequence from builds #36 to #48.
+Builds #36 to #48 link to the Jenkins job at `192.168.137.11`, which
+`docs-design/dev/PEEGEEQ_WSL_PASSWORDLESS_SSH_SETUP.md` names as host `ubu24-cicd`. The Task 6
+envelope below records host `zorin-nuc`. This register does not record the job URL for builds
+#9 to #11.
 
 Release workload and operating envelope:
 
@@ -443,6 +426,18 @@ mvn test -Pperformance-tests -pl :peegeeq-native \
   -Dtest.timeout.method=95m \
   2>&1 | tee task6-sustained.log
 ```
+
+The command above is the build #11 record and is not the current invocation.
+`PartitionedConsumptionReleaseGate` is in `peegeeq-benchmarking`
+(`src/test/java/dev/mars/peegeeq/pgqueue/`). The `Jenkinsfile` stage
+`Partitioned consumption release gate` runs the same properties with
+`-pl :peegeeq-benchmarking`. Use that module for any new run.
+
+The command passes `-Dtest.timeout.method=95m`. `peegeeq-benchmarking/pom.xml` maps that
+property to `junit.jupiter.execution.timeout.testmethod.default`. The gate method also declares
+`@Timeout(value = 90, timeUnit = TimeUnit.MINUTES)`. The JUnit documentation states that a
+`@Timeout` annotation overrides the configured default. Which limit applied in build #11 is not
+recorded here and has not been verified by a run.
 
 The focused release suites in build #11 passed **89/89** before the sustained gate:
 
@@ -539,7 +534,7 @@ Completion requires:
 - Missing expected UI reports are detected explicitly; Java-only selections do not require UI
   reports for suites they did not run.
 
-Tasks 4.3, 4.4, 4.5, 4.6, and 7 are complete and committed in `7db748b8`. Task 4 has focused
+Task 4 phases 3 to 6 and Task 7 are complete and committed in `7db748b8`. Task 4 has focused
 developer-machine PostgreSQL evidence but no new Jenkins/full-suite gate; Task 7 additionally
 has the successful remote Jenkins publication evidence recorded above.
 
@@ -547,11 +542,17 @@ has the successful remote Jenkins publication evidence recorded above.
 
 | Item | Current verified state | Next decision/work |
 |---|---|---|
-| Schema Registry | **PROPOSED — NOT IMPLEMENTED**; UI remains a “coming soon” placeholder; no backend exists | Approve product scope before implementation |
+| Schema Registry | **PROPOSED — NOT IMPLEMENTED**; `SchemaRegistry.tsx` is a “coming soon” placeholder with no route in `App.tsx`; no backend exists | Approve product scope before implementation |
+| Unrouted Management UI placeholder pages | `DeveloperPortal.tsx`, `QueueDesigner.tsx`, and `Monitoring.tsx` contain only “coming soon” text. `App.tsx` imports none of them and declares no route for them. `Header.tsx` still maps titles for `/schema-registry`, `/developer-portal`, `/queue-designer`, and `/monitoring` | Decide per page: approve product scope, or delete the page file and its `Header.tsx` title entry |
+| Benchmarking enhancement | **PROPOSED — NOT IMPLEMENTED**; `docs-design/performance/PEEGEEQ_BENCHMARKING_ENHANCEMENT_IMPLEMENTATION_PLAN.md` (last updated 2026-09-18) holds 103 unchecked `BENCH-*` items and 0 checked | Approve scope, then add the approved phases to this register before implementation |
 | Authentication and Authorization | Proposed; no auth module, JWT middleware, or tenant-management implementation exists | Define threat model and product boundary |
-| TypeScript REST client coverage | Shared client is used by two UI pages | Add dedicated unit tests and live-server integration tests |
+| TypeScript REST client coverage | Shared client is used by two Management UI pages (`AggregateStreamPage`, `CausationTreePage`). `PeeGeeQClient.test.ts` has nine cases: eight send requests over a real socket to the local `HttpTestServer` fixture, and one drives `streamEvents` through a hand-written `EventSource` replacement. No test runs the client against the PeeGeeQ REST backend | Add integration tests against the real REST backend; decide whether the `EventSource` replacement complies with the no-mocking rule |
 
 ## Completed Work
+
+Numbered Tasks 1 to 7 are recorded once, in their sections under Current Execution Order, and
+are not repeated here. This table holds completed work that has no numbered section. Each row
+is the single record of that work's verification evidence.
 
 | Work item | Completion evidence |
 |---|---|
@@ -559,23 +560,18 @@ has the successful remote Jenkins publication evidence recorded above.
 | Management UI tests not running | npm permissions and Playwright browser setup fixed; build #36 ran the UI suites |
 | Test Integrity D1–D23 | D23 guard 2/2 and real-backend Playwright 36/36; previous phases recorded in archive |
 | Outbox DLQ/filter/dead-code remediation | Wrong-architecture filter retry/DLQ layer removed; regression coverage added; Steps 1–7 complete |
-| Outbox module audit O1–O4 | Consumer concurrency, lifecycle propagation, validation, and duplicate metrics fixed; final O2 contract 1/1 |
-| Outbox schema qualification | TC-S1–TC-S15 implemented; commit `32ab0371` records TC-S14 1/1 and TC-S15 1/1 |
+| Outbox module audit O1–O4 | Consumer concurrency, lifecycle propagation, validation, and duplicate metrics fixed. Outbox concurrency: strict TDD failed 3/3 before implementation; final scope 6/6; async guard 1/1. O4 duplicate metrics: strict TDD initially failed because the meter was absent; final real-PostgreSQL contract 1/1; async guard 1/1; clean five-module build. O2 options-start lifecycle: controlled subscription-failure contract 1/1; state returned to `NEW`, no member became active, and the failure reached the caller |
+| Outbox schema qualification | TC-S1–TC-S15 implemented; commit `32ab0371` records TC-S14 1/1 and TC-S15 1/1, with applicable asynchronous guards green |
 | Schema processing remediation | Core remediation and P1–P3 complete; P3 1/1; P4 deliberately declined as test-only API exposure |
+| Diagnostics isolation | `SystemInfoCollectorTest` 8/8; async guard 1/1; clean reactor build |
 | Bitemporal examples expansion | Referenced examples exist and examples modules passed the full gate |
 | Monitoring endpoints | WebSocket/SSE, lifecycle, CORS, and metrics work complete |
 | Messaging pattern examples | Ten scenarios implemented; example modules passed the full gate |
-| UI semantic Playwright and inventory remediation | Commit `322b7f06` closed the reviewed semantic coverage gaps; 1,308 unique Playwright tests inventoried across both UIs; inventory guards wired into the Maven/Jenkins `test:all` path on 2026-09-02 |
-| Tier-5 blocking-call remediation | Task 2 complete: deterministic clock and event-loop contracts replaced five blocking calls; exemptions and the sleep baseline removed; workspace async guard 8/8 |
-| HAProxy LISTEN/NOTIFY routing | Task 3.1 complete: canonical optional proxy endpoint shared by pool and listener, bounded reconnect retries repaired, and real HAProxy failover contract green 1/1 |
-| Pool-operation circuit breaking | Task 3.2 complete: canonical per-pool breakers guard connection/transaction Futures, preserve original failures, and recover through a real HAProxy/PostgreSQL outage contract 1/1 |
-| Streaming-replication failover | Task 3.3 complete: real physical standby retained a committed marker across explicit primary fencing/promotion and accepted a post-promotion write through HAProxy; green 1/1 |
-| PgBouncer transaction pooling | Task 3.4 complete: tenant schema state is applied transaction-locally, session state is reset, and two logical clients safely multiplexed one real backend connection across four transactions; green 1/1 |
-| Durable subscription public API | Task 4.1 complete: opt-in durable options, bitemporal lifecycle and metadata contracts, and the shared cursor coordinator surface are defined; focused API scope green 34/34 |
-| Durable subscription persistence | Task 4.2 complete: supported event-store factory, tenant-local definitions/lifecycle/heartbeats, transactional cursors, and explicit unavailable-delivery boundary; persistence 34/34, append regressions 4/4, API 34/34, async guard 8/8 |
-| Outbox capacity and retry-metrics CI remediation | `1dd6741b` and `fe676bda`; focused regressions green, then 673 outbox tests passed in #44 |
-| WebSocket subscription test ordering | `c62af5c3`; readiness and explicit acknowledgement distinguished; REST module passed 518 tests in #45 |
-| Management queue-name search | `b19b708b`; real HTTP/PostgreSQL regression 7/7, management API regression 28/28, focused Playwright 45/45; both UI modules passed in resumed build #46 |
+| UI semantic Playwright and inventory remediation | Commit `322b7f06` closed the reviewed semantic coverage gaps: Management UI Vitest 128/128 across 14 files and Playwright 419/419; Utilities UI Vitest 836/836 across 55 files and Playwright 246/246. Inventory guards found 491 unique Management UI tests (419 functional + 72 screenshots) and 817 unique Utilities UI tests (246 functional + 571 screenshots), with type checks, builds, and lint green. The 2026-09-02 remediation wires both inventory guards into `test:all`, the command invoked by the Maven `all-tests` profiles and Jenkins full gate |
+| Outbox capacity and retry-metrics CI remediation | Capacity/filter fairness (`1dd6741b`): failing starvation and capacity contracts preceded the fix; the focused integration scope passed 74 tests and the async guard passed 8. Retry metrics (`fe676bda`): three focused contracts failed before deterministic fail-once/succeed fixtures replaced permanently failing handlers; the two regression classes passed 10 and 14 tests; async guard 8/8. Full-module verification then passed 673 outbox tests in #44 |
+| WebSocket subscription test ordering | `c62af5c3`: the test distinguishes automatic queue-tail readiness from the explicit subscription acknowledgement. `WebSocketHandlerTest` 6/6, `WebSocketMessageStreamIntegrationTest` 2/2, async guard 8/8; REST module passed 518 tests in #45. The original failure was observed in CI; the local pre-change run did not reproduce it deterministically |
+| Concurrent consumer-group example test stabilisation | `a86bc056` (2026-09-24): `AdvancedProducerConsumerGroupTest` awaits every group's start Future before publishing, replaces periodic timer polling with message-driven completion, and composes group cleanup into the test lifecycle. This work was not entered here before implementation, and no test counts are recorded for it |
+| Management queue-name search | `b19b708b`: #45's SSE browser test failed before publishing because the management endpoint ignored the search query, leaving the target queue off the first page. A real HTTP/PostgreSQL regression failed 4 of 7 cases before the production fix. Afterwards `ManagementQueueSearchIntegrationTest` 7/7, `ManagementApiIntegrationTest` 28/28, async guard 8/8, and focused filter/SSE Playwright 45/45 with retries disabled; both UI modules passed in resumed build #46. Required reactor rebuilds passed; the browser test was not weakened to hide the endpoint defect |
 
 ## Archived Supporting Records
 
@@ -604,6 +600,7 @@ old status blocks are superseded by this register.
 - **PARTIAL** — verified deliverables exist and the exact remainder is listed here.
 - **COMPLETE** — implementation and proportionate verification are recorded.
 - **PROPOSED** — requires a product decision before becoming implementation work.
+- **REJECTED** — the product decision was made against the proposal; no implementation work.
 - **RELEASE GATE** — an explicit owner/CI validation run, not a normal edit/test phase.
 
 When a task changes status, update this file in the same phase. Do not create another task plan.

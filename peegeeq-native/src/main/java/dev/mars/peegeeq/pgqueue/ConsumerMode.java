@@ -23,6 +23,9 @@ public enum ConsumerMode {
     /**
      * Uses only LISTEN/NOTIFY for real-time message processing.
      * No polling scheduler is created. Lowest database load.
+     * Two state changes make a message deliverable without a NOTIFY, and the consumer handles
+     * both without polling for messages: expired locks are released every 10 seconds, and a
+     * one-shot timer drains the queue when the earliest delayed message becomes visible.
      * Best for: Real-time applications with reliable connections.
      */
     LISTEN_NOTIFY_ONLY,

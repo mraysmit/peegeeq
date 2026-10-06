@@ -1,5 +1,7 @@
 package dev.mars.peegeeq.db.consumer;
 
+import dev.mars.peegeeq.db.health.BackgroundTaskFailureTracker;
+import dev.mars.peegeeq.db.health.HealthStatus;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import org.slf4j.Logger;
@@ -13,6 +15,11 @@ import java.util.concurrent.atomic.AtomicLong;
  * Periodic job that calculates and advances watermarks, then sweeps completed
  * messages for a given topic. Follows the same lifecycle pattern as
  * {@link ConsumerGroupRetryJob}.
+ *
+ * <p>Sweep failures follow the shared background-task policy of
+ * {@link BackgroundTaskFailureTracker}: the first consecutive failure is logged at WARN with its
+ * stack, persistent failure escalates to a count-bearing ERROR summary, and a successful sweep
+ * restores health. {@link #checkHealth()} exposes that state.
  *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2026-04-12
@@ -35,6 +42,7 @@ public class WatermarkJob {
     private final AtomicLong totalRunCount = new AtomicLong(0);
     private final AtomicLong totalSwept = new AtomicLong(0);
     private volatile Future<Void> inFlightRun = Future.succeededFuture();
+    private final BackgroundTaskFailureTracker failureTracker;
 
     public WatermarkJob(Vertx vertx, WatermarkCalculator calculator, String topic) {
         this(vertx, calculator, topic, DEFAULT_INTERVAL_MS);
@@ -48,6 +56,8 @@ public class WatermarkJob {
             throw new IllegalArgumentException("intervalMs must be positive");
         }
         this.intervalMs = intervalMs;
+        this.failureTracker = new BackgroundTaskFailureTracker(
+                "background-watermark-" + topic, "Watermark sweep for topic " + topic, logger);
     }
 
     public void start() {
@@ -69,6 +79,11 @@ public class WatermarkJob {
      * Fences new runs, cancels future scheduling, and waits for the current sweep
      * to settle before reporting that the job has stopped.
      *
+     * <p>A sweep that fails while stop is waiting has already been recorded by the failure tracker
+     * when it settled, so the returned Future still completes successfully. This matches
+     * {@code DeadConsumerDetectionJob} and {@code ConsumerGroupRetryJob}, and keeps a background
+     * sweep failure from failing the engine teardown that awaits this Future.
+     *
      * @return future completing when no watermark sweep remains in flight
      */
     public synchronized Future<Void> stopAsync() {
@@ -80,12 +95,13 @@ public class WatermarkJob {
 
         Future<Void> stopped = inFlightRun;
         return stopped
-                .onSuccess(v -> logger.info(
-                        "WatermarkJob stopped: topic={}, totalRuns={}, totalSwept={}",
-                        topic, totalRunCount.getAcquire(), totalSwept.getAcquire()))
-                .onFailure(error -> logger.error(
-                        "WatermarkJob stopped after in-flight sweep failure: topic={}, totalRuns={}, totalSwept={}",
-                        topic, totalRunCount.getAcquire(), totalSwept.getAcquire(), error));
+                .transform(ar -> {
+                    logger.info(
+                            "WatermarkJob stopped: topic={}, totalRuns={}, totalSwept={}, totalFailures={}",
+                            topic, totalRunCount.getAcquire(), totalSwept.getAcquire(),
+                            failureTracker.totalFailures());
+                    return Future.<Void>succeededFuture();
+                });
     }
 
     public boolean isRunning() {
@@ -98,6 +114,18 @@ public class WatermarkJob {
 
     public long getTotalSwept() {
         return totalSwept.getAcquire();
+    }
+
+    public long getTotalFailures() {
+        return failureTracker.totalFailures();
+    }
+
+    public Future<HealthStatus> checkHealth() {
+        return failureTracker.check();
+    }
+
+    public String getHealthComponentName() {
+        return failureTracker.component();
     }
 
     /**
@@ -116,8 +144,23 @@ public class WatermarkJob {
             return;
         }
 
-        Future<Void> currentRun = calculator.calculateAndSweep(topic)
+        // A synchronous throw or a null Future from the calculator is a sweep failure like any other.
+        // Left unconverted it would escape this method with processingInProgress still set, and no
+        // later run would ever start.
+        Future<Integer> sweep;
+        try {
+            sweep = calculator.calculateAndSweep(topic);
+            if (sweep == null) {
+                sweep = Future.failedFuture(new IllegalStateException(
+                        "Watermark calculator returned a null Future for topic " + topic));
+            }
+        } catch (RuntimeException error) {
+            sweep = Future.failedFuture(error);
+        }
+
+        Future<Void> currentRun = sweep
                 .onSuccess(sweptCount -> {
+                    failureTracker.recordSuccess();
                     totalRunCount.incrementAndGet();
                     totalSwept.addAndGet(sweptCount);
                     if (sweptCount > 0) {
@@ -130,8 +173,7 @@ public class WatermarkJob {
                 })
                 .onFailure(throwable -> {
                     totalRunCount.incrementAndGet();
-                    logger.error("Watermark sweep #{} failed: topic={}",
-                            totalRunCount.getAcquire(), topic, throwable);
+                    failureTracker.recordFailure(throwable);
                 })
                 .eventually(() -> {
                     processingInProgress.set(false);

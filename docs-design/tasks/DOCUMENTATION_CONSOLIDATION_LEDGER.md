@@ -1,6 +1,6 @@
 # PeeGeeQ Documentation Consolidation Ledger
 
-**Status:** SECTION ROUTING AND ARCHIVE MIGRATION COMPLETE — SOURCE DETAIL RETAINED
+**Status:** SECTION ROUTING AND ARCHIVE MIGRATION COMPLETE — NINE SOURCES REWRITTEN 2026-10-06 WITHOUT HEADING-LEVEL MAPPING
 
 **Baseline date:** 2026-09-06
 
@@ -28,6 +28,30 @@ below now identify the remediated versions: consumer-group fan-out, causation up
 bi-temporal causality, CloudEvents, server-side filtering, tracing architecture, tracing usage, and
 the transactional REST proposal. The heading dispositions and historical classifications remain
 unchanged.
+
+### Source rewrite update — 2026-10-06
+
+Commit `9e14170e` rewrote nine active sources after the consolidation baseline: crash recovery,
+consumer-group fan-out, coding principles, connection management and HAProxy, management UI
+architecture, test commands, testing antipatterns, testing patterns, and test guard. It also moved
+`MAVEN_TOOLCHAINS_EXPLAINER.md` and `PEEGEEQ_E2E_TEST_SETUP_GUIDE.md` byte-for-byte from
+`docs-design/testing/` to `docs-design/_archived/superseded-guides/`.
+
+The nine entries below carry the fingerprint of the rewritten file and retain the baseline
+fingerprint on a separate line. Their heading dispositions were not regenerated. They describe the
+baseline revision, and the phrase "retained intact" in them is no longer true for these nine
+sources. The rewrite was not mapped heading by heading to recorded destinations. The removed text
+is in git history at `f1c5d25d`, the parent of `9e14170e`.
+
+### Fingerprint sweep — 2026-10-06
+
+A sweep of every entry on 2026-10-06 found nine further sources whose content no longer matched
+the recorded fingerprint: the REST handler error-path tests plan, the partitioned consumption
+design, the performance tuning harness, three records under `docs-design/tasks/archive/` (outbox
+DLQ/filter audit, outbox schema qualification, WAVE2 audit), both transactional REST proposals,
+and the live task register `tasks.md`. Each entry now carries the current fingerprint and retains
+the baseline fingerprint with the commit that last changed the file. Their heading dispositions
+were not re-verified. `tasks.md` is a live register and its fingerprint changes with every edit.
 
 ## Mapping rules
 
@@ -522,7 +546,8 @@ unchanged.
 
 ### `docs-design/_archived/REST-HANDLER-ERROR-PATH-TESTS-PLAN.md`
 
-- SHA-256: `10232a74aec2f040cbcf652daf9c29780235110f85070a9afe7b1149d0d47544`
+- SHA-256: `18481124af2f5463b4bcae5de7c5e3b88c00a99b0f70d30110db54ceb738cc07`
+- Baseline SHA-256: `10232a74aec2f040cbcf652daf9c29780235110f85070a9afe7b1149d0d47544` — the current content does not match the baseline fingerprint; git records the last change to this path in commit `038687c0` on 2026-06-05. The heading dispositions below were not re-verified against the current file.
 - Category: Historical evidence
 - Disposition: Retain intact; extract only validated current facts
 - Heading disposition:
@@ -720,7 +745,8 @@ unchanged.
 
 ### `docs-design/analysis/PEEGEEQ_CRASH_RECOVERY_GUIDE.md`
 
-- SHA-256: `c35eae3a62f985ca5ff5b35d5cc979486c5aeb57102596e005acfe80e706b167`
+- SHA-256: `09da11fe1a61cc4469075eec849332b901ba61f6b78cfe10d58864513029a33c`
+- Baseline SHA-256: `c35eae3a62f985ca5ff5b35d5cc979486c5aeb57102596e005acfe80e706b167` — rewritten 2026-10-06 in commit `9e14170e`. The heading dispositions below describe the baseline revision, not the current file.
 - Category: Operations and Observability
 - Disposition: Merge validated recovery contract; retain analysis
 - Heading disposition:
@@ -1202,7 +1228,8 @@ unchanged.
 
 ### `docs-design/consumer-groups/PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md`
 
-- SHA-256: `4e9eac92c3b3e088f432a2e80d119db37ea5494d39390742e2f865ffccc8f8f7`
+- SHA-256: `919863fafa9c23ec2be4cb72da55c62090c3e2780b8a168883df46c6e2da16db`
+- Baseline SHA-256: `4e9eac92c3b3e088f432a2e80d119db37ea5494d39390742e2f865ffccc8f8f7` — rewritten 2026-10-06 in commit `9e14170e`. The heading dispositions below describe the baseline revision, not the current file.
 - Category: Messaging and Subscriptions
 - Disposition: Merge current contract into the consumer-group or ordering authority
 - Heading disposition:
@@ -1397,7 +1424,8 @@ unchanged.
 
 ### `docs-design/consumer-groups/PEEGEEQ_PARTITIONED_CONSUMPTION_DESIGN.md`
 
-- SHA-256: `8a7abb1ffcb5ea0b243daa7cbb06f872ffa89a695dfc77728c46ed1b0224984e`
+- SHA-256: `71b1bfd280a698da85d06f16bc99a761ff956f51d97dc005bbdc3447b7958f48`
+- Baseline SHA-256: `8a7abb1ffcb5ea0b243daa7cbb06f872ffa89a695dfc77728c46ed1b0224984e` — the current content does not match the baseline fingerprint; git records the last change to this path in commit `556950b0` on 2026-09-17. The heading dispositions below were not re-verified against the current file.
 - Category: Messaging and Subscriptions
 - Disposition: Merge current contract into the consumer-group or ordering authority
 - Heading disposition:
@@ -1510,7 +1538,8 @@ unchanged.
 
 ### `docs-design/dev/pgq-coding-principles.md`
 
-- SHA-256: `c9bbd4385ecbc5d31cf29f0accc5e6819a2e3dadda0013b2022368e82b53c0d0`
+- SHA-256: `dd9c3d81ba1f139c787cb0934964bdb6f04aacd0748cdb401b71eca3b083138c`
+- Baseline SHA-256: `c9bbd4385ecbc5d31cf29f0accc5e6819a2e3dadda0013b2022368e82b53c0d0` — rewritten 2026-10-06 in commit `9e14170e`. The heading dispositions below describe the baseline revision, not the current file.
 - Category: Contributor, Testing, and CI
 - Disposition: Consolidate durable instructions; retain environment-specific and normative sources
 - Heading disposition:
@@ -1990,7 +2019,8 @@ unchanged.
 
 ### `docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md`
 
-- SHA-256: `b8a1a33949bfe68805cd208d2b6e62785a1199fe090c97cbe4698f6c19a1d3ce`
+- SHA-256: `35e6327d189116a05c39d14faede2a21e8fc5308f10410a97a5db7137c9f95ed`
+- Baseline SHA-256: `b8a1a33949bfe68805cd208d2b6e62785a1199fe090c97cbe4698f6c19a1d3ce` — rewritten 2026-10-06 in commit `9e14170e`. The heading dispositions below describe the baseline revision, not the current file.
 - Category: Operations and Observability
 - Disposition: Merge supported operating guidance; retain dated evidence
 - Heading disposition:
@@ -2189,7 +2219,8 @@ unchanged.
 
 ### `docs-design/peegeeq-management-ui/PEEGEEQ_MANAGMENT_UI_ARCHITECTURE.md`
 
-- SHA-256: `1cc47b5e7eeba437708029fd07e3c5f950c66642f99572319f4bad8dd6608c0e`
+- SHA-256: `047e9308b721492567079aa936f50d5d6b601b68ee0b1dbc1ea327375fd562cd`
+- Baseline SHA-256: `1cc47b5e7eeba437708029fd07e3c5f950c66642f99572319f4bad8dd6608c0e` — rewritten 2026-10-06 in commit `9e14170e`. The heading dispositions below describe the baseline revision, not the current file.
 - Category: Architecture and APIs
 - Disposition: Merge current architecture into the core architecture or REST authority
 - Heading disposition:
@@ -2333,7 +2364,8 @@ unchanged.
 
 ### `docs-design/performance/PeeGeeQ-Performance-Tuning-Harness.md`
 
-- SHA-256: `7ab518e850ffdf3c4fc73d65abd03cb2b55c3e54679df51191a02743e8da8952`
+- SHA-256: `0c347396166a0e8e4b7ba71e0fe95318b9503a1d1c213e2a181bb4f48f5dbde5`
+- Baseline SHA-256: `7ab518e850ffdf3c4fc73d65abd03cb2b55c3e54679df51191a02743e8da8952` — the current content does not match the baseline fingerprint; git records the last change to this path in commit `556950b0` on 2026-09-17. The heading dispositions below were not re-verified against the current file.
 - Category: Operations and Observability
 - Disposition: Merge supported operating guidance; retain dated evidence
 - Heading disposition:
@@ -3012,7 +3044,8 @@ unchanged.
 
 ### `docs-design/tasks/archive/OUTBOX-DLQ-FILTER-ERRORS-DEAD-CODE-AUDIT.md`
 
-- SHA-256: `756ca05b8c0de71e4ee868629c461ae38db2d2c0ee8bd07880662268a67c072d`
+- SHA-256: `42638e12efc89feb0b1f125e8cb72edbcdf8bfc1bbf38f7e0712e4c81b152acf`
+- Baseline SHA-256: `756ca05b8c0de71e4ee868629c461ae38db2d2c0ee8bd07880662268a67c072d` — the current content does not match the baseline fingerprint; git records the last change to this path in commit `1f4bb8a0` on 2026-08-29. The heading dispositions below were not re-verified against the current file.
 - Category: Historical evidence
 - Disposition: Retain intact; extract only validated current facts
 - Heading disposition:
@@ -3056,7 +3089,8 @@ unchanged.
 
 ### `docs-design/tasks/archive/OUTBOX-SCHEMA-QUALIFICATION-REGRESSION.md`
 
-- SHA-256: `6f147b23d08a2529842c5e6dd308969fb6018161e540ea82119e22cfb6ca5054`
+- SHA-256: `08e5263e1a3f60d5eecd9cfd0936a99ac360b7d18e62c819a4519b2a8f560a9f`
+- Baseline SHA-256: `6f147b23d08a2529842c5e6dd308969fb6018161e540ea82119e22cfb6ca5054` — the current content does not match the baseline fingerprint; git records the last change to this path in commit `1f4bb8a0` on 2026-08-29. The heading dispositions below were not re-verified against the current file.
 - Category: Historical evidence
 - Disposition: Retain intact; extract only validated current facts
 - Heading disposition:
@@ -3591,7 +3625,8 @@ unchanged.
 
 ### `docs-design/tasks/archive/WAVE2_UNCOMMITTED_AUDIT_20260516.md`
 
-- SHA-256: `f0e203f0e466323cfe37170d3102b2ace0df6b378af1bd45109679efdbcbf41b`
+- SHA-256: `c5776095de06c05de5a073f88e778f13f2fc592bcf9b4bd80d02bc36198c2e20`
+- Baseline SHA-256: `f0e203f0e466323cfe37170d3102b2ace0df6b378af1bd45109679efdbcbf41b` — the current content does not match the baseline fingerprint; git records the last change to this path in commit `9a22ed30` on 2026-05-18. The heading dispositions below were not re-verified against the current file.
 - Category: Historical evidence
 - Disposition: Retain intact; extract only validated current facts
 - Heading disposition:
@@ -3642,7 +3677,8 @@ unchanged.
 
 ### `docs-design/tasks/tasks.md`
 
-- SHA-256: `da11d928cf8f2d6f4c5adee187f5b1cb5fba99df22de523bc02ebec1cd683b81`
+- SHA-256: `69a8076bbd2d10f640680a513fe856ed0a49212aadefd2408febf09d08c890ec`
+- Baseline SHA-256: `da11d928cf8f2d6f4c5adee187f5b1cb5fba99df22de523bc02ebec1cd683b81` — the current content does not match the baseline fingerprint; last committed change `556950b0` on 2026-09-17, plus uncommitted edits of 2026-10-06. The heading dispositions below were not re-verified against the current file.
 - Category: Project governance
 - Disposition: Retain as task or historical evidence
 - Heading disposition:
@@ -3667,6 +3703,7 @@ unchanged.
 ### `docs-design/testing/MAVEN_TOOLCHAINS_EXPLAINER.md`
 
 - SHA-256: `9c10f779944324ce4fc25fcfe2829cbce708e64c953fa381e82b0c07e22300df`
+- Current path: `docs-design/_archived/superseded-guides/MAVEN_TOOLCHAINS_EXPLAINER.md` — moved byte-for-byte on 2026-10-06 in commit `9e14170e` and superseded by sections of `docs-design/testing/PEEGEEQ-TEST-COMMANDS.md`.
 - Category: Contributor, Testing, and CI
 - Disposition: Consolidate durable instructions; retain environment-specific and normative sources
 - Heading disposition:
@@ -3695,6 +3732,7 @@ unchanged.
 ### `docs-design/testing/PEEGEEQ_E2E_TEST_SETUP_GUIDE.md`
 
 - SHA-256: `a03fd3872018a448b3ffc3df5b557ffb8aad1b2fec66b77f48853ab728c49949`
+- Current path: `docs-design/_archived/superseded-guides/PEEGEEQ_E2E_TEST_SETUP_GUIDE.md` — moved byte-for-byte on 2026-10-06 in commit `9e14170e` and superseded by sections of `docs-design/testing/PEEGEEQ-TEST-COMMANDS.md`.
 - Category: Contributor, Testing, and CI
 - Disposition: Consolidate durable instructions; retain environment-specific and normative sources
 - Heading disposition:
@@ -3740,7 +3778,8 @@ unchanged.
 
 ### `docs-design/testing/PEEGEEQ_TEST_GUARD.md`
 
-- SHA-256: `9ddd25f6e2b25219befbf559ea493234ac7240123b79248d1aeb62533173307c`
+- SHA-256: `2de3f7c66a4bf3b389d801035ec7be2101844cdeb5be4513c06da2cc338852de`
+- Baseline SHA-256: `9ddd25f6e2b25219befbf559ea493234ac7240123b79248d1aeb62533173307c` — rewritten 2026-10-06 in commit `9e14170e`. The heading dispositions below describe the baseline revision, not the current file.
 - Category: Contributor, Testing, and CI
 - Disposition: Consolidate durable instructions; retain environment-specific and normative sources
 - Heading disposition:
@@ -3771,7 +3810,8 @@ unchanged.
 
 ### `docs-design/testing/PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md`
 
-- SHA-256: `b0e6160ef9db7c17b90978420deadda9d24a23cbe4e5d478c09a8f83f7d85954`
+- SHA-256: `244285c773b69c54b2126b95a16eeda34fd21e7604d9cc087e922a315acaab5d`
+- Baseline SHA-256: `b0e6160ef9db7c17b90978420deadda9d24a23cbe4e5d478c09a8f83f7d85954` — rewritten 2026-10-06 in commit `9e14170e`. The heading dispositions below describe the baseline revision, not the current file.
 - Category: Contributor, Testing, and CI
 - Disposition: Consolidate durable instructions; retain environment-specific and normative sources
 - Heading disposition:
@@ -3904,7 +3944,8 @@ unchanged.
 
 ### `docs-design/testing/PEEGEEQ_TESTING_STANDARDS_PATTERNS.md`
 
-- SHA-256: `1104ad3c4726e7f6a6707bcecd3314d11e62bebcfdb8c597b9f68fd11610a208`
+- SHA-256: `805c4f36812176c4da699e1dbb26b2e82d4c9f3bd993ad22e12722b72c672002`
+- Baseline SHA-256: `1104ad3c4726e7f6a6707bcecd3314d11e62bebcfdb8c597b9f68fd11610a208` — rewritten 2026-10-06 in commit `9e14170e`. The heading dispositions below describe the baseline revision, not the current file.
 - Category: Contributor, Testing, and CI
 - Disposition: Consolidate durable instructions; retain environment-specific and normative sources
 - Heading disposition:
@@ -3925,7 +3966,8 @@ unchanged.
 
 ### `docs-design/testing/PEEGEEQ-TEST-COMMANDS.md`
 
-- SHA-256: `8349b8e525bd7a10a898c7e96844117239365ab50cd836fac63faa35ff7b1e2d`
+- SHA-256: `df0f4f0b4e49567d6c6b1bcfa5944ea59d220cc59d9c9a78faa2222899a52e73`
+- Baseline SHA-256: `8349b8e525bd7a10a898c7e96844117239365ab50cd836fac63faa35ff7b1e2d` — rewritten 2026-10-06 in commit `9e14170e`. The heading dispositions below describe the baseline revision, not the current file.
 - Category: Contributor, Testing, and CI
 - Disposition: Consolidate durable instructions; retain environment-specific and normative sources
 - Heading disposition:
@@ -4156,7 +4198,8 @@ unchanged.
 
 ### `docs-design/transactional-rest-api/PEEGEEQ_PLUGIN_MODEL_TRANSACTIONAL_PATTERNS_DESIGN.md`
 
-- SHA-256: `04dcf0b5de38a81c70f909318b4b7d8bdffa94e33facd12923772c1127e54e91`
+- SHA-256: `86d61c3cded99fb5bb6e361efa06c30488b1d1071ee16ac7ed41aef152bbd9d4`
+- Baseline SHA-256: `04dcf0b5de38a81c70f909318b4b7d8bdffa94e33facd12923772c1127e54e91` — the current content does not match the baseline fingerprint; git records the last change to this path in commit `227d12d7` on 2026-09-15. The heading dispositions below were not re-verified against the current file.
 - Category: Proposed and Unimplemented Systems
 - Disposition: Retain in docs-design unless implementation is verified
 - Heading disposition:
@@ -4172,7 +4215,8 @@ unchanged.
 
 ### `docs-design/transactional-rest-api/PEEGEEQ_TRANSACTIONAL_REST_API_DESIGN.md`
 
-- SHA-256: `ad1f95cbf412cd2e1687fab0695f2e9268e2d98244349790b941c8a43ee22ec4`
+- SHA-256: `ee36b0acb78332ae681544bdee2ccf3b6a0401613a394f3cd32aace6353f6fb2`
+- Baseline SHA-256: `ad1f95cbf412cd2e1687fab0695f2e9268e2d98244349790b941c8a43ee22ec4` — the current content does not match the baseline fingerprint; git records the last change to this path in commit `227d12d7` on 2026-09-15. The heading dispositions below were not re-verified against the current file.
 - Category: Proposed and Unimplemented Systems
 - Disposition: Retain in docs-design unless implementation is verified
 - Heading disposition:

@@ -343,10 +343,8 @@ class NativeVsOutboxComparisonTest {
             return Future.succeededFuture();
         });
 
-        nativeGroup.start();
-
-        // Send messages to native via chained Future sequence
-        Future<Void> nativeSendChain = Future.succeededFuture();
+        // Send messages to native via chained Future sequence, only after the group has started
+        Future<Void> nativeSendChain = nativeGroup.start();
         for (int i = 0; i < 6; i++) {
             final int idx = i;
             nativeSendChain = nativeSendChain.compose(v ->
@@ -378,10 +376,8 @@ class NativeVsOutboxComparisonTest {
                 return Future.succeededFuture();
             });
 
-            outboxGroup.start();
-
-            // Send messages to outbox via chained Future sequence
-            Future<Void> outboxSendChain = Future.succeededFuture();
+            // Send messages to outbox via chained Future sequence, only after the group has started
+            Future<Void> outboxSendChain = outboxGroup.start();
             for (int i = 0; i < 6; i++) {
                 final int idx = i;
                 outboxSendChain = outboxSendChain.compose(vv ->
@@ -401,13 +397,17 @@ class NativeVsOutboxComparisonTest {
                 assertEquals(2, nativeStats.getActiveConsumerCount());
                 assertEquals(2, outboxStats.getActiveConsumerCount());
 
-                nativeGroup.stopGracefully().onFailure(testContext::failNow);
-                outboxGroup.stopGracefully().onFailure(testContext::failNow);
-                nativeProducer.close();
-                outboxProducer.close();
+                // The last handled message's terminal-state write may still be in flight. Both stops
+                // wait for it, so the test completes, and teardown closes the pool, only after they settle.
+                Future.all(nativeGroup.stopGracefully(), outboxGroup.stopGracefully())
+                        .onSuccess(stopped -> testContext.verify(() -> {
+                            nativeProducer.close();
+                            outboxProducer.close();
 
-                logger.info("Consumer group comparison test passed");
-                testContext.completeNow();
+                            logger.info("Consumer group comparison test passed");
+                            testContext.completeNow();
+                        }))
+                        .onFailure(testContext::failNow);
             })).onFailure(testContext::failNow);
         })).onFailure(testContext::failNow);
     }

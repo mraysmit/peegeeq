@@ -2,7 +2,6 @@ package dev.mars.peegeeq.db.consumer;
 
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.test.categories.TestCategories;
-import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
@@ -47,11 +46,6 @@ class WatermarkJobLifecycleTest {
     }
 
     @Test
-    @ExpectedErrorLog(
-            logger = "dev.mars.peegeeq.db.consumer.WatermarkJob",
-            message = "Watermark sweep #1 failed: topic=failed-lifecycle-topic",
-            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
-            throwableType = IllegalStateException.class)
     void stopDoesNotReplayAnAlreadyObservedSweepFailure(Vertx vertx, VertxTestContext testContext) {
         PgConnectionManager connectionManager = new PgConnectionManager(vertx, null);
         ControlledWatermarkCalculator calculator = new ControlledWatermarkCalculator(connectionManager);
@@ -63,7 +57,42 @@ class WatermarkJobLifecycleTest {
         job.stopAsync()
                 .map(ignored -> {
                     assertEquals(1L, job.getTotalRunCount());
+                    assertEquals(1L, job.getTotalFailures(),
+                            "The observed sweep failure is recorded once and not replayed by stop");
                     assertEquals(0L, job.getTotalSwept());
+                    assertFalse(job.isRunning());
+                    return (Void) null;
+                })
+                .eventually(connectionManager::close)
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+    }
+
+    /**
+     * A sweep that fails while {@code stopAsync()} is waiting for it has already been recorded by
+     * the failure tracker. Stop must complete, as it does for the other background jobs, and must
+     * not report the same failure a second time. Before this contract the failure reached the
+     * engine teardown, where it could fail {@code group.close()}.
+     */
+    @Test
+    void sweepFailingWhileStopIsWaitingIsRecordedOnceAndStopStillCompletes(
+            Vertx vertx, VertxTestContext testContext) {
+        PgConnectionManager connectionManager = new PgConnectionManager(vertx, null);
+        ControlledWatermarkCalculator calculator = new ControlledWatermarkCalculator(connectionManager);
+        WatermarkJob job = new WatermarkJob(vertx, calculator, "stop-race-topic", 60_000L);
+
+        job.start();
+        assertTrue(calculator.started(), "The immediate watermark sweep should be in flight");
+
+        Future<Void> stopFuture = job.stopAsync();
+        assertFalse(stopFuture.isComplete(), "stopAsync() should wait for the in-flight sweep");
+        calculator.fail(new IllegalStateException("sweep failed while stop was waiting"));
+
+        stopFuture
+                .map(ignored -> {
+                    assertEquals(1L, job.getTotalRunCount());
+                    assertEquals(1L, job.getTotalFailures(),
+                            "The failure is recorded once by the tracker, not again by stop");
                     assertFalse(job.isRunning());
                     return (Void) null;
                 })
