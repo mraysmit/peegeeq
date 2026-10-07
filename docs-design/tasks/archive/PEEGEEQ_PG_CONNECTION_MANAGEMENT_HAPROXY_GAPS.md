@@ -119,7 +119,7 @@ are two viable paths depending on whether you want to introduce Patroni:
 - **Option 5 (HAProxy + Consul monitor)**: the native PeeGeeQ path — implement
   `PgFailoverMonitor` + `PgPrimaryElector` in `peegeeq-service-manager` to manage promotion
   via Consul session locking.  Re-uses the Consul cluster already required by the service
-  manager. See [PEEGEEQ_FAILOVER_CONSUL_DESIGN.md](../../../peegeeq-service-manager/docs/PEEGEEQ_FAILOVER_CONSUL_DESIGN.md).
+  manager. See [PEEGEEQ_FAILOVER_CONSUL_DESIGN.md](../../failover%20and%20resilience/PEEGEEQ_FAILOVER_CONSUL_DESIGN.md).
 
 For environments that use manual promotion (DBA-driven), HAProxy + `httpchk` + the pg-sidecar
 (Option 3) is sufficient and requires no additional automation.

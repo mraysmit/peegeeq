@@ -2123,6 +2123,7 @@ were not re-verified. `tasks.md` is a live register and its fingerprint changes 
 ### `docs-design/_archived/superseded-guides/PG_HAPROXY_PRIMARY_DETECTION_OPTIONS.md`
 
 - SHA-256: `6c7167cb4c1d469ec65619122c14a26d3706d02435e8f014ac422410f39a7f0b`
+- Current path: `docs-design/failover and resilience/PG_HAPROXY_PRIMARY_DETECTION_OPTIONS.md` — moved byte-for-byte on 2026-10-07 (not yet committed) and returned from the archive to the active failover document set under Task 8.
 - Category: Operations and Observability
 - Disposition: Merge supported operating guidance; retain dated evidence
 - Heading disposition:

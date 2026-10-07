@@ -20,6 +20,11 @@ This is the **only live task register** under `docs-design`. Do not derive curre
 handover notes, design proposals, unchecked boxes in archived plans, or historical narrative.
 Those documents provide context only. New work must be added here before implementation begins.
 
+A separate implementation plan for a specific feature or review is permitted and is required
+where the work needs one. Each such plan belongs to one numbered task in this register, and that
+task links to it. The plan holds the work list and the detail. This register holds the status,
+the execution order, and the recorded test evidence for every plan.
+
 ## Working Rules
 
 - Execute one numbered phase at a time and report it before starting the next phase.
@@ -82,7 +87,7 @@ an unimplemented proposal exists or replace explicitly planned load, chaos, or f
 
 ## Current Execution Order
 
-As of 2026-10-06 no numbered task is OPEN or ACTIVE. Tasks 1, 2, 3, 4, 6, and 7 are COMPLETE.
+As of 2026-10-07 Task 8 is ACTIVE. No task is OPEN. Tasks 1, 2, 3, 4, 6, and 7 are COMPLETE.
 Task 5 is REJECTED. The document status ACTIVE means this register is the live register.
 
 ### 1. Configuration property/runtime reconciliation
@@ -538,6 +543,80 @@ Task 4 phases 3 to 6 and Task 7 are complete and committed in `7db748b8`. Task 4
 developer-machine PostgreSQL evidence but no new Jenkins/full-suite gate; Task 7 additionally
 has the successful remote Jenkins publication evidence recorded above.
 
+### 8. Connection management and HAProxy failover
+
+**Priority:** Not assigned
+**Status:** ACTIVE — added 2026-10-07; phases 1 to 4 of 15 complete; phase 5 active with a red test
+**Objective:** implement the design in
+`docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md` (design
+revision 2026-10-07). The design provides PostgreSQL failover with PeeGeeQ's own components and
+without Patroni: HAProxy routes by the role that `peegeeq-pg-sidecar` reports. Whether automatic
+promotion by a failover monitor is part of the design, and which module would hold it, is open
+question `P-0` in the plan. `peegeeq-service-manager` is the federation module and is not part
+of this task. The design document describes the target system and carries no status. Java
+changes follow strict TDD. Every failover scenario gets a real-container test.
+
+The implementation plan is
+`docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY_IMPLEMENTATION_PLAN.md`.
+It holds the gap between the design and the code by requirement (`R-1` to `R-16`), the findings
+(`IMP-01` to `IMP-20`, `TST-01` to `TST-07`, `CFG-01`, `CFG-02`), the run evidence, the design
+positions (`P-1` to `P-16`), the scenario coverage (`S1` to `S17`), and the phases. Status and
+execution order are controlled here.
+
+State on 2026-10-07 at `ff5c17da`, from the plan: no requirement is fully met. `R-6`, `R-8`, and
+`R-14` are partly met. The Consul failover monitor does not exist in any source file. No HAProxy
+configuration in the repository uses the sidecar. Three of the 17 scenarios have a partial test
+(`S1`, `S3`, `S11`), none against the designed topology.
+
+Phases:
+
+1. **COMPLETE — 2026-10-07.** Two text corrections to the earlier document. Superseded by the
+   design rewrite.
+2. **COMPLETE — 2026-10-07.** Source read and findings at `ff5c17da`. The plan lists each file
+   and whether it was read in full. No test was run in this phase.
+3. **COMPLETE — 2026-10-07.** Corrections to the earlier document. Superseded by the design
+   rewrite.
+4. **COMPLETE — 2026-10-07.** Baseline run of the seven existing classes on the development
+   machine at `ff5c17da`, after a clean seven-module rebuild, under `-Pintegration-tests`.
+   `peegeeq-db`: `HaProxyConnectionFailoverTest` 6/6, `HaProxyStreamingReplicationFailoverTest`
+   1/1, `PgBouncerTransactionModeTest` 1/1, `PgPoolCircuitBreakerIntegrationTest` 1/1.
+   `peegeeq-bitemporal`: `HaProxyNotificationFailoverIntegrationTest` 1/1. `peegeeq-pg-sidecar`:
+   `PgPrimaryCheckIntegrationTest` 7/7, `PgPrimaryCheckLifecycleTest` 2/2. 19 passed, zero
+   failures, errors, or skips. This is focused developer-machine evidence for the existing
+   tests only.
+5. **ACTIVE — red run 2026-10-07.** `HaProxyConnectionFailoverTest` now identifies the answering
+   node by its PostgreSQL system identifier, polls against a deadline in place of the fixed
+   waits, runs container stop and start on a worker thread, and leaves the injected `Vertx` to
+   `VertxExtension`. After a clean `peegeeq-db` rebuild the class ran 6 tests with 1 failure
+   under `-Pintegration-tests`. `testFailbackAfterPrimaryRecovery` failed at its 30-second
+   deadline: a new connection through HAProxy reached the replacement primary, and the pool
+   that served queries during the outage stayed on the backup. The test is red in the working
+   tree. It closes when position `P-14` is decided.
+6. **OPEN.** Owner decides the open questions about the failover mechanism (`P-2` to `P-6`) and
+   confirms or changes the review's additions to the design (`P-7` to `P-16`).
+7. **OPEN.** Routing by role: sidecar-based HAProxy configuration, the sidecar on a standby and
+   behind `httpchk`, session shutdown, manual promotion (`R-2`, `R-3`; `S2` to `S5`).
+8. **OPEN, undecided.** The failover monitor: `PgNodeConfig`, `PgPrimaryElector`,
+   `PgFailoverMonitor`, fencing, and its acceptance test (`R-1`, `R-4`, `R-15`, `R-16`; `S1`,
+   `S6`, `S15` to `S17`). This phase exists only if `P-0` is answered yes. It then needs `P-2`
+   to `P-6`.
+9. **OPEN.** Pool lifetime and discard, timeouts in milliseconds (`R-5`, `R-13`; `S14`).
+10. **OPEN.** LISTEN reconnect, probe, and catch-up (`R-6` to `R-8`; `S7`, `S8`).
+11. **OPEN.** One pooled access path and the breaker rules (`R-9`, `R-10`, `R-14`; `S11`).
+12. **OPEN.** Health reporting (`R-11`; `S12`).
+13. **OPEN.** Remaining scenarios (`S9`, `S10`, `S13`).
+14. **OPEN.** Docker Compose stack with the PostgreSQL pair, sidecars, HAProxy, Consul, and
+    service-manager, and the scenario runbook under `scripts/local-infra/`.
+15. **OPEN.** Close-out: align the Consul failover design and the sidecar guide with the
+    decisions, update the documents that link to the design, the configuration guide, the
+    ledger fingerprint, and this section.
+
+Test counts are recorded here only from a run made during the task.
+
+Completion requires that every requirement is met, that every scenario has a passing
+real-container test with a recorded per-class count, that every finding is closed, and that the
+runbook has saved output for every scenario.
+
 ## Unscheduled Product and Coverage Backlog
 
 | Item | Current verified state | Next decision/work |
@@ -603,4 +682,5 @@ old status blocks are superseded by this register.
 - **REJECTED** — the product decision was made against the proposal; no implementation work.
 - **RELEASE GATE** — an explicit owner/CI validation run, not a normal edit/test phase.
 
-When a task changes status, update this file in the same phase. Do not create another task plan.
+When a task changes status, update this file in the same phase. Do not create another main task
+plan.
