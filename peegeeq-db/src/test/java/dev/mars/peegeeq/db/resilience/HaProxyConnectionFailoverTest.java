@@ -23,7 +23,6 @@ import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
-import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -51,8 +50,11 @@ import io.vertx.junit5.Timeout;
 
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
 /**
  * Realistic HAProxy TCP failover integration test for PeeGeeQ database connections.
@@ -72,10 +74,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  *   <li>Real SQL round-trip: DDL + DML via {@code withTransaction} using a temp table.</li>
  *   <li>Transaction rollback safety: rolled-back insert leaves no row.</li>
  *   <li>{@code checkHealth()} returns {@code true} while primary is healthy.</li>
- *   <li>Failback: stop primary, verify secondary takes over, start replacement primary,
- *       verify traffic is served again.</li>
- *   <li>Failover: stop active primary (destructive), verify pool retries succeed via secondary.</li>
+ *   <li>Failback: stop primary, verify the pool reaches the secondary, start a replacement
+ *       primary, verify that a new connection and the existing pool both reach it.</li>
+ *   <li>Failover: stop active primary (destructive), verify the pool reaches the secondary.</li>
  * </ol>
+ *
+ * <p>Phases 5 and 6 identify the node that answered by its PostgreSQL system identifier.
+ * They wait for a routing change by polling that identity against a deadline.
  *
  * <h2>Production note</h2>
  * In production, primary and secondary would be connected via PostgreSQL
@@ -113,20 +118,22 @@ class HaProxyConnectionFailoverTest {
     /** Pool connection timeout  short for tests so failures surface quickly. */
     private static final Duration POOL_CONNECT_TIMEOUT = Duration.ofSeconds(5);
 
-    /** HAProxy health-check: fall=2  inter=500ms = ~1 s to detect failure. */
-    private static final long HAPROXY_FAILOVER_WAIT_MS = 4_000;
+    /**
+     * Deadline for a routing change to become observable.  HAProxy detects a failed node after
+     * fall=2 checks at inter=500ms and a recovered node after rise=1 check.  The deadline bounds
+     * the poll; the poll completes as soon as the expected node answers.
+     */
+    private static final long ROUTING_DEADLINE_MS = 30_000;
+
+    /** Interval between node-identity probes while waiting for a routing change. */
+    private static final long POLL_INTERVAL_MS = 250;
 
     /**
-     * Time to wait for failback: replacement container must start AND HAProxy must
-     * detect it healthy (inter=500ms, rise=1).  Container startup typically 3-5 s.
+     * Returns a value that is unique to one PostgreSQL cluster.  Each container runs its own
+     * initdb, so each node reports a different system identifier.
      */
-    private static final long HAPROXY_FAILBACK_WAIT_MS = 8_000;
-
-    /** Retry interval between query attempts after failover is triggered. */
-    private static final long RETRY_INTERVAL_MS = 1_000;
-
-    /** Maximum query retry attempts after stopping primary. */
-    private static final int MAX_RETRY_ATTEMPTS = 8;
+    private static final String NODE_IDENTITY_SQL =
+        "SELECT system_identifier::text AS node_id FROM pg_control_system()";
 
     // -----------------------------------------------------------------------
     // Shared containers  (started ONCE per test class)
@@ -157,6 +164,9 @@ class HaProxyConnectionFailoverTest {
 
     private PgConnectionManager connectionManager;
     private Pool pool;
+
+    /** Gives each node-identity probe pool its own service id. */
+    private final AtomicInteger probeSequence = new AtomicInteger();
 
     // -----------------------------------------------------------------------
     // Container lifecycle
@@ -235,9 +245,8 @@ class HaProxyConnectionFailoverTest {
         logger.info("[infra] Topology: App  HAProxy:{}:{}  pg_primary:5432 / pg_secondary:5432 (backup)",
             haproxy.getHost(), haproxy.getMappedPort(HAPROXY_PG_PORT));
         logger.info("[infra] pgsql-check user: haproxy_check (no password, no privileges)");
-        logger.info("[infra] Failover timing: fall=2 x inter=500ms  1s detection, {}ms test buffer",
-            HAPROXY_FAILOVER_WAIT_MS);
-        logger.info("[infra] Failback timing: {}ms (container start + HAProxy rise=1 probe)", HAPROXY_FAILBACK_WAIT_MS);
+        logger.info("[infra] Routing deadline: {}ms, node-identity poll interval: {}ms",
+            ROUTING_DEADLINE_MS, POLL_INTERVAL_MS);
     }
 
     @AfterAll
@@ -292,14 +301,15 @@ class HaProxyConnectionFailoverTest {
     }
 
     @AfterEach
-    void closePool(Vertx vertx, VertxTestContext ctx) {
+    void closePool(VertxTestContext ctx) {
+        if (connectionManager == null) {
+            ctx.completeNow();
+            return;
+        }
         logger.debug("[teardown] Closing pool for PgConnectionManager@{}", connectionManager.getInstanceId());
+        // VertxExtension owns the injected Vertx and closes it; this method closes only the pools.
         connectionManager.close()
-            .eventually(() -> vertx.close())
-            .onSuccess(v -> {
-                logger.debug("[teardown] Pool closed successfully");
-                ctx.completeNow();
-            })
+            .onSuccess(v -> ctx.completeNow())
             .onFailure(ctx::failNow);
     }
 
@@ -474,202 +484,189 @@ class HaProxyConnectionFailoverTest {
     }
 
     /**
-     * Phase 5  Failback: traffic returns to the primary after it recovers.
+     * Phase 5: failback to a replacement primary.
      *
      * <ol>
-     *   <li>Stop the original primary.  HAProxy detects failure and routes to secondary.</li>
-     *   <li>Start {@code primary2}  a fresh container with the same network alias
-     *       {@code pg_primary}.  HAProxy picks it up on the next health-check cycle.</li>
-     *   <li>Verify queries succeed again and that HAProxy is routing to the primary
-     *       (not just the secondary backup).</li>
+     *   <li>Read the system identifier of the primary and the secondary directly from each node.</li>
+     *   <li>Confirm the pool reaches the primary through HAProxy.</li>
+     *   <li>Stop the primary.  Wait until the pool reaches the secondary.</li>
+     *   <li>Start {@code primary2}, a new container with the same network alias
+     *       {@code pg_primary}, and read its system identifier directly.</li>
+     *   <li>Wait until a new connection through HAProxy reaches {@code primary2}.</li>
+     *   <li>Wait until the pool that served queries during the outage reaches {@code primary2}.</li>
      * </ol>
      *
-     * <p><strong>Important:</strong> after this test, the original primary is gone and
-     * primary2 is running.  Phase 6 will stop primary2 to exercise failover again.
+     * <p>Every routing claim is proven by the system identifier of the node that answered.
+     *
+     * <p>After this test the original primary is gone and {@code primary2} is running.
+     * Phase 6 stops {@code primary2}.
      */
     @Test
     @Order(5)
-    @Timeout(value = 90, timeUnit = TimeUnit.SECONDS)
-    @DisplayName("Phase 5: failback  traffic returns after replacement primary starts")
+    @Timeout(value = 120, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Phase 5: failback - new and pooled connections reach the replacement primary")
     void testFailbackAfterPrimaryRecovery(Vertx vertx, VertxTestContext ctx) {
-        long t0 = System.currentTimeMillis();
-        logger.info("--- Phase 5 BEGIN: failback after primary recovery ---");
-        logger.info("[phase-5] Container states: primary={} secondary={} haproxy={}",
-            primary.isRunning() ? "UP" : "DOWN",
-            secondary.isRunning() ? "UP" : "DOWN",
-            haproxy.isRunning() ? "UP" : "DOWN");
+        String[] nodeIds = new String[3]; // 0 = primary, 1 = secondary, 2 = primary2
 
-        // Step 1: confirm we are connected and healthy before inducing any failure.
-        pool.query("SELECT 1 AS health").execute()
-            .compose(rows -> {
-                assertEquals(1, rows.iterator().next().getInteger("health"));
-                logger.info("[phase-5] Pre-stop query OK  primary healthy ({}ms)",
-                    System.currentTimeMillis() - t0);
-
-                // Step 2: stop original primary.
-                String containerId = primary.getContainerId().substring(0, 12);
-                logger.info("[phase-5] Stopping primary (containerId={}) to simulate outage ", containerId);
-                primary.stop();
-                logger.info("[phase-5] Primary stopped after {}ms  waiting {}ms for HAProxy fall=2 detection ",
-                    System.currentTimeMillis() - t0, HAPROXY_FAILOVER_WAIT_MS);
-
-                Promise<Void> failoverDelay = Promise.promise();
-                vertx.setTimer(HAPROXY_FAILOVER_WAIT_MS, id -> failoverDelay.complete());
-                return failoverDelay.future();
+        nodeIdentityOnNewConnection(primary.getHost(), primary.getFirstMappedPort())
+            .compose(primaryId -> {
+                nodeIds[0] = primaryId;
+                return nodeIdentityOnNewConnection(secondary.getHost(), secondary.getFirstMappedPort());
             })
-            .compose(v -> {
-                logger.info("[phase-5] Failover wait complete ({}ms elapsed)  verifying secondary responds ",
-                    System.currentTimeMillis() - t0);
-                return queryWithRetry(vertx, pool, MAX_RETRY_ATTEMPTS, RETRY_INTERVAL_MS);
+            .compose(secondaryId -> {
+                nodeIds[1] = secondaryId;
+                assertNotEquals(nodeIds[0], nodeIds[1],
+                    "Primary and secondary must report different system identifiers");
+                return awaitNodeIdentity(vertx, this::nodeIdentityFromPool, nodeIds[0],
+                    "Pool before the outage");
             })
-            .compose(value -> {
-                assertEquals(1, value, "Secondary should answer SELECT 1 during failover");
-                logger.info("[phase-5] Secondary confirmed UP at {}ms elapsed  starting primary2 ",
-                    System.currentTimeMillis() - t0);
-
-                // Step 5: start replacement primary with same alias  HAProxy will detect it.
-                primary2.start();
-                logger.info("[phase-5] primary2 started: host={} mappedPort={} containerId={} ({}ms elapsed)",
-                    primary2.getHost(), primary2.getFirstMappedPort(),
-                    primary2.getContainerId().substring(0, 12),
-                    System.currentTimeMillis() - t0);
-                logger.info("[phase-5] Waiting {}ms for HAProxy pgsql-check to detect primary2 (rise=1 x inter=500ms) ",
-                    HAPROXY_FAILBACK_WAIT_MS);
-
-                Promise<Void> failbackDelay = Promise.promise();
-                vertx.setTimer(HAPROXY_FAILBACK_WAIT_MS, id -> failbackDelay.complete());
-                return failbackDelay.future();
+            .compose(v -> stopContainer(vertx, primary))
+            .compose(v -> awaitNodeIdentity(vertx, this::nodeIdentityFromPool, nodeIds[1],
+                "Pool after the primary stopped"))
+            .compose(v -> startContainer(vertx, primary2))
+            .compose(v -> nodeIdentityOnNewConnection(primary2.getHost(), primary2.getFirstMappedPort()))
+            .compose(primary2Id -> {
+                nodeIds[2] = primary2Id;
+                assertNotEquals(nodeIds[1], nodeIds[2],
+                    "Secondary and replacement primary must report different system identifiers");
+                return awaitNodeIdentity(vertx, this::nodeIdentityThroughHaProxyOnNewConnection, nodeIds[2],
+                    "New connection through HAProxy after the replacement primary started");
             })
-            .compose(v -> {
-                logger.info("[phase-5] Failback wait complete ({}ms elapsed)  verifying pool healthy ",
-                    System.currentTimeMillis() - t0);
-                logger.debug("[phase-5] primary2 still running={}", primary2.isRunning());
-                return queryWithRetry(vertx, pool, MAX_RETRY_ATTEMPTS, RETRY_INTERVAL_MS);
-            })
-            .onSuccess(value -> ctx.verify(() -> {
-                long elapsed = System.currentTimeMillis() - t0;
-                assertEquals(1, value, "SELECT 1 should succeed after failback");
-                logger.info("--- Phase 5 PASS: failback complete in {}ms  pool serving queries via primary2 ---",
-                    elapsed);
-                ctx.completeNow();
-            }))
-            .onFailure(err -> {
-                logger.error("[phase-5] FAIL: failback verification failed after {}ms: {}",
-                    System.currentTimeMillis() - t0, err.getMessage(), err);
-                ctx.failNow(err);
-            });
+            .compose(v -> awaitNodeIdentity(vertx, this::nodeIdentityFromPool, nodeIds[2],
+                "Pool that served queries during the outage, after the replacement primary started"))
+            .onSuccess(v -> ctx.completeNow())
+            .onFailure(ctx::failNow);
     }
 
     /**
-     * Phase 6  HAProxy TCP failover (destructive).
+     * Phase 6: failover to the secondary (destructive).
      *
-     * <p>Simulates a primary PostgreSQL failure and verifies that:
-     * <ol>
-     *   <li>The Vert.x pool initially routes to primary through HAProxy.</li>
-     *   <li>After the primary is stopped, HAProxy detects the failure
-     *       (2  500 ms = ~1 s) and promotes the secondary (backup).</li>
-     *   <li>The pool discards stale connections and re-connects through
-     *       HAProxy to the secondary.  Queries succeed without restarting
-     *       the application.</li>
-     * </ol>
+     * <p>Stops the active primary and waits until the pool reaches the secondary.  HAProxy routes
+     * new connections to the backup server.  It does not promote PostgreSQL.  The nodes in this
+     * test are independent, so the secondary accepts the query without promotion.
      *
-     * <p><strong>Important:</strong> stopping {@code primary2} here removes the container.
-     * No further tests should assume a primary is running.
+     * <p>Stopping the active primary removes its container.  No later test may assume a primary
+     * is running.
      */
     @Test
     @Order(6)
-    @DisplayName("Phase 6: HAProxy routes to secondary after primary stops")
+    @Timeout(value = 120, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Phase 6: HAProxy routes the pool to the secondary after the primary stops")
     void testFailoverToSecondaryWhenPrimaryFails(Vertx vertx, VertxTestContext ctx) {
-        long t0 = System.currentTimeMillis();
         PostgreSQLContainer activePrimary = (primary2 != null && primary2.isRunning()) ? primary2 : primary;
-        String primaryLabel = activePrimary == primary2 ? "primary2" : "primary";
-        logger.info("--- Phase 6 BEGIN: failover (destructive)  active primary is {} ---", primaryLabel);
-        logger.info("[phase-6] Container states: {}={} secondary={} haproxy={}",
-            primaryLabel, activePrimary.isRunning() ? "UP" : "DOWN",
-            secondary.isRunning() ? "UP" : "DOWN",
-            haproxy.isRunning() ? "UP" : "DOWN");
+        String[] nodeIds = new String[2]; // 0 = active primary, 1 = secondary
 
-        // Step 1: confirm active primary is reachable before the failover.
-        pool.query("SELECT 1 AS health").execute()
-            .compose(rows -> {
-                int value = rows.iterator().next().getInteger("health");
-                assertEquals(1, value, "Pre-failover query should succeed");
-                logger.info("[phase-6] Pre-failover query OK  {} handling traffic ({}ms)",
-                    primaryLabel, System.currentTimeMillis() - t0);
-
-                // Step 2: Stop the active primary to trigger the failover.
-                logger.info("[phase-6] Stopping {} (containerId={}) to trigger HAProxy failover ",
-                    primaryLabel, activePrimary.getContainerId().substring(0, 12));
-                activePrimary.stop();
-                logger.info("[phase-6] {} stopped after {}ms  waiting {}ms for HAProxy fall=2 detection ",
-                    primaryLabel, System.currentTimeMillis() - t0, HAPROXY_FAILOVER_WAIT_MS);
-
-                Promise<Void> delay = Promise.promise();
-                vertx.setTimer(HAPROXY_FAILOVER_WAIT_MS, id -> delay.complete());
-                return delay.future();
+        nodeIdentityOnNewConnection(activePrimary.getHost(), activePrimary.getFirstMappedPort())
+            .compose(primaryId -> {
+                nodeIds[0] = primaryId;
+                return nodeIdentityOnNewConnection(secondary.getHost(), secondary.getFirstMappedPort());
             })
-            .compose(v -> {
-                logger.info("[phase-6] Failover wait complete ({}ms elapsed)  retrying via secondary ",
-                    System.currentTimeMillis() - t0);
-                return queryWithRetry(vertx, pool, MAX_RETRY_ATTEMPTS, RETRY_INTERVAL_MS);
+            .compose(secondaryId -> {
+                nodeIds[1] = secondaryId;
+                assertNotEquals(nodeIds[0], nodeIds[1],
+                    "Active primary and secondary must report different system identifiers");
+                return awaitNodeIdentity(vertx, this::nodeIdentityFromPool, nodeIds[0],
+                    "Pool before the outage");
             })
-            .onSuccess(value -> ctx.verify(() -> {
-                long elapsed = System.currentTimeMillis() - t0;
-                assertEquals(1, value, "Post-failover query should return 1 via secondary");
-                logger.info("--- Phase 6 PASS: failover complete in {}ms  HAProxy routing via secondary ---",
-                    elapsed);
-                ctx.completeNow();
-            }))
-            .onFailure(err -> {
-                logger.error("[phase-6] FAIL: all retries failed after {}ms: {}",
-                    System.currentTimeMillis() - t0, err.getMessage(), err);
-                ctx.failNow(err);
-            });
+            .compose(v -> stopContainer(vertx, activePrimary))
+            .compose(v -> awaitNodeIdentity(vertx, this::nodeIdentityFromPool, nodeIds[1],
+                "Pool after the active primary stopped"))
+            .onSuccess(v -> ctx.completeNow())
+            .onFailure(ctx::failNow);
     }
 
     // -----------------------------------------------------------------------
-    // Retry helpers use Promise plus explicit success and failure handlers.
+    // Helpers
     // -----------------------------------------------------------------------
+
+    private static PgConnectionConfig connectionConfig(String host, int port) {
+        return new PgConnectionConfig.Builder()
+            .host(host)
+            .port(port)
+            .database(DB_NAME)
+            .username(DB_USER)
+            .password(DB_PASS)
+            .schema(PostgreSQLTestConstants.TEST_SCHEMA)
+            .build();
+    }
+
+    /** Stops a container on a worker thread.  A container stop blocks for seconds. */
+    private static Future<Void> stopContainer(Vertx vertx, PostgreSQLContainer container) {
+        return vertx.<Void>executeBlocking(() -> {
+            container.stop();
+            return null;
+        });
+    }
+
+    /** Starts a container on a worker thread.  A container start blocks for seconds. */
+    private static Future<Void> startContainer(Vertx vertx, PostgreSQLContainer container) {
+        return vertx.<Void>executeBlocking(() -> {
+            container.start();
+            return null;
+        });
+    }
+
+    /** Reads the identity of the node that answers the pool under test. */
+    private Future<String> nodeIdentityFromPool() {
+        return pool.query(NODE_IDENTITY_SQL).execute()
+            .map(rows -> rows.iterator().next().getString("node_id"));
+    }
+
+    /** Reads the identity of the node that HAProxy selects for a connection opened now. */
+    private Future<String> nodeIdentityThroughHaProxyOnNewConnection() {
+        return nodeIdentityOnNewConnection(haproxy.getHost(), haproxy.getMappedPort(HAPROXY_PG_PORT));
+    }
 
     /**
-     * Returns a Future that executes {@code SELECT 1} via the pool, retrying on
-     * failure up to {@code maxAttempts} times with {@code delayMs} between
-     * attempts.
-     *
-     * <p>Retry is implemented with {@link Promise} and {@link Vertx#setTimer}
-     * (Vert.x-safe delay) and explicit success and failure handlers.
-     *
-     * @param vertx       the Vert.x instance used for timers
-     * @param pool        the reactive pool to query
-     * @param maxAttempts maximum number of attempts (>= 1)
-     * @param delayMs     delay in milliseconds between attempts
-     * @return Future resolving to the integer result of {@code SELECT 1}
+     * Opens a new single-connection pool to the endpoint, reads the node identity, and closes
+     * the pool.  A new pool guarantees a new TCP connection, so the result shows where the
+     * endpoint routes a connection opened at this moment.
      */
-    private Future<Integer> queryWithRetry(Vertx vertx, Pool pool, int maxAttempts, long delayMs) {
-        Promise<Integer> result = Promise.promise();
-        scheduleAttempt(vertx, pool, maxAttempts, 1, delayMs, result);
-        return result.future();
+    private Future<String> nodeIdentityOnNewConnection(String host, int port) {
+        String serviceId = "node-identity-" + probeSequence.incrementAndGet();
+        PgPoolConfig probePoolConfig = new PgPoolConfig.Builder()
+            .maxSize(1)
+            .connectionTimeout(POOL_CONNECT_TIMEOUT)
+            .idleTimeout(Duration.ofSeconds(30))
+            .shared(false)
+            .build();
+        Pool probePool = connectionManager.getOrCreateReactivePool(
+            serviceId, connectionConfig(host, port), probePoolConfig);
+        return probePool.query(NODE_IDENTITY_SQL).execute()
+            .map(rows -> rows.iterator().next().getString("node_id"))
+            .eventually(() -> connectionManager.closePool(serviceId));
     }
 
-    private void scheduleAttempt(Vertx vertx, Pool pool, int maxAttempts, int attempt,
-                                 long delayMs, Promise<Integer> result) {
-        pool.query("SELECT 1 AS health").execute()
-            .onSuccess(rows -> {
-                int value = rows.iterator().next().getInteger("health");
-                logger.debug("[retry] Attempt {}/{} OK  value={}", attempt, maxAttempts, value);
-                result.complete(value);
-            })
-            .onFailure(err -> {
-                if (attempt >= maxAttempts) {
-                    logger.error("[retry] All {} attempt(s) exhausted  failing. Last error: {}",
-                        maxAttempts, err.getMessage(), err);
-                    result.fail(err);
-                } else {
-                    logger.debug("[retry] Attempt {}/{} failed: {}  retrying in {}ms ",
-                        attempt, maxAttempts, err.getMessage(), delayMs);
-                    vertx.setTimer(delayMs, id ->
-                        scheduleAttempt(vertx, pool, maxAttempts, attempt + 1, delayMs, result));
-                }
-            });
+    /**
+     * Polls {@code probe} until it returns {@code expectedNodeId}, and fails when
+     * {@link #ROUTING_DEADLINE_MS} elapses first.  A probe failure counts as "not yet": during a
+     * routing change the pool returns connection errors before HAProxy switches server.
+     */
+    private Future<Void> awaitNodeIdentity(
+            Vertx vertx, Supplier<Future<String>> probe, String expectedNodeId, String description) {
+        long deadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(ROUTING_DEADLINE_MS);
+        return pollNodeIdentity(vertx, probe, expectedNodeId, description, deadlineNanos);
+    }
+
+    private Future<Void> pollNodeIdentity(
+            Vertx vertx, Supplier<Future<String>> probe, String expectedNodeId, String description,
+            long deadlineNanos) {
+        return probe.get().transform(probeResult -> {
+            if (probeResult.succeeded() && expectedNodeId.equals(probeResult.result())) {
+                logger.info("{}: node {} answered", description, expectedNodeId);
+                return Future.<Void>succeededFuture();
+            }
+            if (System.nanoTime() >= deadlineNanos) {
+                String lastObserved = probeResult.succeeded()
+                    ? "node " + probeResult.result()
+                    : "failure " + probeResult.cause();
+                return Future.<Void>failedFuture(new AssertionError(
+                    description + ": expected node " + expectedNodeId + " within "
+                        + ROUTING_DEADLINE_MS + " ms, last observed " + lastObserved,
+                    probeResult.cause()));
+            }
+            return vertx.timer(POLL_INTERVAL_MS)
+                .compose(timerId -> pollNodeIdentity(vertx, probe, expectedNodeId, description, deadlineNanos));
+        });
     }
 }
