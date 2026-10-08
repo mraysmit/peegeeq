@@ -2,13 +2,13 @@
 
 **Author**: Mark A Ray-Smith Cityline Ltd.  
 **Document type**: Design rationale  
-**Design revision**: 2026-10-08, Patroni-style local supervision
+**Design revision**: 2026-10-08, Patroni-style local supervision, coordinator port, optional watchdog
 
 ## 1. Purpose and Scope
 
 This document explains the routing and failover choices behind PeeGeeQ's PostgreSQL design.
 It is for readers deciding how a deployment identifies its writer and why the selected
-architecture includes sidecars, node-local supervisors, writer leases, and watchdog protection. It records design
+architecture includes sidecars, node-local supervisors, writer leases, and optional watchdog protection. It records design
 rationale and deployment obligations. It does not report current implementation or run evidence.
 
 **The decision being made.** Applications need a stable database address while the authorised
@@ -21,7 +21,7 @@ conditions. Selecting a routing check must account for those differences.
 For example, node 1 can lose contact with the controller while remaining reachable by
 applications. Promoting node 2 and directing new connections to it would leave conflicting
 writers unless node 1 is excluded before ownership transfers. That exclusion is **fencing**.
-The selected Patroni approach uses local lease-loss shutdown and an independent watchdog.
+The selected Patroni approach uses local lease-loss shutdown and optional independent watchdog protection.
 Survivors do not require a remote stop reply from an unreachable host.
 
 **The responsibilities used to compare options.** Each alternative is assessed against the
@@ -43,19 +43,18 @@ deployment. A product name alone does not establish safe fencing or acknowledged
 
 **The selected approach.** Redundant HAProxy instances use a sidecar beside each PostgreSQL
 node to report current writer eligibility. The sidecar combines role, identity, authority,
-local permission, and synchronous coverage. A PeeGeeQ supervisor on each node manages its local PostgreSQL and its own Consul writer lease.
-Local admission, local stop on lease loss, and an independent watchdog protect ownership handover.
+local permission, and synchronous coverage. A PeeGeeQ supervisor on each node manages its local PostgreSQL and its own writer lease, held through a coordinator port.
+Local admission and local stop on lease loss protect ownership handover. An optional independent watchdog adds protection for a supervisor that cannot act.
 The winner promotes an already-running covered standby. Application clients recover through stable
 SQL and authenticated status endpoints. Optional PgBouncer adds a pooler layer that also
 requires redundancy. LISTEN subscriptions require a dedicated route in transaction-pooling mode.
 
-Consul is selected for the initial A/B implementation. G-7 qualifies its writer-lease protocol
-before takeover implementation. The local Java Qraft service is an option for that decision.
-Its qualification and replacement obligations are in system design §5.10 and the implementation
-plan. Selecting a coordinator never makes lease ownership enforce itself at PostgreSQL.
+The coordinator is reached through a port, so no component depends on one product (system
+design §5.10). Consul is the first adapter. Qraft is supported through its own adapter once it
+meets the port's obligations. Selecting a coordinator never makes lease ownership enforce itself at PostgreSQL.
 
-The system design names four deployment profiles. **A** uses automatic Consul-coordinated
-failover. **B** uses operator-requested promotion through the same node-owned lease/watchdog contracts
+The system design names four deployment profiles. **A** uses automatic coordinator-backed
+failover. **B** uses operator-requested promotion through the same node-owned lease and watchdog-mode contracts
 and is the first implementation target. **C** uses an externally managed writer endpoint
 whose operator must supply equivalent safety and durability evidence. **D** uses independent
 development databases for connection-recovery exercises. D does not qualify replicated-data
@@ -74,7 +73,7 @@ check. Sections 3 and 4 explain architecture and alternatives; §5 explains reco
 §6 maps those obligations to deployments. Continue with
 [the system design](PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md) for the complete protocols,
 [the sidecar guide](PEEGEEQ_PG_SIDECAR.md) for eligibility reporting, and
-[the Consul design](PEEGEEQ_FAILOVER_CONSUL_DESIGN.md) for guarded transitions.
+[the coordinator and supervision design](PEEGEEQ_FAILOVER_CONSUL_DESIGN.md) for guarded transitions.
 [The implementation plan](PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY_IMPLEMENTATION_PLAN.md)
 defines selection gates, implementation order, and required evidence.
 
@@ -85,11 +84,11 @@ owns the data model. This document adds no stored field.
 
 | Information | Source of truth or derivable | Meaning |
 |---|---|---|
-| Serving intent | Consul control record in both modes | Intended writer, operation, and confirmed policy revision |
+| Serving intent | Coordinator control record in both modes | Intended writer, operation, and confirmed policy revision |
 | Writer execution permission | Authoritative local supervisor grant bound to node, mode, generation, operation, and policy revision | Only an open grant matching serving intent permits traffic |
 | Actual database role | Derived live query | Whether the local database is in recovery |
 | Local action/quarantine evidence and watchdog settings | Authoritative local supervisor records and deployment configuration | Qualified local exclusion before lease handover; no failed-host stop reply |
-| Routing eligibility | Derived matching lease/local grant, watchdog health, identity, role, and synchronous coverage | Same predicate for HAProxy `/primary` and client `/writer` |
+| Routing eligibility | Derived matching lease/local grant, watchdog state under the selected mode, identity, role, and synchronous coverage | Same predicate for HAProxy `/primary` and client `/writer` |
 | Acknowledged durability | Commit under synchronous replication policy | Separate from routing and election |
 
 Routing, promotion, fencing, and durability are distinct responsibilities. Passing one check
@@ -114,22 +113,22 @@ separately. [PostgreSQL replication protocol](https://www.postgresql.org/docs/cu
 | Responsibility | Selected component |
 |---|---|
 | Stable application endpoint | Redundant HAProxy and optional redundant PgBouncer layers with tested address failover |
-| Client authority observation | Authenticated read-only `/writer` through a redundant HTTP endpoint; no client Consul credentials |
+| Client authority observation | Authenticated read-only `/writer` through a redundant HTTP endpoint; no client coordinator credentials |
 | Eligibility response | `peegeeq-pg-sidecar` with explicit automatic or manual mode |
-| Writer authority in A/B | Node-owned Consul lease and per-node `PgPrimaryElector` |
-| Local supervision and reconciliation | Per-node `PgFailoverMonitor` in proposed `peegeeq-pg-failover` |
-| Fencing and guarded node actions | Local lease-loss stop, required independent watchdog, local grants, and standby-only restart |
+| Writer authority in A/B | Node-owned lease held through the coordinator port by a per-node `PgPrimaryElector`. Consul is the first adapter |
+| Local supervision and reconciliation | Per-node `PgFailoverMonitor` in `peegeeq-pg-failover` |
+| Fencing and guarded node actions | Local lease-loss stop, optional independent watchdog, local grants, and standby-only restart |
 | Acknowledged-write preservation | Three-node synchronous topology covering both eligible targets before failure and a surviving synchronous peer after promotion |
 | Client recovery | Shared pool manager, deadlines, LISTEN reconnect, and durable catch-up |
 
 PeeGeeQ follows the Patroni control model without requiring the Patroni product. Database failover is independent of PeeGeeQ federation.
 
-Both modes require consistent authority observations, local self-demotion, and qualified
-independent watchdog enforcement. A SQL-only monitor is insufficient. A lock is advisory and
+Both modes require consistent authority observations and local self-demotion. Independent
+watchdog enforcement is optional and adds protection for a supervisor that cannot act. A SQL-only monitor is insufficient. A lock is advisory and
 cannot stop PostgreSQL accepting writes. [Consul sessions](https://developer.hashicorp.com/consul/docs/automate/session)
 
 Manual mode is the first implementation target. Its operator requests a target, but that
-node must acquire the same writer lease and arm the same watchdog as automatic mode.
+node must acquire the same writer lease and apply the same watchdog mode as automatic mode.
 Both modes use local preparation, serving publication, and activation. Manual mode disables
 autonomous initiation; it does not substitute operator permission for lease ownership.
 The central provider and all-node generation barrier are removed.
@@ -138,9 +137,9 @@ The central provider and all-node generation barrier are removed.
 
 | Approach | Routing signal | Automatic promotion | Required safety work |
 |---|---|---|---|
-| PeeGeeQ manual profile B | Lease/local grant/watchdog eligibility | Operator request; local supervisor executes | Same lease-loss shutdown, watchdog, durability, and re-join as A |
-| PeeGeeQ automatic profile A | Role plus node-owned Consul lease, grant, and watchdog | Winning standby supervisor | Qualified lease handover/local exclusion, reconciliation, and all B contracts |
-| PeeGeeQ automatic control with Qraft | Role plus qualified Qraft authority and admission | Winning standby supervisor after backend qualification | Define conditional ownership, expiry, revisions, linearizable authority reads, generation mapping, durable recovery, and security. Replace the reference Consul contracts before implementation. |
+| PeeGeeQ manual profile B | Lease and local grant eligibility | Operator request; local supervisor executes | Same lease-loss shutdown, watchdog mode, durability, and re-join as A |
+| PeeGeeQ automatic profile A | Role plus node-owned lease, grant, and watchdog state under the selected mode | Winning standby supervisor | Qualified lease handover/local exclusion, reconciliation, and all B contracts |
+| PeeGeeQ profiles A and B with a Qraft adapter | The same port contract, served by Qraft | Same as A and B | The Qraft adapter passes the coordinator contract suite: conditional ownership, expiry, revisions, linearizable authority reads, generation, durable recovery, and security. No other component changes |
 | Role-only HTTP sidecar | Local role | None | Does not prevent two writable primaries |
 | HAProxy agent-check with role query | Local role | None | Same authority and fencing limitations as role-only HTTP |
 | repmgr/repmgrd | Deployment-specific role integration | Can automate promotion | Verify its configured fencing, topology, and re-join guarantees |
@@ -160,10 +159,10 @@ HAProxy uses `httpchk GET /primary` and `on-marked-down shutdown-sessions`. All 
 the same policy. No fixed backup preference sends traffic to a returning former primary.
 Routing uses the last successful scheduled sidecar observation and configured backend health.
 Session shutdown occurs after failed checks mark a backend down. Measure the observation and
-shutdown delay. Local admission and lease-timed watchdog exclusion protect single-writer safety while
+shutdown delay. Local admission and lease-timed local exclusion protect single-writer safety while
 different proxies retain different observations.
 
-An unreachable old primary can be excluded by the qualified lease/watchdog contract without
+An unreachable old primary can be excluded by the qualified lease and local-exclusion contract without
 contacting its host. Session termination, pool closure, and lock delay alone do not establish
 that contract. PostgreSQL requires protection
 against a former primary continuing as primary.
@@ -203,9 +202,9 @@ manager's commit-policy enforcement before bootstrap or failover write-preservat
 (S53). Full application-module migration remains phase 11.
 
 The initial 45-second recovery objective applies to the qualified three-node primary-crash
-case with a qualified local supervisor/watchdog, eligible target, usable synchronous peer, specified backlog,
+case with a qualified local supervisor, the selected watchdog mode, eligible target, usable synchronous peer, specified backlog,
 and measured handler latency. Request timeouts alone do not establish it. Measure committed
-application work and finite required catch-up. A partition without qualified lease/watchdog exclusion has no
+application work and finite required catch-up. A partition without qualified lease and local exclusion has no
 availability promise. PgBouncer and address-owner failures are separate qualification cases.
 
 ## 6. Deployment Selection
@@ -213,24 +212,24 @@ availability promise. PgBouncer and address-owner failures are separate qualific
 | Deployment | Profile and obligations |
 |---|---|
 | Production with operator promotion | B; verified fencing, synchronous standby, redundant proxy, and tested re-join |
-| Production requiring automatic promotion | A after supervisor/watchdog and partition acceptance gates pass |
+| Production requiring automatic promotion | A after supervisor and partition acceptance gates pass |
 | Externally managed writer endpoint | C; external operator supplies equivalent fencing and durability evidence |
 | Development connection-recovery exercises | D; independent databases and protocol checks, with no replicated-data guarantee |
 
 The same local-supervisor protocol is selected for Linux hosts/VMs, Docker hosts, and Kubernetes.
 Takeover contains no orchestrator-specific remote shutdown operation. G-1 requires independent
-watchdog exclusion, including whole-VM pause/resume, before claiming support on each environment.
+watchdog exclusion, including whole-VM pause/resume, before that protection is claimed on an environment.
 Device exposure, privileges, persistence, and stable address configuration are deployment bindings;
 they are qualified before deployment, not used to block the common design.
 
-Consul is selected for both A and B. G-7 qualifies ownership and expiry. Qraft requires equivalent
-service contracts and real fault evidence before substitution. Consul-free operation requires
-that qualified replacement or external profile C. Manual initiation alone does not remove leases.
+A and B use the same coordinator adapter. G-7 qualifies an adapter against the contract suite.
+Consul is the first adapter. Consul-free operation uses a qualified Qraft adapter or external
+profile C. Manual initiation alone does not remove leases.
 
 ## 7. Build and Operations References
 
 [The sidecar guide](PEEGEEQ_PG_SIDECAR.md) owns sidecar packaging and configuration.
-[The Consul design](PEEGEEQ_FAILOVER_CONSUL_DESIGN.md) owns lease and local-supervision contracts.
+[The coordinator and supervision design](PEEGEEQ_FAILOVER_CONSUL_DESIGN.md) owns the elector, the Consul adapter, and local-supervision contracts.
 [The system design](PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md) owns deadlines, durability,
 proxy configuration, scenarios, and client recovery.
 [The implementation plan](PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY_IMPLEMENTATION_PLAN.md)

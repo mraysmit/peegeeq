@@ -1,34 +1,27 @@
 package dev.mars.peegeeq.failover;
 
 import io.vertx.core.Future;
-import io.vertx.core.Vertx;
-import io.vertx.core.buffer.Buffer;
-import io.vertx.core.http.HttpMethod;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
-import io.vertx.ext.web.client.HttpResponse;
-import io.vertx.ext.web.client.WebClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import java.net.URI;
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
-/** Node-owned Consul protocol. Control ownership alone does not authorise PostgreSQL writes. */
+/**
+ * Node-owned ownership state above the coordinator port: intent validation, the freshness
+ * deadline, retirement, and late-reply rejection. Control ownership alone does not authorise
+ * PostgreSQL writes.
+ */
 public final class PgPrimaryElector {
     @FunctionalInterface
     private interface Operation<T> { Future<T> execute(); }
     private static final Logger logger = LoggerFactory.getLogger(PgPrimaryElector.class);
     private final PgNodeConfig config;
-    private final WebClient client;
-    private final String endpoint;
-    private final String consulNodeName;
-    private final String token;
+    private final PgLeaseCoordinator coordinator;
     private long epoch;
     private boolean attempted;
     private boolean retired;
@@ -37,22 +30,9 @@ public final class PgPrimaryElector {
     private PgControlRecord held;
     private long freshUntil;
 
-    public PgPrimaryElector(Vertx vertx, PgNodeConfig config, URI endpoint,
-                            String consulNodeName, String token) {
+    public PgPrimaryElector(PgNodeConfig config, PgLeaseCoordinator coordinator) {
         this.config = Objects.requireNonNull(config, "config");
-        Objects.requireNonNull(endpoint, "endpoint");
-        PgNodeConfig.requireIdentity(consulNodeName);
-        if (token == null || token.isBlank()) throw new IllegalArgumentException("Consul token is required");
-        if (endpoint.getHost() == null || endpoint.getUserInfo() != null || endpoint.getQuery() != null
-                || endpoint.getFragment() != null || !Set.of("", "/").contains(endpoint.getPath())
-                || !("https".equals(endpoint.getScheme()) || "http".equals(endpoint.getScheme())
-                    && Set.of("localhost", "127.0.0.1", "[::1]").contains(endpoint.getHost()))) {
-            throw new IllegalArgumentException("Consul requires HTTPS, or loopback HTTP for local fixtures");
-        }
-        this.endpoint = endpoint.toString().replaceAll("/$", "");
-        this.consulNodeName = consulNodeName;
-        this.token = token;
-        client = WebClient.create(Objects.requireNonNull(vertx, "vertx"));
+        this.coordinator = Objects.requireNonNull(coordinator, "coordinator");
     }
 
     /** Conditional initial intent only. The caller must verify authenticated provisioning first. */
@@ -67,30 +47,53 @@ public final class PgPrimaryElector {
         long started = System.nanoTime();
         return cycle(current, started, () -> {
             JsonObject value = validateIntent(intent);
+            requireNewPoliciesExcludeWriter(value, null);
             if (!config.nodeId().equals(value.getString("writerNodeId"))
                     || !"WITHDRAWN".equals(value.getString("phase"))
                     || value.containsKey("previousWriterNodeId") || value.containsKey("durabilityPolicy")
                     || value.getJsonObject("pendingDurabilityPolicy").getLong("revision") != 1L) {
                 throw protocol("Initial acquisition requires withdrawn first-policy intent");
             }
-            JsonObject session = new JsonObject().put("Name", config.nodeId())
-                .put("Node", consulNodeName).put("TTL", config.sessionTtl().toSeconds() + "s")
-                .put("LockDelay", "0s").put("Behavior", "release")
-                .put("NodeChecks", new JsonArray()).put("ServiceChecks", new JsonArray());
-            return request(HttpMethod.PUT, "/v1/session/create", session).map(response -> {
-                success(response);
-                String id = response.bodyAsJsonObject().getString("ID");
-                UUID.fromString(id);
-                return id;
-            }).compose(id -> request(HttpMethod.GET, "/v1/session/info/" + id + "?consistent", null)
-                .map(response -> { validateSession(response, id); return id; }))
-                .compose(id -> transact(new JsonArray()
-                    .add(op("check-not-exists", null, null, null))
-                    .add(op("lock", id, null, encode(value)))
-                    .add(op("get", null, null, null))).map(record -> {
-                        requireOwned(record, id);
-                        return record;
-                    }));
+            return coordinator.acquireInitial(value).map(record -> acquired(record, value));
+        });
+    }
+
+    /**
+     * Takes over retained, unowned history at the revision the caller read. The intent is
+     * withdrawn, names this node as writer and the released writer as previous writer, and
+     * carries the confirmed and pending policy unchanged.
+     */
+    public Future<PgControlRecord> acquireAfterRelease(PgControlRecord released, JsonObject intent) {
+        final long current;
+        synchronized (this) {
+            if (closed || retired || attempted || busy) return failed("Acquisition after release is unavailable");
+            attempted = true;
+            busy = true;
+            current = epoch;
+        }
+        long started = System.nanoTime();
+        return cycle(current, started, () -> {
+            if (released == null || released.leaseHolder() != null
+                    || !config.controlName().equals(released.controlName())) {
+                throw protocol("Acquisition after release requires this cluster's unowned control record");
+            }
+            JsonObject history = validateIntent(released.intent());
+            JsonObject value = validateIntent(intent);
+            if (!config.nodeId().equals(value.getString("writerNodeId"))
+                    || !"WITHDRAWN".equals(value.getString("phase"))
+                    || !history.getString("writerNodeId").equals(value.getString("previousWriterNodeId"))
+                    || !Objects.equals(history.getJsonObject("durabilityPolicy"), value.getJsonObject("durabilityPolicy"))
+                    || !Objects.equals(history.getJsonObject("pendingDurabilityPolicy"),
+                        value.getJsonObject("pendingDurabilityPolicy"))) {
+                throw protocol("Acquisition after release requires withdrawn intent that preserves history");
+            }
+            return coordinator.acquireAfterRelease(released, value).map(record -> {
+                acquired(record, value);
+                if (record.generation() <= released.generation()) {
+                    throw protocol("Acquisition after release did not advance the generation");
+                }
+                return record;
+            });
         });
     }
 
@@ -100,19 +103,10 @@ public final class PgPrimaryElector {
             if (closed) return failed("Elector is closed");
             current = epoch;
         }
-        return bounded(() -> request(HttpMethod.GET, "/v1/kv/" + config.controlKey() + "?consistent", null)
-            .map(response -> {
-                if (!"true".equals(response.getHeader("X-Consul-KnownLeader"))) {
-                    throw protocol("Consul read has no known leader");
-                }
-                if ("true".equals(response.getHeader("X-Consul-Results-Filtered-By-ACLs"))) {
-                    throw protocol("Consul read was filtered by ACLs");
-                }
-                if (response.statusCode() == 404) return Optional.<PgControlRecord>empty();
-                success(response);
-                JsonArray values = response.bodyAsJsonArray();
-                if (values == null || values.size() != 1) throw protocol("Invalid control read cardinality");
-                return Optional.of(decode(values.getJsonObject(0)));
+        return bounded(() -> coordinator.read().map(found -> {
+                if (found == null) throw protocol("Coordinator returned no read result");
+                found.ifPresent(this::observed);
+                return found;
             })).transform(result -> {
                 if (result.failed()) {
                     synchronized (this) { if (epoch == current) retire(); }
@@ -136,20 +130,13 @@ public final class PgPrimaryElector {
             busy = true;
         }
         long started = System.nanoTime();
-        return cycle(current, started, () ->
-            request(HttpMethod.PUT, "/v1/session/renew/" + expected.sessionId(), null)
-                .compose(response -> {
-                    validateSession(response, expected.sessionId());
-                    return read();
-                }).map(observed -> {
-                    PgControlRecord record = observed.orElseThrow(() -> protocol("Control record disappeared"));
-                    requireOwned(record, expected.sessionId());
-                    if (record.lockIndex() != expected.lockIndex() || record.modifyIndex() != expected.modifyIndex()
-                            || !record.intent().equals(expected.intent())) {
-                        throw protocol("Control generation or intent changed during renewal");
-                    }
-                    return record;
-                }));
+        return cycle(current, started, () -> coordinator.renew(expected).map(record -> {
+            observed(record);
+            if (!expected.equals(record)) {
+                throw protocol("Control holder, generation, revision, or intent changed during renewal");
+            }
+            return record;
+        }));
     }
 
     public Future<PgControlRecord> update(PgControlRecord expected, JsonObject intent) {
@@ -163,23 +150,55 @@ public final class PgPrimaryElector {
             deadline = freshUntil;
             busy = true;
         }
-        // A KV mutation does not renew the TTL. Preserve the renewal-derived deadline.
+        // A value mutation does not renew the lease. Preserve the renewal-derived deadline.
         return finish(current, deadline, () -> {
             JsonObject value = validateIntent(intent);
+            requireNewPoliciesExcludeWriter(value, expected.intent());
             if (!config.nodeId().equals(value.getString("writerNodeId"))
                     || !expected.intent().getString("operationId").equals(value.getString("operationId"))) {
                 throw protocol("Update cannot replace writer or operation identity");
             }
-            return transact(new JsonArray()
-                .add(op("check-session", expected.sessionId(), null, null))
-                .add(op("check-index", null, expected.modifyIndex(), null))
-                // Same-session lock preserves LockIndex; ordinary CAS resets it in Consul 1.22.1.
-                .add(op("lock", expected.sessionId(), null, encode(value)))
-                .add(op("get", null, null, null))).map(record -> {
-                    requireOwned(record, expected.sessionId());
-                    if (record.lockIndex() != expected.lockIndex()) throw protocol("Update changed lock generation");
-                    return record;
-                });
+            return coordinator.update(expected, value).map(record -> {
+                observed(record);
+                if (!expected.leaseHolder().equals(record.leaseHolder())
+                        || !config.nodeId().equals(record.intent().getString("writerNodeId"))
+                        || !value.equals(record.intent())) {
+                    throw protocol("Updated control record is not owned by this node with the requested intent");
+                }
+                if (record.generation() != expected.generation()) throw protocol("Update changed the generation");
+                return record;
+            });
+        });
+    }
+
+    /**
+     * Guarded voluntary release. The caller must first confirm local writer exclusion. This
+     * instance is retired whatever the outcome; an uncertain outcome requires a fresh observation.
+     */
+    public Future<PgControlRecord> release(PgControlRecord expected) {
+        final long current;
+        synchronized (this) {
+            if (closed || retired || busy || held == null || expected == null || !held.equals(expected)) {
+                return failed("Release requires the held control record at its current revision");
+            }
+            current = epoch;
+            busy = true;
+        }
+        return bounded(() -> coordinator.release(expected).map(record -> {
+            observed(record);
+            if (record.leaseHolder() != null || record.generation() != expected.generation()
+                    || !expected.intent().equals(record.intent())) {
+                throw protocol("Release did not retain the control record as unowned history");
+            }
+            return record;
+        })).transform(result -> {
+            synchronized (this) {
+                boolean superseded = epoch != current;
+                if (!superseded) retire();
+                if (result.failed()) return Future.failedFuture(result.cause());
+                if (superseded) return failed("Release completed after retirement");
+            }
+            return Future.succeededFuture(result.result());
         });
     }
 
@@ -196,19 +215,25 @@ public final class PgPrimaryElector {
         return !closed && !retired && held != null && System.nanoTime() - freshUntil < 0;
     }
 
-    /** Preserve the session and control history. Generic cleanup must not grant takeover. */
-    public synchronized Future<Void> close() {
-        if (!closed) {
+    /** Whether this instance freshly holds exactly this record: same holder, generation, revision, and intent. */
+    public synchronized boolean holds(PgControlRecord record) {
+        return hasFreshOwnership() && held.equals(record);
+    }
+
+    /** Preserve the lease and control history. Generic cleanup must not grant takeover. */
+    public Future<Void> close() {
+        synchronized (this) {
+            if (closed) return Future.succeededFuture();
             retire();
             closed = true;
-            client.close();
         }
-        return Future.succeededFuture();
+        return coordinator.close();
     }
 
     private Future<PgControlRecord> cycle(long current, long started,
                                           Operation<PgControlRecord> operation) {
-        long deadline = started + config.sessionTtl().minus(config.watchdogTimeout()).toNanos();
+        // Measured from the start of the request: the lease cannot expire before start plus TTL.
+        long deadline = started + config.ownershipBudget().toNanos();
         return finish(current, deadline, operation);
     }
 
@@ -239,87 +264,36 @@ public final class PgPrimaryElector {
         try {
             result = operation.execute();
         } catch (RuntimeException failure) {
-            logger.warn("Consul protocol request rejected", failure);
-            return Future.failedFuture(new PgLeaseProtocolException("Consul protocol request rejected", failure));
+            logger.warn("Coordinator request rejected", failure);
+            return Future.failedFuture(failure instanceof PgLeaseProtocolException
+                ? failure : new PgLeaseProtocolException("Coordinator request rejected", failure));
         }
+        if (result == null) return failed("Coordinator returned no result");
         return result.timeout(config.requestTimeout().toMillis(), TimeUnit.MILLISECONDS).transform(outcome -> {
             if (outcome.failed()) {
-                logger.warn("Consul protocol operation failed", outcome.cause());
+                logger.warn("Coordinator operation failed", outcome.cause());
                 return Future.failedFuture(outcome.cause() instanceof PgLeaseProtocolException
-                    ? outcome.cause() : new PgLeaseProtocolException("Consul protocol operation failed", outcome.cause()));
+                    ? outcome.cause() : new PgLeaseProtocolException("Coordinator operation failed", outcome.cause()));
             }
             return Future.succeededFuture(outcome.result());
         });
     }
 
-    private Future<HttpResponse<Buffer>> request(HttpMethod method, String path, Object body) {
-        var request = client.requestAbs(method, endpoint + path).putHeader("X-Consul-Token", token)
-            .timeout(config.requestTimeout().toMillis());
-        return body == null ? request.send() : request.sendJson(body);
+    /** Validates a record returned by the coordinator before any state depends on it. */
+    private PgControlRecord observed(PgControlRecord record) {
+        if (record == null) throw protocol("Coordinator returned no control record");
+        if (!config.controlName().equals(record.controlName())) throw protocol("Unexpected control record name");
+        validateIntent(record.intent());
+        return record;
     }
 
-    private Future<PgControlRecord> transact(JsonArray operations) {
-        return request(HttpMethod.PUT, "/v1/txn", operations).map(response -> {
-            success(response);
-            JsonObject body = response.bodyAsJsonObject();
-            JsonArray errors = body.getJsonArray("Errors");
-            JsonArray results = body.getJsonArray("Results");
-            // Consul 1.22.1 omits a result for successful check-not-exists.
-            long expectedResults = operations.stream().filter(operation ->
-                !"check-not-exists".equals(((JsonObject) operation).getJsonObject("KV").getString("Verb"))).count();
-            if (errors != null && !errors.isEmpty() || results == null || results.size() != expectedResults) {
-                throw protocol("Consul transaction did not return all operations");
-            }
-            return decode(results.getJsonObject(results.size() - 1).getJsonObject("KV"));
-        });
-    }
-
-    private JsonObject op(String verb, String session, Long index, String value) {
-        JsonObject kv = new JsonObject().put("Verb", verb).put("Key", config.controlKey());
-        if (session != null) kv.put("Session", session);
-        if (index != null) kv.put("Index", index);
-        if (value != null) kv.put("Value", value);
-        return new JsonObject().put("KV", kv);
-    }
-
-    private void success(HttpResponse<Buffer> response) {
-        if (response.statusCode() != 200 || "true".equals(response.getHeader("X-Consul-Results-Filtered-By-ACLs"))) {
-            throw protocol("Consul rejected or filtered request: HTTP " + response.statusCode());
+    private PgControlRecord acquired(PgControlRecord record, JsonObject value) {
+        observed(record);
+        if (record.leaseHolder() == null || !config.nodeId().equals(record.intent().getString("writerNodeId"))
+                || !value.equals(record.intent())) {
+            throw protocol("Control record is not owned by this node with the requested intent");
         }
-    }
-
-    private void validateSession(HttpResponse<Buffer> response, String id) {
-        success(response);
-        JsonArray sessions = response.bodyAsJsonArray();
-        if (sessions == null || sessions.size() != 1) throw protocol("Session is absent or ambiguous");
-        JsonObject session = sessions.getJsonObject(0);
-        if (!id.equals(session.getString("ID")) || !consulNodeName.equals(session.getString("Node"))
-                || !(config.sessionTtl().toSeconds() + "s").equals(session.getString("TTL"))
-                || !"release".equals(session.getString("Behavior"))
-                || !Long.valueOf(0).equals(session.getLong("LockDelay"))) {
-            throw protocol("Session settings differ from qualified TTL-only contract");
-        }
-        for (String name : Set.of("Checks", "NodeChecks", "ServiceChecks")) {
-            JsonArray checks = session.getJsonArray(name);
-            if (checks != null && !checks.isEmpty()) throw protocol("Session has a non-TTL invalidation source");
-        }
-    }
-
-    private PgControlRecord decode(JsonObject kv) {
-        if (kv == null || !config.controlKey().equals(kv.getString("Key"))) throw protocol("Unexpected control key");
-        String session = kv.getString("Session");
-        if (session != null && session.isBlank()) session = null;
-        if (session != null) UUID.fromString(session);
-        String encoded = kv.getString("Value");
-        JsonObject intent = new JsonObject(new String(Base64.getDecoder().decode(encoded), StandardCharsets.UTF_8));
-        return new PgControlRecord(config.controlKey(), positiveInteger(kv, "LockIndex"), positiveInteger(kv, "ModifyIndex"),
-            session, validateIntent(intent));
-    }
-
-    private void requireOwned(PgControlRecord record, String session) {
-        if (!session.equals(record.sessionId()) || !config.nodeId().equals(record.intent().getString("writerNodeId"))) {
-            throw protocol("Control record is not owned by this node and session");
-        }
+        return record;
     }
 
     private JsonObject validateIntent(JsonObject source) {
@@ -346,18 +320,34 @@ public final class PgPrimaryElector {
             JsonArray peers = policy.getJsonArray("requiredStandbyNodeIds");
             if (peers == null || peers.isEmpty() || peers.stream().distinct().count() != peers.size()
                     || peers.stream().anyMatch(peer -> !(peer instanceof String)
-                        || !config.memberNodeIds().contains(peer) || intent.getString("writerNodeId").equals(peer))) {
+                        || !config.memberNodeIds().contains(peer))) {
                 throw protocol("Invalid required standby membership");
             }
         }
         if (confirmed != null && pending != null && pending.getLong("revision") <= confirmed.getLong("revision")) {
             throw protocol("Pending policy must advance the confirmed revision");
         }
+        // The serving set never contains the writer. Retained history may: after a takeover the
+        // former writer's confirmed policy names the new writer until the policy cutover replaces it.
+        if ("SERVING".equals(intent.getString("phase")) && namesWriter(confirmed, intent)) {
+            throw protocol("Serving policy cannot require the writer as its own standby");
+        }
         return intent;
     }
 
-    private static String encode(JsonObject value) {
-        return Base64.getEncoder().encodeToString(value.encode().getBytes(StandardCharsets.UTF_8));
+    /** A policy this node introduces must not name the writer. A policy carried from history may. */
+    private static void requireNewPoliciesExcludeWriter(JsonObject value, JsonObject inherited) {
+        for (String field : new String[] {"durabilityPolicy", "pendingDurabilityPolicy"}) {
+            JsonObject policy = value.getJsonObject(field);
+            if (policy == null || !namesWriter(policy, value)) continue;
+            boolean carried = inherited != null && (policy.equals(inherited.getJsonObject("durabilityPolicy"))
+                || policy.equals(inherited.getJsonObject("pendingDurabilityPolicy")));
+            if (!carried) throw protocol("A new policy cannot require the writer as its own standby");
+        }
+    }
+
+    private static boolean namesWriter(JsonObject policy, JsonObject intent) {
+        return policy != null && policy.getJsonArray("requiredStandbyNodeIds").contains(intent.getString("writerNodeId"));
     }
 
     private static long positiveInteger(JsonObject source, String field) {

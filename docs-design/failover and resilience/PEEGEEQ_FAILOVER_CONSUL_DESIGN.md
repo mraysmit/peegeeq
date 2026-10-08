@@ -1,15 +1,15 @@
-# PostgreSQL Failover with Consul and Local Supervision — Design
+# PostgreSQL Failover: Coordinator Lease and Local Supervision — Design
 
 **Author**: Mark A Ray-Smith Cityline Ltd.
 **Document type**: Target design
-**Design revision**: 2026-10-08, Patroni-style local supervision
-**Module**: Proposed `peegeeq-pg-failover`
+**Design revision**: 2026-10-08, Patroni-style local supervision, coordinator port, optional watchdog
+**Module**: `peegeeq-pg-failover`
 
 ## 1. Purpose and Scope
 
 This document defines PeeGeeQ's PostgreSQL control model. One PeeGeeQ supervisor runs with
 each PostgreSQL node. It implements the Patroni approach: the writer's supervisor maintains
-its own coordination lease, stops its local PostgreSQL on lease loss, and uses an independent
+its own coordination lease, stops its local PostgreSQL on lease loss, and can use an independent
 watchdog to protect against supervisor failure. A surviving standby acquires ownership and
 promotes locally. It does not require a remote shutdown reply from the failed host.
 
@@ -17,17 +17,18 @@ The document is for developers implementing the supervisor and operators deployi
 containerised components on Linux hosts/VMs, Docker hosts, and Kubernetes. It defines target
 contracts, not current runtime behaviour or qualification. The Patroni product is not required.
 
-Consul is selected for the first implementation. Both automatic A and operator-initiated B
-use the same lease and enforcement. B disables autonomous takeover; it does not remove
-coordination or self-demotion. Qraft remains a possible replacement after equivalent lease,
-conditional-update, authoritative-read, and timing contracts are implemented and qualified.
+The supervisor uses a coordinator port and never a coordinator product directly (§3). Consul is
+the first adapter. Qraft is supported through its own adapter once it meets the port's
+obligations. Both automatic A and operator-initiated B use the same lease and enforcement.
+B disables autonomous takeover; it does not remove coordination or self-demotion.
 
 The failure model includes host failure, network partitions, supervisor death, frozen
 PostgreSQL, delayed messages, and VM pause/resume. An application connectivity failure alone
 does not authorise promotion. An isolated PostgreSQL can remain healthy and serve other clients.
 Survivors must therefore establish exclusive ownership under the qualified exclusion contract.
 
-Read the data model first. Sections 3 and 4 define lease ownership and local enforcement.
+Read the data model first. Section 3 defines the elector above the coordinator port and the
+Consul adapter. Section 4 defines local enforcement.
 Sections 5 and 6 define takeover, bootstrap, durability, and standby re-join. Section 8 defines
 required fault evidence. Application connections and LISTEN recovery are in
 [the system design](PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md).
@@ -43,9 +44,9 @@ owns the canonical field contract. This document creates no second writer author
 | Data | Source of truth or derivable | Contract |
 |---|---|---|
 | Cluster, incarnation, node IDs, membership, mode, endpoints, and timing/device settings | Authoritative deployment configuration | One supervisor owns one node. Fixed membership and one coordinator per incarnation. |
-| `peegeeq/pg/<clusterId>/<incarnation>/primary-lock` | Authoritative Consul control record | Contains writer and transition intent plus confirmed/pending policy. Retain history after normal lease release. |
-| Session, lock index, and value revision | Authoritative Consul metadata | Session belongs to the writer's node-local supervisor. Key/index/session identify generation; value revision guards updates. |
-| `writerNodeId`, phase, operation, previous writer, confirmed/pending policy | Authoritative Consul intent in both modes | Persist withdrawn intent before local effects. Missing policy never grants ordinary promotion eligibility. |
+| `peegeeq/pg/<clusterId>/<incarnation>/primary-lock` | Authoritative coordinator control record | Contains writer and transition intent plus confirmed/pending policy. Retain history after normal lease release. |
+| Lease holder, generation, and revision | Authoritative coordinator metadata | The lease belongs to the writer's node-local supervisor. Control record, generation, and lease holder identify a writer generation; the revision guards updates. |
+| `writerNodeId`, phase, operation, previous writer, confirmed/pending policy | Authoritative control-record intent in both modes | Persist withdrawn intent before local effects. Missing policy never grants ordinary promotion eligibility. |
 | Operator takeover request | Authoritative authenticated request in transition intent | Manual target and operation approval. Not a separate lease or provider-owned authority. |
 | Quarantine, local action receipts, and local writer grants | Authoritative node-local supervisor storage | Reuse existing receipt/grant contracts locally. Load admission closed on restart. Receipts never authorise writing by themselves. |
 | Lease freshness, safe deadline, watchdog health, PostgreSQL role, WAL, peer coverage, and eligibility | Derived live observations | Recompute on each required check and after restart. No persisted reusable expiry or watchdog-ready flag. |
@@ -66,14 +67,16 @@ lease. No remote controller can keep another node's writer lease alive.
 | Component | Responsibility |
 |---|---|
 | `PgNodeConfig` | Immutable identity, membership, secret references, endpoints, and local process/watchdog configuration |
-| `PgPrimaryElector` | Per-node lease acquisition, renewal, authoritative reads, and conditional intent updates |
+| `PgLeaseCoordinator` port | The leased control record: conditional acquisition, authoritative read, renewal, conditional update, and guarded release |
+| `ConsulLeaseCoordinator` | The Consul adapter for the port (§3.3) |
+| `PgPrimaryElector` | Per-node ownership state above the port: intent validation, freshness deadline, retirement, and late-reply rejection |
 | `PgFailoverMonitor` | Per-node HA loop, local process supervision, ownership-loss shutdown, takeover, and reconciliation |
 | Local process/admission boundary | Guarded start/stop/promotion, closed/prepared/open grants, write quiescence, receipts, and restart quarantine |
-| Independent watchdog | Exclude the local writer when its supervisor cannot complete exclusion before handover |
-| `peegeeq-pg-sidecar` | Read-only eligibility combining lease, local grant, watchdog, database role/identity, and synchronous coverage |
+| Optional independent watchdog | When active, exclude the local writer when its supervisor cannot complete exclusion before handover |
+| `peegeeq-pg-sidecar` | Read-only eligibility combining lease, local grant, watchdog state under the selected mode, database role/identity, and synchronous coverage |
 | HAProxy | Stable routing and backend-down session shutdown; health observations do not fence writers |
 
-The first four responsibilities belong to the proposed `peegeeq-pg-failover` supervisor.
+The first six responsibilities belong to the `peegeeq-pg-failover` supervisor.
 It runs once per database node. It is separate from `peegeeq-service-manager` federation and
 from the read-only sidecar. All supervisors use the same coordination namespace and protocol.
 
@@ -82,57 +85,87 @@ Renewal and watchdog maintenance cannot queue behind SQL probes, promotion, rewi
 Local process control remains usable when PostgreSQL's SQL endpoint is frozen.
 
 Containers start through the supervisor. Docker restart policies, Kubernetes reconciliation,
-and host service startup must not start a writable PostgreSQL outside it. The watchdog facility
+and host service startup must not start a writable PostgreSQL outside it. A watchdog facility, when used,
 is supplied by the host/VM. Its concrete pause/reset behaviour is qualified before deployment;
 the takeover algorithm contains no Docker, Kubernetes, or hypervisor shutdown API.
 
-## 3. Consul Contract
+## 3. Coordinator Port and Consul Adapter
 
-- Use a three-server quorum across appropriate failure domains.
-- Use explicit TTL-only sessions with no health checks that can invalidate the lease early.
-  Verify the creation payload and returned configuration. Prevent unsafe node deregistration.
-- The initial TTL sent to Consul is 30 seconds. The HA loop is 5 seconds and bounded retry
-  budget is 3 seconds. Lock delay is zero. These are design baselines, not timing measurements.
-- Use release behaviour to preserve policy history in the control value. An unlocked retained
-  serving value grants no authority.
-- Only the node-local lease owner renews its session. A delayed renewal cannot reopen a
-  closed grant or feed the watchdog under obsolete ownership.
-- Read authority consistently. Mutation uses atomic session/revision conditions. ACLs restrict
-  clients; they do not impose lock ownership on otherwise authorised writes.
-- On takeover, read retained intent and atomically check revision and acquire with a new
-  session and withdrawn value. Preserve confirmed/pending policy and previous writer history.
-  An existing owner or conflicting revision rejects acquisition.
+The supervisor depends on the coordinator port, not on Consul.
+[System design §5.10](PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md#510-coordination-port-and-adapters)
+defines the port: its neutral terms, its seven operations, the obligations every adapter must
+meet, and the single contract suite every adapter must pass. This section defines what
+`PgPrimaryElector` does above the port and how the Consul adapter implements it.
+
+### 3.1 The elector above the port
+
+`PgPrimaryElector` is coordinator-neutral. It owns everything that is true for any coordinator:
+
+- It validates intent before sending it: known fields, a member writer, a known phase, a UUID
+  operation, valid confirmed and pending policies, and a pending revision above the confirmed one.
+- It keeps the local view of ownership: the held control record and a freshness deadline derived
+  from the last successful renewal. A value mutation does not extend that deadline.
+- It retires itself permanently on any failed or changed observation. Reconciliation uses a new
+  instance and fresh observations.
+- It rejects a reply that arrives after retirement or after the freshness deadline. A late reply
+  cannot grant ownership, reopen a grant, or feed a watchdog.
+- It allows one ownership-sensitive operation at a time.
+- Only the node-local lease holder renews. Closing the elector preserves the lease and the
+  control history. Generic cleanup, an exception handler, or an exit hook never releases.
+
+The elector imports no coordinator product type and makes no product API call.
+
+### 3.2 Use of the port during a transition
+
+- On takeover, read the retained record, then acquire after release with withdrawn intent.
+  Preserve confirmed and pending policy and the previous writer. An existing owner or a changed
+  revision rejects the acquisition.
 - Do not deliberately expire or destroy a lease to make an unreachable node fail over early.
-  Normal expiry is safe only under the qualified local exclusion contract.
-- Guard voluntary unlock after confirmed local writer stop and effect reconciliation.
-  Do not release in a generic exception handler, supervisor exit hook, or cancellation path.
-- Lease expiry may be later than the configured TTL. A timeout is not proof of successful
-  acquisition and does not establish a recovery-time upper bound.
-- Missing history after a prior deployment requires stopped reconciliation. Restoration uses
-  a new incarnation after excluding every old writer.
+  Expiry is safe only under the local exclusion contract in §4.1.
+- Release voluntarily only after confirmed local writer stop and effect reconciliation.
+- Lease expiry can be later than the configured TTL. A timeout is not proof of acquisition and
+  does not establish a recovery-time upper bound.
+- Missing history after a prior deployment requires stopped reconciliation. Restoration uses a
+  new incarnation after excluding every old writer.
+
+### 3.3 Consul adapter
+
+`ConsulLeaseCoordinator` implements the port against the Consul HTTP API.
+
+| Port element | Consul implementation |
+|---|---|
+| Deployment | A three-server quorum across separate failure domains |
+| Lease | A session created with an explicit TTL, `Behavior=release`, `LockDelay=0s`, and empty node and service checks. The adapter reads the session back and rejects any setting that differs, and any check that could invalidate it early |
+| Lease holder, generation, revision | Session ID, `LockIndex`, `ModifyIndex` |
+| Acquire initial | One transaction: `check-not-exists`, `lock` with the new session, `get` |
+| Acquire after release | One transaction: `check-index` on the revision read, `lock` with the new session, `get` |
+| Read | KV read with `?consistent`. A response without a known leader, or filtered by ACLs, is a failure |
+| Renew | Session renew, then a consistent read that must show the same holder, generation, revision, and intent |
+| Update | One transaction: `check-session`, `check-index`, `lock` with the same session, `get`. A same-session `lock` preserves `LockIndex` |
+| Release | One transaction: `check-session`, `check-index`, `unlock`, `get` |
+| Access control | ACL tokens scoped to the control key and the node's own sessions. ACLs restrict clients; they do not impose lock ownership on otherwise authorised writes |
+| Transport | HTTPS. Loopback HTTP is accepted for local fixtures only |
+
+The adapter validates the range Consul accepts for a session TTL and sends the TTL explicitly.
+It does not copy Patroni's Consul TTL conversion. Node deregistration and session destruction
+by other parties are prevented by ACL, because either would end a lease early.
 
 [Consul sessions](https://developer.hashicorp.com/consul/docs/automate/session)
 defines advisory ownership, release behaviour, early invalidation paths, and TTL semantics.
 [Consul transactions](https://developer.hashicorp.com/consul/api-docs/txn)
 defines conditional operations. Neither API directly stops PostgreSQL.
 
-The adapter must qualify the earliest possible ownership handover against watchdog exclusion,
-including actual session configuration, clock rates, node deregistration, explicit destruction,
-and any server/client TTL conversion. Do not copy Patroni's adapter conversion by name alone.
-
-### 3.1 Options Without Consul and the Selection Gate
+### 3.4 Other coordinators
 
 | Option | Contract |
 |---|---|
-| Qualified Qraft or another coordinator | Replace Consul with equivalent ownership/expiry, conditional revisions, authoritative reads, namespace, and recovery semantics |
-| Managed profile C | External cluster manager supplies equivalent writer exclusion, synchronous durability, stable endpoint, and client status |
-| Manual profile B | Still requires the selected coordinator; manual initiation does not remove the writer lease |
+| Qraft adapter | Implements the same port against Qraft as an external service, in its own module. Qraft must provide conditional create, conditional update and release by lease holder and revision, a TTL lease with renewal, linearizable reads, and a generation and revision on every record |
+| Managed profile C | An external cluster manager supplies equivalent writer exclusion, synchronous durability, a stable endpoint, and client status |
+| Manual profile B | Uses the selected coordinator. Manual initiation does not remove the writer lease |
 
-Consul is selected for the first A/B implementation. G-7 qualifies that selection before
-takeover implementation. Qraft is not an available drop-in replacement merely because it
-uses Raft. Define the missing client contracts, asynchronous PeeGeeQ adapter, deadlines,
-credentials, and service-runtime boundary. Test obsolete leaders, minority partitions,
-concurrent owners, expiration, lost replies, snapshots, restart, restore, and unauthorised calls.
+An adapter is selectable only after it passes the coordinator contract suite against its real
+service. The suite covers concurrent acquisition, obsolete owners, minority partitions, expiry,
+lost and late replies, restart, restore, namespace isolation, and unauthorised calls.
 
 ## 4. Node-Control Provider Contract
 
@@ -142,13 +175,13 @@ node-local supervisor. There is no independent central provider service.
 | Local operation | Preconditions | Required result |
 |---|---|---|
 | Prepare local generation | This node owns the live lease; matching withdrawn intent | Close loaded/previous grants; reconcile this node's in-flight effects. No remote node installation barrier. |
-| Bootstrap initial primary | Authenticated provisioning; initial lease; safe armed watchdog; withdrawn intent/pending revision 1 | Start only this provisioned primary with admission closed. Observe local start and retain immutable evidence. |
+| Bootstrap initial primary | Authenticated provisioning; initial lease; watchdog mode satisfied; withdrawn intent/pending revision 1 | Start only this provisioned primary with admission closed. Observe local start and retain immutable evidence. |
 | Revoke writer | Local policy transition or ownership loss | Block new application work on every local route. Observe quiescence. On ownership loss stop PostgreSQL within the exclusion budget. |
-| Self-demote | Ownership rejected or renewal budget exhausted | Stop local PostgreSQL using process control. Keep watchdog armed until exclusion is confirmed. Do not depend on SQL responsiveness. |
+| Self-demote | Ownership rejected or renewal budget exhausted | Stop local PostgreSQL using process control. Keep an active watchdog armed until exclusion is confirmed. Do not depend on SQL responsiveness. |
 | Inspect local action | Matching receipt identity | Pending/completed/rejected/unknown result and observed local effect. Never fabricate success. |
-| Promote local standby | Safe ownership handover; this node's live lease; armed watchdog; covered target; withdrawn intent | Serialise with local stop/start and ownership-loss handling. Observe role and replay. Admission remains closed. |
+| Promote local standby | Safe ownership handover; this node's live lease; watchdog mode satisfied; covered target; withdrawn intent | Serialise with local stop/start and ownership-loss handling. Observe role and replay. Admission remains closed. |
 | Install policy | Current ownership and pending intent; writes quiescent; authenticated peers validated | Apply and observe the effective quoted policy. Uncertain result keeps admission closed. |
-| Prepare writer | Current ownership; writable role; confirmed policy and safe watchdog | Create matching `PREPARED` local grant; no application traffic yet. |
+| Prepare writer | Current ownership; writable role; confirmed policy; watchdog mode satisfied | Create matching `PREPARED` local grant; no application traffic yet. |
 | Activate writer | Matching `SERVING` intent and prepared grant; fresh lease/watchdog/role/coverage | Open exactly that grant. Loss of ownership/revocation defeats delayed activation. |
 | Start/admit standby | Closed writer admission; rewind/rebuild and standby configuration validated | Start in recovery; validate identity/timeline/WAL. Never start writable from an old data directory by default. |
 
@@ -158,15 +191,22 @@ unguarded duplicate action. A client timeout does not cancel an accepted Postgre
 
 ### 4.1 Lease and Watchdog Boundary
 
-Before writable start or promotion, arm the qualified independent watchdog. Production mode is
-`required`. A missing device, unsafe actual timeout, activation failure, or lost protection
-prevents writer admission. Watchdog health is live; a stored grant does not prove it.
+Before writable start or promotion, apply the configured watchdog mode
+([system design §5.4](PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md#54-supervisor-configuration-and-timing)).
+In `required` mode a missing device, an unsafe actual timeout, an activation failure, or lost
+protection prevents writer admission. In `automatic` mode those conditions are reported and the
+supervisor continues under lease and local-demotion checks. In `off` mode no watchdog is used.
+Watchdog health is a live observation; a stored grant does not prove it.
 
-Ownership-loss shutdown and watchdog enforcement must exclude local PostgreSQL before the
-earliest next-owner acquisition. Use the canonical timing settings and qualification in
-[system design §5.4/§5.5](PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md#54-supervisor-configuration-and-timing).
-Maintain protection throughout promotion/start and uncertain stop. Do not disable or feed it
-after ownership loss merely to keep the host alive.
+Ownership-loss shutdown must exclude local PostgreSQL before the earliest next-owner
+acquisition. Use the lease and local-stop timing rule in system design §5.4. With an active
+watchdog, keep it armed throughout promotion, start, and uncertain stop. Do not disable or feed
+it after ownership loss merely to keep the host alive.
+
+Local shutdown covers a supervisor that is running and scheduled. It does not cover a dead or
+starved supervisor or a paused VM. An active, qualified watchdog covers those cases. Without
+one, the deployment makes no old-writer exclusion claim for them
+([system design §5.5](PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md#55-fencing-local-self-demotion-and-watchdog)).
 
 The admission gate closes new SQL/LISTEN routes and confirms quiescence during policy changes.
 It is not the takeover fence. Buffered or already executing transactions require actual writer
@@ -174,8 +214,8 @@ exclusion before another node can take over. Stale HAProxy observations cannot b
 
 Whole-VM pause/resume is a separate qualification case. A watchdog running only inside the
 paused guest is not assumed to exclude stale execution before resume. The host/VM facility must
-prove that property. Container pause and supervisor death must also be tested against the
-independent watchdog, not against a substitute timer.
+prove that property. Container pause and supervisor death are tested against the independent
+watchdog, not against a substitute timer.
 
 [Patroni watchdog support](https://patroni.readthedocs.io/en/latest/watchdog.html)
 is the reference control model. The safety contract, not a product name, determines acceptance.
@@ -185,7 +225,7 @@ is the reference control model. The safety contract, not a product name, determi
 | Interrupted point | Required action |
 |---|---|
 | Acquisition or renewal response lost | Establish current ownership within the safe budget. No grant opening or stale keepalive from a late response. |
-| Promotion/start in flight when lease is lost | Close admission, cancel unstarted work, stop any resulting local writer, and retain watchdog protection. |
+| Promotion/start in flight when lease is lost | Close admission, cancel unstarted work, stop any resulting local writer, and retain any active watchdog protection. |
 | Stop response lost | Observe local process state. Do not voluntarily release until exclusion is confirmed. Survivors can use qualified expiry independently. |
 | Policy or publication reply lost | Keep admission closed, read intent and inspect the same local action. |
 | Activation reply lost | Observe matching grant plus live lease/watchdog/role/coverage. Receipt loss is not permission for another writer. |
@@ -196,9 +236,9 @@ is the reference control model. The safety contract, not a product name, determi
 
 | Stage | Action |
 |---|---|
-| Existing writer | Renew own lease. On renewal failure close admission and self-demote. Watchdog protects stalled supervisor. |
+| Existing writer | Renew own lease. On renewal failure close admission and self-demote. An active watchdog protects a stalled supervisor. |
 | Surviving nodes | Observe suspicion; only covered standbys can attempt safe lease handover. |
-| `WITHDRAWN` | Winner acquires ownership, preserves history, persists operation, arms watchdog, and reconciles local effects. |
+| `WITHDRAWN` | Winner acquires ownership, preserves history, persists operation, applies its watchdog mode, and reconciles local effects. |
 | `FENCING` | Establish qualified old-ownership exclusion. No failed-host reply or all-node generation barrier. |
 | `PROMOTING` | Promote local running standby; establish surviving synchronous coverage; confirm policy and prepare local grant. |
 | `SERVING` | Publish intent, then activate exact matching local grant. |
@@ -210,9 +250,10 @@ local stop before voluntary release. Unplanned takeover uses qualified expiry.
 
 A healthy writer retaining ownership is not replaced because an application or observer cannot
 reach it. Sidecar death alone does not transfer ownership. Writer-supervisor death is different:
-the watchdog excludes orphan PostgreSQL before another owner can take over.
+an active watchdog excludes orphan PostgreSQL before another owner can take over. Without one,
+that case has no independent exclusion.
 
-A Consul outage denies unverified eligibility. A writer unable to renew self-demotes.
+A coordinator outage denies unverified eligibility. A writer unable to renew self-demotes.
 No surviving node promotes without quorum acquisition. The initial implementation does not
 enable the optional Patroni DCS failsafe extension.
 [Patroni failsafe mode](https://patroni.readthedocs.io/en/latest/dcs_failsafe_mode.html)
@@ -221,11 +262,11 @@ enable the optional Patroni DCS failsafe extension.
 
 Follow [system design §5.11](PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md#511-first-start-bootstrap).
 Only authenticated verified provisioning permits initial intent without confirmed policy.
-Use conditional absence-and-acquisition in Consul for both modes. B also requires the operator
+Use the port's initial acquisition for both modes. B also requires the operator
 request. Empty state after a prior deployment is not provisioning evidence.
 
 Confirm provisioned nodes cannot independently start writable. Acquire the initial writer's
-lease, arm its watchdog, and start with closed admission. Validate standbys and fresh WAL,
+lease, apply its watchdog mode, and start with closed admission. Validate standbys and fresh WAL,
 install/confirm initial policy, prepare, publish, and activate. All-node provisioning evidence
 is a first-start requirement; it is not an unreachable-host takeover barrier.
 
@@ -252,7 +293,7 @@ Validate identity, recovery mode, timeline, and observed replay before standby a
 
 ## 7. Configuration and Time Budgets
 
-Use the single proposed configuration contract in system design §5.4. No second setting family.
+Use the single configuration contract in system design §5.4. No second setting family.
 Every observation, lease request, local action, and cleanup result is bounded and observed.
 
 The 45-second objective is an application-recovery measurement target. Lease expiry may be
@@ -261,10 +302,10 @@ LISTEN catch-up each contribute. No default timeout or documentation revision pr
 
 ## 8. Acceptance and Dependency Failures
 
-Use real PostgreSQL, Consul quorum, HAProxy, local supervisor effects, and actual watchdog
-enforcement. Container process tests do not qualify host/VM pause semantics.
+Use real PostgreSQL, the real coordinator quorum, HAProxy, and local supervisor effects. Where a
+watchdog is claimed, use actual watchdog enforcement. Container process tests do not qualify host/VM pause semantics.
 
-The system design now defines S1 to S58. Required added evidence includes supervisor death with
+The system design defines S1 to S59. S59 is the coordinator adapter contract suite. Required added evidence includes supervisor death with
 PostgreSQL still running, container pause, whole-VM pause/resume, renewal/keepalive races,
 unexpected early session invalidation, route-only failure, and takeover without any remote
 control connection to the old host. Continuously attempt uniquely identified writes on old and

@@ -1,6 +1,6 @@
 # PeeGeeQ Connection Management and HAProxy Failover — Implementation Plan
 
-**Document revision**: 2026-10-08, implementation reconciliation and optional watchdog correction.
+**Document revision**: 2026-10-08, coordinator port, companion design alignment, and next-scope update.
 Sections 2 to 4 retain dated baseline evidence. Current implementation evidence is in §8.1.
 Saved build and per-class test summaries were reread for this revision. No Java test was rerun.
 The next implementation scope is in §8.2.
@@ -8,12 +8,12 @@ The next implementation scope is in §8.2.
 **Controls**: Task 8 of the [consolidated task register](../tasks/tasks.md). Status and execution
 order are recorded in the register, not here.
 **Design**: [PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md](PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md),
-design revision 2026-10-08, Patroni-style local supervision.
+design revision 2026-10-08, Patroni-style local supervision with a coordinator port and optional watchdog.
 
-**Contract correction:** watchdog support is optional. The current decision in §5.2.1
-supersedes mandatory-watchdog wording in the companion designs and the dated §9.8 revision.
-Those design sections still require alignment. They must not impose machine-reset testing
-or additional host/VM access as a prerequisite for the next implementation phase.
+**Contract corrections, 2026-10-08:** watchdog support is optional (§5.2.1), and failover
+depends on a coordinator port, not on Consul (P-38). The four design documents were aligned
+with both on 2026-10-08 (§9.10). Machine-reset testing and additional host/VM access are not
+prerequisites for the next implementation phase.
 
 | Section | Content |
 |---|---|
@@ -48,15 +48,15 @@ request processing; durable database state determines the work still to deliver.
 The intended production topology has one primary and two synchronous standbys, redundant
 HAProxy and status endpoints, and optional redundant PgBouncer poolers. Sidecars observe
 writer eligibility. Per-node `peegeeq-pg-failover` supervisors will coordinate writer ownership
-through Consul. Local lease-loss shutdown is the normal exclusion mechanism. Watchdog support
+through a coordinator port. Consul is the first adapter. Qraft is a planned second adapter. Local lease-loss shutdown is the normal exclusion mechanism. Watchdog support
 provides optional independent protection when the supervisor cannot execute shutdown.
 The lease belongs to that node. Safe handover must establish old-writer exclusion.
 The qualified expiry path requires no remote stop reply from an unreachable host.
 
 **How the execution order is organised.** Manual profile B uses operator-directed transitions
 through the same local supervisor, lease, admission, and configured watchdog mode as A. Automatic A
-adds autonomous takeover initiation. Consul is selected for both modes. G-7 qualifies its lease
-protocol and safety claims incrementally alongside the supervisor implementation.
+adds autonomous takeover initiation. Both modes use the same coordinator adapter. G-7 qualifies an adapter
+and its safety claims incrementally alongside the supervisor implementation.
 The common architecture supports Linux hosts/VMs,
 Docker hosts, and Kubernetes. Deployment bindings are qualified before production support. Phase 7 first
 implements production-manager commit enforcement, then bootstrap and manual transitions.
@@ -73,7 +73,7 @@ The 45-second recovery objective is a qualified workload target, not a result in
 configuration defaults or an earlier component test.
 
 **How to interpret the records.** Requirement identifiers `R-` describe system obligations.
-Scenario identifiers `S1` to `S58` describe acceptance cases in the system design. The plan's
+Scenario identifiers `S1` to `S59` describe acceptance cases in the system design. The plan's
 `P-` entries record adopted design contracts; `G-` entries identify deployment selections and
 qualification gates. `IMP-`, `TST-`, and `CFG-` entries record dated implementation, test, and
 configuration findings. Read their dates and evidence before using them to scope new work.
@@ -100,9 +100,9 @@ idempotency contracts. This plan does not promise exactly-once processing or qua
 unselected production deployment.
 
 The data model and field sources of truth are in the design §1.1. Configuration is authoritative
-for cluster identity and membership. Consul stores transition intent and ownership metadata.
+for cluster identity and membership. The coordinator's control record stores transition intent and ownership metadata.
 Each local supervisor stores action receipts, quarantine, and local execution grants. The writer's
-supervisor owns the Consul session. Lease deadlines and watchdog health are derived, never stored
+supervisor owns the coordinator lease. Lease deadlines and watchdog health are derived, never stored
 as reusable authority. The central provider and all-node generation barrier are removed. Profile authority stores confirmed and pending
 durability policy intent. Counts, role, peer health, replay boundary, and readiness are computed.
 Bitemporal replay reuses the existing tenant cursor and lease with the stable writer barrier.
@@ -114,7 +114,7 @@ In scope:
 - Shared pooled access, operation deadlines, error classification, LISTEN recovery, and health.
 - The existing `peegeeq-pg-failover` module, a planned supervisor per node, local process control,
   and optional independent watchdog support.
-- Real-component acceptance for S1 to S58, local infrastructure, and a scenario runbook.
+- Real-component acceptance for S1 to S59, local infrastructure, and a scenario runbook.
 - Configuration loader, defaults, property contract tests, and configuration guide updates
   when proposed keys are implemented.
 
@@ -332,7 +332,7 @@ decisions, not implementation completion or runtime evidence.
 | P-2 | Production HAProxy checks sidecar eligibility. Protocol checks are development only. | §5.3, §9 |
 | P-3 | Local self-demotion/watchdog excludes the writer before safe lease handover. Qualified expiry requires no failed-host stop acknowledgement. Voluntary release requires confirmed local stop. | §5.5 |
 | P-4 | Route-only failure does not establish database failure. An active watchdog provides independent protection on writer-supervisor failure. Without it, supervisor-death exclusion is not established by the lease alone. A sidecar restart does not transfer ownership. | §5.7; plan §5.2.1 |
-| P-5 | Writer ID names a database node. Session belongs to its local supervisor. Key, lock index, and session identify generation. | §1.1 |
+| P-5 | Writer ID names a database node. The lease belongs to its local supervisor. Control record, generation, and lease holder identify a writer generation. | §1.1, §5.10 |
 | P-6 | Rewind or rebuild is operator-controlled under quarantine, followed by standby and WAL validation. | §5.5, §5.9 |
 | P-7 | HAProxy uses scheduled observations and closes sessions when configured failures mark a backend down. Admission enforcement and fencing protect safety during delay. No fixed backup preference chooses a former writer. | §5.3 |
 | P-8 | Every module uses the shared pooled access path and schema contract. | §6.1, §6.3 |
@@ -359,12 +359,13 @@ decisions, not implementation completion or runtime evidence.
 | P-29 | Clients use authenticated read-only `/writer`, matching SQL node identity, and separate deadlines. Backoff resets after initialized channels and finite catch-up. | §6.2, §6.6, §9 |
 | P-30 | Consul ACLs restrict access. Atomic session/revision conditions guard ownership-sensitive writes; ACLs do not impose lock ownership. | §1.1, §5.1; Consul design §3 |
 | P-31 | Optional PgBouncer and its address owner receive the same redundancy and session-loss qualification as HAProxy. | §5.9, §8 |
-| P-32 | Consul is selected for initial A/B supervision. G-7 qualifies TTL-only ownership, conditional revisions, authoritative reads, safe release, restore, and security. Qraft remains a separately qualified replacement. | §5.10 |
+| P-32 | Consul is the first coordinator adapter for A/B supervision. G-7 qualifies an adapter: TTL-only ownership, conditional revisions, authoritative reads, safe release, restore, and security. Qraft is a second adapter behind the same port, qualified by the same contract suite. | §5.10 |
 | P-33 | Production-manager commit enforcement precedes phase 7 application-write preservation assertions. Broader module migration remains phase 11. | §5.8, §6.3 |
 | P-34 | Authenticated bootstrap requires verified provisioning, initial node-owned lease, configured watchdog-mode checks, closed admission, guarded start, and confirmed initial policy. Missing history is not bootstrap permission. | §1.1, §5.11; plan §5.2.1 |
 | P-35 | Native recovery requires one executed finite claim batch and its confirmed processing acknowledgements. Skipped/deferred work never establishes readiness. Delayed scheduling and final eligibility are observed. | §6.6 |
 | P-36 | Same containerised local-supervisor protocol on Linux hosts/VMs, Docker hosts, and Kubernetes. Runtime enforcement is qualified per environment before support is claimed. | §5.2, §12 |
 | P-37 | Watchdog modes are planned as `automatic` (default), `off`, and `required`. Only `required` refuses writer start/promotion because the watchdog is unavailable. Qualify independent exclusion before claiming supervisor-death or whole-VM pause safety. Device/reset tests are conditional qualification work, not a prerequisite for implementing local supervision. | Plan §5.2.1; S54–S58 |
+| P-38 | Database failover has no hard dependency on Consul. The supervisor, the sidecar, and the elector use a coordinator port, `PgLeaseCoordinator`, with neutral terms: control record, lease, lease holder, generation, revision, and intent. Consul is one adapter, `ConsulLeaseCoordinator`. A Qraft adapter is a separate module. One adapter serves an incarnation. Every adapter passes one shared contract suite against its real service. Directed by the owner on 2026-10-08, because Qraft may be used in place of Consul. | §3 R-20, §5.4, §5.10, S59; coordinator design §3 |
 
 ### 5.1 Required Deployment Selections
 
@@ -378,7 +379,7 @@ Phase 7a selects the common architecture. These gates qualify its implementation
 | G-4 Durability enforcement | Implement and verify the production-manager owned commit boundary in 7b.1 before preservation assertions. Prove quoted policy, weaker caller settings, authenticated peers, confirmed/pending policy cutover, restored coverage, and repeated failover. Full migration remains phase 11. |
 | G-5 Replay and idempotency | Qualify the existing cursor/lease/writer-barrier finite replay and native finite claim/acknowledgement contract. Cover delayed low IDs, handler failure, unknown cursor/acknowledgement commits, capacity, scheduling, and stale completions. No second progress mechanism. |
 | G-6 Runtime and timing | Pin separate service/artifact versions. Measure application recovery under declared workload, deadlines, and failure cases. Defaults and historical counts do not prove an SLO. |
-| G-7 Coordinator qualification | Consul selected for A/B. The protocol slice has recorded component evidence in §8.1. Complete stopped-before-release, restore/incarnation, TLS, supervisor integration, and expiry versus old-writer exclusion alongside the remaining implementation. These are qualification obligations, not a requirement to obtain machine-reset infrastructure before coding. Qraft substitution requires equivalent contracts first. |
+| G-7 Coordinator qualification | An adapter is qualified by the shared coordinator contract suite (S59) against its real service. Consul is the first adapter; its protocol slice has recorded component evidence in §8.1. Complete stopped-before-release, restore/incarnation, TLS, supervisor integration, and expiry versus old-writer exclusion alongside the remaining implementation. These are qualification obligations, not a requirement to obtain machine-reset infrastructure before coding. A Qraft adapter requires Qraft to provide the port's operations first (§5.1.1). |
 
 No production gate is closed by a document edit. G-1/G-2/G-7 apply to B as well as A because both
 use the same continuously enforced writer lease. B's only difference is operator initiation.
@@ -389,7 +390,7 @@ The Qraft option means the local Java project, not an unrelated public project w
 The source assessment on 2026-10-07 read `../qraft/src/main/proto/distributed_state.proto` and
 `DistributedStateGrpcService`. The reviewed API exposes unconditional Put/Delete requests and
 Get/List read local state without a quorum-read step in those methods. It does not expose the
-conditional ownership, revision, or lease fields required by the reference Consul protocol.
+conditional ownership, revision, or lease fields required by the coordinator port (P-38).
 These are static observations of that API, not results of a Qraft runtime or full-source audit.
 
 The reviewed POMs target Java 27 for Qraft and Java 25 for PeeGeeQ. Qraft's project standards
@@ -406,7 +407,8 @@ Retaining Consul also requires a recorded decision and its existing real-compone
 No Qraft capability is marked implemented or qualified by this document. For Qraft work, read
 its `docs/TESTING.md` and `docs/PROJECT_STANDARDS.md`, reuse their Maven commands in the visible
 VS Code integrated terminal, and retain output through `Tee-Object`. Do not create verification
-wrapper scripts. A replacement decision must revise the active Consul mappings before phase 7b.2.
+wrapper scripts. A Qraft adapter implements the coordinator port in its own module. No other
+component changes when it is selected.
 
 ### 5.2 Phase 7a Architecture Selection, 2026-10-08
 
@@ -417,7 +419,7 @@ No selection of one hosting platform is required to finish this design phase.
 | Selected input | Source of truth or derivable | Contract |
 |---|---|---|
 | Cluster/incarnation/membership/node identities | Authoritative configuration | Fixed namespace and one supervisor per node. Replica system identifier is not node identity. |
-| Writer lease and intent | Authoritative Consul metadata/value | Owned and renewed by writer's supervisor; same protocol in A/B. |
+| Writer lease and intent | Authoritative coordinator metadata/value | Owned and renewed by writer's supervisor; same protocol in A/B. |
 | Local receipts, quarantine, grants | Authoritative persistent node storage | No central store. On restart load grants closed and reconcile local effects. |
 | Lease TTL, loop/retry/stop budgets, watchdog device/mode | Authoritative configuration | Separate local-demotion timing from optional watchdog timing. Planned modes and their safety limits are below. Current code coupling is recorded in §8.1. |
 | Lease freshness, watchdog health, roles, WAL, eligibility | Derived observations | No persisted lease expiry or watchdog-ready permission. |
@@ -449,13 +451,13 @@ See [Patroni's watchdog documentation](https://patroni.readthedocs.io/en/latest/
 and [the pinned v4.1.5 mode implementation](https://github.com/patroni/patroni/blob/v4.1.5/patroni/watchdog/base.py).
 
 Optional support does not remove old-writer exclusion from takeover. Local shutdown cannot
-prove exclusion while its supervisor is dead or the whole VM is paused. Consul lease expiry
+prove exclusion while its supervisor is dead or the whole VM is paused. Coordinator lease expiry
 alone does not stop PostgreSQL. Record these cases as unqualified until independent exclusion
 is demonstrated. A paused guest's own timer is not sufficient evidence. Implementing the
 common runtime proceeds before this production qualification. The protocol does not call
 Docker, Kubernetes, or hypervisor remote stop APIs.
 
-Use local persistent node storage for quarantine, grants, and action receipts. Consul owns
+Use local persistent node storage for quarantine, grants, and action receipts. The coordinator's control record owns
 transition and durability intent. Do not create a separate central generation/admission service.
 Local grants and admission observe current ownership and the selected watchdog-mode checks. First-start provisioning
 requires verified node state; ordinary unreachable-host takeover does not require all-node replies.
@@ -501,6 +503,52 @@ the deployed load balancer/address owner and credentials before qualification. N
 orchestrator service is a design dependency. G-1/G-2/G-3/G-7 remain implementation/qualification
 gates. Phase 7a closes architecture selection only; it does not qualify production safety.
 
+### 5.3 Open Design Decisions for Phase 7b.2
+
+A full read of all five documents on 2026-10-08 found three points the design requires and
+does not specify. Each is the owner's decision. The search covered every document in this
+folder.
+
+| ID | What the design says | What is not specified | Blocks |
+|---|---|---|---|
+| OD-1 Local admission mechanism | A local admission gate covers every application SQL and LISTEN path, sits between HAProxy and PostgreSQL, blocks new work when closed, and observes quiescence of existing writes (system design §5.1, §5.2) | What the gate is. The documents name no mechanism: not `pg_hba.conf` management, not a local proxy, not a listen-address or firewall control. `pg_hba` appears twice in the set, both times about the sidecar role | §8.2 item 5 |
+| OD-2 Local process control | The supervisor owns PostgreSQL start, stop, promotion, and rewind admission through local process control, and no second entry point can start a writable PostgreSQL (system design §5.1; coordinator design §2) | The commands used, the container entry point, and how the supervisor and PostgreSQL share a container or host | §8.2 item 4 |
+| OD-3 Node-local storage | Grants, action receipts, and quarantine are durable node-local supervisor storage, with the fields in system design §1.1 | Location, format, and durability mechanism | §8.2 item 3 |
+
+**OD-3 decided for implementation, 2026-10-08.** The owner instructed that all §8.2 steps
+proceed without stopping. The implementer chose the mechanism; the owner has not reviewed it and
+can reverse it. The choice is confined to `PgLocalStateStore`.
+
+- Location: one existing directory on the node's persistent storage, given to the supervisor as
+  configuration. The store does not create it. One supervisor process writes it.
+- Format: one JSON file per record. `grant.json`, `quarantine.json`, and
+  `receipts/<generation>+<operationId>+<action>+<targetNodeId>.json`. Unknown fields, unknown
+  enum values, a record for another node, and a receipt whose content differs from its file
+  name are rejected.
+- Durability: write a temporary file opened for synchronous writes, flush, close, then replace
+  the record by an atomic move. The parent directory is not synced; Vert.x offers no call for it.
+- Nothing is cached. Every operation reads the files. Operations run one at a time in
+  submission order.
+
+**OD-2 decided for implementation, 2026-10-08.** Same basis as OD-3: the implementer's choice
+under the owner's instruction to proceed, not reviewed by the owner, reversible. The choice is
+confined to `PgCtlProcessControl` and `LocalCommandRunner`, behind the `PgProcessControl` port.
+
+- Commands: PostgreSQL's own `pg_ctl status`, `start`, and `stop`, run as child processes of the
+  supervisor against the local data directory. A configured command prefix runs them as the
+  PostgreSQL operating-system user. `touch` and `rm` manage the inhibitor file.
+- Co-location: the supervisor and PostgreSQL share one host or container. The container entry
+  point is the supervisor. The image entry point does not start PostgreSQL.
+- Start inhibitor: `standby.signal` in the data directory. While it exists, a start by any entry
+  point comes up in recovery and accepts no writes. `stop` creates it before stopping. Only the
+  guarded primary start removes it. An experiment against `postgres:15.13-alpine3.20` on
+  2026-10-08 showed: `pg_ctl status` exits 0 when running and 3 when stopped; a fast stop ends
+  an existing session; with the file present a direct `pg_ctl start` gives
+  `pg_is_in_recovery() = t` and rejects `CREATE TABLE`; `pg_ctl promote` removes the file.
+- Stop: fast stop for half the remaining budget, then immediate stop for the rest. The exit code
+  of the stop command is not the evidence; the following `pg_ctl status` observation is.
+- Not decided: promotion, rewind, and rebuild commands. They belong to 7b.3.
+
 ## 6. TDD method
 
 Every phase that changes Java follows these steps in order.
@@ -534,7 +582,7 @@ endpoint is read from the live container.
 
 ## 7. Acceptance Coverage Obligations
 
-The design §10 defines S1 to S58. No current runtime coverage audit was run in this documentation phase.
+The design §10 defines S1 to S59. No current runtime coverage audit was run in this documentation phase.
 The historical seven-class baseline in §4 concerns the earlier design. Do not mark any revised
 contract met from those counts.
 
@@ -557,6 +605,7 @@ contract met from those counts.
 | S52 | 10 and 12: native recovery | Executed bounded claim, capacity waiting, confirmed processing acknowledgements, delayed scheduling, continuous arrivals, uncertain outcomes, and no readiness from skipped or retired work |
 | S53 | 7b.1 and 7b.3: application commit enforcement | Production manager rejects weaker durability outcomes before transition assertions; lost commit replies and acknowledged data are verified through eligible promotion |
 | S54 to S58 | Local fault cases in 7b.2/7b.3 and 8c/8d; independent exclusion at production qualification | Supervisor death and starvation, VM pause/resume, delayed renewal/keepalive, route-only failure, and safe takeover without failed-host remote acknowledgement. Device/reset cases apply to optional watchdog qualification. Unqualified cases remain open; they do not block local-supervisor implementation. |
+| S59 | 7b.2: coordinator port | One contract suite run against each adapter's real service. The suite is `PgLeaseCoordinatorContract`; its Consul binding is `ConsulLeaseCoordinatorIntegrationTest`. It includes acquisition after release and guarded release. |
 
 Each dependency needs separate failed-Future, throw, null or malformed, timeout, lost-response,
 and stale-completion cases where its interface admits that mode. Add class and method mappings
@@ -573,10 +622,10 @@ on zero executed tests or swallowed teardown failure.
 |---|---|
 | 1 to 4 | Earlier document review and baseline. Dated records remain in §4 and §9. They do not establish revised acceptance. |
 | 5 | Finish the existing profile D test repair under P-14. Inspect the current source and rerun it. Move production convergence to phase 7 without deleting the historical red result. |
-| 6 | Completed earlier document alignment. Current optional-watchdog correction supersedes its mandatory wording. Companion design alignment remains listed in §8.2. No Java or Maven change in this reconciliation. |
+| 6 | Completed earlier document alignment. The optional-watchdog correction superseded its mandatory wording. The companion designs were aligned on 2026-10-08 (§9.10). No Java or Maven change in this reconciliation. |
 | 7a | Architecture selection complete. One local supervisor, node-owned Consul lease, optional watchdog modes, local admission, persistent node storage, and configurable redundant endpoints. Same protocol on Linux hosts/VMs, Docker hosts, and Kubernetes. G-1 to G-7 remain qualification gates. |
 | 7b.1 | Complete: production-manager owned commit-policy enforcement and bounded failure observation. Recorded evidence in §8.1. Broad caller migration remains phase 11. |
-| 7b.2 | Partial: Consul protocol component is implemented and tested. Next scope is local supervision/admission in §8.2, using Docker/Testcontainers. Then implement optional watchdog modes and authenticated bootstrap. Complete G-7 incrementally. Machine-reset qualification is not an implementation prerequisite. |
+| 7b.2 | Partial: the coordinator port, the Consul adapter, acquisition after release, guarded release, and the watchdog timing correction are implemented and tested (§8.1, §9.11). Next scope is in §8.2 items 3 to 5: local persistent contracts, then local supervision/admission, using Docker/Testcontainers. Then implement optional watchdog modes and authenticated bootstrap. Complete G-7 incrementally. Machine-reset qualification is not an implementation prerequisite. |
 | 7b.3 | Implement manual B takeover through local supervision. Test planned stop-before-release and unplanned safe-expiry takeover without failed-host acknowledgement. Prove old-writer exclusion, stale-effect rejection, policy cutover, repeated failover, two-node unavailability, and rewind/rebuild/re-join with production-manager data assertions. |
 | 8a | Enable autonomous initiation on the verified common A/B boundary. No second provider, authority, or generation barrier. Test concurrent standby contenders, invalid requests, lease loss during effects, and local activation/revocation races. |
 | 8b | Complete per-node automatic ownership and bootstrap reconciliation. Prove quorum loss, namespace/restore handling, invalid records, and distinction between sidecar/observer failure and writer-supervisor death. |
@@ -588,7 +637,7 @@ on zero executed tests or swallowed teardown failure.
 | 12 | Implement readiness for writer eligibility, durability, and required catch-up. Keep workload conditions separate from database availability. |
 | 13 | Complete frozen-node, in-flight operation, redundant HAProxy/PgBouncer, SQL/HTTP address ownership, and differing-observation scenarios. Qualify the selected G-3 topology and remaining fault cases. |
 | 14 | Build target stacks and runbook. Execute every scenario, including policy cutover/repeated failover, controlled membership/profile change, and restored coordination. Measure the recovery objective under specified backlog, handler latency, retry state, and deployed deadlines. Save platform-specific evidence. |
-| 15 | Reassess every historical finding against code and fresh logs. Complete G-1 to G-7. Update task register and external documentation links. Close only when all revised requirements and S1 to S58 have matching evidence. |
+| 15 | Reassess every historical finding against code and fresh logs. Complete G-1 to G-7. Update task register and external documentation links. Close only when all revised requirements and S1 to S59 have matching evidence. |
 
 Phase 7b.1 is a commit-enforcement component test. Use an isolated real synchronous fixture
 with a fixed test-only proxy route to its known primary. It verifies the production manager
@@ -614,8 +663,13 @@ the implementation below. These are recorded runs, not new test executions or a 
 |---|---|---|
 | 7a architecture | Complete | Dedicated local-supervisor architecture. The mandatory-watchdog decision is superseded by §5.2.1. No deployment qualification follows from this status. |
 | 7b.1 managed commit boundary | Complete | `PgConnectionManager` owns begin/commit/rollback and observed close, restores transaction-local `synchronous_commit=on`, checks caller-completed transactions, and reports uncertain commits through `PgCommitOutcomeUnknownException`. The fixture uses HAProxy, a primary, and two physical synchronous standbys. Direct-pool callers and post-promotion durability remain unqualified. |
-| 7b.2 Consul protocol | Implemented and component-tested; phase partial | `peegeeq-pg-failover` contains `PgNodeConfig`, `PgControlRecord`, `PgLeaseProtocolException`, and `PgPrimaryElector`. It implements node-owned TTL-only sessions, atomic initial acquisition, conditional updates, consistent reads, renewal, bounded failures, and retirement of stale ownership. It has no PostgreSQL process, admission, promotion, or release implementation. |
-| 7b.2 timing and watchdog configuration | Correction required | `PgNodeConfig` unconditionally derives `watchdogTimeout()` as half the session TTL and applies watchdog timing checks. `PgPrimaryElector` uses that value for its freshness budget. No watchdog mode or device implementation exists. Separate lease/local-stop budgets from optional device timing without weakening conservative freshness or late-reply rejection. |
+| 7b.2 coordinator port (P-38, S59) | Implemented and component-tested, 2026-10-08 | `PgLeaseCoordinator` is the port with seven operations. `PgControlRecord` carries `controlName`, `generation`, `revision`, `leaseHolder`, and `intent`. `PgPrimaryElector(PgNodeConfig, PgLeaseCoordinator)` holds intent validation, the freshness deadline, retirement, late-reply rejection, and the single in-flight operation; it makes no product call. `ConsulLeaseCoordinator` in package `dev.mars.peegeeq.failover.consul` holds every Consul HTTP call and the Consul TTL range check. A search of `peegeeq-pg-failover/src` outside `consul/` for `/v1/`, `X-Consul`, `session`, `LockIndex`, `ModifyIndex`, and `consul` returns no match. |
+| 7b.2 acquisition after release, and guarded release | Implemented and component-tested, 2026-10-08 | Acquisition after release is one Consul transaction: `check-index`, `lock` with a new session, `get`. Release is one transaction: `check-session`, `check-index`, `unlock` with the value resent, `get`. The elector requires withdrawn intent that names this node, names the released writer as previous writer, and carries both policies unchanged. Release retires the elector whatever the outcome. Release does not require local freshness; the coordinator's conditions guard it. |
+| 7b.2 policy validation | Corrected, 2026-10-08 | The earlier elector rejected any policy that named the writer. A takeover intent must carry the former writer's policy, which names the new writer. The rule is now: a policy this node introduces never names the writer; a policy carried unchanged from the prior record may; a `SERVING` confirmed policy never names the writer. |
+| 7b.2 timing and watchdog configuration | Corrected and tested, 2026-10-08 | `PgWatchdogMode` is `AUTOMATIC`, `OFF`, or `REQUIRED`. `PgNodeConfig` applies the lease rule in every mode: `loop + 2 × retry <= TTL` and `loop + retry + stop < TTL`. Only `REQUIRED` rejects a configuration without watchdog slack (`loop + retry < TTL/2` and `stop < TTL/2`). `ownershipBudget()` is derived: `TTL − stop` in `OFF` or when watchdog timing is not usable; otherwise the smaller of that and `TTL − TTL/2`. The elector's freshness deadline uses it. No watchdog device code exists. |
+| 7b.2 local persistent contracts | Implemented and tested, 2026-10-08 | `PgLocalStateStore` with `PgWriterGrant` (mode, generation, operation, policy revision, node, state), `PgQuarantine`, and `PgActionReceipt` (generation, operation, action, target node, immutable parameters, result, effect). A grant loaded at open is closed durably before the store is returned. Quarantine blocks preparation and activation and survives restart. A receipt begun twice with equal parameters is one receipt; changed parameters are rejected; a final result is never replaced. `PgLocalStateStoreTest` runs 29 tests against a real directory: `logs/phase7b2-local-state-core-20261008.log`; guards 14: `logs/phase7b2-local-state-guards-20261008.log`. No caller uses the store yet. |
+| 7b.2 supervisor-owned start and local shutdown | Implemented and tested, 2026-10-08 | `PgProcessControl` port; `PgCtlProcessControl` adapter; `LocalCommandRunner`. `PgFailoverMonitor` has `startStandby`, `startPrimary(held)`, `renew`, and `demote`. Primary start is refused without fresh ownership or under quarantine, runs with admission closed, and records a `start-primary` receipt. A failed renewal retires ownership, closes the grant, stops PostgreSQL within the stop budget, and records a `stop-writer` receipt. An unconfirmed stop fails the demotion, quarantines the node, and records the receipt as `UNKNOWN`. Local effects run one at a time; renewal does not queue behind them. Tests use a real PostgreSQL whose container entry point does not start it, a real Consul server, and a real state directory. Not implemented: the loop timer that calls `renew` on the HA interval, promotion, and any SQL admission gate. |
+| Sidecar | Role-only | `PgPrimaryCheckVerticle` answers `/primary` from `pg_is_in_recovery()` alone. The sidecar source has no commit since `ff5c17da`. It has no coordinator read, grant check, node identity check, coverage check, `/writer` route, authentication, or request deadline. |
 | 7b.2 local supervision and bootstrap | Not implemented | Persistent grants/quarantine/receipts, guarded startup, SQL/LISTEN admission, local shutdown, stopped-before-release, and authenticated bootstrap remain to implement. `createInitialIntent` is a low-level conditional operation, not provisioning verification. |
 | 7b.3 manual takeover and re-join | Not implemented by the new module | Requires supervised transitions, old-writer exclusion, policy cutover, repeated failover, and routed production-manager assertions. |
 | G-7 full coordinator qualification | Open | Snapshot/restore, TLS, stopped-before-release, and expiry versus independent old-writer exclusion remain unverified. Component success does not close G-7. |
@@ -646,6 +700,37 @@ Every class below reports zero failures, errors, and skips in its saved final ru
 | 7b.2 default/core guards | `OnSuccessExceptionSwallowingGuardTest` | 8 | `phase7b2-lease-verified-guards-20261008.log` |
 | 7b.2 default/core guards | `SchemaInitializerTestInfrastructureGuardTest` | 1 | `phase7b2-lease-verified-guards-20261008.log` |
 | 7b.2 default/core guards | `VertxAsyncForbiddenPatternsGuardTest` | 1 | `phase7b2-lease-verified-guards-20261008.log` |
+| 7b.2 port and timing `integration-tests` | `ConsulLeaseCoordinatorIntegrationTest` | 60 | `phase7b2-watchdog-timing-integration-20261008.log` |
+| 7b.2 port and timing default/core | `PgNodeConfigTest` | 17 | `phase7b2-watchdog-timing-core-20261008.log` |
+| 7b.2 port and timing guards | `DisabledTestsGuardTest` | 2 | `phase7b2-watchdog-timing-guards-20261008.log` |
+| 7b.2 port and timing guards | `InvalidDurationLiteralGuardTest` | 2 | `phase7b2-watchdog-timing-guards-20261008.log` |
+| 7b.2 port and timing guards | `OnSuccessExceptionSwallowingGuardTest` | 8 | `phase7b2-watchdog-timing-guards-20261008.log` |
+| 7b.2 port and timing guards | `SchemaInitializerTestInfrastructureGuardTest` | 1 | `phase7b2-watchdog-timing-guards-20261008.log` |
+| 7b.2 port and timing guards | `VertxAsyncForbiddenPatternsGuardTest` | 1 | `phase7b2-watchdog-timing-guards-20261008.log` |
+
+Final runs for §8.2 items 1 to 4, after the last source change on 2026-10-08. Rebuild:
+`phase7b2-process-control-rebuild-20261008.log`. Every class reports zero failures, errors, and skips.
+
+| Profile | Class | Tests run | Saved log under `logs/` |
+|---|---|---:|---|
+| `integration-tests` | `ConsulLeaseCoordinatorIntegrationTest` | 60 | `phase7b2-process-control-integration-20261008.log` |
+| `integration-tests` | `PgFailoverMonitorIntegrationTest` | 9 | `phase7b2-process-control-integration-20261008.log` |
+| `integration-tests` | `PgCtlProcessControlIntegrationTest` | 10 | `phase7b2-process-control-integration-20261008.log` |
+| default/core | `LocalCommandRunnerTest` | 5 | `phase7b2-process-control-core-20261008.log` |
+| default/core | `PgLocalStateStoreTest` | 29 | `phase7b2-process-control-core-20261008.log` |
+| default/core | `PgNodeConfigTest` | 17 | `phase7b2-process-control-core-20261008.log` |
+| default/core guards | five guard classes | 14 | `phase7b2-process-control-guards-20261008.log` |
+
+Red evidence for each scope: `phase7b2-port-red-20261008.log` (compilation),
+`phase7b2-watchdog-timing-red-20261008.log` (compilation),
+`phase7b2-watchdog-budget-red-20261008.log` (2 run, 1 failure: ownership lapsed before its
+budget in `off` mode), `phase7b2-local-state-red-20261008.log` (compilation), and
+`phase7b2-process-control-red-20261008.log` (compilation).
+
+`ConsulLeaseProtocolIntegrationTest` (28 cases) was deleted on 2026-10-08. Its cases run in
+`ConsulLeaseCoordinatorIntegrationTest`: 20 through the neutral contract suite
+`PgLeaseCoordinatorContract`, and 8 as Consul wire cases in the binding. The rebuild for the
+60-test run is `phase7b2-watchdog-timing-rebuild-20261008.log`.
 
 The intermediate `phase7b2-lease-generation-tests-20261008.log` records 22 tests and one
 failure: the close-verification read returned HTTP 403. The isolated close diagnostic ran
@@ -656,37 +741,60 @@ Not checked by this reconciliation: new runtime behavior, Java regressions after
 change, end-to-end admission/takeover, production TLS/restore, independent watchdog
 exclusion, whole-VM pause/resume, or the 45-second recovery objective.
 
-### 8.2 Next Implementation Scope: Phase 7b.2 Local Supervision and Admission
+### 8.2 Next Implementation Scope: Phase 7b.2
 
 Continue in the existing `peegeeq-pg-failover` module. Use available Docker/Testcontainers.
 No new host/VM access or machine-reset testing is required to begin or verify this scope.
+Each numbered item is one scope: failing tests first, clean reactor rebuild, smallest tagged
+test run through `Tee-Object`, per-class counts read from the saved log, then a report.
 
-1. Define the local persistent contracts before implementation: quarantine, execution grants,
-   and action receipts are authoritative. Lease freshness, PostgreSQL role, process state,
-   watchdog health, and eligibility are derived. Loaded grants start closed.
-2. Correct the watchdog timing coupling with failing configuration and ownership-budget tests.
-   Plan `automatic`, `off`, and `required` explicitly. Missing devices must not prevent local
-   process tests in `automatic` or `off`. Preserve request deadlines and retired-reply rejection.
-3. Implement supervisor-owned PostgreSQL startup and local shutdown. Verify lease-loss
-   admission withdrawal, process exit, existing session termination, bounded failure reporting,
-   and inability to restart a writer through a second entry point.
-4. Implement serialized local admission, quiescence, durable receipts/quarantine, and closed
-   restart grants. Dependency throw, rejection, malformed/null result, timeout, lost reply,
-   and stale completion each require a failing test before their calling code.
-5. Run the required clean reactor rebuild and smallest relevant tagged tests through
-   `Tee-Object`. Inspect per-class counts and saved failures. Report this scope before
-   starting authenticated bootstrap or manual takeover.
+1. **Coordinator port (P-38, S59).** A refactor with no behaviour change, followed by the two
+   missing operations. No open decision blocks it.
+   1. Define the port `PgLeaseCoordinator` with the seven operations of system design §5.10.
+      Make `PgControlRecord` neutral: control record name, generation, revision, lease holder,
+      intent. Rename the TTL in `PgNodeConfig` to a lease TTL and move the Consul range check
+      (whole seconds, 10 to 86,400) into the adapter.
+   2. Move every Consul HTTP call out of `PgPrimaryElector` into `ConsulLeaseCoordinator` in
+      package `dev.mars.peegeeq.failover.consul`. The elector keeps intent validation, the
+      freshness deadline, epoch and retirement, and the single in-flight operation.
+   3. Split `ConsulLeaseProtocolIntegrationTest` into a coordinator contract suite and its
+      Consul binding. The suite states the port's obligations; the binding supplies the real
+      three-server Consul quorum, tokens, and fault proxy. All 28 existing cases must pass
+      through the port. Cases that assert Consul wire details (session TTL string, `Behavior`,
+      `LockDelay`, check lists) stay in the Consul binding.
+   4. Write failing tests, then implement in the adapter: acquisition after release at an
+      expected revision, and guarded release. Failure modes for each: failed Future, synchronous
+      throw, malformed or null result, timeout, lost reply, and late reply after retirement.
+   5. Record by search that no source file outside the `consul` package contains Consul API
+      paths, header names, or the words session, `LockIndex`, or `ModifyIndex`.
+2. **Watchdog timing correction.** Write failing configuration and ownership-budget tests.
+   Separate the lease and local-stop rule from watchdog timing in `PgNodeConfig` and in the
+   elector's freshness deadline. Represent `automatic`, `off`, and `required`. A missing device
+   must not prevent local process tests in `automatic` or `off`. Preserve request deadlines and
+   retired-reply rejection.
+3. **Local persistent contracts.** Define quarantine, execution grants, and action receipts as
+   authoritative. Lease freshness, PostgreSQL role, process state, watchdog health, and
+   eligibility are derived. Loaded grants start closed. Blocked on `OD-3` in §5.3.
+4. **Supervisor-owned PostgreSQL startup and local shutdown.** Verify lease-loss admission
+   withdrawal, process exit, existing session termination, bounded failure reporting, and
+   inability to restart a writer through a second entry point. Blocked on `OD-2`.
+5. **Serialized local admission**, quiescence, durable receipts and quarantine, and closed
+   restart grants. Dependency throw, rejection, malformed or null result, timeout, lost reply,
+   and stale completion each require a failing test before their calling code. Blocked on
+   `OD-1`.
 
-Align the companion design sections with §5.2.1 when defining the configuration contract.
-Then complete optional watchdog integration and authenticated first-start bootstrap in
+Items 1 to 4 are complete as of 2026-10-08 (§8.1, §9.11). Items 3 and 4 used the OD-3 and OD-2
+choices recorded in §5.3. Item 5 needs OD-1.
+
+After item 5, complete optional watchdog integration and authenticated first-start bootstrap in
 separate verified scopes within 7b.2. Bootstrap must verify provisioning, withdrawn intent,
-guarded startup, and confirmed first policy. Implement voluntary release only after confirmed
-local stop. Manual takeover remains 7b.3; autonomous initiation remains phase 8.
+guarded startup, and confirmed first policy. Manual takeover remains 7b.3; autonomous initiation
+remains phase 8.
 
 Known gaps remain production qualification of independent exclusion during supervisor death
-or whole-VM pause, full G-7 security/restore, routed failover/re-join, and application recovery
-timing. These gaps must stay visible. They do not make additional infrastructure a prerequisite
-for the next local-supervisor implementation.
+or whole-VM pause, full G-7 security/restore, routed failover/re-join, the sidecar's eligibility
+contract, and application recovery timing. These gaps must stay visible. They do not make
+additional infrastructure a prerequisite for the next implementation scope.
 
 ## 9. Records
 
@@ -932,4 +1040,40 @@ It does not infer whole-VM or orphan-writer safety from Docker process tests.
 Sections 2 to 4 and §9.1 to §9.8 retain dated evidence. Companion mandatory-watchdog design
 wording remains to align with the current decision. No Java, Maven, deployment configuration,
 or test was changed or run for this reconciliation. No new production gate is closed.
+
+### 9.10 Coordinator Port and Companion Design Alignment, 2026-10-08
+
+All five documents, Task 8, the `peegeeq-pg-failover` module with its tests, the phase 7b.1
+changes in `peegeeq-db`, and `PostgreSQLTestConstants` were read in full before this revision.
+Qraft's `distributed_state.proto` and `commands.proto` were read in full. Its client API has
+`Put`, `Get`, `Delete`, and `List` only.
+
+The owner directed that any hard dependency on Consul be abstracted away, because Qraft may be
+used. P-38 records the contract. The design now defines a coordinator port with neutral terms
+and seven operations, the obligations every adapter must meet, one shared contract suite, and
+Consul as the first adapter (system design §5.10; coordinator design §3). R-20 and S59 were
+added. The lease TTL key is `peegeeq.pg.failover.lease.ttl`, and `peegeeq.pg.coordinator.type`
+selects the adapter. The Consul lock delay is no longer a neutral setting; the Consul adapter
+fixes it at zero.
+
+The four design documents were aligned with the optional-watchdog decision in §5.2.1. The
+system design's default mode is now `automatic`. Statements that required an armed watchdog
+now depend on the selected mode. Each document states that a deployment without an active
+watchdog claims no old-writer exclusion for supervisor death or whole-VM pause.
+
+The word "proposed" was removed from the design documents where it described the
+`peegeeq-pg-failover` module or the configuration contract. The design documents describe the
+target and carry no implementation status.
+
+Three observations from the read were recorded as implementation state in §8.1: the coordinator
+port is not implemented, the elector lacks acquisition after release and guarded release, and
+the sidecar is still role-only. Three unspecified design points were recorded in §5.3 as
+`OD-1` to `OD-3`. The next scope in §8.2 was reordered to extract the coordinator port first.
+
+The file `PEEGEEQ_FAILOVER_CONSUL_DESIGN.md` keeps its name so that existing links resolve. Its
+title is now "PostgreSQL Failover: Coordinator Lease and Local Supervision".
+
+This revision changes documentation only. No Java, Maven, deployment configuration, or test was
+changed or run. Sections 2 to 4 and §9.1 to §9.9 retain dated evidence and still use the Consul
+vocabulary of their dates.
 
