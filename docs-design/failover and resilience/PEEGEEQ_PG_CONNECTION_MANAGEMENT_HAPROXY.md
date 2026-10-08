@@ -2,7 +2,7 @@
 
 **Author**: Mark A Ray-Smith Cityline Ltd.  
 **Document type**: Design. This document describes the target system.  
-**Design revision**: 2026-10-07, coordination, bootstrap, and recovery prerequisites revision
+**Design revision**: 2026-10-08, Patroni-style local supervision
 
 ## Table of Contents
 
@@ -42,19 +42,20 @@ outage. Opening a new socket is only one part of that recovery.
 A PostgreSQL **primary** is a node in the writable database role. A **standby** follows the
 primary's write-ahead log (WAL), the database's record of changes. **Promotion** changes a
 standby into a primary. The **writer** in this design is the primary currently authorised to
-accept PeeGeeQ writes. Local writable role alone is insufficient. **Fencing** means confirmed
-stop of a former or ambiguous writer with restart inhibited. It prevents a replacement from
-serving while the previous node can still accept conflicting writes.
+accept PeeGeeQ writes. Local writable role alone is insufficient. **Fencing** prevents an obsolete writer from committing after ownership transfers. This design
+uses the Patroni approach: local lease renewal, local PostgreSQL self-demotion, and an independent
+watchdog that excludes the writer before another node can acquire ownership. It does not require
+a remote stop acknowledgement from an unreachable host.
 
 **How the components fit together.** Applications use a stable SQL address. HAProxy forwards
 connections through that address to the eligible writer. One `peegeeq-pg-sidecar` runs beside
-each database node and reports whether that node can receive traffic. The automatic controller
-owns transition decisions through Consul. A separately secured node-control provider executes
-and confirms database stop, promotion, restart restrictions, and permission to accept writes.
-The selected design assigns cluster control to PeeGeeQ components and does not require Patroni.
+each database node and reports whether that node can receive traffic. One PeeGeeQ supervisor runs with each database node. The writer's own supervisor owns its Consul
+lease and manages its local PostgreSQL process. Standby supervisors compete for ownership only
+in automatic mode. Local process control and watchdog protection replace the former central
+node-control provider. PeeGeeQ implements this control model without depending on the Patroni product.
 
-Consul is the reference automatic protocol in this revision. Before automatic implementation,
-G-7 records whether to retain it or replace it with a qualified coordination service (§5.10).
+Consul is selected for the first implementation of both manual and automatic supervision.
+G-7 qualifies its lease and ownership semantics before takeover implementation (§5.10).
 The local Java Qraft project is an option for that decision. Selecting another service requires
 replacing the Consul-specific contracts consistently; a runtime toggle cannot combine authorities.
 
@@ -62,25 +63,24 @@ replacing the Consul-specific contracts consistently; a runtime toggle cannot co
 |---|---|
 | PostgreSQL primary and standbys | Store application data and replicate WAL under the required synchronous policy |
 | HAProxy | Provide routing through redundant proxies and close sessions when writer eligibility is lost |
-| `peegeeq-pg-sidecar` | Observe local database role, current authority, provider permission, and required replication coverage |
-| `PgPrimaryElector` in proposed `peegeeq-pg-failover` | Own the cluster's Consul session and control record; guard ownership-sensitive updates |
-| `PgFailoverMonitor` in proposed `peegeeq-pg-failover` | Detect failure suspicion and coordinate a guarded transition or restart reconciliation |
-| Independent node-control provider | Enforce fencing, generation checks, promotion, writer admission, and restricted standby restart |
+| `peegeeq-pg-sidecar` | Observe local database role, current authority, local supervisor permission, and required replication coverage |
+| `PgPrimaryElector` in proposed `peegeeq-pg-failover` | Run per node; acquire and renew that node's writer lease; guard ownership-sensitive updates |
+| `PgFailoverMonitor` in proposed `peegeeq-pg-failover` | Run per node; supervise local PostgreSQL, detect lease loss, and reconcile takeover or restart |
+| Local process/admission control and independent watchdog | Stop the local writer on lease loss; enforce guarded start/promotion and restart quarantine; exclude a stalled supervisor's writer |
 | PeeGeeQ connection manager and subscription clients | Apply operation deadlines, discard unusable connections, reconnect, and complete required durable catch-up |
 | Optional PgBouncer | Pool database connections between PeeGeeQ and HAProxy; transaction pooling requires a separate LISTEN route |
 
-Consul stores coordination intent and controller ownership. It does not stop a database.
-The provider's **writer grant** is permission to admit application writes. The sidecar must
+Consul stores transition intent and writer-supervisor ownership. It does not stop a database.
+The supervisor's local **writer grant** is permission to admit application writes. The sidecar must
 match that grant to current authority and live database observations before reporting the
 node eligible. Application credentials use controlled proxy paths. Observation and node
 control have separate credentials and access paths.
 
 **What recovery must accomplish.** The normal production topology has one primary and two
 synchronous physical standbys. Required commits wait for WAL flush acknowledgement from both
-named standbys. For example, if node 1 fails, the controller first withdraws admission and
-confirms its fence. It can then promote a standby covered by the last confirmed durability
-policy. With node 2 promoted, node 3 must supply synchronous coverage before writes resume.
-Publishing the selected writer and activating its matching provider grant are separate steps.
+named standbys. For example, if node 1 fails, the surviving supervisors wait for safe lease handover. The winner can then promote its
+already-running standby if covered by the last confirmed durability policy. With node 2 promoted, node 3 must supply synchronous coverage before writes resume.
+Publishing the selected writer and activating its matching local grant are separate steps.
 
 Readiness reports whether an application instance can perform its required work.
 HAProxy then admits new connections to the replacement. Failed transactions are returned to
@@ -91,7 +91,7 @@ request processing; durable database state determines what work remains. Rewind 
 of node 1 and validated standby re-join restore redundancy after service recovery.
 
 **Deployment scope.** Profile A uses automatic Consul-coordinated transitions. Profile B
-uses operator-directed transitions through the same fencing and admission provider. Profile C
+uses operator-authorised transitions through the same lease, local supervision, and watchdog contract. Profile C
 uses an externally managed writer address with equivalent safety obligations. Profile D
 exercises connection recovery against independent development databases and does not qualify
 replicated-data failover. A two-node synchronous pair keeps required writes unavailable after
@@ -105,9 +105,10 @@ and Consul client. Routing between PeeGeeQ application instances and federation 
 `peegeeq-service-manager`. Backups and point-in-time recovery are separate operational work.
 
 The fault model includes process crashes, silent connections, partitions, delayed responses,
-and restarts. It assumes correct authenticated Consul quorum, trusted node-control enforcement,
+VM pauses, host loss, asymmetric network partitions, and restarts. It assumes correct authenticated
+Consul quorum, trusted local process control and qualified watchdog enforcement,
 and durable storage on surviving synchronous nodes. Host administrator bypass, compromised
-providers, arbitrary privileged database clients, and loss of all durable copies require
+supervisors or watchdogs, arbitrary privileged database clients, and loss of all durable copies require
 separate security and backup controls. No design document proves runtime safety.
 
 **How to read the document set.** Continue with the data model in §1.1, the requirements in §3,
@@ -119,7 +120,7 @@ documents provide the following detail:
 |---|---|
 | [Routing and detection options](PG_HAPROXY_PRIMARY_DETECTION_OPTIONS.md) | The reasons for the selected routing and failover architecture |
 | [Sidecar guide](PEEGEEQ_PG_SIDECAR.md) | Eligibility endpoints, configuration, packaging, security, and lifecycle |
-| [Consul failover design](PEEGEEQ_FAILOVER_CONSUL_DESIGN.md) | Controller ownership, provider operations, transition order, and interrupted-action reconciliation |
+| [Consul failover design](PEEGEEQ_FAILOVER_CONSUL_DESIGN.md) | Node-owned lease, local supervision/watchdog, transition order, and interrupted-action reconciliation |
 | [Implementation plan](PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY_IMPLEMENTATION_PLAN.md) | Execution phases, deployment decisions, dated findings, and recorded test evidence |
 
 ### 1.1 Data Model and Safety Contracts
@@ -130,41 +131,40 @@ This is a target design. A requirement here is not a claim that code implements 
 |---|---|---|
 | `clusterId`, cluster incarnation, node IDs, addresses, membership, and selected coordination protocol | Configuration; authoritative deployment identity | Independent database clusters and restored coordination stores use distinct namespaces. Membership and authority backend cannot change during a transition. G-7 records one automatic backend and its protocol mapping. |
 | `peegeeq/pg/<clusterId>/<incarnation>/primary-lock` | Consul; authoritative control record | One key per replicated cluster. ACLs exclude unauthorised clients. Session and revision conditions guard authorised mutations; ACLs do not enforce lock ownership. |
-| Lock `Session`, `LockIndex`, and `ModifyIndex` | Consul metadata; authoritative ownership and revisions | The session identifies the controller. The tuple of key, lock index, and session identifies the control generation. Do not duplicate these fields in the KV value. |
-| `writerNodeId` | Consul lock value in A; provider transition record in B; authoritative intended writer | Names a database node, not a controller. Serving intent also requires a matching open provider grant and live checks before traffic. |
-| `phase`: `WITHDRAWN`, `FENCING`, `PROMOTING`, or `SERVING` | Same profile transition record; authoritative intent | Only current `SERVING` intent can match an open grant. Publication alone grants no traffic. Actual PostgreSQL role is never stored as this phase. |
+| Lock `Session`, `LockIndex`, and `ModifyIndex` | Consul metadata; authoritative ownership and revisions | The session belongs to the writer's node-local supervisor. The tuple of key, lock index, and session identifies its generation. Do not duplicate metadata in the KV value. |
+| `writerNodeId` | Consul lock value in A and B; authoritative intended writer | Names a database node, not a controller. Serving intent also requires a matching open local supervisor grant and live checks before traffic. |
+| `phase`: `WITHDRAWN`, `FENCING`, `PROMOTING`, or `SERVING` | Same Consul transition record; authoritative intent | Only current `SERVING` intent can match an open grant. Publication alone grants no traffic. Actual PostgreSQL role is never stored as this phase. |
 | `operationId` and `previousWriterNodeId` | Same profile transition record; authoritative operation and former-writer intent | Persist before side effects. Reconciliation resumes the same operation after an uncertain response. The previous writer is absent only for authenticated first-start bootstrap with verified provisioning evidence (§5.11). |
-| Initial provisioning evidence and bootstrap request parameters | Authoritative deployment evidence, referenced by immutable existing provider receipt parameters | Bind evidence to cluster, incarnation, membership, and initial writer. Missing coordination history alone never proves a new cluster. Bootstrap uses existing intent, grants, and receipts; completion is derived from confirmed policy and serving admission. |
-| Node-control receipts: operation, generation, target node or cluster, action, immutable request parameters, and durable result | Independent node-control provider; authoritative action evidence | Receipt identity is derived from generation, operation, action, and target. A stop request is not a completed fence. A receipt never grants writer authority by itself. |
-| Accepted control generation per cluster and installed generation per node | Durable node-control provider state; authoritative command admission | A cluster-wide serialisation boundary retires old commands before new admission. Per-node counters alone are insufficient. Unknown installation requires fencing or continued withdrawal. |
-| Node quarantine and writer grant: mode, generation, operation ID, policy revision, node ID, and state `CLOSED`, `PREPARED`, or `OPEN` | Durable node-control provider; authoritative execution permission | A grant is separate from transition intent. It survives restart but cannot grant traffic without matching current authority and live checks. Revocation supersedes preparation and activation. |
-| `durabilityPolicy`: revision and required standby node IDs | Automatic control record; manual provider transition record; authoritative confirmed policy intent eligible for serving | Require every named standby. The acknowledgement count is computed from the set. The record is not a stored observation of replication health. Retain it while preparing a replacement. It is absent before the first confirmed bootstrap policy; absence never permits serving or ordinary promotion. |
+| Initial provisioning evidence and bootstrap request parameters | Authoritative deployment evidence, referenced by immutable existing local receipt parameters | Bind evidence to cluster, incarnation, membership, and initial writer. Missing coordination history alone never proves a new cluster. Bootstrap uses existing intent, grants, and receipts; completion is derived from confirmed policy and serving admission. |
+| Local action receipts: operation, generation, target node, action, immutable request parameters, and durable result | Node-local supervisor storage; authoritative action evidence | Reconcile uncertain effects on that node. A receipt does not grant authority. No central receipt or failed-host reply is required for qualified lease-expiry takeover. |
+| Lease TTL, HA-loop interval, retry budget, watchdog mode/device, and manual/automatic mode | Authoritative cluster configuration | Use one qualified timing contract. Production requires an independently enforced watchdog. No SQL probe or process-local timer substitutes for it. |
+| Node quarantine and writer grant: mode, generation, operation ID, policy revision, node ID, and state `CLOSED`, `PREPARED`, or `OPEN` | Durable node-local supervisor storage; authoritative local execution permission | Match the current lease and intent. Loaded grants start closed after process restart. Lease loss closes admission and triggers local stop. Old grants never reopen from cached state. |
+| `durabilityPolicy`: revision and required standby node IDs | Consul control record in both modes; authoritative confirmed policy intent eligible for serving | Require every named standby. The acknowledgement count is computed from the set. The record is not a stored observation of replication health. Retain it while preparing a replacement. It is absent before the first confirmed bootstrap policy; absence never permits serving or ordinary promotion. |
 | `pendingDurabilityPolicy`: next revision and required standby node IDs | Same profile authority; authoritative proposed policy intent | Persist before configuration effects. It grants no target eligibility. Remove it when the verified policy replaces `durabilityPolicy`. Revisions increase within an incarnation. |
-| Manual transition identity and admission generation | Node-control provider; authoritative operator-issued intent | In profile B, authenticated operator actions use a provider-issued monotonic generation. It is separate from automatic Consul generations. Mode changes retire the prior admission generation before another can serve. |
+| Manual transition request: operation ID and requested target | Authoritative authenticated operator request persisted in Consul transition intent | B disables autonomous takeover. The requested node still acquires the writer lease and arms its watchdog. Operator permission is not an alternative authority. |
 | Node role, WAL positions, timeline, reachability, routing eligibility, and readiness | Derived from live observations and current authority | Compute them. Do not store independent primary or healthy flags as authority. |
 | Durable subscription identity, filters, lifecycle, `last_processed_id`, and replay lease owner, generation, and expiry | Existing tenant-local `bitemporal_subscriptions`; authoritative subscription progress and ownership | Reuse the existing schema and writer-barrier replay contract in §6.6. Do not create a second failover cursor or acknowledgement table. |
-| Replay upper boundary, retry attempt identity, channel acknowledgements, catch-up completion, and client eligibility response | Derived runtime observations | Recompute after reconnect or restart. Do not persist a second cursor, ready flag, or authority cache. |
+| Lease freshness/deadline, watchdog health, replay upper boundary, retry attempt identity, channel acknowledgements, catch-up completion, and client eligibility response | Derived runtime observations | Never persist a reusable lease deadline or watchdog-ready flag. Recompute after restart. Do not create a second cursor or writer authority. |
 | Caller idempotency result | Existing application operation contract; authoritative outcome when provided | A stable operation identity is required for automatic reconciliation of unknown commits. Failover does not create a generic result table or guarantee external exactly-once effects. |
 
 The following invariants apply to profiles A and B:
 
 1. At most one node accepts PeeGeeQ writes. Zero writers is permitted during an outage.
-2. A replacement cannot serve until former or ambiguous writers are stopped with restart inhibited. Validated standbys may remain running under enforced writer-start and promotion inhibition. A loss of contact is not fencing evidence.
-3. Retired generations cannot admit new promotion, quarantine-release, or activation commands. Previously accepted effects remain quarantined and are reconciled before new writer admission. Validated standbys remain under enforced promotion and writer-start inhibition.
+2. A replacement cannot promote until it acquires ownership after qualified lease expiry or release following confirmed local writer stop. The previous writer must be excluded before handover by local self-demotion or watchdog enforcement. No remote acknowledgement is required in the qualified expiry path. Unreachability alone is never proof.
+3. Local supervisors reject retired-generation start, promotion, and activation. Lease loss closes admission, cancels unstarted effects, and stops any resulting local writer. The watchdog remains armed until writer exclusion completes. A stalled or delayed effect cannot outlive the qualified exclusion boundary.
 4. A successful application write includes a confirmed commit under the configured durability policy.
 5. A lost response can leave an operation outcome unknown. Failed transport does not prove rollback.
 6. A recovered old primary remains quarantined until rewind or rebuild and standby validation complete.
 
-Profile A uses Consul authority and an independent node-control provider. Profile B uses an
-operator-controlled transition through node control and the same fencing and durability invariants. Changing
-profiles requires a stopped, reconciled transition. Disabling a controller is not permission
-to bypass its authority checks.
+Profiles A and B use the same Consul writer lease and local enforcement. They differ only in
+who initiates takeover: surviving supervisors in A; an authenticated operator in B. Manual mode
+does not remove coordination or watchdog protection. Profile C can supply an externally managed
+equivalent contract. No profile mixes a central controller lease with node-local writer leases.
 
-Within one automatic namespace, generation ordering uses `LockIndex`; session identity must
-also match current ownership. Incarnations are not compared lexically. A new incarnation
-requires the fenced restoration procedure. In manual mode, the provider owns monotonic
-admission generations and serialises operator effects. Both modes reject retired-generation
-commands and reconcile in-flight effects before admitting a writer.
+Generation ordering uses `LockIndex` within a namespace and also checks the session. A new
+incarnation requires stopped restoration. The former cluster-wide provider generation barrier
+and provider-owned manual authority are removed. Reconciliation concerns the winning node's
+local effects; an unreachable former writer is covered by the qualified lease/watchdog contract.
 
 The state of the implementation against this design, the work to reach it, and the test
 evidence are recorded in
@@ -178,7 +178,7 @@ evidence are recorded in
 1. **One endpoint.** PeeGeeQ connects to a single host and port. It never holds a list of
    PostgreSQL nodes.
 2. **One profile authority names the writer.** In reference profile A, `PgPrimaryElector`
-   owns Consul intent. In B, the provider owns operator-directed intent. Control ownership alone
+   owns Consul intent. In B, the operator requests takeover under the same node-owned Consul lease. Control ownership alone
    does not prove that the database failed. Promotion requires fencing and generation enforcement at the point of effect.
    HAProxy routes by the sidecar's eligibility response.
 3. **The client converges.** After a role change, every connection PeeGeeQ holds ends on the
@@ -202,8 +202,8 @@ evidence are recorded in
 | R-2 | HAProxy selects new connections using its latest successful scheduled sidecar observation and configured backend health state. Each sidecar response evaluates live profile eligibility. Enforced admission and fencing preserve safety during observation delay. |
 | R-3 | When configured failed checks mark a backend down, HAProxy closes every session it has open to that backend. Measure detection and shutdown delay; eligibility loss does not imply instantaneous proxy shutdown. |
 | R-4 | A node that has lost the primary role cannot receive traffic until it has re-joined as a standby. |
-| R-15 | In profile A, a primary failure permits automatic promotion only after confirmed fencing and target validation. Writes resume through the same endpoint after writer activation and replacement synchronous coverage. Missing fences or peers preserve unavailability. |
-| R-16 | Only the current control generation authorises promotion. The node-control provider serialises promotion and fencing and rejects obsolete commands at the point of effect. Retries cannot authorise a second writer. |
+| R-15 | Automatic promotion requires safe lease handover, an armed qualified watchdog on the winner, and covered-target validation. No failed-host stop reply is required. Missing enforcement or synchronous peers preserves unavailability. |
+| R-16 | Only the target node's current writer lease authorises local promotion. Its supervisor serialises effects with lease-loss shutdown and watchdog protection. Retries cannot authorise a second writer. |
 | R-5 | Discard a connection after a required writer operation is rejected as read-only or the server ends its session. Maximum lifetime closes it when next idle. Business read-only errors do not prove demotion. |
 | R-6 | A LISTEN connection reconnects without an attempt limit, with a bounded backoff. |
 | R-7 | A LISTEN connection detects that its node is not the primary and reconnects through the endpoint. |
@@ -221,24 +221,18 @@ evidence are recorded in
 
 ## 4. Deployment Profiles
 
-Every profile gives PeeGeeQ one endpoint. The profiles differ in who promotes a standby.
+Every profile gives PeeGeeQ one endpoint. Profiles A and B share local supervision and fencing.
 
 | Profile | Components | Promotion | Use |
 |---|---|---|---|
-| **A. Automatic failover** | Redundant HAProxy + sidecars in automatic mode + Consul + failover controller + independent node-control provider | Controller after confirmed fencing and eligibility checks | Production only after the provider and acceptance gates pass |
-| **B. Manual promotion** | Redundant HAProxy + sidecars in manual mode + node-control admission, quarantine, and restart inhibition | Operator through node control after confirmed fencing and eligibility checks | First implementation target |
-| **C. Managed endpoint** | One FQDN or virtual IP that DBA/DevOps re-point after a failover | DBA/DevOps | Environments that already manage the address themselves |
-| **D. Development** | HAProxy with `pgsql-check` in front of two independent nodes | None | Development and connection-recovery tests only |
+| **A. Automatic failover** | Redundant HAProxy, sidecars, Consul quorum, one PeeGeeQ supervisor per PostgreSQL node, required watchdog | Covered standby supervisor after safe lease handover | Qualified production automatic takeover |
+| **B. Manual promotion** | Same components; autonomous takeover disabled | Operator requests the covered target; its supervisor acquires the lease and promotes locally | First implementation target |
+| **C. Managed endpoint** | Externally managed writer and stable address | External cluster manager/operator | Equivalent fencing, durability, and status contracts required |
+| **D. Development** | Protocol checks in front of independent databases | None | Connection recovery only |
 
-Profiles A and B share client, durability, session-shutdown, and re-join contracts. Their
-authority mechanisms differ. In A, the sidecar requires current Consul authority. In B, the
-operator fences the former writer and controls node admission. A runtime toggle cannot
-silently convert one mechanism into the other.
-
-Profile D has no component that knows a node's role. It does not meet R-1, R-2, or R-4 and is
-never used with replicated data.
-
-No profile uses Patroni.
+B still requires the coordinator. Its operator does not bypass writer exclusion or issue direct
+promotion SQL. D never qualifies replicated failover. PeeGeeQ follows Patroni's control approach
+without requiring the Patroni product.
 
 ---
 
@@ -246,69 +240,62 @@ No profile uses Patroni.
 
 ### 5.1 Responsibilities
 
-**Role reporting: `peegeeq-pg-sidecar`.** One sidecar runs beside each PostgreSQL node. It
-answers `GET /primary` according to the profile-specific eligibility contract (§9).
-HAProxy uses that answer. PostgreSQL role and write permission are separate conditions.
-`pgsql-check` and a TCP check establish neither writer authority nor standby exclusion.
+**Eligibility reporting.** The sidecar remains read-only. It combines current lease and intent,
+matching local grant, watchdog health, node identity, writable role, and synchronous coverage.
+HAProxy checks are routing observations. They do not enforce a writer lease.
 
-**Role authority: `PgPrimaryElector`.** It holds a Consul session and a lock on the KV key
-`peegeeq/pg/<clusterId>/<incarnation>/primary-lock`. The value and metadata follow §1.1.
-Authority-changing operations use one Consul transaction containing `check-session`,
-`check-index`, and `cas` on the same key. A rejected condition makes no change. ACLs restrict
-the clients that can access the key; they do not impose these conditions. Reads
-that grant traffic require Consul's consistent mode. A released key with a retained value
-does not authorise traffic. The session TTL defaults to 15 seconds, renewal to TTL / 3, and
-lock delay to 10 seconds. Lock delay blocks all contenders from reacquiring the released
-lock temporarily. It is not a fence.
+**Node-local ownership.** One `PgPrimaryElector` runs inside each proposed
+`peegeeq-pg-failover` supervisor. Only the supervisor on the writer node renews that writer's
+lease. Standbys do not renew it on behalf of the primary. Consul conditionally selects one owner.
+A separate central controller must not retain ownership while its writer host is unreachable.
 
-**Failure detection and promotion: `PgFailoverMonitor`.** A verticle in
-the proposed `peegeeq-pg-failover` module. It holds direct observation pools for the configured
-nodes. Every 500 ms it probes the intended writer with a bounded query. Consecutive failed
-probes establish suspicion, not proof of death. The controller keeps its control session
-while it withdraws traffic, obtains fences, checks the standby, and reconciles promotion.
-Session expiry is not the normal failover trigger. On controller ownership change, the new
-controller first reconciles live nodes and provider receipts. It does not promote a healthy
-writer because the previous controller failed.
+**Node-local supervision.** One `PgFailoverMonitor` manages its local PostgreSQL process.
+It renews ownership independently of slow SQL observations. Failure to establish valid ownership
+within the safe budget closes local admission and initiates local writer stop. Local stop uses
+process control, not a query to a frozen SQL endpoint. It observes postconditions and escalates
+within the budget. The watchdog covers a stopped, killed, or unscheduled supervisor.
 
-**Node control.** The deployment provider performs stop, restart inhibition, controlled
-promotion, and re-join admission. It validates operation identity and current control
-generation and serialises conflicting actions at the node. A controller-side lock check
-followed by unguarded SQL is insufficient. Controllers have no direct promotion or fence
-release credentials. The provider can execute `pg_promote()` through the reactive client,
-but must enforce generation at the effect boundary. Lost replies require observation and
-receipt reconciliation before any retry. An already accepted effect can remain in flight after
-session loss. Its target stays quarantined. The successor reconciles and serialises those
-effects before any admission. A lock check does not make Consul and SQL one atomic operation.
+**Takeover.** A surviving eligible standby acquires the released writer lease, arms its watchdog,
+persists withdrawn intent, reconciles its own local effects, and promotes itself. It does not
+wait for a remote stop receipt or generation installation on an unreachable node. B requires a
+matching operator request before acquisition; A initiates it automatically. No takeover occurs
+while the former writer can still renew its lease.
 
-The complete provider operations and interruption rules are in
+**Local enforcement.** The supervisor owns start, stop, promotion, rewind/rebuild admission, and
+the local writer grant. No orchestrator entry point starts PostgreSQL independently as a primary.
+The local admission gate covers every application SQL/LISTEN path, blocks new work when closed,
+and observes existing-write quiescence for policy changes. Closing sockets is not the exclusion
+proof for takeover; lease-timed self-demotion/watchdog enforcement is that proof.
+
+The operation contract is in
 [the Consul design §4](PEEGEEQ_FAILOVER_CONSUL_DESIGN.md#4-node-control-provider-contract).
-They also apply to manual mode with provider-issued generations. Select the provider and its
-admission integration before implementing either profile. Automatic mode adds Consul authority;
-it does not introduce the first enforced admission boundary.
+Its retained section anchor now describes local supervision, not an external fencing service.
 
 ### 5.2 Topology
 
 ```text
-Applications -> stable endpoint -> HAProxy A and B -> admitted PostgreSQL writer
+Applications -> stable endpoint -> redundant HAProxy -> local admission -> PostgreSQL
                                        |
-                                       +-> GET /primary on each node's sidecar
+                                       +-> read-only /primary on each node's sidecar
 
-peegeeq-pg-failover -> Consul quorum (authority and transition intent)
-          |
-          +-> direct observation pools -> all configured PostgreSQL nodes
-          |
-          +-> independent node-control provider -> guarded stop/start/promotion
-                   (durable quarantine and generation enforcement)
+Per PostgreSQL node:
+  PeeGeeQ supervisor -> Consul quorum (one writer lease and transition intent)
+         |
+         +-> local PostgreSQL process/admission control
+         +-> independent watchdog (required for production writer operation)
 
-pg-node-1 primary == synchronous WAL ==> pg-node-2 standby
-                  == synchronous WAL ==> pg-node-3 standby
+pg-node-1 primary == synchronous WAL ==> pg-node-2 running standby
+                  == synchronous WAL ==> pg-node-3 running standby
 ```
 
-The full production topology has one primary and two synchronous physical standbys (§5.8). PeeGeeQ application
-credentials reach databases only through the controlled proxy paths. Observation and node
-control use separate credentials and access paths. The provider can fence a node even when
-its SQL endpoint is unreachable. Sidecar checks are routing observations. Fencing establishes
-single-writer safety despite delayed or different observations by the proxies.
+The same supervisor/container contract applies on Linux hosts/VMs, Docker hosts, and Kubernetes.
+Takeover does not invoke a Docker, Kubernetes, or hypervisor stop API. The host supplies the
+qualified watchdog facility and persistent node storage. Device access and failure-domain
+configuration are deployment bindings. They do not change the failover protocol.
+
+A watchdog confined to a paused VM cannot be assumed to fence that VM before it resumes.
+Qualification must establish reset/exclusion before stale PostgreSQL execution can resume.
+A container health check, restart policy, or timer on the supervisor event loop is insufficient.
 
 ### 5.3 HAProxy configuration
 
@@ -335,7 +322,7 @@ backend pg_primary
     http-check        expect status 200
 
     # The health check goes to the sidecar on port 8008, not to PostgreSQL.
-    # Routing uses scheduled sidecar observations; provider admission enforces permission.
+    # Scheduled health observations route traffic; local lease/watchdog enforces writer exclusion.
     default-server    check port 8008 inter 500ms fall 2 rise 1 on-marked-down shutdown-sessions
 
     server pg-node-1  pg-node-1:5432
@@ -347,7 +334,7 @@ Design rules for this configuration:
 
 - **Role-based check (R-2).** `httpchk GET /primary` with `expect status 200`, answered by the
   sidecar. HAProxy uses its last successful observation and health state, not a new eligibility
-  request for every SQL connection. A stale route cannot bypass provider-enforced revocation.
+  request for every SQL connection. A stale route cannot bypass supervisor-enforced revocation.
   This is used in profiles A and B. `pgsql-check` is used only in profile D.
 - **Session shutdown on a role change (R-3).** `on-marked-down shutdown-sessions` closes every
   established session when the server is marked down after its configured failed checks. Pools and LISTEN connections
@@ -362,115 +349,122 @@ Design rules for this configuration:
 - **Idle timeouts.** Allow for LISTEN probe scheduling and execution (§6.6). A successful probe
   supplies traffic. A stalled probe or event loop can still cause an idle disconnection.
 
-### 5.4 Failover monitor configuration
+### 5.4 Supervisor Configuration and Timing
 
-The controller reads its own configuration. These are proposed contracts, not shipped keys.
+These are proposed configuration contracts, not shipped properties.
 
-| Property | Default | Description |
+| Property | Selected baseline | Contract |
 |---|---|---|
-| `peegeeq.pg.failover.enabled` | `false` | Enables automatic control. Profile selection also requires explicit sidecar mode and admission policy |
-| `peegeeq.pg.cluster-id` | required | Stable configured cluster identity |
-| `peegeeq.pg.cluster-incarnation` | required | Namespace identity; changed by controlled restoration of coordination state |
-| `peegeeq.pg.node-control.provider` | required in A and B | Shared independently reachable node-control and admission provider |
-| `peegeeq.pg.failover.node-control-timeout-ms` | `10000` | Bounds a node-control request; expiry leaves its result unknown until reconciled |
-| `peegeeq.pg.failover.probe-timeout-ms` | `1000` | Bounds each node observation |
-| `peegeeq.pg.failover.session.ttl` | `15s` | Consul session TTL |
-| `peegeeq.pg.failover.session.lock-delay` | `10s` | Consul lock delay after a session is lost |
-| `peegeeq.pg.failover.poll.interval` | `500ms` | Interval between `pg_is_in_recovery()` polls |
-| `peegeeq.pg.failover.poll.failure-threshold` | `3` | Consecutive failed polls before the monitor acts |
-| `peegeeq.pg.nodes.<id>.host` | — | Direct host of each PostgreSQL node |
-| `peegeeq.pg.nodes.<id>.port` | — | Direct port of each PostgreSQL node |
+| `peegeeq.pg.failover.enabled` | `false` | Enables autonomous takeover; manual mode retains lease renewal and self-demotion |
+| `peegeeq.pg.cluster-id`, `peegeeq.pg.cluster-incarnation`, `peegeeq.pg.node-id` | required | Bind one supervisor to one configured database node and namespace |
+| `peegeeq.pg.node-control.provider` | `local-supervisor` | Local process, admission, grant, and action-receipt boundary; no external stop API |
+| `peegeeq.pg.failover.session.ttl` | `30s` | Explicit Consul session TTL; backend expiry can occur later |
+| `peegeeq.pg.failover.session.lock-delay` | `0s` | No extra takeover delay after safe lease expiry; not a fencing substitute |
+| `peegeeq.pg.failover.loop-interval-ms` | `5000` | Per-node HA loop; lease renewal cannot wait behind SQL or rewind |
+| `peegeeq.pg.failover.retry-timeout-ms` | `3000` | Bounded coordinator/ownership retry budget |
+| `peegeeq.pg.failover.probe-timeout-ms` | `1000` | Observation deadline; failed observation creates suspicion only |
+| `peegeeq.pg.failover.primary-start-timeout-ms` | `0` | Prefer eligible takeover after confirmed local crash; do not wait for primary restart |
+| `peegeeq.pg.failover.primary-stop-timeout-ms` | `5000` | Local stop/escalation budget; never extend beyond the qualified exclusion deadline |
+| `peegeeq.pg.failover.watchdog.mode` | `required` | Refuse writer operation if unavailable or unsafe |
+| `peegeeq.pg.failover.watchdog.device` | `/dev/watchdog` | Linux watchdog interface; actual host/VM enforcement must be qualified |
+| `peegeeq.pg.failover.watchdog.safety-margin` | `-1` | Use half the configured lease TTL as the watchdog timeout |
+| `peegeeq.pg.nodes.<id>.host`, `.port` | configured | Direct observation/replication identity; application traffic uses the stable endpoint |
 
-Both modes reject missing node-control configuration, ambiguous membership, and unsupported
-durability. A deployment specifies its provider, credentials, failure domains, and effect
-boundary. Docker process stop in a local test is not evidence for a production host fence.
+Validate the Patroni timing rule `loop interval + 2 × retry budget <= lease TTL`.
+Also require usable watchdog timing slack, the actual device timeout, stop/reset delay, clock
+behaviour, and backend minimum expiry to fit one exclusion-before-handover contract. Configuration
+arithmetic alone is not qualification. The selected values are a conservative starting point,
+not measured failover timings.
 
-Production runs a three-node Consul cluster, which tolerates the loss of one Consul node.
+Do not copy Patroni's Consul TTL conversion into this adapter without checking the actual client
+and server semantics. The PeeGeeQ contract specifies the TTL sent to Consul explicitly.
+[Patroni configuration](https://patroni.readthedocs.io/en/latest/dynamic_configuration.html)
+defines its HA timing knobs. [Consul sessions](https://developer.hashicorp.com/consul/docs/automate/session)
+defines a lower bound, not an exact expiration time.
 
-### 5.5 Fencing
+### 5.5 Fencing: Local Self-Demotion and Watchdog
 
-The dangerous case is a network partition: the primary is alive and isolated, the standby is
-promoted, and both accept writes. Fencing prevents it (R-1, R-4).
+The invariant is exclusion of the old writer before ownership handover. The selected mechanism
+is local enforcement established before admitting any production writer.
 
-- **Fence before promotion.** Obtain independent confirmation that the former writer and
-  every ambiguous writable node are stopped and cannot restart as writers. A live node proven
-  to be a standby may remain running under provider-enforced promotion and writer-start
-  inhibition. Every node other than the selected writer remains unable to become a writer.
-  An unreachable node is unknown. If fencing cannot be confirmed, stop the transition and
-  keep readiness down.
-- **No SQL substitute.** Backend termination and pool closure are connection cleanup. They
-  do not stop new connections and cannot satisfy the fencing precondition.
-- **Reject stale commands.** The node-control provider durably rejects obsolete generations,
-  including delayed promotion and fence-release requests. It serialises these effects with
-  database start and stop. Provider restart preserves quarantine. Consul lock checks alone
-  cannot enforce this at PostgreSQL.
-- **Loss of authority.** The controller stops issuing mutations. Automatic sidecars return
-  503 when current authority cannot be established. Proxies shut sessions down on failed
-  checks. No replacement is authorised without fresh ownership and confirmed fencing.
-- **Re-join.** Keep the former writer stopped and quarantined. Rewind or rebuild it, configure
-  standby mode, start under restricted admission, then validate cluster identity, timeline,
-  recovery mode, and replay of an observed WAL position. Only then remove the restart fence
-  for standby operation. Never restore writer admission automatically.
+1. Acquire the writer lease for this node. Arm the independent watchdog before writer start or
+   promotion. Reject an absent device, unsafe actual timeout, or failed activation.
+2. Keep PostgreSQL writable only while the supervisor can maintain current ownership within
+   its safe deadline. Renew the watchdog only as part of a successful ownership cycle.
+3. On ownership rejection or exhausted renewal budget, close local admission and stop local
+   PostgreSQL. A read-only session setting or terminating selected backends is not demotion.
+4. If the supervisor cannot complete shutdown, the armed watchdog excludes the writer. Keep
+   it armed through uncertain stop, in-flight promotion/start, and lease loss.
+5. A replacement acquires ownership only after qualified expiry or a voluntary release issued
+   after confirmed local writer exclusion. It need not contact the former host.
 
-Profile B uses the same provider protocol. The operator begins the transition, revokes writer
-admission, confirms fencing, promotes a covered target, installs the replacement synchronous
-policy, prepares and activates the writer, then performs controlled standby re-join.
+The proof depends on exclusion before the earliest permitted ownership handover, including
+delayed renewal replies and pauses between ownership checks and watchdog keepalive. An event-loop
+timer cannot establish that proof. Test supervisor death, PostgreSQL freeze, container pause,
+whole-VM pause/resume, and asymmetric partitions. Whole-VM pause needs an enforcement facility
+whose behaviour covers the hypervisor pause; a guest software timer alone is not assumed sufficient.
 
-### 5.6 What a failover looks like
+Consul sessions use TTL-only renewal with no failure-detector health checks that can invalidate
+ownership early. Verify the actual creation payload and returned session configuration. Restrict
+node deregistration, session destruction, and forced unlock: none may release a live writer
+before confirmed exclusion. A health suspicion never force-releases a writer lease. Unexpected
+authority deletion or restoration is a safety incident requiring stopped reconciliation.
 
-Profile A transition order:
+Patroni documents local shutdown and watchdog protection; this design applies that model to
+PeeGeeQ's supervisor, admission, and durability contracts.
+[Patroni watchdog support](https://patroni.readthedocs.io/en/latest/watchdog.html)
 
+### 5.6 What a Failover Looks Like
+
+```text
+OLD NODE   Renew its own writer lease. On lease loss close admission and stop locally.
+           Its independent watchdog excludes a stalled supervisor's writer.
+SURVIVORS  Observe suspicion. Wait for safe writer-lease handover.
+WITHDRAWN  Winner acquires lease with preserved policy history and withdrawn intent.
+           Arm watchdog. Reconcile local effects; keep local admission closed.
+FENCING    Verify the qualified exclusion contract for the previous ownership period.
+           No remote stop acknowledgement or all-node generation barrier.
+PROMOTING  Validate covered running standby. Promote locally under current ownership.
+           Reconcile uncertain reply. Attach surviving peer and confirm synchronous policy.
+SERVING    Prepare local grant. Publish serving intent. Activate matching admission.
+RECOVER    HAProxy selects the replacement. Pools and LISTEN recover and catch up.
+RE-JOIN    Former node returns closed, rewinds/rebuilds, and starts only as validated standby.
 ```
-RECONCILE  Establish ownership. Begin the provider generation and reconcile retired effects.
-WITHDRAWN  Persist intent. Revoke writer admission and confirm closure.
-FENCING    Stop former or ambiguous writers. Inhibit standby promotion. Verify receipts.
-PROMOTING  Validate the synchronous target. Request generation-checked promotion.
-           Reconcile an uncertain reply. Observe writable role and required WAL.
-           Attach the peer. Install and verify policy. Confirm policy intent. Prepare admission.
-SERVING    Publish serving intent. Activate writer admission under the same live generation.
-RECOVER    Proxies admit it. Pools and LISTEN reconnect. Durable work catches up.
-RE-JOIN    Rewind or rebuild the former writer under quarantine. Admit it as standby.
-```
 
-The initial application recovery objective is 45 seconds for a primary crash in the three-node
-production topology, with a reachable provider, eligible target, and usable surviving
-synchronous standby. It is measured from injected failure to a committed application
-write and required LISTEN catch-up. Qualification specifies backlog size, handler latency,
-retry state, and configured deadlines. The example timeouts do not prove a 45-second bound.
-Do not publish a recovery SLO until those measurements pass. There is no availability promise
-during a partition or provider failure. Safety takes precedence over the objective. Record detection, fencing, promotion,
-proxy admission, breaker permission, reconnect delay, and catch-up separately.
+Keep the winner's lease renewal independent of promotion and policy work. An interrupted
+promotion remains a local effect protected by the watchdog. A stale completion cannot publish
+authority or open a grant. Reconcile the same operation; do not issue unguarded promotion retries.
 
-Profile B follows the same begin, withdraw, revoke, fence, validate, promote, prepare, publish,
-and activate order through provider-owned intent. The operator initiates the transition.
+Manual B uses this exact sequence after an authenticated operator request. In a planned
+switchover, the old node stops locally before releasing its lease. In an unplanned outage, the
+survivors use safe expiry. No remote acknowledgement is required for that expiry path.
 
-Writer eligibility is the intersection of current profile authority, an `OPEN` provider grant,
-matching node, generation, operation and policy revision, writable local role, and live
-synchronous coverage. Publishing `SERVING` alone does not open admission. Provider preparation
-alone does not authorise traffic. A crash between publication and activation leaves traffic
-closed. Reconcile the same operation before activation. A successor first retires the previous
-provider generation, closes all old grants, and reconciles in-flight effects. It can prepare
-and activate the same healthy writer without promoting it. No new writer serves while a
-retired promotion or admission effect can still conflict.
+The initial 45-second application-recovery objective remains a measurement target for the
+three-node topology with qualified watchdog/lease enforcement, an eligible target, a surviving
+synchronous peer, and a specified catch-up workload. Measure failure detection, lease handover,
+promotion, policy installation, proxy admission, client recovery, and catch-up separately.
+Lease expiry can be delayed. No timeout defaults establish an upper bound or an SLO.
 
-### 5.7 Controller and Consul Failure
+### 5.7 Supervisor and Coordination Failure
 
-Controller failure and database failure are different events. A new controller reconciles
-before changing the writer. It can restore authority for the same healthy node after proving
-that no conflicting writer or obsolete node-control operation can take effect.
+A failed observer or application route does not authorise promotion. If the writer's local
+supervisor can still renew ownership, standbys cannot take it. A sidecar restart alone does not
+transfer the writer lease.
 
-Consul loss does not trigger promotion. Automatic sidecars cannot grant traffic without a
-consistent authority read. Controller mutations stop. When quorum returns, reconcile rather
-than replaying cached actions. A delayed renewal or SQL reply cannot restore an old generation.
-Consul TTL expiration can be delayed beyond its configured value. Lock delay is a coordination
-delay, not proof of node shutdown. [Consul sessions](https://developer.hashicorp.com/consul/docs/automate/session)
+If the writer supervisor dies, the watchdog protects against orphan PostgreSQL. Its restart
+does not load an old grant as permission. It establishes fresh ownership and local safety before
+any writable restart, or stops/reconciles and follows the new writer as a standby.
+A healthy PostgreSQL process alone is not permission to continue as primary.
 
-Startup with two writable nodes, no trustworthy history, restored Consul indexes, or unknown
-provider operations requires quarantine and operator reconciliation. Coordination-store
-restore uses a new incarnation after fencing all nodes and resetting provider admission by a
-controlled procedure. Never recreate a lock namespace while old commands remain executable.
-Authenticated first-start bootstrap is a separate procedure in §5.11. A missing record after
-an earlier deployment must follow reconciliation or restoration, not first-start bootstrap.
+Consul outage closes unverified eligibility. A writer unable to maintain ownership self-demotes.
+No standby promotes without successful ownership acquisition from quorum. The initial design
+does not enable Patroni's optional DCS failsafe mode. That extension requires its own protocol
+and tests; it is not needed to implement the baseline.
+[Patroni DCS failsafe mode](https://patroni.readthedocs.io/en/latest/dcs_failsafe_mode.html)
+
+Missing history, unexpected key deletion, two writable nodes, or restored coordination state
+requires stopped operator reconciliation. Use a new incarnation after all old writable processes
+are excluded. First-start bootstrap remains a separate authenticated procedure (§5.11).
 
 ### 5.8 Durability and Uncertain Writes
 
@@ -503,10 +497,10 @@ commit acknowledgements. Raw SQL commits do not substitute for that evidence. Fu
 of the other application modules remains phase 11.
 
 `durabilityPolicy` records the confirmed policy intent eligible for serving. `pendingDurabilityPolicy` records
-the next configuration intent. Consul owns those records in A. The provider owns them in B.
-Observed PostgreSQL settings and replication health are derived. Provider receipts identify
+the next configuration intent. Consul owns those records in A. Consul owns them in B.
+Observed PostgreSQL settings and replication health are derived. Local supervisor receipts identify
 which policy operation completed; they do not replace live checks or become another policy
-authority. A controller takeover preserves both intents until reconciliation completes.
+authority. A node-supervisor takeover preserves both intents until reconciliation completes.
 
 Policy changes use this order:
 
@@ -521,7 +515,7 @@ Policy changes use this order:
    observe a fresh writer WAL flush boundary. Verify every required peer's flush and replay
    reach that boundary and its authenticated identity matches configuration. Recompute the
    boundary after an interrupted validation; do not persist live WAL positions as authority.
-4. Through guarded provider control, install the generated `synchronous_standby_names` and
+4. Through guarded local supervisor control, install the generated `synchronous_standby_names` and
    verify the effective setting and peers. Record the action receipt. Keep admission closed
    on a lost reply, mismatch, missing peer, or failed validation.
 5. Conditionally replace `durabilityPolicy` with the verified pending intent and clear
@@ -579,7 +573,7 @@ and its client address as well. The read-only eligibility endpoint in §6.6 also
 proxies. A surviving failure domain must retain a complete application-to-writer path. A
 single proxy or pooler is permitted only in development.
 
-Separate sidecar observation, application, controller, and node-control credentials. Restrict
+Separate sidecar observation, application, supervisor coordination, and local process-control credentials. Restrict
 direct application access to PostgreSQL. Consul uses authenticated encrypted access and scoped
 ACLs. A generic Consul client cannot modify the control record. Restrict sidecar health access
 to proxies and operators. Node-control access can stop databases and must be separately secured.
@@ -592,28 +586,20 @@ redundancy. Backups and point-in-time recovery remain separate operational requi
 
 ### 5.10 Coordination Selection
 
-G-7 records one automatic coordination backend before phase 8. Consul is the reference protocol.
-The decision must identify the API, ownership lifecycle, atomic revision conditions, generation
-ordering, fresh authority reads, durable recovery, namespace isolation, and authentication.
-Ownership acquisition and expiry must not grant a database writer without the provider barrier.
-Lost replies and stale observations must retain the same reconciliation and fencing contracts.
+Consul is selected for the initial A/B implementation. G-7 now qualifies its node-owned lease,
+conditional updates, TTL-only invalidation, safe voluntary release, authoritative reads,
+namespace isolation, credentials, and restart/restore behaviour. It is not a request for another
+production platform choice.
 
-The local Java Qraft project can be assessed as an external coordination service. Its qualification
-must demonstrate conditional ownership updates and linearizable authority reads, meaning reads
-that include completed prior mutations. Raft replication alone does not specify those client
-contracts. A Qraft term or leader observation cannot substitute for a defined controller ownership
-generation. Test minority partitions, obsolete leaders, concurrent controllers, expiration,
-lost mutation replies, snapshots, restart, restore, and unauthorised requests with real services.
+Qraft remains an external-service alternative. It must first define and prove equivalent leases,
+conditional revisions, linearizable reads, delayed-response handling, and safe expiration.
+Raft replication or a leader flag is not writer fencing. A replacement must update the complete
+authority mapping and pass the same fault tests. One backend owns an incarnation.
+Use an asynchronous external PeeGeeQ client; qualify separate runtimes independently.
 
-If Qraft is selected, use an external service boundary. G-7 specifies a non-blocking PeeGeeQ
-client adapter, request deadlines, response validation, TLS, credential separation, and lifecycle.
-G-6 pins each service's JDK and dependencies independently. Do not embed Qraft's runtime in the
-Vert.x application or copy Consul field names without defining their replacement semantics.
-
-Consul remains the active reference until G-7 records a replacement and the documents replace
-its data model, sidecar observations, provider validation, configuration, and acceptance together.
-Only one backend may own automatic intent for an incarnation. Backend changes require stopped,
-fenced reconciliation and a new incarnation. Manual B remains independent of this selection.
+Manual B uses the same coordinator as A. Consul-free operation requires a qualified replacement
+coordinator or the externally managed profile C; disabling autonomous promotion is not enough
+to remove the lease dependency.
 
 ### 5.11 First-Start Bootstrap
 
@@ -623,21 +609,21 @@ with unknown admission history, restored stores, missing receipts, or ambiguous 
 operator reconciliation under §5.7. Bootstrap cannot invent a lost acknowledged-write history.
 
 1. Authenticate the provisioning operator. Validate evidence bound to cluster, new incarnation,
-   configured membership, and the selected initial writer. Inspect provider state and all nodes.
+   configured membership, and the selected initial writer. Inspect local supervisor state and all nodes.
    Persist an operation with `WITHDRAWN` intent and pending policy revision 1. Leave confirmed
    policy and previous writer absent. In reference A, atomically check key absence and acquire
-   ownership with the withdrawn initial value; a conflicting record rejects creation. In B, use the provider's guarded
-   begin-transition. Reject bootstrap when prior admission or conflicting actions are found.
-2. Complete the provider generation barrier. Close all grants, stop every configured database,
-   and confirm restart inhibition. Unknown or unreachable nodes prevent bootstrap completion.
-3. Through a guarded provider bootstrap action, permit the selected initial primary to start
+   ownership with the withdrawn initial value; a conflicting record rejects creation. In B, require the operator's authenticated bootstrap request and use the same guarded Consul acquisition. Reject bootstrap when prior admission or conflicting actions are found.
+2. Close all local grants and confirm every provisioned node is stopped or an inhibited standby.
+   First-start provisioning may require all-node evidence. Ordinary failover does not. The initial
+   writer must acquire its own lease and arm its watchdog before writable start.
+3. Through a guarded local bootstrap action, permit the selected initial primary to start
    with application admission closed. Start its provisioned physical standbys under promotion
    and writer-start inhibition. Validate independent node identities, common database identity,
    roles, timeline, and authenticated replication. Ordinary covered-target promotion is not
    used to create this initial policy.
 4. With application writes excluded, observe a fresh writer WAL flush boundary. Validate every
    required standby's flush and replay against it. Install and verify the quoted policy through
-   the provider. Conditionally confirm revision 1 and clear pending intent. No missing peer,
+   the local supervisor. Conditionally confirm revision 1 and clear pending intent. No missing peer,
    failed observation, or incomplete receipt permits preparation.
 5. Prepare, publish `SERVING`, and activate the exact matching grant under current ownership.
    Sidecars deny traffic before this conjunction. Verify a production-manager write under the
@@ -646,7 +632,7 @@ operator reconciliation under §5.7. Bootstrap cannot invent a lost acknowledged
 Persist immutable bootstrap parameters in the existing action receipt. Interrupt every step,
 including first intent creation, guarded start, policy confirmation, publication, and activation.
 Inspect a lost reply before resuming the same operation. A successor preserves pending intent
-and provisioning evidence, retires prior effects, and completes a new barrier. It must not infer
+and provisioning evidence, reconciles local effects under fresh ownership and an armed watchdog. It must not infer
 bootstrap completion from running processes or restart from an empty key. No separate bootstrap
 ready flag, policy authority, or progress table is introduced.
 
@@ -806,9 +792,8 @@ cluster and incarnation. Profile C requires an equivalent provider contract. D d
 qualify authority-sensitive acceptance.
 
 `GET /writer` returns 200 only for an eligible writer. Its JSON contains `profile`, `clusterId`,
-`incarnation`, `nodeId`, `generation`, `operationId`, and `policyRevision`. Automatic generation
-contains the control key, lock index, and session. Manual generation contains the provider's
-monotonic admission generation. These fields are derived from the live check, not persisted
+`incarnation`, `nodeId`, `generation`, `operationId`, and `policyRevision`. Both modes' generation
+contains the control key, lock index, and node-supervisor session. These fields are derived from the live check, not persisted
 as another authority record. Return 503 on uncertainty. Authentication failures return 401
 or 403. Do not return an old success on a dependency failure.
 
@@ -1046,7 +1031,7 @@ verification described in §9.4.
 
 ```text
 GET /primary
-  200: writable local role, OPEN matching provider grant, current authority, synchronous coverage
+  200: writable local role, OPEN matching local grant, current lease, armed watchdog, synchronous coverage
   503: standby, quarantine, mismatched grant, missing coverage/authority, dependency failure/deadline
 GET /writer
   Same eligibility predicate; 200 includes the derived JSON contract in §6.6.
@@ -1054,19 +1039,20 @@ GET /writer
 Any other path: 404
 ```
 
-Automatic mode requires a consistent Consul read, a present session, phase `SERVING`, and
+Both modes require a consistent Consul read, a present session, phase `SERVING`, and
 `writerNodeId` matching this node. A retained value on an unlocked key grants no traffic.
 No cached success is used when authority cannot be established.
 
-Match the provider grant to the authority's node, mode, generation, operation, and confirmed
-policy revision. Derive required-peer health from live replication observations. Prepared or
+Match the local supervisor grant to the authority's node, mode, generation, operation, and confirmed
+policy revision. Require a fresh safe lease observation and healthy armed watchdog. Derive required-peer health from live replication observations. Prepared or
 retired grants, pending policy alone, and two different generations never produce 200.
 Use the same check implementation for `/primary` and `/writer`. Return `Cache-Control: no-store`
 and disable successful-response caching in every HTTP proxy. Compare SQL node-local identity
 with configured identity. Observe sufficient replication metadata with a dedicated role.
 
-Manual mode requires operator-controlled admission, fencing of the former writer, and enforced
-restart quarantine. Simply disabling the automatic controller cannot select manual authority.
+Manual mode requires an authenticated operator takeover request. It retains the same node-owned
+lease, watchdog, local admission, and restart quarantine. Disabling autonomous takeover cannot
+bypass ownership enforcement.
 
 One end-to-end deadline covers acquisition, SQL, Consul, admission checks, and HTTP response.
 Observe every asynchronous result and propagate or report dependency failures. The sidecar
@@ -1085,8 +1071,8 @@ The sidecar reads JVM system properties.
 | `pg.password` | deployment secret | Non-empty secret or explicit secure local authentication |
 | `pg.query-timeout-ms` | `1000` | End-to-end eligibility request deadline |
 | `http.port` | `8008` | HTTP listen port |
-| `pg.sidecar.mode` | required | Explicit automatic or manual authority |
-| `peegeeq.pg.cluster-id`, `peegeeq.pg.cluster-incarnation` | required | Controller namespace |
+| `pg.sidecar.mode` | required | Explicit automatic or manual takeover initiation |
+| `peegeeq.pg.cluster-id`, `peegeeq.pg.cluster-incarnation` | required | Supervisor namespace |
 | `peegeeq.pg.node-id` | required | Independent node-local identity |
 
 ### 9.3 PostgreSQL role
@@ -1112,7 +1098,7 @@ require measurements; no native startup or memory guarantee is assumed.
 ### 9.5 Division of work
 
 The sidecar reports eligibility. It does not promote or fence. `PgFailoverMonitor` orchestrates
-the transition. The node-control provider performs guarded promotion and fencing (§5.5).
+the transition. The node-local supervisor performs guarded promotion and fencing (§5.5).
 
 ---
 
@@ -1138,34 +1124,34 @@ separately. Every dependency failure must remain visible.
 | S12 | Instance loses its database | Readiness fails with specific checks. Liveness remains available. Readiness returns only after eligibility, durability, and required catch-up succeed. |
 | S13 | Write interrupted around commit | A confirmed commit survives eligible promotion. A lost acknowledgement reports unknown outcome and is reconciled by operation identity. No automatic transaction retry. |
 | S14 | Read-only error | A required writer operation discards its connection and reconciles eligibility. Deliberately read-only business operations do not prove node demotion or open the availability breaker. |
-| S15 | Old primary is partitioned from control but reachable by applications | No replacement serves until independent fencing is confirmed. Failed fencing preserves unavailability. |
+| S15 | Old primary is partitioned from quorum but reachable by applications | Local renewal fails, admission closes, and self-demotion/watchdog excludes old writes before safe lease handover. Surviving standby takes over without a failed-host stop reply. |
 | S16 | Two controllers | Only current generations authorise effects. Obsolete commands are rejected at the node-control boundary. Retries do not authorise a second writer. |
 | S17 | One of three Consul servers fails | Quorum permits current authority and real failure handling. No promotion follows merely from server loss. |
-| S18 | Consul quorum or connectivity is lost with healthy PostgreSQL | No automatic promotion. Sidecars deny unverified authority. Reconcile on return. |
-| S19 | Controller dies while database remains healthy | Successor reconciles and restores the same safe writer. No database promotion solely from controller failure. |
-| S20 | Fence throws, rejects, or returns malformed/null evidence | Transition fails visibly. No replacement admission. |
-| S21 | Fence completes but response is lost | Inspect the same operation. No guessed success and no unguarded repeat or release. |
-| S22 | Promotion completes but response is lost | Reconcile role, provider receipt, generation, and replay before publishing authority. |
+| S18 | Consul quorum or writer connectivity is lost with healthy PostgreSQL | Writer unable to renew self-demotes; watchdog covers controller failure. Sidecars deny unverified authority. No standby promotes without quorum ownership. Reconcile on return. |
+| S19 | Writer supervisor dies while PostgreSQL remains healthy | Watchdog excludes orphan writer before safe lease handover. Restart loads no open grant as authority. Sidecar/observer death alone does not cause promotion. |
+| S20 | Local stop or watchdog operation throws, rejects, or returns malformed/null evidence | Failure is visible. Unsafe watchdog blocks writer admission; uncertain local stop keeps watchdog armed. No fabricated exclusion evidence. |
+| S21 | Local stop completes but response is lost | Inspect local process and action. Do not voluntarily release ownership before confirmed exclusion. Unreachable-host takeover uses qualified expiry, not a guessed stop result. |
+| S22 | Promotion completes but response is lost | Reconcile local role, action receipt, ownership/watchdog, and replay before publishing authority. |
 | S23 | Old controller response or command arrives after ownership change | It cannot promote, release a fence, or publish serving authority. |
-| S24 | Controller or provider restarts in each transition state | Durable intent, highest generation, and quarantine prevent unsafe replay. |
+| S24 | Local supervisor restarts in each transition state | Consul intent and local receipts/quarantine prevent unsafe replay. Loaded grants start closed; fresh lease/watchdog is required. |
 | S25 | Required synchronous standby is lost | Writes block or fail within the operation deadline. No automatic asynchronous downgrade. |
 | S26 | Pool acquisition, statement, commit, cancellation, or close fails | Assert specific failure and unknown outcome where appropriate. Cleanup failure remains observable. |
 | S27 | Notification and replay overlap, with commits arriving out of ID order | The writer barrier establishes a stable boundary. One serialized scan processes every applicable row through it in ID order. Verify acknowledged cursor updates and at-least-once redelivery semantics. |
 | S28 | One production proxy or address owner fails | Stable endpoint transfers safely and clients recover. Test existing sessions and new connections. |
-| S29 | Two proxies observe different eligibility states | Hard fencing prevents overlapping writers despite delayed health observations. |
+| S29 | Two proxies observe different eligibility states | Local self-demotion/watchdog excludes the old writer before handover despite stale routing observations. |
 | S30 | Unlocked, malformed, missing, or stale authority record | No serving response. No default-primary interpretation. |
 | S31 | Rewind fails or required WAL is missing | Preserve quarantine. Rebuild and validate before standby admission. |
 | S32 | Planned switchover | Drain or reject work, fence the former writer, establish replacement synchronous policy, and apply the same transition contracts. |
 | S33 | Supervisor attempts to restart a fenced node | Durable restart inhibition prevents writable start. |
 | S34 | Node-control validation and effect race with ownership change | Reject newly admitted retired-generation commands. Reconcile previously accepted in-flight effects under quarantine before a successor activates a writer. |
 | S35 | Replicated nodes have the same PostgreSQL system identifier | Independent node-local identity identifies the actual connection destination. |
-| S36 | Coordination state is restored or lock namespace is reset | Fence all nodes, reconcile provider state, and use a new incarnation before resuming. |
+| S36 | Coordination state is restored or lock namespace is reset | Fence all nodes, reconcile local supervisor state, and use a new incarnation before resuming. |
 | S37 | Two independent database clusters share Consul | Namespace and ACL isolation prevent cross-cluster control. |
 | S38 | Two-node synchronous pair loses its primary | Promotion does not silently enable local-only writes. Restore a synchronous standby before committed-write readiness. |
 | S39 | Membership or profile changes | Controlled reconciliation preserves authority and durability. A toggle cannot bypass fencing. |
 | S40 | Eligible target lacks prior acknowledged WAL coverage | Reject promotion. A healthy or reachable node is not automatically eligible. |
 | S41 | Writer preparation, publication, activation, or revocation is interrupted | Closed or prepared grant denies traffic. Lost activation reply is inspected. Revocation defeats delayed activation. Test every restart boundary in A and B. |
-| S42 | New generation has not reached one node | Per-node counters alone do not complete the barrier. Confirm installation or independently fence it; reconcile prior effects before opening any grant. |
+| S42 | Lease/watchdog preparation or local reconciliation is incomplete | Reject writer start/promotion without node-owned lease, armed safe watchdog, and withdrawn intent. No all-node installation barrier. Test ownership loss during local effects and every late completion. |
 | S43 | Synchronous configuration is generated | Load individually quoted names on real PostgreSQL. Verify effective policy, authenticated identities, case-insensitive uniqueness, and every required acknowledgement. Reject empty sets, self-reference, duplicates, and unknown members. |
 | S44 | Writer fails during standby re-join or policy cutover | Use confirmed coverage; exclude the pending peer. Interrupt every step, restore the two-peer policy, then repeat failover and verify acknowledged data. |
 | S45 | TCP connect succeeds but eligibility, LISTEN, or catch-up repeatedly fails | Backoff increases and remains capped with bounded jitter. Transport success does not reset it. Retired attempt completions cannot restore readiness or advance progress. |
@@ -1174,9 +1160,14 @@ separately. Every dependency failure must remain visible.
 | S48 | PgBouncer instance or its address owner fails | The surviving complete SQL path accepts new connections. Active transactions fail or report unknown commit; no proxy retries. Test session and transaction modes and LISTEN bypass. |
 | S49 | Consul mutation has wrong session/revision or unauthorised credentials | Guarded transaction makes no change when a condition fails. ACL denies outsiders. Verify acquire, retained policy history, update, lost reply, and guarded release separately. |
 | S50 | Handler succeeds but cursor commit or lease cleanup is uncertain | Inspect committed progress. Redelivery uses stable identity. Lease conflict is not catch-up completion; no stale owner advances the cursor or reports ready. |
-| S51 | First-start bootstrap is interrupted or requested against existing/ambiguous history | Only authenticated verified provisioning can create initial intent. Keep grants closed through fences, guarded start, peer validation, and policy confirmation. Inspect lost replies and ownership changes at every step. Missing history alone never authorises bootstrap. |
+| S51 | First-start bootstrap is interrupted or requested against existing/ambiguous history | Require authenticated provisioning, node-owned initial lease, armed watchdog, closed grant, guarded start, and confirmed policy. Inspect every interruption. Missing history never authorises bootstrap. |
 | S52 | Native recovery is skipped, capacity-bound, delayed, or interrupted | Require an executed finite claim pass. No-handler, inactive, closed, and deferred branches cannot establish readiness. Verify confirmed acknowledgements, delayed wake-up scheduling, continuous arrivals, dependency failures, unknown outcomes, and retired-attempt rejection. |
 | S53 | Application operation attempts to weaken commit policy | Before failover assertions, prove the production manager reinstates required durability at its owned commit boundary. A missing required peer cannot yield an acknowledged write under weakened settings. Verify lost commit responses and acknowledged data after eligible promotion. |
+| S54 | Writer supervisor is killed, paused, or starved while PostgreSQL remains writable | Independent watchdog excludes PostgreSQL before another node acquires the lease. A supervisor timer or container restart alone cannot pass. |
+| S55 | Primary VM pauses beyond ownership expiry and later resumes | No stale transaction or delayed promotion commits after takeover. Qualify the actual VM/watchdog facility; guest-only pause-sensitive enforcement is insufficient. |
+| S56 | Renewal/keepalive reply is delayed, or session invalidates early | Reject stale renewals. Test the check-to-keepalive pause. Verify TTL-only session settings and stopped-before-release rules; early forced invalidation does not authorise unsafe takeover. |
+| S57 | One application/proxy route fails while writer lease remains valid | Fail affected readiness and restore the route. No promotion solely from that route's failed SQL probe. |
+| S58 | Primary host is unreachable to all remote control APIs | Surviving quorum and covered standby complete qualified lease-expiry takeover without remote stop acknowledgement. Verify data and no overlapping writes when the host returns. |
 
 ## 11. Environments
 
@@ -1196,13 +1187,13 @@ development. It has no sidecar and no failover monitor, and is not a model of pr
 - one `peegeeq-pg-sidecar` per node;
 - redundant HAProxy instances with the configuration in §5.3 and a stable address owner;
 - a three-server Consul cluster for quorum fault tests;
-- the proposed `peegeeq-pg-failover` controller;
-- a real local node-control adapter with enforced stop and restart inhibition;
+- one proposed `peegeeq-pg-failover` supervisor per PostgreSQL node with local process control
+  and a qualified independent watchdog;
 - redundant PgBouncer instances in both modes with a tested stable client address;
 - a redundant authenticated HTTP eligibility frontend routing to sidecars.
 
-Profile A requires automatic sidecar mode and a valid node-control provider. Profile B requires
-manual mode and operator admission. Select a profile while stopped and reconcile before serving.
+Both profiles require local supervision, Consul ownership, and qualified watchdog protection.
+A enables autonomous takeover. B requires an operator request. Select a profile while stopped and reconcile before serving.
 This is a target stack definition, not a claim that the Compose file implements it.
 
 ### 11.3 Scenario runbook
@@ -1251,15 +1242,14 @@ Run each class with the profile matching its tag and save output through `Tee-Ob
 Rebuild the affected reactor slice before downstream testing after Java or Maven changes.
 Record every per-class count. Zero executed tests is failure.
 
-The local node-control adapter does not qualify a production provider. Each production adapter
-needs deployment-specific partition, restart, stale-generation, and effect-boundary evidence.
-Select that adapter and admission integration before implementing manual or automatic promotion.
-Use the existing durable replay tests as source patterns, then add failover and uncertain-cursor
-cases without creating a second progress mechanism. No claim of complete safety or
-runtime timing is made before these gates pass.
-G-7 must record the automatic backend before phase 8. A replacement backend repeats authority,
-partition, expiry, restoration, and credential cases against its mapped contracts. S51 and S53
-are phase 7 prerequisites; S52 must pass before native subscription readiness is integrated.
+Local process tests do not qualify a production watchdog. G-1 requires real watchdog and
+pause/resume evidence on Linux hosts/VMs, Docker hosts, and Kubernetes before declaring each
+environment supported. No platform must be selected to define or implement the common protocol.
+G-2 qualifies local admission and quiescence. G-3 qualifies configured stable SQL/HTTP endpoints.
+G-7 qualifies the selected Consul lease protocol before takeover implementation.
+Use the existing durable replay tests as patterns. S51/S53 remain phase 7 prerequisites.
+S54 to S58 add supervisor death, VM resume, timing races, route-only failure, and unreachable-host
+takeover. No runtime safety or timing claim follows from documentation.
 
 ## Appendix A: Primary Detection Options
 
@@ -1269,15 +1259,16 @@ not establish fencing. The complete comparison is in
 
 | Approach | Promotion | Safety obligation | Used here |
 |---|---|---|---|
-| Sidecar, Consul controller, and node-control provider | Automatic | Current generation, confirmed fencing, synchronous target, and reconciliation | Profile A |
+| Sidecar, node-owned Consul lease, and local supervisor/watchdog | Automatic | Node-owned lease, local exclusion/watchdog, synchronous target, and reconciliation | Profile A |
 | Sidecar with operator admission and fencing | Manual | Same single-writer and durability invariants | Profile B |
 | Managed writer endpoint | External operator | External evidence for equivalent contracts | Profile C |
 | Role-only HTTP or shell agent | None | Missing authority and fencing | No production profile |
 | Patroni or repmgr | External cluster manager | Deployment-specific guarantees still require verification | Not selected |
 
-No profile requires Patroni. Reusing Consul does not remove the node-control dependency.
-The selected PeeGeeQ controller has its own lifecycle and module. Select the provider and
-admission contract first. Implement and verify B, then add and qualify automatic authority in A.
+PeeGeeQ implements the Patroni control model without requiring the Patroni product.
+Consul does not replace local process control or independent watchdog enforcement.
+The selected per-node PeeGeeQ supervisor has its own lifecycle and module. Implement and verify the common supervisor/lease/watchdog boundary with operator initiation in B.
+Then enable and qualify autonomous initiation in A. No remote fencing service is selected.
 
 ## Appendix B: The JDBC Multi-Host Pattern
 

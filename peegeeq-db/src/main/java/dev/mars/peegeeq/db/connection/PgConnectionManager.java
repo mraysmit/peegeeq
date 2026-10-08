@@ -36,6 +36,7 @@ import io.vertx.pgclient.PgNotice;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.PoolOptions;
 import io.vertx.sqlclient.SqlConnection;
+import io.vertx.sqlclient.Transaction;
 import io.vertx.sqlclient.Tuple;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,6 +50,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -239,6 +242,8 @@ public class PgConnectionManager {
      * Executes an operation within a transaction.
      * Reapplies the configured schema as transaction-local state so transaction
      * poolers can safely multiplex server connections between tenant clients.
+     * The manager restores synchronous WAL-flush acknowledgement before its commit.
+     * Caller operations must not complete or replace the manager-owned transaction.
      *
      * @param serviceId The service ID, or null/blank for the default pool
      */
@@ -248,11 +253,102 @@ public class PgConnectionManager {
         if (pool == null) {
             return Future.failedFuture(new IllegalStateException("No reactive pool found for service: " + resolvedId));
         }
-        return executeWithPoolCircuitBreaker(resolvedId, ignored -> pool.withTransaction(conn -> {
-            setupNoticeHandler(conn);
-            return applyTransactionSearchPath(resolvedId, conn)
-                .compose(applied -> operation.apply(conn));
-        }));
+        return executeWithPoolCircuitBreaker(resolvedId, ignored -> pool.getConnection()
+            .compose(connection -> {
+                Future<T> result = Future.<Void>succeededFuture()
+                    .compose(v -> connection.begin())
+                    .compose(transaction -> executeOwnedTransaction(
+                        resolvedId, connection, transaction, operation));
+                return result.transform(outcome -> connection.close().compose(
+                    v -> outcome.succeeded()
+                        ? Future.succeededFuture(outcome.result())
+                        : Future.failedFuture(outcome.cause()),
+                    closeFailure -> {
+                        logger.warn("Failed to release transaction connection for service '{}'",
+                            resolvedId, closeFailure);
+                        if (outcome.failed()) {
+                            if (outcome.cause() != closeFailure) {
+                                outcome.cause().addSuppressed(closeFailure);
+                            }
+                            return Future.failedFuture(outcome.cause());
+                        }
+                        return Future.failedFuture(closeFailure);
+                    }));
+            }));
+    }
+
+    private <T> Future<T> executeOwnedTransaction(
+            String serviceId, SqlConnection connection, Transaction transaction,
+            Function<SqlConnection, Future<T>> operation) {
+        return Future.<Void>succeededFuture()
+            .compose(v -> {
+                setupNoticeHandler(connection);
+                return applyTransactionSearchPath(serviceId, connection);
+            })
+            .compose(v -> connection.query("""
+                SELECT CASE WHEN pg_is_in_recovery() THEN NULL
+                            ELSE pg_current_xact_id()::text END AS transaction_id
+                """).execute())
+            .compose(rows -> {
+                String transactionId = rows.iterator().next().getString("transaction_id");
+                return Future.<Void>succeededFuture()
+                    .compose(v -> Objects.requireNonNull(operation.apply(connection),
+                        "Transaction operation returned null Future"))
+                    .compose(value -> {
+                        if (transaction.completion().isComplete()
+                                || connection.transaction() != transaction) {
+                            return Future.failedFuture(new IllegalStateException(
+                                "Transaction operation completed the manager-owned transaction"));
+                        }
+                        // Server identity also detects COMMIT/ROLLBACK issued as raw SQL.
+                        return connection.preparedQuery("""
+                            SELECT CASE WHEN pg_is_in_recovery() THEN NULL
+                                        ELSE pg_current_xact_id()::text END AS transaction_id,
+                                   set_config('synchronous_commit', 'on', true) AS durability
+                            """).execute(Tuple.tuple()).map(current -> {
+                                if (!Objects.equals(transactionId,
+                                        current.iterator().next().getString("transaction_id"))) {
+                                    throw new IllegalStateException(
+                                        "Transaction operation completed the manager-owned transaction");
+                                }
+                                return value;
+                            });
+                    });
+            })
+            .compose(value -> commitOwnedTransaction(connection, transaction, value), failure -> {
+                if (transaction.completion().isComplete()) {
+                    return Future.failedFuture(failure);
+                }
+                return transaction.rollback().transform(rollback -> {
+                    if (rollback.failed()) {
+                        logger.warn("Rollback failed for service '{}'", serviceId, rollback.cause());
+                        if (failure != rollback.cause()) {
+                            failure.addSuppressed(rollback.cause());
+                        }
+                    }
+                    return Future.failedFuture(failure);
+                });
+            });
+    }
+
+    private <T> Future<T> commitOwnedTransaction(
+            SqlConnection connection, Transaction transaction, T value) {
+        AtomicReference<PgNotice> commitWarning = new AtomicReference<>();
+        setupNoticeHandler(connection, notice -> {
+            if ("WARNING".equalsIgnoreCase(notice.getSeverity())) {
+                commitWarning.compareAndSet(null, notice);
+            }
+        });
+        return transaction.commit().compose(v -> {
+            PgNotice warning = commitWarning.getAndSet(null);
+            if (warning != null) {
+                // PostgreSQL can warn and acknowledge a locally committed, unreplicated write.
+                // Any commit warning denies a successful durability acknowledgement.
+                return Future.failedFuture(new PgCommitOutcomeUnknownException(
+                    new IllegalStateException("PostgreSQL warning during commit: " + warning.getMessage())));
+            }
+            return Future.succeededFuture(value);
+        }, failure -> Future.failedFuture(new PgCommitOutcomeUnknownException(failure)));
     }
 
     private Future<Void> applyTransactionSearchPath(
@@ -560,13 +656,24 @@ public class PgConnectionManager {
      * @param connection The SQL connection to attach the handler to
      */
     private void setupNoticeHandler(SqlConnection connection) {
-        if (noticeConfig == null) {
-            return; // Notice handling not configured
-        }
+        setupNoticeHandler(connection, null);
+    }
+
+    private void setupNoticeHandler(SqlConnection connection, Consumer<PgNotice> transactionObserver) {
 
         // Notice handler is only available on PgConnection, not generic SqlConnection
         if (connection instanceof PgConnection pgConn) {
+            if (noticeConfig == null && transactionObserver == null) {
+                pgConn.noticeHandler(null);
+                return;
+            }
             pgConn.noticeHandler(notice -> {
+                if (transactionObserver != null) {
+                    transactionObserver.accept(notice);
+                }
+                if (noticeConfig == null) {
+                    return;
+                }
                 long startNanos = System.nanoTime();
                 try {
                     handleNotice(notice);
