@@ -9,6 +9,9 @@ Task 6 release-gate overlay (`485c930dd264864cd9157fe3378e25e661c51b97afa2120d1c
 **Partial reconciliation:** 2026-10-06 at `9e14170e` — structure, references, numbering, and the
 backlog were checked against the repository. Jenkins results and recorded test counts were not
 re-verified
+**Task 8 reconciliation:** 2026-10-08 — implementation source and saved final build/test
+summaries checked. Phase 7b.1 complete; phase 7b.2 protocol slice implemented and tested.
+Optional-watchdog decision corrected. No tests rerun or Jenkins gate re-verified.
 
 **Commit references predate a history rewrite.** The abbreviated hashes cited in this register
 (`263309d8`, `e8d07e53`, `b19b708b`, `fe676bda`, `c62af5c3`, `7db748b8`, `32ab0371`, `322b7f06`,
@@ -87,7 +90,12 @@ an unimplemented proposal exists or replace explicitly planned load, chaos, or f
 
 ## Current Execution Order
 
-As of 2026-10-07 Task 8 is ACTIVE. No task is OPEN. Tasks 1, 2, 3, 4, 6, and 7 are COMPLETE.
+As of 2026-10-08 Task 8 is ACTIVE. Phase 7a architecture selection is complete.
+Phase 7b.1 is complete. Phase 7b.2 has a verified Consul protocol implementation.
+Next is phase 7b.2 local supervision and admission using Docker/Testcontainers.
+Optional watchdog integration, bootstrap, takeover, and production qualification remain open.
+Machine-reset testing and additional host/VM access are not prerequisites for this next scope.
+No task is OPEN. Tasks 1, 2, 3, 4, 6, and 7 are COMPLETE.
 Task 5 is REJECTED. The document status ACTIVE means this register is the live register.
 
 ### 1. Configuration property/runtime reconciliation
@@ -546,27 +554,35 @@ has the successful remote Jenkins publication evidence recorded above.
 ### 8. Connection management and HAProxy failover
 
 **Priority:** Not assigned
-**Status:** ACTIVE — added 2026-10-07; phases 1 to 4 of 15 complete; phase 5 active with a red test
+**Status:** ACTIVE — phase 7b.1 complete; phase 7b.2 partial, 2026-10-08
 **Objective:** implement the design in
 `docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md` (design
-revision 2026-10-07). The design provides PostgreSQL failover with PeeGeeQ's own components and
-without Patroni: HAProxy routes by the role that `peegeeq-pg-sidecar` reports. Whether automatic
-promotion by a failover monitor is part of the design, and which module would hold it, is open
-question `P-0` in the plan. `peegeeq-service-manager` is the federation module and is not part
-of this task. The design document describes the target system and carries no status. Java
-changes follow strict TDD. Every failover scenario gets a real-container test.
+revision 2026-10-08). HAProxy routes by sidecar writer eligibility, which combines current
+node-owned lease, local admission, selected optional-watchdog checks, node identity, role,
+and synchronous coverage. Manual profile B
+precedes automatic profile A. The Consul protocol is implemented in `peegeeq-pg-failover`.
+Node supervision and takeover are not implemented in that module.
+Consul is selected for the initial A/B implementation; G-7 qualification proceeds alongside
+the common supervisor implementation. `peegeeq-service-manager` handles federation and is outside this task. No profile
+requires the Patroni product. The Patroni control approach is selected: per-node supervisor,
+local lease-loss shutdown, and optional independent watchdog protection. Planned watchdog
+modes are `automatic` (default), `off`, and `required`. Only `required` refuses writer
+start/promotion because the watchdog is unavailable. This correction supersedes mandatory
+watchdog wording in companion designs, which still require alignment. Optional support
+does not prove old-writer exclusion during supervisor death or whole-VM pause.
+Java changes follow strict TDD with real-component failure tests.
 
 The implementation plan is
 `docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY_IMPLEMENTATION_PLAN.md`.
-It holds the gap between the design and the code by requirement (`R-1` to `R-16`), the findings
-(`IMP-01` to `IMP-20`, `TST-01` to `TST-07`, `CFG-01`, `CFG-02`), the run evidence, the design
-positions (`P-1` to `P-16`), the scenario coverage (`S1` to `S17`), and the phases. Status and
-execution order are controlled here.
+It holds dated implementation findings and runs, adopted contracts P-0 to P-37, deployment
+gates G-1 to G-7, and acceptance obligations S1 to S58. Status and execution order are controlled
+here. Design contracts do not establish runtime coverage.
 
-State on 2026-10-07 at `ff5c17da`, from the plan: no requirement is fully met. `R-6`, `R-8`, and
-`R-14` are partly met. The Consul failover monitor does not exist in any source file. No HAProxy
-configuration in the repository uses the sidecar. Three of the 17 scenarios have a partial test
-(`S1`, `S3`, `S11`), none against the designed topology.
+Historical assessment on 2026-10-07 at `ff5c17da`: no requirement was fully met. R-6, R-8, and
+R-14 were partly met. The source assessment found no Consul failover monitor or sidecar-based
+HAProxy configuration. Three of the earlier 17 scenarios had partial tests, none against
+the designed topology. This assessment concerns the earlier design. No runtime tests were
+rerun for the current documentation and phase 7a architecture selection.
 
 Phases:
 
@@ -584,34 +600,123 @@ Phases:
    `PgPrimaryCheckIntegrationTest` 7/7, `PgPrimaryCheckLifecycleTest` 2/2. 19 passed, zero
    failures, errors, or skips. This is focused developer-machine evidence for the existing
    tests only.
-5. **ACTIVE — red run 2026-10-07.** `HaProxyConnectionFailoverTest` now identifies the answering
-   node by its PostgreSQL system identifier, polls against a deadline in place of the fixed
-   waits, runs container stop and start on a worker thread, and leaves the injected `Vertx` to
-   `VertxExtension`. After a clean `peegeeq-db` rebuild the class ran 6 tests with 1 failure
-   under `-Pintegration-tests`. `testFailbackAfterPrimaryRecovery` failed at its 30-second
-   deadline: a new connection through HAProxy reached the replacement primary, and the pool
-   that served queries during the outage stayed on the backup. The test is red in the working
-   tree. It closes when position `P-14` is decided.
-6. **OPEN.** Owner decides the open questions about the failover mechanism (`P-2` to `P-6`) and
-   confirms or changes the review's additions to the design (`P-7` to `P-16`).
-7. **OPEN.** Routing by role: sidecar-based HAProxy configuration, the sidecar on a standby and
-   behind `httpchk`, session shutdown, manual promotion (`R-2`, `R-3`; `S2` to `S5`).
-8. **OPEN, undecided.** The failover monitor: `PgNodeConfig`, `PgPrimaryElector`,
-   `PgFailoverMonitor`, fencing, and its acceptance test (`R-1`, `R-4`, `R-15`, `R-16`; `S1`,
-   `S6`, `S15` to `S17`). This phase exists only if `P-0` is answered yes. It then needs `P-2`
-   to `P-6`.
-9. **OPEN.** Pool lifetime and discard, timeouts in milliseconds (`R-5`, `R-13`; `S14`).
-10. **OPEN.** LISTEN reconnect, probe, and catch-up (`R-6` to `R-8`; `S7`, `S8`).
-11. **OPEN.** One pooled access path and the breaker rules (`R-9`, `R-10`, `R-14`; `S11`).
-12. **OPEN.** Health reporting (`R-11`; `S12`).
-13. **OPEN.** Remaining scenarios (`S9`, `S10`, `S13`).
-14. **OPEN.** Docker Compose stack with the PostgreSQL pair, sidecars, HAProxy, Consul, and
-    service-manager, and the scenario runbook under `scripts/local-infra/`.
-15. **OPEN.** Close-out: align the Consul failover design and the sidecar guide with the
-    decisions, update the documents that link to the design, the configuration guide, the
-    ledger fingerprint, and this section.
+5. **OPEN — historical red run retained.** The 2026-10-07 integration run of
+   `HaProxyConnectionFailoverTest` executed 6 tests with 1 failure. Its new connection reached
+   the replacement independent database; its existing pool remained on the backup until the
+   30-second deadline. The current source and result require fresh verification. P-14 now
+   retains profile D for connection recovery and moves production convergence to phase 7.
+6. **COMPLETE — documentation contracts, 2026-10-08.** Five documents define the data model,
+   admission and generation barrier, synchronous policy lifecycle, finite replay, bootstrap,
+   coordinator gate, and corrected transition order. Static document checks do not qualify
+   runtime safety, production providers, or recovery timing.
+7. **7a COMPLETE — architecture selection, 2026-10-08.** Select one PeeGeeQ supervisor per
+   PostgreSQL node, the writer's own Consul lease, local process/admission control, local
+   persistent receipts/quarantine/grants, and optional independent watchdog modes. This
+   supersedes the earlier mandatory-watchdog decision. Use the same
+   containerised protocol on Linux hosts/VMs, Docker hosts, and Kubernetes. Remove the central
+   provider, all-node generation barrier, and separate manual authority. Qualified expiry
+   takeover does not require a failed-host stop reply. Production enforcement, VM pause/resume,
+   endpoint bindings, runtime implementation, and timing remain unverified.
+   **COMPLETE — 7b.1, 2026-10-08:** `PgConnectionManager` owns begin, commit, rollback,
+   and observed connection release. It restores transaction-local `synchronous_commit=on`
+   immediately before commit, rejects caller-completed transactions, and reports failed
+   commit acknowledgements or commit warnings as `PgCommitOutcomeUnknownException`.
+   Standby reads and existing managed connection operations retain their behavior.
+   The new real-container fixture uses HAProxy, one primary, and two physical standbys with
+   `ANY 2` synchronous coverage. Tests observe `SyncRep` before interrupting commit and
+   check locally committed rows after the failed acknowledgement. This verifies the managed
+   commit boundary; it does not implement automatic failover.
+   **PARTIAL — 7b.2, 2026-10-08:** typed node configuration, immutable control metadata,
+   and asynchronous node-owned Consul protocol are implemented. Real three-server Consul
+   1.22.1 tests cover TTL-only session settings, atomic initial acquisition, session/revision
+   conditions, consistent reads, quorum loss, ACL boundaries, retained history, restart
+   refusal, malformed responses, bounded timeouts, and late replies. Generic close preserves
+   the session and control history. Failed or changed control observations retire cached
+   ownership. This protocol has no PostgreSQL start, promotion, release, or admission path.
+   Remaining: correct unconditional watchdog timing coupling in `PgNodeConfig` and the
+   elector's freshness calculation, implement local supervision/admission and durable
+   grants/quarantine/receipts, then optional watchdog integration and verified operator-initiated
+   bootstrap. Preserve conservative ownership deadlines and late-reply rejection. Complete
+   G-7 qualification alongside these scopes. The next scope uses Docker/Testcontainers;
+   machine-reset infrastructure is not a prerequisite. Rebuild, verify, and report local
+   supervision/admission before bootstrap. **OPEN — 7b.3:** manual
+   takeover, repeated failover, synchronous cutover, and controlled re-join.
+8. **OPEN.** Enable autonomous initiation on the verified common boundary (8a), complete
+   per-node authority/bootstrap reconciliation (8b), infrastructure fault tests including
+   S54 to S58 (8c), and automatic database safety acceptance (8d). No second provider or
+   remote stop-confirmation requirement. Full client recovery and timing follow phases 10 to 14.
+9. **OPEN.** Complete operation deadlines, millisecond precision, idle lifetime, contextual
+   connection discard, and observed cleanup. Retain the phase 7 commit boundary.
+10. **OPEN.** Authenticated writer status, SQL identity, LISTEN initialization and reconnect,
+    finite durable replay and native claim/acknowledgement recovery, and shutdown.
+11. **OPEN.** Migrate remaining modules to shared pooled access, schema, and classified
+    availability breakers. Verify PgBouncer transaction mode one module at a time.
+12. **OPEN.** Readiness requires writer eligibility, durability, and required catch-up.
+13. **OPEN.** Frozen-node, in-flight operation, redundant proxy/pooler, SQL/HTTP endpoint
+    ownership, and differing-observation qualification.
+14. **OPEN.** Build the replicated three-node target stacks and scenario runbook. Execute
+    all S1 to S58 cases and measure the 45-second objective under a specified workload.
+15. **OPEN.** Reassess historical findings against code and fresh logs. Complete G-1 to G-7,
+    external references, configuration documentation, and release evidence. This Task 8
+    reconciliation closes no runtime or production qualification obligation.
+
+Phase 7b.1 verification, 2026-10-08:
+
+- Required rebuild: `mvn clean install -DskipTests -pl :peegeeq-db -am` passed for the
+  four-module reactor slice. Output: `logs/phase7b1-standby-compatible-rebuild-20261008.log`.
+- Targeted `-Pintegration-tests` scope: `PgConnectionManagerDurabilityIntegrationTest`
+  **15/15**, `PgConnectionManagerCoreTest` **22/22**, and
+  `PgPoolCircuitBreakerIntegrationTest` **1/1**. Total **38**, zero failures/errors/skips.
+  Output: `logs/phase7b1-completion-tests-20261008.log`.
+- Core guards: `DisabledTestsGuardTest` **2/2**, `InvalidDurationLiteralGuardTest` **2/2**,
+  `OnSuccessExceptionSwallowingGuardTest` **8/8**,
+  `SchemaInitializerTestInfrastructureGuardTest` **1/1**, and
+  `VertxAsyncForbiddenPatternsGuardTest` **1/1**. Total **14**, zero failures/errors/skips.
+  Output: `logs/phase7b1-completion-guards-20261008.log`.
+- The focused pre-implementation durability run failed **5/5** against the original manager.
+  Output: `logs/phase7b1-red-durability-20261008.log`. Earlier fixture failures are retained
+  in separate logs and are not accepted as durability evidence.
+- Known gaps: caller SQL can physically commit before the manager rejects the contract
+  violation. Callers must not complete the owned transaction. Direct-pool writes and other
+  modules were not qualified. Consul leases, watchdog enforcement, VM pause/resume,
+  promotion/rejoin, operation deadlines, and the 45-second objective remain unverified.
+
+Phase 7b.2 protocol verification, 2026-10-08:
+
+- Required rebuild: `mvn clean install -DskipTests -pl :peegeeq-pg-failover -am` passed
+  for the three-module reactor slice. Output: `logs/phase7b2-lease-verified-rebuild-20261008.log`.
+- Targeted `-Pintegration-tests` scope: `ConsulLeaseProtocolIntegrationTest` **28/28**.
+  Output: `logs/phase7b2-lease-verified-integration-20261008.log`.
+- Targeted default/core scope: `PgNodeConfigTest` **8/8**.
+  Output: `logs/phase7b2-lease-verified-core-20261008.log`.
+- Core guards: `DisabledTestsGuardTest` **2/2**, `InvalidDurationLiteralGuardTest` **2/2**,
+  `OnSuccessExceptionSwallowingGuardTest` **8/8**,
+  `SchemaInitializerTestInfrastructureGuardTest` **1/1**, and
+  `VertxAsyncForbiddenPatternsGuardTest` **1/1**. Total **14**.
+  Output: `logs/phase7b2-lease-verified-guards-20261008.log`.
+  All final scopes report zero failures/errors/skips.
+- The first integration run executed **18** failures/errors against the protocol stubs
+  after the real quorum started. Output: `logs/phase7b2-lease-red-tests-20261008.log`.
+  Subsequent failing contracts exposed unknown-leader absence, fractional revisions, and
+  retained cached ownership after failed reads or observed deletion. Real tests also exposed
+  transaction-result cardinality and lock-generation preservation errors in the implementation.
+- Known gaps: local supervision, grants/quarantine/receipts, independent watchdog, guarded
+  PostgreSQL startup, authenticated bootstrap, voluntary release, snapshot/restore, TLS,
+  earliest expiry versus actual watchdog exclusion, VM pause/resume, takeover/rejoin,
+  routed application acceptance, and recovery timing are unverified. The low-level initial
+  intent API is not an authenticated bootstrap implementation. `PgNodeConfig` currently
+  applies watchdog timing unconditionally; no optional modes or device support exist in code.
+  Device/reset qualification is separate optional-support work. Additional host/VM access
+  is not required for the next local-supervisor implementation using Docker.
+- One intermediate close-verification read returned HTTP 403. Its cause is unverified.
+  The isolated close test and the final full protocol class passed. No retry or delay was
+  added to that test. G-7 remains open.
 
 Test counts are recorded here only from a run made during the task.
+The final phase 7b.1 and 7b.2 per-class summaries were reread during this reconciliation.
+No runtime test was rerun. Known gaps remain companion design alignment, local supervision
+and bootstrap, takeover/re-join, TLS/restore, independent exclusion under supervisor/VM pause,
+the intermediate HTTP 403 cause, and recovery timing.
 
 Completion requires that every requirement is met, that every scenario has a passing
 real-container test with a recorded per-class count, that every finding is closed, and that the
