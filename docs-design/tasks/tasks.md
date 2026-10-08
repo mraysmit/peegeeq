@@ -560,22 +560,25 @@ has the successful remote Jenkins publication evidence recorded above.
 revision 2026-10-08). HAProxy routes by sidecar writer eligibility, which combines current
 node-owned lease, local admission, selected optional-watchdog checks, node identity, role,
 and synchronous coverage. Manual profile B
-precedes automatic profile A. The Consul protocol is implemented in `peegeeq-pg-failover`.
+precedes automatic profile A. Failover depends on a coordinator port, not on Consul: Consul is
+the first adapter and Qraft a planned second (P-38). The Consul protocol is implemented in
+`peegeeq-pg-failover`, inside `PgPrimaryElector`; the port is not yet extracted from it.
 Node supervision and takeover are not implemented in that module.
-Consul is selected for the initial A/B implementation; G-7 qualification proceeds alongside
+G-7 qualification proceeds alongside
 the common supervisor implementation. `peegeeq-service-manager` handles federation and is outside this task. No profile
 requires the Patroni product. The Patroni control approach is selected: per-node supervisor,
 local lease-loss shutdown, and optional independent watchdog protection. Planned watchdog
 modes are `automatic` (default), `off`, and `required`. Only `required` refuses writer
-start/promotion because the watchdog is unavailable. This correction supersedes mandatory
-watchdog wording in companion designs, which still require alignment. Optional support
+start/promotion because the watchdog is unavailable. This correction superseded mandatory
+watchdog wording in the companion designs, which were aligned on 2026-10-08. Optional support
 does not prove old-writer exclusion during supervisor death or whole-VM pause.
 Java changes follow strict TDD with real-component failure tests.
 
 The implementation plan is
 `docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY_IMPLEMENTATION_PLAN.md`.
-It holds dated implementation findings and runs, adopted contracts P-0 to P-37, deployment
-gates G-1 to G-7, and acceptance obligations S1 to S58. Status and execution order are controlled
+It holds dated implementation findings and runs, adopted contracts P-0 to P-38, deployment
+gates G-1 to G-7, acceptance obligations S1 to S59, and three open design decisions for phase
+7b.2 (OD-1 to OD-3). Status and execution order are controlled
 here. Design contracts do not establish runtime coverage.
 
 Historical assessment on 2026-10-07 at `ff5c17da`: no requirement was fully met. R-6, R-8, and
@@ -633,8 +636,10 @@ Phases:
    refusal, malformed responses, bounded timeouts, and late replies. Generic close preserves
    the session and control history. Failed or changed control observations retire cached
    ownership. This protocol has no PostgreSQL start, promotion, release, or admission path.
-   Remaining: correct unconditional watchdog timing coupling in `PgNodeConfig` and the
-   elector's freshness calculation, implement local supervision/admission and durable
+   Remaining, in order: extract the coordinator port and the Consul adapter with a shared contract
+   suite, and add acquisition after release and guarded release (P-38, S59); correct unconditional
+   watchdog timing coupling in `PgNodeConfig` and the
+   elector's freshness calculation; decide OD-1 to OD-3; implement local supervision/admission and durable
    grants/quarantine/receipts, then optional watchdog integration and verified operator-initiated
    bootstrap. Preserve conservative ownership deadlines and late-reply rejection. Complete
    G-7 qualification alongside these scopes. The next scope uses Docker/Testcontainers;
@@ -655,7 +660,7 @@ Phases:
 13. **OPEN.** Frozen-node, in-flight operation, redundant proxy/pooler, SQL/HTTP endpoint
     ownership, and differing-observation qualification.
 14. **OPEN.** Build the replicated three-node target stacks and scenario runbook. Execute
-    all S1 to S58 cases and measure the 45-second objective under a specified workload.
+    all S1 to S59 cases and measure the 45-second objective under a specified workload.
 15. **OPEN.** Reassess historical findings against code and fresh logs. Complete G-1 to G-7,
     external references, configuration documentation, and release evidence. This Task 8
     reconciliation closes no runtime or production qualification obligation.
@@ -714,7 +719,10 @@ Phase 7b.2 protocol verification, 2026-10-08:
 
 Test counts are recorded here only from a run made during the task.
 The final phase 7b.1 and 7b.2 per-class summaries were reread during this reconciliation.
-No runtime test was rerun. Known gaps remain companion design alignment, local supervision
+No runtime test was rerun. On 2026-10-08 the four design documents were aligned with the
+optional-watchdog decision and the coordinator port (P-38). That was a documentation change
+with no test run. Known gaps remain the coordinator port extraction, the open decisions OD-1 to
+OD-3, local supervision
 and bootstrap, takeover/re-join, TLS/restore, independent exclusion under supervisor/VM pause,
 the intermediate HTTP 403 cause, and recovery timing.
 
