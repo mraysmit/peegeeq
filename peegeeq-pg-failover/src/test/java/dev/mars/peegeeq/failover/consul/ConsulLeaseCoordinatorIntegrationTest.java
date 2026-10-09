@@ -7,6 +7,7 @@ import dev.mars.peegeeq.failover.PgLeaseProtocolException;
 import dev.mars.peegeeq.failover.PgNodeConfig;
 import dev.mars.peegeeq.failover.PgWatchdogMode;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.buffer.Buffer;
@@ -92,7 +93,8 @@ class ConsulLeaseCoordinatorIntegrationTest extends PgLeaseCoordinatorContract {
         unsafeSession = false;
         intercepted = Promise.promise();
         delayedReply = null;
-        return waitForLeader(System.nanoTime() + TimeUnit.SECONDS.toNanos(30));
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+        return waitForLeader(deadline).compose(ignored -> waitForRegisteredServers(deadline));
     }
 
     @Override protected Future<Void> releaseBinding() {
@@ -235,6 +237,11 @@ class ConsulLeaseCoordinatorIntegrationTest extends PgLeaseCoordinatorContract {
     }
 
     @ParameterizedTest @ValueSource(strings = {"null", "{}", "[null]", "not-json"})
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
     void malformedReadBodyCannotBecomeAuthority(String body, VertxTestContext context) {
         interceptedCoordinator(config).compose(coordinator -> {
             malformedBody = body;
@@ -246,7 +253,13 @@ class ConsulLeaseCoordinatorIntegrationTest extends PgLeaseCoordinatorContract {
         })));
     }
 
-    @Test void unsafeSessionConfigurationCannotGrantOwnership(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    void unsafeSessionConfigurationCannotGrantOwnership(VertxTestContext context) {
         interceptedCoordinator(config).compose(coordinator -> {
             unsafeSession = true;
             return elector(config, coordinator).createInitialIntent(initialIntent("pg-node-1"));
@@ -254,6 +267,21 @@ class ConsulLeaseCoordinatorIntegrationTest extends PgLeaseCoordinatorContract {
             assertInstanceOf(PgLeaseProtocolException.class, failure);
             context.completeNow();
         })));
+    }
+
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.consul.ConsulLeaseCoordinator",
+        message = "Consul request rejected before sending",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    void adapterRejectsRenewalOfARecordWithoutALeaseHolder(VertxTestContext context) {
+        var unowned = new PgControlRecord(config.controlName(), 1, 1, null, initialIntent("pg-node-1"));
+        coordinator(config).compose(coordinator -> tracked(config, coordinator).renew(unowned))
+            .onComplete(context.failing(failure -> context.verify(() -> {
+                assertInstanceOf(PgLeaseProtocolException.class, failure);
+                context.completeNow();
+            })));
     }
 
     @Test void adapterRejectsLeaseTtlOutsideConsulRange() {
@@ -303,6 +331,24 @@ class ConsulLeaseCoordinatorIntegrationTest extends PgLeaseCoordinatorContract {
                 if (response.statusCode() == 200 && response.bodyAsString().length() > 2) return Future.succeededFuture();
                 if (System.nanoTime() >= deadline) return Future.failedFuture(new AssertionError("Consul quorum has no leader"));
                 return vertx.timer(100).compose(ignored -> waitForLeader(deadline));
+            });
+    }
+
+    /**
+     * A new leader is visible before it has bootstrapped ACLs and registered the servers in the
+     * catalog. Until then the management token gets HTTP 403 and session creation gets HTTP 500.
+     */
+    private Future<Void> waitForRegisteredServers(long deadline) {
+        return admin.getAbs(endpoint(0) + "/v1/catalog/nodes").putHeader("X-Consul-Token", ADMIN_TOKEN)
+            .timeout(1000).send().compose(response -> {
+                if (response.statusCode() == 200 && response.bodyAsJsonArray().stream()
+                        .map(node -> ((JsonObject) node).getString("Node")).toList()
+                        .containsAll(List.of("consul-1", "consul-2", "consul-3"))) return Future.succeededFuture();
+                if (System.nanoTime() >= deadline) {
+                    return Future.failedFuture(new AssertionError("Consul servers are not registered: HTTP "
+                        + response.statusCode() + " " + response.bodyAsString()));
+                }
+                return vertx.timer(100).compose(ignored -> waitForRegisteredServers(deadline));
             });
     }
 

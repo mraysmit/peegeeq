@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.failover;
 
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonArray;
@@ -56,7 +57,7 @@ public abstract class PgLeaseCoordinatorContract {
     protected PgPrimaryElector owner;
     private final List<PgPrimaryElector> electors = new ArrayList<>();
 
-    /** Prepares the binding for one test. The service has an elected leader on completion. */
+    /** Prepares the binding for one test. On completion the service accepts lease requests from every member. */
     protected abstract Future<Void> prepareBinding();
 
     /** Restores any suspended service members and frees binding resources. */
@@ -130,7 +131,13 @@ public abstract class PgLeaseCoordinatorContract {
             })).onFailure(context::failNow);
     }
 
-    @Test public void simultaneousInitialOwnersCannotBothAcquire(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void simultaneousInitialOwnersCannotBothAcquire(VertxTestContext context) {
         var otherConfig = nodeConfig(config.incarnation(), "pg-node-2");
         coordinator(otherConfig).compose(coordinator -> {
             var other = elector(otherConfig, coordinator);
@@ -146,7 +153,13 @@ public abstract class PgLeaseCoordinatorContract {
         })).onFailure(context::failNow);
     }
 
-    @Test public void restartedElectorCannotReinitialiseExistingHistory(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void restartedElectorCannotReinitialiseExistingHistory(VertxTestContext context) {
         owner.createInitialIntent(initialIntent("pg-node-1")).compose(original -> owner.close()
             .compose(ignored -> coordinator(config))
             .compose(coordinator -> {
@@ -163,7 +176,13 @@ public abstract class PgLeaseCoordinatorContract {
             })).onSuccess(current -> context.completeNow()).onFailure(context::failNow);
     }
 
-    @Test public void fractionalPolicyRevisionCannotCreateOwnership(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator request rejected",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void fractionalPolicyRevisionCannotCreateOwnership(VertxTestContext context) {
         JsonObject intent = initialIntent("pg-node-1");
         intent.getJsonObject("pendingDurabilityPolicy").put("revision", 1.5);
         owner.createInitialIntent(intent).onComplete(context.failing(failure -> context.verify(() -> {
@@ -173,7 +192,13 @@ public abstract class PgLeaseCoordinatorContract {
         })));
     }
 
-    @Test public void initialPolicyNamingTheWriterCannotCreateOwnership(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator request rejected",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void initialPolicyNamingTheWriterCannotCreateOwnership(VertxTestContext context) {
         JsonObject intent = initialIntent("pg-node-1");
         intent.getJsonObject("pendingDurabilityPolicy")
             .put("requiredStandbyNodeIds", new JsonArray().add("pg-node-1").add("pg-node-2"));
@@ -184,7 +209,13 @@ public abstract class PgLeaseCoordinatorContract {
         })));
     }
 
-    @Test public void accessDeniedCannotCreateAuthority(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void accessDeniedCannotCreateAuthority(VertxTestContext context) {
         unauthorisedCoordinator(config).compose(coordinator -> {
             var denied = elector(config, coordinator);
             return denied.createInitialIntent(initialIntent("pg-node-1")).transform(result -> {
@@ -212,7 +243,13 @@ public abstract class PgLeaseCoordinatorContract {
 
     // ---------------------------------------------------------------- update and renewal
 
-    @Test public void conflictingRevisionCannotOverwriteIntent(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Lease operation refused",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void conflictingRevisionCannotOverwriteIntent(VertxTestContext context) {
         owner.createInitialIntent(initialIntent("pg-node-1")).compose(original -> {
             JsonObject changed = original.intent().put("phase", "FENCING");
             return owner.update(original, changed).compose(updated -> {
@@ -230,7 +267,13 @@ public abstract class PgLeaseCoordinatorContract {
         })).onFailure(context::failNow);
     }
 
-    @Test public void externalRevisionChangeRollsBackUpdate(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void externalRevisionChangeRollsBackUpdate(VertxTestContext context) {
         owner.createInitialIntent(initialIntent("pg-node-1")).compose(original ->
             overwriteIntentExternally(original, original.intent().put("phase", "FENCING"))
                 .compose(ignored -> owner.update(original, original.intent().put("phase", "PROMOTING")))
@@ -268,7 +311,13 @@ public abstract class PgLeaseCoordinatorContract {
             })).onFailure(context::failNow);
     }
 
-    @Test public void anotherNodeCannotRenewOwnersLease(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Lease operation refused",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void anotherNodeCannotRenewOwnersLease(VertxTestContext context) {
         var otherConfig = nodeConfig(config.incarnation(), "pg-node-2");
         owner.createInitialIntent(initialIntent("pg-node-1"))
             .compose(record -> coordinator(otherConfig))
@@ -297,7 +346,13 @@ public abstract class PgLeaseCoordinatorContract {
             })).onFailure(context::failNow);
     }
 
-    @Test public void retiredOwnerCannotRegainAuthority(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Lease operation refused",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void retiredOwnerCannotRegainAuthority(VertxTestContext context) {
         owner.createInitialIntent(initialIntent("pg-node-1")).compose(record -> {
             owner.retire();
             assertFalse(owner.hasFreshOwnership());
@@ -389,7 +444,15 @@ public abstract class PgLeaseCoordinatorContract {
 
     // ---------------------------------------------------------------- service failure
 
-    @Test public void minorityCannotRenewOrReturnAuthoritativeRead(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class,
+        minOccurrences = 2,
+        maxOccurrences = 2)
+    public void minorityCannotRenewOrReturnAuthoritativeRead(VertxTestContext context) {
         owner.createInitialIntent(initialIntent("pg-node-1")).compose(record -> suspendQuorumMajority())
             .compose(ignored -> owner.renew().transform(result -> {
                 assertTrue(result.failed());
@@ -402,7 +465,13 @@ public abstract class PgLeaseCoordinatorContract {
             })));
     }
 
-    @Test public void nonAuthoritativeAbsenceCannotAuthoriseBootstrap(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void nonAuthoritativeAbsenceCannotAuthoriseBootstrap(VertxTestContext context) {
         interceptedCoordinator(config).compose(coordinator -> {
             inject(Fault.NON_AUTHORITATIVE_ABSENCE);
             return elector(config, coordinator).read();
@@ -412,7 +481,13 @@ public abstract class PgLeaseCoordinatorContract {
         })));
     }
 
-    @Test public void malformedReadCannotBecomeAuthority(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void malformedReadCannotBecomeAuthority(VertxTestContext context) {
         interceptedCoordinator(config).compose(coordinator -> {
             inject(Fault.MALFORMED_READ);
             return elector(config, coordinator).read();
@@ -422,7 +497,13 @@ public abstract class PgLeaseCoordinatorContract {
         })));
     }
 
-    @Test public void silentReadHasBoundedFailure(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void silentReadHasBoundedFailure(VertxTestContext context) {
         long started = System.nanoTime();
         interceptedCoordinator(config).compose(coordinator -> {
             inject(Fault.SILENT_READ);
@@ -434,7 +515,13 @@ public abstract class PgLeaseCoordinatorContract {
         })));
     }
 
-    @Test public void failedAuthoritativeReadRetiresCachedOwnership(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void failedAuthoritativeReadRetiresCachedOwnership(VertxTestContext context) {
         interceptedCoordinator(config).compose(coordinator -> {
             var faulty = elector(config, coordinator);
             return faulty.createInitialIntent(initialIntent("pg-node-1")).compose(record -> {
@@ -449,7 +536,13 @@ public abstract class PgLeaseCoordinatorContract {
         }).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
     }
 
-    @Test public void lostAcquisitionReplyRequiresObservation(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void lostAcquisitionReplyRequiresObservation(VertxTestContext context) {
         interceptedCoordinator(config).compose(coordinator -> {
             var faulty = elector(config, coordinator);
             inject(Fault.DROP_MUTATION_REPLY);
@@ -466,7 +559,13 @@ public abstract class PgLeaseCoordinatorContract {
         })).onFailure(context::failNow);
     }
 
-    @Test public void lateRenewalCannotUndoRetirement(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Late coordinator reply rejected",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void lateRenewalCannotUndoRetirement(VertxTestContext context) {
         interceptedCoordinator(config).compose(coordinator -> {
             var delayed = elector(config, coordinator);
             return delayed.createInitialIntent(initialIntent("pg-node-1")).compose(record -> {
@@ -487,7 +586,13 @@ public abstract class PgLeaseCoordinatorContract {
         }).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
     }
 
-    @Test public void timedOutRenewalCannotRegainAuthorityFromLateReply(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void timedOutRenewalCannotRegainAuthorityFromLateReply(VertxTestContext context) {
         interceptedCoordinator(config).compose(coordinator -> {
             var delayed = elector(config, coordinator);
             return delayed.createInitialIntent(initialIntent("pg-node-1")).compose(original -> {
@@ -528,7 +633,13 @@ public abstract class PgLeaseCoordinatorContract {
             })).onSuccess(current -> context.completeNow()).onFailure(context::failNow);
     }
 
-    @Test public void releaseWithStaleRevisionChangesNothing(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Lease operation refused",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void releaseWithStaleRevisionChangesNothing(VertxTestContext context) {
         owner.createInitialIntent(initialIntent("pg-node-1")).compose(original ->
             owner.update(original, original.intent().put("phase", "FENCING")).compose(updated ->
                 owner.release(original).transform(result -> {
@@ -558,7 +669,15 @@ public abstract class PgLeaseCoordinatorContract {
                     })).onFailure(context::failNow);
     }
 
-    @Test public void releasedOwnerCannotRenewOrUpdate(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Lease operation refused",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class,
+        minOccurrences = 2,
+        maxOccurrences = 2)
+    public void releasedOwnerCannotRenewOrUpdate(VertxTestContext context) {
         owner.createInitialIntent(initialIntent("pg-node-1")).compose(held -> owner.release(held)
             .compose(released -> owner.renew().transform(renewal -> {
                 assertTrue(renewal.failed());
@@ -572,7 +691,13 @@ public abstract class PgLeaseCoordinatorContract {
             })));
     }
 
-    @Test public void releaseWithoutQuorumFailsAndRetires(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void releaseWithoutQuorumFailsAndRetires(VertxTestContext context) {
         owner.createInitialIntent(initialIntent("pg-node-1"))
             .compose(held -> suspendQuorumMajority().compose(ignored -> owner.release(held)))
             .onComplete(context.failing(failure -> context.verify(() -> {
@@ -582,7 +707,13 @@ public abstract class PgLeaseCoordinatorContract {
             })));
     }
 
-    @Test public void malformedReleaseReplyRetiresWithoutClaimingRelease(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void malformedReleaseReplyRetiresWithoutClaimingRelease(VertxTestContext context) {
         interceptedCoordinator(config).compose(coordinator -> {
             var faulty = elector(config, coordinator);
             return faulty.createInitialIntent(initialIntent("pg-node-1")).compose(held -> {
@@ -600,7 +731,13 @@ public abstract class PgLeaseCoordinatorContract {
         }).onSuccess(current -> context.completeNow()).onFailure(context::failNow);
     }
 
-    @Test public void silentReleaseHasBoundedFailure(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void silentReleaseHasBoundedFailure(VertxTestContext context) {
         interceptedCoordinator(config).compose(coordinator -> {
             var faulty = elector(config, coordinator);
             return faulty.createInitialIntent(initialIntent("pg-node-1")).compose(held -> {
@@ -620,7 +757,13 @@ public abstract class PgLeaseCoordinatorContract {
         }).onSuccess(current -> context.completeNow()).onFailure(context::failNow);
     }
 
-    @Test public void lostReleaseReplyRequiresObservation(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void lostReleaseReplyRequiresObservation(VertxTestContext context) {
         interceptedCoordinator(config).compose(coordinator -> {
             var faulty = elector(config, coordinator);
             return faulty.createInitialIntent(initialIntent("pg-node-1")).compose(held -> {
@@ -638,7 +781,13 @@ public abstract class PgLeaseCoordinatorContract {
         })).onFailure(context::failNow);
     }
 
-    @Test public void lateReleaseReplyAfterRetirementIsRejected(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Late coordinator reply rejected",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void lateReleaseReplyAfterRetirementIsRejected(VertxTestContext context) {
         interceptedCoordinator(config).compose(coordinator -> {
             var delayed = elector(config, coordinator);
             return delayed.createInitialIntent(initialIntent("pg-node-1")).compose(held -> {
@@ -699,7 +848,13 @@ public abstract class PgLeaseCoordinatorContract {
             })).onSuccess(acquired -> context.completeNow()).onFailure(context::failNow);
     }
 
-    @Test public void twoSuccessorsCannotBothAcquireReleasedRecord(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void twoSuccessorsCannotBothAcquireReleasedRecord(VertxTestContext context) {
         var secondConfig = nodeConfig(config.incarnation(), "pg-node-2");
         var thirdConfig = nodeConfig(config.incarnation(), "pg-node-3");
         owner.createInitialIntent(initialIntent("pg-node-1"))
@@ -719,7 +874,13 @@ public abstract class PgLeaseCoordinatorContract {
             })).onFailure(context::failNow);
     }
 
-    @Test public void acquisitionWhileOwnedIsRejected(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator request rejected",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void acquisitionWhileOwnedIsRejected(VertxTestContext context) {
         var otherConfig = nodeConfig(config.incarnation(), "pg-node-2");
         owner.createInitialIntent(initialIntent("pg-node-1"))
             .compose(held -> coordinator(otherConfig).compose(coordinator -> {
@@ -759,7 +920,13 @@ public abstract class PgLeaseCoordinatorContract {
             })).onFailure(context::failNow);
     }
 
-    @Test public void acquisitionAtStaleRevisionIsRejected(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void acquisitionAtStaleRevisionIsRejected(VertxTestContext context) {
         var secondConfig = nodeConfig(config.incarnation(), "pg-node-2");
         var thirdConfig = nodeConfig(config.incarnation(), "pg-node-3");
         owner.createInitialIntent(initialIntent("pg-node-1"))
@@ -782,7 +949,13 @@ public abstract class PgLeaseCoordinatorContract {
                 }))).onSuccess(current -> context.completeNow()).onFailure(context::failNow);
     }
 
-    @Test public void acquisitionMustPreservePolicyHistory(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator request rejected",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void acquisitionMustPreservePolicyHistory(VertxTestContext context) {
         var otherConfig = nodeConfig(config.incarnation(), "pg-node-2");
         owner.createInitialIntent(initialIntent("pg-node-1"))
             .compose(held -> owner.release(held))
@@ -802,7 +975,13 @@ public abstract class PgLeaseCoordinatorContract {
             })).onSuccess(current -> context.completeNow()).onFailure(context::failNow);
     }
 
-    @Test public void acquisitionMustNameTheReleasedWriterAsPrevious(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator request rejected",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void acquisitionMustNameTheReleasedWriterAsPrevious(VertxTestContext context) {
         var otherConfig = nodeConfig(config.incarnation(), "pg-node-2");
         owner.createInitialIntent(initialIntent("pg-node-1"))
             .compose(held -> owner.release(held))
@@ -821,7 +1000,13 @@ public abstract class PgLeaseCoordinatorContract {
             })).onSuccess(current -> context.completeNow()).onFailure(context::failNow);
     }
 
-    @Test public void acquisitionWithInvalidOperationIdentityIsRejected(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator request rejected",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void acquisitionWithInvalidOperationIdentityIsRejected(VertxTestContext context) {
         var otherConfig = nodeConfig(config.incarnation(), "pg-node-2");
         owner.createInitialIntent(initialIntent("pg-node-1"))
             .compose(held -> owner.release(held))
@@ -840,7 +1025,13 @@ public abstract class PgLeaseCoordinatorContract {
             })).onSuccess(current -> context.completeNow()).onFailure(context::failNow);
     }
 
-    @Test public void accessDeniedCannotAcquireReleasedRecord(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void accessDeniedCannotAcquireReleasedRecord(VertxTestContext context) {
         var otherConfig = nodeConfig(config.incarnation(), "pg-node-2");
         owner.createInitialIntent(initialIntent("pg-node-1"))
             .compose(held -> owner.release(held))
@@ -859,7 +1050,13 @@ public abstract class PgLeaseCoordinatorContract {
             })).onSuccess(current -> context.completeNow()).onFailure(context::failNow);
     }
 
-    @Test public void malformedTakeoverReplyCannotGrantOwnership(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void malformedTakeoverReplyCannotGrantOwnership(VertxTestContext context) {
         var otherConfig = nodeConfig(config.incarnation(), "pg-node-2");
         owner.createInitialIntent(initialIntent("pg-node-1"))
             .compose(held -> owner.release(held))
@@ -879,7 +1076,13 @@ public abstract class PgLeaseCoordinatorContract {
             })).onSuccess(current -> context.completeNow()).onFailure(context::failNow);
     }
 
-    @Test public void silentTakeoverHasBoundedFailure(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void silentTakeoverHasBoundedFailure(VertxTestContext context) {
         var otherConfig = nodeConfig(config.incarnation(), "pg-node-2");
         owner.createInitialIntent(initialIntent("pg-node-1"))
             .compose(held -> owner.release(held))
@@ -901,7 +1104,13 @@ public abstract class PgLeaseCoordinatorContract {
             })).onSuccess(current -> context.completeNow()).onFailure(context::failNow);
     }
 
-    @Test public void lostTakeoverReplyRequiresObservation(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void lostTakeoverReplyRequiresObservation(VertxTestContext context) {
         var otherConfig = nodeConfig(config.incarnation(), "pg-node-2");
         owner.createInitialIntent(initialIntent("pg-node-1"))
             .compose(held -> owner.release(held))
@@ -923,7 +1132,13 @@ public abstract class PgLeaseCoordinatorContract {
             })).onFailure(context::failNow);
     }
 
-    @Test public void lateTakeoverReplyAfterRetirementCannotGrantOwnership(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Late coordinator reply rejected",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void lateTakeoverReplyAfterRetirementCannotGrantOwnership(VertxTestContext context) {
         var otherConfig = nodeConfig(config.incarnation(), "pg-node-2");
         owner.createInitialIntent(initialIntent("pg-node-1"))
             .compose(held -> owner.release(held))

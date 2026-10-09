@@ -135,10 +135,10 @@ public final class PgHbaAdmissionGate implements PgAdmissionGate {
         full.addAll(List.of(command));
         return runner.run(full, Duration.ofNanos(remaining)).transform(outcome -> {
             if (outcome.failed()) {
-                logger.warn("Admission command failed: {}", command[0], outcome.cause());
-                return Future.failedFuture(outcome.cause() instanceof PgProcessControlException
-                    ? outcome.cause()
-                    : new PgProcessControlException("Command failed: " + command[0], outcome.cause()));
+                PgProcessControlException failure = outcome.cause() instanceof PgProcessControlException known
+                    ? known : new PgProcessControlException("Command failed: " + command[0], outcome.cause());
+                logger.error("Admission command failed: {}", command[0], failure);
+                return Future.failedFuture(failure);
             }
             if (outcome.result() == null) {
                 return Future.failedFuture(new PgProcessControlException("Command returned no result: " + command[0]));

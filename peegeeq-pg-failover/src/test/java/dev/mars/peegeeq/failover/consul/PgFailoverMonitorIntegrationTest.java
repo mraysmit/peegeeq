@@ -43,6 +43,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
+import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -120,7 +121,13 @@ class PgFailoverMonitorIntegrationTest {
         })).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
     }
 
-    @Test void primaryStartWithoutOwnershipIsRefusedAndStartsNothing(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Local supervision operation rejected on node pg-node-1",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    void primaryStartWithoutOwnershipIsRefusedAndStartsNothing(VertxTestContext context) {
         var unowned = new PgControlRecord(config.controlName(), 1, 1, UUID.randomUUID().toString(),
             initialIntent());
         monitor.startPrimary(unowned).transform(start -> {
@@ -149,7 +156,13 @@ class PgFailoverMonitorIntegrationTest {
             })).onFailure(context::failNow);
     }
 
-    @Test void quarantinedNodeCannotStartAPrimary(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Local supervision operation failed on node pg-node-1",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLocalStateException.class)
+    void quarantinedNodeCannotStartAPrimary(VertxTestContext context) {
         elector.createInitialIntent(initialIntent()).compose(held -> store.quarantine("awaiting rewind")
             .compose(ignored -> monitor.startPrimary(held))
             .transform(start -> {
@@ -184,7 +197,18 @@ class PgFailoverMonitorIntegrationTest {
             })).onFailure(context::failNow);
     }
 
-    @Test void leaseLossWithdrawsAdmissionStopsTheWriterAndEndsSessions(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Demoting local PostgreSQL on node pg-node-1: Lease renewal failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    void leaseLossWithdrawsAdmissionStopsTheWriterAndEndsSessions(VertxTestContext context) {
         elector.createInitialIntent(initialIntent()).compose(held -> monitor.startPrimary(held)
             .compose(ignored -> elector.update(held, servingIntent(held)))
             .compose(serving -> monitor.prepareWriter(serving, PgFailoverMode.MANUAL)
@@ -239,7 +263,13 @@ class PgFailoverMonitorIntegrationTest {
             })).onFailure(context::failNow);
     }
 
-    @Test void primaryStartAfterDemotionIsRefused(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Local supervision operation rejected on node pg-node-1",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    void primaryStartAfterDemotionIsRefused(VertxTestContext context) {
         elector.createInitialIntent(initialIntent()).compose(held -> monitor.startPrimary(held)
             .compose(ignored -> monitor.demote(held, "test demotion"))
             .compose(ignored -> monitor.startPrimary(held)))
@@ -253,6 +283,11 @@ class PgFailoverMonitorIntegrationTest {
     @ExpectedErrorLog(
         logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
         message = "Local writer stop is unconfirmed on node pg-node-1",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgProcessControlException.class)
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Local supervision operation failed on node pg-node-1",
         throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
         throwableType = PgProcessControlException.class)
     void unconfirmedStopIsReportedQuarantinesTheNodeAndKeepsAdmissionClosed(VertxTestContext context) {
@@ -281,7 +316,69 @@ class PgFailoverMonitorIntegrationTest {
             })).onFailure(context::failNow);
     }
 
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Demoting local PostgreSQL on node pg-node-1: Primary start did not complete under ownership",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgProcessControlException.class)
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Local writer stop is unconfirmed on node pg-node-1",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgProcessControlException.class)
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Local supervision operation failed on node pg-node-1",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgProcessControlException.class)
+    void failedPrimaryStartDemotesTheNodeAndFails(VertxTestContext context) {
+        // This supervisor's process commands cannot run. PostgreSQL never starts.
+        var broken = new PgFailoverMonitor(config, elector, store, control("/nonexistent/pg_ctl"), gate);
+        elector.createInitialIntent(initialIntent()).compose(broken::startPrimary).transform(start -> {
+            assertTrue(start.failed(), "A failed primary start was reported as success");
+            assertInstanceOf(PgProcessControlException.class, start.cause());
+            assertFalse(elector.hasFreshOwnership(), "A failed primary start must retire ownership");
+            return process.status();
+        }).onSuccess(status -> context.verify(() -> {
+            assertEquals(PgProcessState.STOPPED, status);
+            context.completeNow();
+        })).onFailure(context::failNow);
+    }
+
     // ---------------------------------------------------------------- local admission
+
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.LocalCommandRunner",
+        message = "Command could not run: ",
+        messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = IOException.class)
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgHbaAdmissionGate",
+        message = "Admission command failed: cp",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgProcessControlException.class)
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Local supervision operation failed on node pg-node-1",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgProcessControlException.class)
+    void admissionCommandThatCannotRunRefusesStandbyStart(VertxTestContext context) {
+        // The command prefix names a program that does not exist on this host.
+        var unreachable = new PgHbaAdmissionGate(vertx, runner, List.of(stateDirectory.resolve("absent").toString()),
+            PgSupervisedContainer.PG_CTL, "psql", dataDirectory, POSTGRES.openHba(dataDirectory),
+            POSTGRES.closedHba(dataDirectory), Duration.ofSeconds(20));
+        new PgFailoverMonitor(config, elector, store, process, unreachable).startStandby().transform(start -> {
+            assertTrue(start.failed(), "PostgreSQL started without a closed admission gate");
+            assertInstanceOf(PgProcessControlException.class, start.cause());
+            return process.status();
+        }).onSuccess(status -> context.verify(() -> {
+            assertEquals(PgProcessState.STOPPED, status);
+            context.completeNow();
+        })).onFailure(context::failNow);
+    }
 
     @Test void startedPrimaryRejectsApplicationsAndKeepsTheSupervisorSocket(VertxTestContext context) {
         elector.createInitialIntent(initialIntent()).compose(held -> monitor.startPrimary(held))
@@ -317,7 +414,13 @@ class PgFailoverMonitorIntegrationTest {
             })).onFailure(context::failNow);
     }
 
-    @Test void preparationWithoutAConfirmedPolicyIsRefused(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Local supervision operation rejected on node pg-node-1",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    void preparationWithoutAConfirmedPolicyIsRefused(VertxTestContext context) {
         elector.createInitialIntent(initialIntent()).compose(held -> monitor.startPrimary(held)
             .compose(ignored -> monitor.prepareWriter(held, PgFailoverMode.MANUAL)).transform(preparation -> {
                 assertTrue(preparation.failed());
@@ -329,7 +432,13 @@ class PgFailoverMonitorIntegrationTest {
             })).onFailure(context::failNow);
     }
 
-    @Test void activationWithoutServingIntentIsRefusedAndAdmitsNothing(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Local supervision operation rejected on node pg-node-1",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    void activationWithoutServingIntentIsRefusedAndAdmitsNothing(VertxTestContext context) {
         elector.createInitialIntent(initialIntent()).compose(held -> monitor.startPrimary(held)
             .compose(ignored -> elector.update(held, servingIntent(held).put("phase", "PROMOTING"))))
             .compose(promoting -> monitor.prepareWriter(promoting, PgFailoverMode.MANUAL)
@@ -347,7 +456,13 @@ class PgFailoverMonitorIntegrationTest {
             })).onFailure(context::failNow);
     }
 
-    @Test void activationOfAGrantThatDoesNotMatchTheRecordIsRefused(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Local supervision operation rejected on node pg-node-1",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLocalStateException.class)
+    void activationOfAGrantThatDoesNotMatchTheRecordIsRefused(VertxTestContext context) {
         elector.createInitialIntent(initialIntent()).compose(held -> monitor.startPrimary(held)
             .compose(ignored -> elector.update(held, servingIntent(held))))
             .compose(serving -> monitor.prepareWriter(serving, PgFailoverMode.MANUAL).compose(prepared -> {
@@ -364,7 +479,13 @@ class PgFailoverMonitorIntegrationTest {
             })).onFailure(context::failNow);
     }
 
-    @Test void activationAfterOwnershipIsRetiredIsRefused(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Local supervision operation rejected on node pg-node-1",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    void activationAfterOwnershipIsRetiredIsRefused(VertxTestContext context) {
         elector.createInitialIntent(initialIntent()).compose(held -> monitor.startPrimary(held)
             .compose(ignored -> elector.update(held, servingIntent(held))))
             .compose(serving -> monitor.prepareWriter(serving, PgFailoverMode.MANUAL).compose(prepared -> {
@@ -406,7 +527,13 @@ class PgFailoverMonitorIntegrationTest {
             })).onFailure(context::failNow);
     }
 
-    @Test void missingClosedAdmissionFileRefusesPrimaryStart(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Local supervision operation failed on node pg-node-1",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgProcessControlException.class)
+    void missingClosedAdmissionFileRefusesPrimaryStart(VertxTestContext context) {
         var unguarded = new PgFailoverMonitor(config, elector, store, process,
             gate(POSTGRES.openHba(dataDirectory), dataDirectory + "/absent.conf"));
         elector.createInitialIntent(initialIntent()).compose(unguarded::startPrimary).transform(start -> {
@@ -419,7 +546,18 @@ class PgFailoverMonitorIntegrationTest {
         })).onFailure(context::failNow);
     }
 
-    @Test void failedAdmissionOpenClosesTheGrantAndAdmitsNothing(VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Revoking writer admission on node pg-node-1: Writer activation did not complete under ownership",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgProcessControlException.class)
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Local supervision operation failed on node pg-node-1",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgProcessControlException.class)
+    void failedAdmissionOpenClosesTheGrantAndAdmitsNothing(VertxTestContext context) {
         var broken = new PgFailoverMonitor(config, elector, store, process,
             gate(dataDirectory + "/absent.conf", POSTGRES.closedHba(dataDirectory)));
         elector.createInitialIntent(initialIntent()).compose(held -> broken.startPrimary(held)

@@ -1,8 +1,11 @@
 package dev.mars.peegeeq.failover;
 
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.core.file.FileSystemException;
+import io.vertx.core.json.DecodeException;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -30,7 +33,13 @@ class PgLocalStateStoreTest {
 
     // ---------------------------------------------------------------- opening
 
-    @Test void openRejectsMissingDirectory(Vertx vertx, VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgLocalStateStore",
+        message = "Node-local storage failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = FileSystemException.class)
+    void openRejectsMissingDirectory(Vertx vertx, VertxTestContext context) {
         PgLocalStateStore.open(vertx, directory.resolve("absent"), NODE)
             .onComplete(context.failing(failure -> context.verify(() -> {
                 assertInstanceOf(PgLocalStateException.class, failure);
@@ -38,7 +47,13 @@ class PgLocalStateStoreTest {
             })));
     }
 
-    @Test void openRejectsPathThatIsNotADirectory(Vertx vertx, VertxTestContext context) throws IOException {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgLocalStateStore",
+        message = "Node-local state operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLocalStateException.class)
+    void openRejectsPathThatIsNotADirectory(Vertx vertx, VertxTestContext context) throws IOException {
         Path file = Files.writeString(directory.resolve("file"), "x");
         PgLocalStateStore.open(vertx, file, NODE)
             .onComplete(context.failing(failure -> context.verify(() -> {
@@ -47,7 +62,13 @@ class PgLocalStateStoreTest {
             })));
     }
 
-    @Test void openRejectsCorruptGrant(Vertx vertx, VertxTestContext context) throws IOException {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgLocalStateStore",
+        message = "Node-local storage failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = DecodeException.class)
+    void openRejectsCorruptGrant(Vertx vertx, VertxTestContext context) throws IOException {
         Files.writeString(directory.resolve("grant.json"), "not-json");
         PgLocalStateStore.open(vertx, directory, NODE)
             .onComplete(context.failing(failure -> context.verify(() -> {
@@ -56,7 +77,15 @@ class PgLocalStateStoreTest {
             })));
     }
 
-    @Test void openRejectsGrantWithUnknownFieldOrState(Vertx vertx, VertxTestContext context) throws IOException {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgLocalStateStore",
+        message = "Node-local storage failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = IllegalArgumentException.class,
+        minOccurrences = 2,
+        maxOccurrences = 2)
+    void openRejectsGrantWithUnknownFieldOrState(Vertx vertx, VertxTestContext context) throws IOException {
         JsonObject grant = grantJson("OPEN").put("extra", true);
         Files.writeString(directory.resolve("grant.json"), grant.encode());
         PgLocalStateStore.open(vertx, directory, NODE).transform(unknownField -> {
@@ -70,7 +99,13 @@ class PgLocalStateStoreTest {
         })));
     }
 
-    @Test void openRejectsGrantOfAnotherNode(Vertx vertx, VertxTestContext context) throws IOException {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgLocalStateStore",
+        message = "Node-local state operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLocalStateException.class)
+    void openRejectsGrantOfAnotherNode(Vertx vertx, VertxTestContext context) throws IOException {
         Files.writeString(directory.resolve("grant.json"), grantJson("CLOSED").put("nodeId", "pg-node-2").encode());
         PgLocalStateStore.open(vertx, directory, NODE)
             .onComplete(context.failing(failure -> context.verify(() -> {
@@ -124,7 +159,13 @@ class PgLocalStateStoreTest {
             })).onFailure(context::failNow);
     }
 
-    @Test void loadedPreparedGrantStartsClosed(Vertx vertx, VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgLocalStateStore",
+        message = "Node-local state operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLocalStateException.class)
+    void loadedPreparedGrantStartsClosed(Vertx vertx, VertxTestContext context) {
         PgLocalStateStore.open(vertx, directory, NODE)
             .compose(store -> store.prepare(PgFailoverMode.MANUAL, 3, OPERATION, 2))
             .compose(prepared -> PgLocalStateStore.open(vertx, directory, NODE)
@@ -139,7 +180,13 @@ class PgLocalStateStoreTest {
             })).onFailure(context::failNow);
     }
 
-    @Test void activateRejectsDifferentAuthorityAndKeepsPreparedGrant(Vertx vertx, VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgLocalStateStore",
+        message = "Node-local state operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLocalStateException.class)
+    void activateRejectsDifferentAuthorityAndKeepsPreparedGrant(Vertx vertx, VertxTestContext context) {
         PgLocalStateStore.open(vertx, directory, NODE).compose(store ->
             store.prepare(PgFailoverMode.MANUAL, 3, OPERATION, 2).compose(prepared -> {
                 var other = new PgWriterGrant(PgFailoverMode.MANUAL, 4, OPERATION, 2, NODE, PgGrantState.PREPARED);
@@ -154,7 +201,13 @@ class PgLocalStateStoreTest {
             })).onSuccess(grant -> context.completeNow()).onFailure(context::failNow);
     }
 
-    @Test void activateWithoutPreparedGrantIsRejected(Vertx vertx, VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgLocalStateStore",
+        message = "Node-local state operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLocalStateException.class)
+    void activateWithoutPreparedGrantIsRejected(Vertx vertx, VertxTestContext context) {
         var grant = new PgWriterGrant(PgFailoverMode.MANUAL, 3, OPERATION, 2, NODE, PgGrantState.PREPARED);
         PgLocalStateStore.open(vertx, directory, NODE).compose(store -> store.activate(grant))
             .onComplete(context.failing(failure -> context.verify(() -> {
@@ -163,7 +216,15 @@ class PgLocalStateStoreTest {
             })));
     }
 
-    @Test void prepareIsRejectedWhileAGrantIsPreparedOrOpen(Vertx vertx, VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgLocalStateStore",
+        message = "Node-local state operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLocalStateException.class,
+        minOccurrences = 2,
+        maxOccurrences = 2)
+    void prepareIsRejectedWhileAGrantIsPreparedOrOpen(Vertx vertx, VertxTestContext context) {
         PgLocalStateStore.open(vertx, directory, NODE).compose(store ->
             store.prepare(PgFailoverMode.MANUAL, 3, OPERATION, 2).compose(prepared ->
                 store.prepare(PgFailoverMode.MANUAL, 4, OPERATION, 2).transform(second -> {
@@ -197,7 +258,13 @@ class PgLocalStateStoreTest {
             })).onFailure(context::failNow);
     }
 
-    @Test void closedGrantCannotBeActivatedAgain(Vertx vertx, VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgLocalStateStore",
+        message = "Node-local state operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLocalStateException.class)
+    void closedGrantCannotBeActivatedAgain(Vertx vertx, VertxTestContext context) {
         PgLocalStateStore.open(vertx, directory, NODE).compose(store ->
             store.prepare(PgFailoverMode.MANUAL, 3, OPERATION, 2).compose(prepared ->
                 store.closeGrant().compose(ignored -> store.activate(prepared))))
@@ -207,7 +274,13 @@ class PgLocalStateStoreTest {
             })));
     }
 
-    @Test void concurrentPreparationsAdmitExactlyOne(Vertx vertx, VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgLocalStateStore",
+        message = "Node-local state operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLocalStateException.class)
+    void concurrentPreparationsAdmitExactlyOne(Vertx vertx, VertxTestContext context) {
         PgLocalStateStore.open(vertx, directory, NODE).compose(store -> {
             Future<Boolean> first = store.prepare(PgFailoverMode.MANUAL, 3, OPERATION, 2)
                 .transform(result -> Future.succeededFuture(result.succeeded()));
@@ -225,7 +298,13 @@ class PgLocalStateStoreTest {
 
     // ---------------------------------------------------------------- quarantine
 
-    @Test void quarantineClosesTheGrantAndBlocksAdmissionAcrossRestart(Vertx vertx, VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgLocalStateStore",
+        message = "Node-local state operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLocalStateException.class)
+    void quarantineClosesTheGrantAndBlocksAdmissionAcrossRestart(Vertx vertx, VertxTestContext context) {
         PgLocalStateStore.open(vertx, directory, NODE)
             .compose(store -> store.prepare(PgFailoverMode.MANUAL, 3, OPERATION, 2).compose(store::activate)
                 .compose(open -> store.quarantine("former writer awaiting rewind")))
@@ -247,7 +326,13 @@ class PgLocalStateStoreTest {
             })).onFailure(context::failNow);
     }
 
-    @Test void quarantineDefeatsActivationOfAPreparedGrant(Vertx vertx, VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgLocalStateStore",
+        message = "Node-local state operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLocalStateException.class)
+    void quarantineDefeatsActivationOfAPreparedGrant(Vertx vertx, VertxTestContext context) {
         PgLocalStateStore.open(vertx, directory, NODE).compose(store ->
             store.prepare(PgFailoverMode.MANUAL, 3, OPERATION, 2).compose(prepared ->
                 store.quarantine("ownership lost").compose(ignored -> store.activate(prepared))))
@@ -257,7 +342,13 @@ class PgLocalStateStoreTest {
             })));
     }
 
-    @Test void openRejectsCorruptQuarantine(Vertx vertx, VertxTestContext context) throws IOException {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgLocalStateStore",
+        message = "Node-local storage failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = IllegalArgumentException.class)
+    void openRejectsCorruptQuarantine(Vertx vertx, VertxTestContext context) throws IOException {
         Files.writeString(directory.resolve("quarantine.json"), "{\"nodeId\":\"pg-node-1\"}");
         PgLocalStateStore.open(vertx, directory, NODE)
             .onComplete(context.failing(failure -> context.verify(() -> {
@@ -280,7 +371,13 @@ class PgLocalStateStoreTest {
             })).onSuccess(receipt -> context.completeNow()).onFailure(context::failNow);
     }
 
-    @Test void reusingAReceiptWithChangedParametersIsRejected(Vertx vertx, VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgLocalStateStore",
+        message = "Node-local state operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLocalStateException.class)
+    void reusingAReceiptWithChangedParametersIsRejected(Vertx vertx, VertxTestContext context) {
         PgLocalStateStore.open(vertx, directory, NODE).compose(store ->
             store.begin(3, OPERATION, "promote", NODE, new JsonObject().put("timeline", 4)).compose(first ->
                 store.begin(3, OPERATION, "promote", NODE, new JsonObject().put("timeline", 5))
@@ -294,7 +391,13 @@ class PgLocalStateStoreTest {
                     }))).onSuccess(stored -> context.completeNow()).onFailure(context::failNow);
     }
 
-    @Test void receiptResultMovesFromPendingThroughUnknownToAFinalResult(Vertx vertx, VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgLocalStateStore",
+        message = "Node-local state operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLocalStateException.class)
+    void receiptResultMovesFromPendingThroughUnknownToAFinalResult(Vertx vertx, VertxTestContext context) {
         JsonObject effect = new JsonObject().put("role", "primary");
         PgLocalStateStore.open(vertx, directory, NODE).compose(store ->
             store.begin(3, OPERATION, "promote", NODE, new JsonObject())
@@ -318,7 +421,13 @@ class PgLocalStateStoreTest {
             })).onFailure(context::failNow);
     }
 
-    @Test void recordingAResultWithoutAReceiptIsRejected(Vertx vertx, VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgLocalStateStore",
+        message = "Node-local state operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLocalStateException.class)
+    void recordingAResultWithoutAReceiptIsRejected(Vertx vertx, VertxTestContext context) {
         PgLocalStateStore.open(vertx, directory, NODE).compose(store ->
             store.record(3, OPERATION, "promote", NODE, PgActionResult.COMPLETED, new JsonObject()))
             .onComplete(context.failing(failure -> context.verify(() -> {
@@ -327,7 +436,13 @@ class PgLocalStateStoreTest {
             })));
     }
 
-    @Test void pendingResultCannotBeRecordedAsAnOutcome(Vertx vertx, VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgLocalStateStore",
+        message = "Node-local state operation rejected",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLocalStateException.class)
+    void pendingResultCannotBeRecordedAsAnOutcome(Vertx vertx, VertxTestContext context) {
         PgLocalStateStore.open(vertx, directory, NODE).compose(store ->
             store.begin(3, OPERATION, "promote", NODE, new JsonObject()).compose(pending ->
                 store.record(3, OPERATION, "promote", NODE, PgActionResult.PENDING, new JsonObject())))
@@ -362,7 +477,15 @@ class PgLocalStateStoreTest {
             })).onFailure(context::failNow);
     }
 
-    @Test void receiptIdentityRejectsUnsafeNames(Vertx vertx, VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgLocalStateStore",
+        message = "Node-local state operation rejected",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = IllegalArgumentException.class,
+        minOccurrences = 3,
+        maxOccurrences = 3)
+    void receiptIdentityRejectsUnsafeNames(Vertx vertx, VertxTestContext context) {
         PgLocalStateStore.open(vertx, directory, NODE).compose(store ->
             store.begin(3, OPERATION, "../grant", NODE, new JsonObject()).transform(traversal -> {
                 assertTrue(traversal.failed());
@@ -378,7 +501,13 @@ class PgLocalStateStoreTest {
             })));
     }
 
-    @Test void corruptReceiptFailsItsRead(Vertx vertx, VertxTestContext context) throws IOException {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgLocalStateStore",
+        message = "Node-local storage failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = DecodeException.class)
+    void corruptReceiptFailsItsRead(Vertx vertx, VertxTestContext context) throws IOException {
         Files.createDirectories(directory.resolve("receipts"));
         Files.writeString(directory.resolve("receipts").resolve("3+" + OPERATION + "+promote+" + NODE + ".json"), "{");
         PgLocalStateStore.open(vertx, directory, NODE)
@@ -391,7 +520,13 @@ class PgLocalStateStoreTest {
 
     // ---------------------------------------------------------------- storage failure
 
-    @Test void failedWriteIsReportedAndLeavesThePriorState(Vertx vertx, VertxTestContext context) throws IOException {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgLocalStateStore",
+        message = "Node-local storage failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = FileSystemException.class)
+    void failedWriteIsReportedAndLeavesThePriorState(Vertx vertx, VertxTestContext context) throws IOException {
         // A directory at the temporary file's path makes the durable write fail.
         Files.createDirectory(directory.resolve("grant.json.tmp"));
         PgLocalStateStore.open(vertx, directory, NODE).compose(store ->
@@ -405,7 +540,13 @@ class PgLocalStateStoreTest {
             })).onFailure(context::failNow);
     }
 
-    @Test void aFailedMutationDoesNotBlockTheNextOne(Vertx vertx, VertxTestContext context) {
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgLocalStateStore",
+        message = "Node-local state operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLocalStateException.class)
+    void aFailedMutationDoesNotBlockTheNextOne(Vertx vertx, VertxTestContext context) {
         var absent = new PgWriterGrant(PgFailoverMode.MANUAL, 3, OPERATION, 2, NODE, PgGrantState.PREPARED);
         PgLocalStateStore.open(vertx, directory, NODE).compose(store ->
             store.activate(absent).transform(activation -> {
