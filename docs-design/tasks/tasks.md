@@ -12,6 +12,12 @@ re-verified
 **Task 8 reconciliation:** 2026-10-08 — implementation source and saved final build/test
 summaries checked. Phase 7b.1 complete; phase 7b.2 protocol slice implemented and tested.
 Optional-watchdog decision corrected. No tests rerun or Jenkins gate re-verified.
+**Task 8 update:** 2026-10-09 — `peegeeq-pg-failover` rebuilt and its core and integration tests
+rerun on a second development machine, with the guard tests. Local admission compiled and
+tested. A Consul fixture readiness defect and the module's failure log levels corrected.
+`mvn clean test -Pall-tests` was run once: it stopped at `peegeeq-db` on the open phase 5 test
+(1,124 run, 1 failure), and the 17 modules after it passed when the run was resumed. The 318
+`warn` calls of the other modules were classified (backlog). No Jenkins gate re-verified.
 
 **Commit references predate a history rewrite.** The abbreviated hashes cited in this register
 (`263309d8`, `e8d07e53`, `b19b708b`, `fe676bda`, `c62af5c3`, `7db748b8`, `32ab0371`, `322b7f06`,
@@ -90,9 +96,12 @@ an unimplemented proposal exists or replace explicitly planned load, chaos, or f
 
 ## Current Execution Order
 
-As of 2026-10-08 Task 8 is ACTIVE. Phase 7a architecture selection is complete.
-Phase 7b.1 is complete. Phase 7b.2 has a verified Consul protocol implementation.
-Next is phase 7b.2 local supervision and admission using Docker/Testcontainers.
+As of 2026-10-09 Task 8 is ACTIVE. Phase 7a architecture selection is complete.
+Phase 7b.1 is complete. Phase 7b.2 has the coordinator port, the Consul adapter, node-local
+state, supervisor-owned start and lease-loss shutdown, and local admission implemented and
+tested in `peegeeq-pg-failover`.
+Next in phase 7b.2 is the timer that calls `renew` on the HA interval, using
+Docker/Testcontainers.
 Optional watchdog integration, bootstrap, takeover, and production qualification remain open.
 Machine-reset testing and additional host/VM access are not prerequisites for this next scope.
 No task is OPEN. Tasks 1, 2, 3, 4, 6, and 7 are COMPLETE.
@@ -554,16 +563,17 @@ has the successful remote Jenkins publication evidence recorded above.
 ### 8. Connection management and HAProxy failover
 
 **Priority:** Not assigned
-**Status:** ACTIVE — phase 7b.1 complete; phase 7b.2 partial, 2026-10-08
+**Status:** ACTIVE — phase 7b.1 complete; phase 7b.2 partial, 2026-10-09
 **Objective:** implement the design in
 `docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md` (design
 revision 2026-10-08). HAProxy routes by sidecar writer eligibility, which combines current
 node-owned lease, local admission, selected optional-watchdog checks, node identity, role,
 and synchronous coverage. Manual profile B
 precedes automatic profile A. Failover depends on a coordinator port, not on Consul: Consul is
-the first adapter and Qraft a planned second (P-38). The Consul protocol is implemented in
-`peegeeq-pg-failover`, inside `PgPrimaryElector`; the port is not yet extracted from it.
-Node supervision and takeover are not implemented in that module.
+the first adapter and Qraft a planned second (P-38). The port `PgLeaseCoordinator` and the
+adapter `ConsulLeaseCoordinator` are implemented in `peegeeq-pg-failover`. Node supervision is
+implemented there for guarded start, lease-loss shutdown, and local admission. The renewal
+loop, promotion, and takeover are not implemented in that module.
 G-7 qualification proceeds alongside
 the common supervisor implementation. `peegeeq-service-manager` handles federation and is outside this task. No profile
 requires the Patroni product. The Patroni control approach is selected: per-node supervisor,
@@ -577,8 +587,9 @@ Java changes follow strict TDD with real-component failure tests.
 The implementation plan is
 `docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY_IMPLEMENTATION_PLAN.md`.
 It holds dated implementation findings and runs, adopted contracts P-0 to P-38, deployment
-gates G-1 to G-7, acceptance obligations S1 to S59, and three open design decisions for phase
-7b.2 (OD-1 to OD-3). Status and execution order are controlled
+gates G-1 to G-7, acceptance obligations S1 to S59, and three design decisions for phase
+7b.2 (OD-1 to OD-3). The implementer decided each one. The owner has not reviewed them.
+Status and execution order are controlled
 here. Design contracts do not establish runtime coverage.
 
 Historical assessment on 2026-10-07 at `ff5c17da`: no requirement was fully met. R-6, R-8, and
@@ -606,8 +617,12 @@ Phases:
 5. **OPEN — historical red run retained.** The 2026-10-07 integration run of
    `HaProxyConnectionFailoverTest` executed 6 tests with 1 failure. Its new connection reached
    the replacement independent database; its existing pool remained on the backup until the
-   30-second deadline. The current source and result require fresh verification. P-14 now
+   30-second deadline. P-14 now
    retains profile D for connection recovery and moves production convergence to phase 7.
+   Rerun on 2026-10-09 inside `mvn clean test -Pall-tests`: `peegeeq-db` executed 1,124 tests
+   with 1 failure, the same assertion in `testFailbackAfterPrimaryRecovery`. The test is still
+   red. Output: `logs/all-tests-20261009.log`. The whole-repository gate cannot pass until this
+   phase is finished.
 6. **COMPLETE — documentation contracts, 2026-10-08.** Five documents define the data model,
    admission and generation barrier, synchronous policy lifecycle, finite replay, bootstrap,
    coordinator gate, and corrected transition order. Static document checks do not qualify
@@ -635,16 +650,20 @@ Phases:
    conditions, consistent reads, quorum loss, ACL boundaries, retained history, restart
    refusal, malformed responses, bounded timeouts, and late replies. Generic close preserves
    the session and control history. Failed or changed control observations retire cached
-   ownership. This protocol has no PostgreSQL start, promotion, release, or admission path.
-   Remaining, in order: extract the coordinator port and the Consul adapter with a shared contract
-   suite, and add acquisition after release and guarded release (P-38, S59); correct unconditional
-   watchdog timing coupling in `PgNodeConfig` and the
-   elector's freshness calculation; decide OD-1 to OD-3; implement local supervision/admission and durable
-   grants/quarantine/receipts, then optional watchdog integration and verified operator-initiated
-   bootstrap. Preserve conservative ownership deadlines and late-reply rejection. Complete
-   G-7 qualification alongside these scopes. The next scope uses Docker/Testcontainers;
-   machine-reset infrastructure is not a prerequisite. Rebuild, verify, and report local
-   supervision/admission before bootstrap. **OPEN — 7b.3:** manual
+   ownership.
+   **7b.2 update, 2026-10-09:** the coordinator port and the Consul adapter are extracted behind
+   a shared contract suite, with acquisition after release and guarded release (P-38, S59).
+   Watchdog timing is separated from the lease rule in `PgNodeConfig` and in the elector's
+   freshness calculation. OD-1 to OD-3 are decided by the implementer and not reviewed by the
+   owner. Durable grants, quarantine, and receipts, supervisor-owned start and lease-loss
+   shutdown, and local admission are implemented and tested, including the failure modes of the
+   admission gate. Every failed, refused, or late operation in the module logs at ERROR, and each
+   test that causes one declares it.
+   Remaining, in order: the timer that calls `renew` on the HA interval; optional watchdog
+   integration; verified operator-initiated bootstrap. Preserve conservative ownership deadlines and late-reply
+   rejection. Complete G-7 qualification alongside these scopes. The next scope uses
+   Docker/Testcontainers; machine-reset infrastructure is not a prerequisite.
+   **OPEN — 7b.3:** manual
    takeover, repeated failover, synchronous cutover, and controlled re-join.
 8. **OPEN.** Enable autonomous initiation on the verified common boundary (8a), complete
    per-node authority/bootstrap reconciliation (8b), infrastructure fault tests including
@@ -717,14 +736,66 @@ Phase 7b.2 protocol verification, 2026-10-08:
   The isolated close test and the final full protocol class passed. No retry or delay was
   added to that test. G-7 remains open.
 
+Phase 7b.2 supervision and admission verification, 2026-10-09:
+
+- Required rebuild: `mvn clean install -DskipTests -pl :peegeeq-pg-failover -am` passed for the
+  three-module reactor slice.
+  Output: `logs/rebuild-peegeeq-pg-failover-gaps-green-20261009.log`.
+- Targeted `-Pintegration-tests` scope: `ConsulLeaseCoordinatorIntegrationTest` **61/61**,
+  `PgFailoverMonitorIntegrationTest` **20/20**, `PgCtlProcessControlIntegrationTest`
+  **10/10**, and `PgHbaAdmissionGateIntegrationTest` **6/6**. Total **97**, zero
+  failures/errors/skips.
+  Output: `logs/peegeeq-pg-failover-integration-gaps-green-20261009.log`.
+- Targeted default/core scope: `LocalCommandRunnerTest` **6/6**, `PgLocalStateStoreTest`
+  **29/29**, and `PgNodeConfigTest` **17/17**. Total **52**, zero failures/errors/skips.
+  Output: `logs/peegeeq-pg-failover-core-gaps-green-20261009.log`.
+- Core guards: `DisabledTestsGuardTest` **2/2**, `InvalidDurationLiteralGuardTest` **2/2**,
+  `OnSuccessExceptionSwallowingGuardTest` **8/8**,
+  `SchemaInitializerTestInfrastructureGuardTest` **1/1**, and
+  `VertxAsyncForbiddenPatternsGuardTest` **1/1**. Total **14**.
+  Output: `logs/peegeeq-test-support-core-guards-errorlevels-20261009.log`.
+- Red runs: the first full integration run failed **1** of **88** in the Consul fixture setup
+  with HTTP 403. Output: `logs/peegeeq-pg-failover-integration-20261009.log`. With the error
+  declarations added and the production code unchanged, core failed **23** of **51** and
+  integration failed **43** of **91**, each with an expected-ERROR occurrence mismatch. Outputs:
+  `logs/peegeeq-pg-failover-core-errorlevels-red-20261009.log` and
+  `logs/peegeeq-pg-failover-integration-errorlevels-red-20261009.log`. A second round declared
+  the refusals and late replies that were not logged: integration failed **14** of **97** the
+  same way. Output: `logs/peegeeq-pg-failover-integration-gaps-red-20261009.log`. The new
+  interrupted-command test failed **1** of **52** core tests on an undeleted output file.
+  Output: `logs/peegeeq-pg-failover-core-gaps-red-20261009.log`.
+- The six admission-gate tests were written against existing code. Each was then run against a
+  gate with its behaviour removed, and each failed. Outputs:
+  `logs/peegeeq-pg-failover-gate-mutation-red-20261009.log` and
+  `logs/peegeeq-pg-failover-gate-mutation-c-red-20261009.log`. The gate source was restored to
+  the same SHA-256 and the class passed **6/6**.
+  Output: `logs/peegeeq-pg-failover-gate-restored-20261009.log`.
+- Whole repository: `mvn clean test -Pall-tests` stopped at `peegeeq-db` with **1** failure in
+  **1,124** tests, the phase 5 test. Output: `logs/all-tests-20261009.log`. Resumed with
+  `mvn test -Pall-tests -rf :peegeeq-outbox`: all 17 remaining modules passed, **2,876** Java
+  tests with zero failures/errors/skips, Management UI Vitest **128** and Playwright **419**,
+  Utilities UI Vitest **836** and Playwright **246**.
+  Output: `logs/all-tests-resume-outbox-20261009.log`. Plan §8.1 has the per-module counts.
+- The Consul fixture waited for a leader only. A leader is visible before it has bootstrapped
+  ACLs and registered the servers in the catalog. The binding now also waits for the catalog to
+  list all three servers. No lease operation is retried. Plan §9.11 holds the probe evidence.
+- The logs dated 2026-10-08 cited in this register are untracked files. They were not present
+  on the machine used on 2026-10-09 and were not reread. Whether the intermediate HTTP 403 of
+  2026-10-08 had the readiness cause above is not established.
+- Known gaps: the renewal loop, promotion, watchdog integration, bootstrap, takeover/re-join,
+  TLS/restore, independent exclusion under supervisor/VM pause, routed application acceptance,
+  and recovery timing are unverified. The guard for a command runner that returns no result
+  has no test, because the real runner never returns none. Plan §9.11 lists the other gaps.
+
 Test counts are recorded here only from a run made during the task.
-The final phase 7b.1 and 7b.2 per-class summaries were reread during this reconciliation.
-No runtime test was rerun. On 2026-10-08 the four design documents were aligned with the
-optional-watchdog decision and the coordinator port (P-38). That was a documentation change
-with no test run. Known gaps remain the coordinator port extraction, the open decisions OD-1 to
-OD-3, local supervision
-and bootstrap, takeover/re-join, TLS/restore, independent exclusion under supervisor/VM pause,
-the intermediate HTTP 403 cause, and recovery timing.
+The final phase 7b.1 per-class summaries, and the phase 7b.2 summaries dated 2026-10-08, were
+reread during the 2026-10-08 reconciliation and no runtime test was rerun then. On 2026-10-08
+the four design documents were aligned with the optional-watchdog decision and the coordinator
+port (P-38). That was a documentation change with no test run. The `peegeeq-pg-failover` counts
+dated 2026-10-09 come from runs made on that day. Known gaps remain owner review of OD-1 to
+OD-3, the renewal loop, bootstrap, takeover/re-join,
+TLS/restore, independent exclusion under supervisor/VM pause, the cause of the intermediate
+HTTP 403 of 2026-10-08, and recovery timing.
 
 Completion requires that every requirement is met, that every scenario has a passing
 real-container test with a recorded per-class count, that every finding is closed, and that the
@@ -739,6 +810,352 @@ runbook has saved output for every scenario.
 | Benchmarking enhancement | **PROPOSED — NOT IMPLEMENTED**; `docs-design/performance/PEEGEEQ_BENCHMARKING_ENHANCEMENT_IMPLEMENTATION_PLAN.md` (last updated 2026-09-18) holds 103 unchecked `BENCH-*` items and 0 checked | Approve scope, then add the approved phases to this register before implementation |
 | Authentication and Authorization | Proposed; no auth module, JWT middleware, or tenant-management implementation exists | Define threat model and product boundary |
 | TypeScript REST client coverage | Shared client is used by two Management UI pages (`AggregateStreamPage`, `CausationTreePage`). `PeeGeeQClient.test.ts` has nine cases: eight send requests over a real socket to the local `HttpTestServer` fixture, and one drives `streamEvents` through a hand-written `EventSource` replacement. No test runs the client against the PeeGeeQ REST backend | Add integration tests against the real REST backend; decide whether the `EventSource` replacement complies with the no-mocking rule |
+| Failures logged at WARN outside `peegeeq-pg-failover` | Classified on 2026-10-09 at `ea045d7f`. The production sources of 12 modules hold 318 `warn` calls. 196 report a failed, refused, or lost operation that the code does not resolve. 26 report a condition the code resolves. 95 are notices. 1 relays a PostgreSQL warning and is a notice outside a commit and a failure during one. Of the 196, 134 are swallowed, 51 are returned to the caller, and 11 repeat with no bound and no escalation. All 318 have two reads. A text search of `debug`, `info`, and `trace` calls found 44 more failure sites below WARN: 34 swallowed, 10 returned. No level was changed. The unexpected-ERROR gate does not see WARN or lower, so no test declares these failures. The sites are listed in "Failure log level classification" below | Decide per module whether to raise the 196 to ERROR and add `@ExpectedErrorLog` to each test that causes one. A change in `peegeeq-db` needs the tests of every module that depends on it |
+| Queue and stream defects confirmed by probe runs | Found 2026-10-09 at `ea045d7f`. Four defects were confirmed by runs against real PostgreSQL and are recorded as findings 3, 4, 5, and 9 under "Failure log level classification". A native consumer group member filter that throws deletes the message. A handler that always fails blocks an `OFFSET_WATERMARK` partition with no bound, no retry count, and no dead-letter row. A handler that exceeds the visibility timeout is redelivered with no bound, and `max-retries` does not apply. A WebSocket queue stream that is idle for 300 s drops every later message and stays open. Three more were confirmed by runs: a service manager with no Consul logs that it registered and reports `connected` (finding 11); a stopped database produced no ERROR line in 8 s, and the health checks logged the refused connections at DEBUG (finding 15); and seven test log configurations hide production loggers from the unexpected-ERROR gate (finding 17). No production code was changed | Decide the intended behaviour for each, then fix test-first. Finding 3 loses data and comes first |
+
+### Failure log level classification, 2026-10-09
+
+Four read-only review passes read the enclosing method of every `warn` call under
+`src/main/java` at commit `ea045d7f`. A second read then covered all 196 failure sites: the
+source around each site was read again and compared with the first reader's statement of the
+trigger and of what the code does next. All 196 agree. Where the first read cited a line outside
+that range, the cited line was read as well: the rethrow at `PgClientFactory.java:174`, the
+periodic timers at `PartitionedConsumerEngine.java` 252 and 258, `PeeGeeQManager.java:908`, and
+`HealthCheckManager.java` 266 and 272, the failure at `ZeroSubscriptionValidator.java` 127 to
+129, and the release statement at `PgNativeQueueConsumer.java` 896 to 900.
+
+The second read then covered the other 122 calls the same way. 121 agree with the first read
+and keep their class. The unclear row is resolved; see below. A comparison of every `warn` call
+in the sources with the classified rows found 318 on each side and no site missing or moved.
+`peegeeq-pg-failover` is not in this list; its levels were corrected on 2026-10-09 (Task 8).
+
+The audit above covers `warn` calls only. A text search then listed every `debug`, `info`, and
+`trace` call in the same 12 modules whose message names a failure (fail, error, exception, could
+not, unable, cannot, rejected, refused, timed out, lost). It found 103 calls. Each was read with
+the lines around it. The search matches message text on the line of the call, so a call whose
+message starts on the next line, or uses other words, is not in the 103. A failure path that
+logs nothing is not in it either; finding 10 is one.
+
+Of the 103, 44 report a failure. 34 are swallowed and 10 are returned to the caller. The other
+59 are a second line for a failure already logged at WARN or ERROR on the same path (16), a
+shutdown path guarded by a state flag (4), or not a failure (39). Paths are under
+`src/main/java/dev/mars/peegeeq/` of the module. All 44 log at DEBUG.
+
+- `peegeeq-rest` `rest/handlers/ManagementApiHandler.java`, 16 swallowed: 243, 277, 430, 592,
+  700, 719, 857, 878, 971, 989, 1007, 1025, 1079, 1892, 1902, 2049. A failed read becomes 0 or
+  an empty array and the response is built from it. This is finding 2 at a lower level.
+- `peegeeq-rest` `rest/handlers/SystemMonitoringHandler.java`, 4 swallowed: 247, 716, 767, 876.
+- `peegeeq-rest` `rest/handlers/ConsumerGroupHandler.java`, 3 swallowed: 211, 289, 573.
+- `peegeeq-rest` `rest/handlers/WebSocketConnection.java`, 1 swallowed: 100. This is the drop in
+  finding 9.
+- `peegeeq-db`, 6 swallowed: `db/PeeGeeQManager.java` 337 and 919,
+  `db/health/HealthCheckManager.java` 201 and 381, `db/performance/SystemInfoCollector.java`
+  163 and 190.
+- `peegeeq-db`, 3 returned: `db/consumer/PartitionedOffsetManager.java` 146 and 223 (a rejected
+  offset commit returns false; the engine logs WARN at 431), and
+  `db/resilience/CircuitBreakerManager.java` 105.
+- `peegeeq-outbox`, 3 returned: `outbox/OutboxConsumer.java` 437 and 449,
+  `outbox/OutboxConsumerGroupMember.java` 366.
+- `peegeeq-native`, 1 swallowed and 1 returned: `pgqueue/PgNativeQueueObserver.java` 150,
+  `pgqueue/PgNativeQueueConsumer.java` 1290.
+- `peegeeq-service-manager`, 1 returned: `servicemanager/routing/ConnectionRouter.java` 175.
+- `peegeeq-bitemporal`, 1 swallowed: `bitemporal/PgBiTemporalEventStore.java` 2044.
+- `peegeeq-examples`, 1 swallowed: `examples/SSEErrorHandlingExample.java` 293.
+- `peegeeq-benchmarking`, 1 swallowed: `test/metrics/PerformanceMetricsCollector.java` 452.
+- `peegeeq-rest` `rest/PeeGeeQRestServer.java`, 2 returned: 564 and 570. A 4xx answer is logged
+  at DEBUG. A comment at 557 to 559 states this as the rule.
+
+Two of these decide the level by matching error text or exception type, with no check that a
+shutdown is in progress. See findings 15 and 16.
+
+Category rule. Failure: the call reports a failed, refused, or lost operation, unreadable or
+undeliverable data, a resource that could not be released, or an unreachable dependency, and the
+code does not make the operation succeed later. Handled: a bounded retry that escalates to ERROR
+elsewhere, or a step that a comment or the coding principles declare optional. Notice: no
+operation failed.
+
+Each entry below is a failure site: a line number and what the code does after logging.
+`S` is swallowed, so the caller sees success. `P` is returned to the caller. `R` is repeated with
+no bound and no escalation. Paths are under `src/main/java/dev/mars/peegeeq/` of the module.
+
+**`peegeeq-db`** — 113 calls: 68 failures, 6 handled, 38 notices, 1 unclear
+
+- `db/client/PgClientFactory.java`: 164 P, 298 P, 312 P
+- `db/config/MultiConfigurationManager.java`: 333 S, 358 S
+- `db/config/PeeGeeQConfiguration.java`: 174 S, 460 S, 473 S, 610 S
+- `db/connection/PgConnectionManager.java`: 267 P, 324 P, 391 P, 538 S, 610 P
+- `db/consumer/PartitionedConsumerEngine.java`: 217 P, 276 R, 280 S, 368 R, 370 S, 431 S
+- `db/deadletter/DeadLetterQueueManager.java`: 396 S
+- `db/health/HealthCheckManager.java`: 306 R, 309 R, 385 R
+- `db/metrics/PeeGeeQMetrics.java`: 453 S
+- `db/PeeGeeQManager.java`: 300 P, 335 S, 466 S, 475 S, 485 S, 492 S, 503 S, 564 S, 928 R, 1077 S, 1084 S
+- `db/performance/SystemInfoCollector.java`: 135 S, 247 S, 283 S
+- `db/provider/PgConnectionProvider.java`: 133 S, 154 S
+- `db/provider/PgDatabaseService.java`: 122 S, 154 S
+- `db/provider/PgMetricsProvider.java`: 53 S, 62 S, 71 S, 80 S, 89 S, 98 S, 107 S, 116 S, 126 S, 135 S
+- `db/setup/DatabaseTemplateManager.java`: 80 P
+- `db/setup/PeeGeeQDatabaseSetupService.java`: 1122 P, 1141 S, 1231 P, 1238 P, 1906 S, 1908 S
+- `db/setup/SqlTemplateProcessor.java`: 42 S
+- `db/subscription/BackfillService.java`: 821 S
+- `db/subscription/SubscriptionManager.java`: 191 P, 412 P, 594 P, 858 P
+- `db/subscription/ZeroSubscriptionValidator.java`: 104 P
+- `db/util/PostgreSqlIdentifierValidator.java`: 193 S
+
+The unclear row is `db/connection/PgConnectionManager.java:724`. It relays a PostgreSQL server
+warning. Outside a commit it is a notice. During a commit the same server warning fails the
+commit; see finding 10.
+
+Handled and notice rows that the level decision should look at. Each keeps its class under the
+category rule.
+
+- A message that used all its retries is moved to the dead letter queue with no ERROR line.
+  `pgqueue/PgNativeQueueConsumer.java` logs WARN at 1001 and INFO at 1054.
+  `outbox/OutboxConsumer.java` logs WARN at 788 for each failed attempt and INFO at 1013.
+- Three handlers drop a single failed delivery and log WARN until the third consecutive
+  failure, then ERROR: `bitemporal/ReactiveNotificationHandler.java:871`,
+  `pgqueue/PgNativeQueueObserver.java:347`, and `outbox/OutboxQueueObserver.java:219`. Each
+  counter resets on a success (856, 329, 201). The two observers are declared best-effort
+  viewers in comments at 324 and 197.
+- Three calls report that a requested setting was replaced by a default and the operation went
+  on: `db/provider/PgQueueFactoryProvider.java:276` (an unknown preset name gives an empty
+  preset), `servicemanager/routing/LoadBalancer.java:62` (two strategies are not implemented and
+  use round robin), and `test/containers/PeeGeeQTestContainerFactory.java:201`.
+- A group closed while it starts fails the start. `pgqueue/PgNativeConsumerGroup.java` logs WARN
+  at 285 and DEBUG at 305. `outbox/OutboxConsumerGroup.java` logs WARN at 476 and ERROR at 496.
+  The two modules give one condition two different levels.
+- `db/provider/PgDatabaseService.java:144`: `runMigrations()` does nothing and returns success.
+  The only callers are tests.
+
+**`peegeeq-native`** — 36 calls: 30 failures, 5 handled, 1 notice
+
+- `pgqueue/PgNativeConsumerGroup.java`: 290 P, 450 S, 514 P, 550 P, 711 P
+- `pgqueue/PgNativeConsumerGroupMember.java`: 232 S
+- `pgqueue/PgNativeMessages.java`: 73 S
+- `pgqueue/PgNativeQueueBrowser.java`: 136 S
+- `pgqueue/PgNativeQueueConsumer.java`: 232 P, 249 S, 293 R, 305 R, 309 S, 313 S, 331 P, 352 P, 356 S, 381 R, 401 S, 869 R
+- `pgqueue/PgNativeQueueFactory.java`: 290 S, 306 S, 373 S
+- `pgqueue/PgNativeQueueObserver.java`: 155 P, 212 S
+- `pgqueue/PgNativeQueueProducer.java`: 203 P, 256 S, 270 S, 329 P
+- `pgqueue/PgNotificationStream.java`: 143 S
+
+**`peegeeq-outbox`** — 24 calls: 12 failures, 8 handled, 4 notices
+
+- `outbox/OutboxConsumer.java`: 908 S, 1029 S
+- `outbox/OutboxConsumerGroup.java`: 433 S, 451 S, 479 S, 604 P, 621 S, 697 S
+- `outbox/OutboxFactory.java`: 361 S, 393 S, 446 P
+- `outbox/OutboxQueueBrowser.java`: 146 S
+
+**`peegeeq-bitemporal`** — 20 calls: 16 failures, 3 handled, 1 notice
+
+- `bitemporal/PgBiTemporalEventStore.java`: 308 P, 344 P, 1694 P, 1702 S, 1710 S, 1715 P, 1730 P, 1734 P, 2392 P, 2480 P, 2487 S
+- `bitemporal/ReactiveNotificationHandler.java`: 407 P, 425 P, 732 S, 737 S, 752 S
+
+**`peegeeq-rest`** — 48 calls: 30 failures, 0 handled, 18 notices
+
+- `rest/handlers/ConsumerGroupHandler.java`: 151 S, 153 S, 516 S, 758 S
+- `rest/handlers/DatabaseSetupHandler.java`: 371 P
+- `rest/handlers/EventStoreSSEConnection.java`: 133 S
+- `rest/handlers/ManagementApiHandler.java`: 171 S, 348 S, 634 S, 792 S, 924 S
+- `rest/handlers/QueueHandler.java`: 143 S, 301 S
+- `rest/handlers/ServerSentEventsHandler.java`: 100 S, 140 S, 363 P
+- `rest/handlers/SystemMonitoringHandler.java`: 260 P, 377 P
+- `rest/handlers/WebhookSubscriptionHandler.java`: 210 S, 253 S, 372 S
+- `rest/handlers/WebSocketConnection.java`: 88 S, 220 S, 231 S, 242 S
+- `rest/handlers/WebSocketHandler.java`: 284 S, 356 S
+- `rest/PeeGeeQRestServer.java`: 284 S, 291 P, 567 P
+
+**`peegeeq-rest-client`** — 1 call: 1 failure
+
+- `client/sse/SSEReadStream.java`: 171 P
+
+**`peegeeq-service-manager`** — 14 calls: 8 failures, 3 handled, 3 notices
+
+- `servicemanager/federation/FederatedManagementHandler.java`: 390 S, 402 S, 414 S, 426 S, 438 S
+- `servicemanager/routing/ConnectionRouter.java`: 110 R
+- `servicemanager/routing/LoadBalancer.java`: 43 P, 53 P
+
+**`peegeeq-pg-sidecar`** — 2 calls: 2 failures
+
+- `sidecar/PgPrimaryCheckVerticle.java`: 97 P, 108 S
+
+**`peegeeq-test-support`** — 3 calls: 1 failure, 2 notices
+
+- `test/base/PeeGeeQTestBase.java`: 153 S
+
+**`peegeeq-benchmarking`** — 19 calls: 16 failures, 3 notices
+
+- `test/hardware/HardwareProfiler.java`: 146 S, 183 S, 213 S, 261 S, 286 S, 318 S, 349 S
+- `test/hardware/SystemResourceMonitor.java`: 248 S, 254 S
+- `test/metrics/PerformanceMetricsCollector.java`: 111 S, 141 S, 172 S, 180 S, 477 S, 499 S, 533 S
+
+**`peegeeq-examples`** — 6 calls: 3 failures, 3 notices
+
+- `examples/ServerSentEventsConsumerExample.java`: 153 S
+- `examples/SSEConnectionManagementExample.java`: 233 S
+- `examples/SSEErrorHandlingExample.java`: 122 S
+
+**`peegeeq-examples-spring`** — 32 calls: 9 failures, 1 handled, 22 notices
+
+- `examples/springboot2/adapter/ReactiveOutboxAdapter.java`: 179 S
+- `examples/springbootpriority/service/AllTradesConsumerService.java`: 316 S, 318 S
+- `examples/springbootpriority/service/CriticalTradeConsumerService.java`: 113 S, 285 S, 287 S
+- `examples/springbootpriority/service/HighPriorityConsumerService.java`: 114 S, 285 S
+- `examples/springbootretry/service/TransactionProcessorService.java`: 109 P
+
+Findings that a level change does not fix. Each states its evidence: a run, or reading only.
+Findings 3, 4, 5, 9, 11, 13, 15, and 17 were run on 2026-10-09 with temporary probe tests against
+real PostgreSQL and real sockets. The probe sources are in `logs/probes-20261009/` and the run
+logs are in `logs/`; neither is in the repository. No probe remains in a module.
+
+1. `rest/handlers/ConsumerGroupHandler.java` 147 to 170: a failed subscription is answered 201
+   with `subscriptionConfigured` true. Confirmed by the second read.
+2. `rest/handlers/ManagementApiHandler.java` 346 to 352, 790 to 796, and 922 to 928: a read
+   failure becomes an empty array and HTTP 200. Line 348 was confirmed by the second read.
+3. `pgqueue/PgNativeConsumerGroupMember.java:232`: a member filter that throws deletes the
+   message. This is message loss. Confirmed by a run
+   (`logs/probe-native-filter-throws-20261009.log`, 1 test, 0 failures). One group, one member
+   whose filter throws, one message. The filter ran once. The handler ran 0 times. The row left
+   `queue_messages` within 266 ms of the send, and the consumer logged
+   `Deleted processed message: 1`. `dead_letter_queue` held 0 rows after 15 s. Group counters:
+   processed 0, failed 0, filtered 1. Nothing retried the message and nothing kept it. The path
+   is member 231 to 234 (the catch returns false), group 755 to 762 (no eligible member, a
+   succeeded Future), consumer 817 to 822 (`deleteMessage`). The only log line is the WARN at
+   232, and the native test configuration does not print it (finding 17): the probe log holds no
+   line from that logger. From reading, the same group branch also deletes a message when every
+   member filter returns false and when no member is active; those two cases were not run.
+4. `db/consumer/PartitionedConsumerEngine.java` 363 to 374: a handler that always fails blocks
+   its partition with no bound. Confirmed by a run
+   (`logs/probe-native-partitioned-handler-failure-20261009.log`, 1 test, 0 failures). An
+   `OFFSET_WATERMARK` topic held two messages on one partition key. The handler failed on every
+   call. In 8.3 s the first message was delivered 9 times, once per second. The second message
+   was never delivered. `committed_offset` stayed 0. `outbox.retry_count` stayed 0 on both rows.
+   `dead_letter_queue` held 0 rows. One explicit run of
+   `ConsumerGroupRetryService.processFailedMessages()` reported retried 0 and moved 0; that
+   service reads `outbox_consumer_groups` rows and this mode wrote none. Each cycle logged WARN
+   `Fetch failed for partition probe-partition: PROBE: handler failure`, so the text reports a
+   fetch failure for a handler failure. The design states the replay and no bound:
+   `docs-design/consumer-groups/PEEGEEQ_PARTITIONED_CONSUMPTION_DESIGN.md` 95 to 101 says the
+   offset commits only if all handlers succeed and the next cycle replays from the last
+   committed position. A search of the design set found no retry bound, no dead-letter step, and
+   no statement that a permanently failing handler is meant to block the partition; that search
+   was done by a review pass and only the lines cited here were read again. The probe used the
+   native consumer group. The outbox consumer group hands its handler to the same engine and was
+   not run.
+5. `pgqueue/PgNativeQueueConsumer.java` 813 to 815 and 859 to 900: a handler that exceeds the
+   visibility timeout is redelivered with no bound. Confirmed by a run
+   (`logs/probe-native-visibility-timeout-20261009.log`, 1 test, 0 failures). Configuration:
+   visibility timeout 1 s, `max-retries` 2. The handler never settled. One message was delivered
+   12 times in 12.1 s, once per second. `retry_count` was 0 at every reading.
+   `dead_letter_queue` held 0 rows. Each expiry logged WARN
+   `Message handler visibility expired for message 1; relinquishing the stale delivery`.
+   `max-retries` does not apply on this path: the expired settlement returns at 813 to 815
+   before `handleProcessingFailure`, and the release statement at 896 to 900 does not write
+   `retry_count`. A handler that hangs on one message repeats its side effects every visibility
+   timeout. Whether other messages on the topic are starved while this repeats was not run.
+6. `PeeGeeQManagerCloseLogLevelTest` and `PgBiTemporalEventStoreCloseLogLevelTest` say in
+   Javadoc that close failures log at ERROR. Production logs them at WARN
+   (`PeeGeeQManager.java` 466, 475, 485, 492, 503; `PgBiTemporalEventStore.java` 1694, 1702,
+   1710, 1715).
+   Each positive test asserts only that no WARN line with the close text exists. Confirmed by
+   the 2026-10-09 run logs: both classes passed, and none of the cleanup-failure or close-failure
+   messages was logged at any level. No close failure occurred in either test, so neither test
+   checks the level. `PeeGeeQManagerCloseLogLevelTest` also imports `java.sql` (42 to 44, used at
+   278) and builds its own containers (78, 167); both are banned patterns.
+7. `db/config/PeeGeeQConfiguration.java`: an invalid integer or long value logs WARN (460, 473).
+   An invalid duration logs ERROR (494). Confirmed by the second read.
+8. `sidecar/PgPrimaryCheckVerticle.java:97`: a failed query and a healthy replica both answer
+   HTTP 503. The WARN is the only signal that separates them. Confirmed by the second read.
+9. `rest/handlers/WebSocketConnection.java` 86 to 112: a queue-stream connection that sends no
+   data frame for 300 seconds drops every later message and stays open. Confirmed by a run
+   (`logs/probe-rest-websocket-idle-drop-20261009.log`, 1 test, 0 failures, 341.7 s). A control
+   message reached the client 826 ms after the REST send. After 305 s with no traffic, two more
+   messages were sent 20 s apart. REST answered 200 for both. The client received neither. The
+   server logged WARN `has been inactive for 305999 ms` and then `325997 ms`, one line per
+   dropped message. The socket stayed open: the client close handler was not called, and an
+   application `ping` sent afterwards was answered with `pong`. The server statistics at close
+   read `Messages received: 3, sent: 1`. The client gets no close frame and no error frame, so
+   it cannot detect the state; reconnecting is the only recovery. The limit is a literal at line
+   87 with no configuration key. `lastActivityTime` is set in the constructor (57) and after a
+   data send (107) and nowhere else, so from reading, a stream on a queue that is quiet for its
+   first 300 seconds drops its first message; that case was not run. An earlier run of the probe
+   stopped on a defect in the probe after it had observed the same drop
+   (`logs/probe-rest-websocket-idle-drop-run1-crashed-20261009.log`).
+10. `db/connection/PgConnectionManager.java` 334 to 352: a commit whose outcome is unknown is
+    not logged. A server warning during the commit, or a failed commit call, fails the Future
+    with `PgCommitOutcomeUnknownException`. No production code logs that exception. Line 724
+    logs the server warning at WARN, and only when a notice configuration is set (674 to 675).
+    Run evidence, 2026-10-09: `PgConnectionManagerDurabilityIntegrationTest` ran 15 tests with
+    0 failures. Five cases assert the exception. The log of that class holds no WARN line and
+    no ERROR line. The caller receives the failure. Whether an operator sees it depends on the
+    caller.
+11. `servicemanager/PeeGeeQServiceManager.java` 100 to 109 and 199: a failed Consul registration
+    is followed by a success line. Run on 2026-10-09 with no Consul listening
+    (`logs/probe-consul-registration-failure-20261009.log`): the start logged WARN
+    `Failed to register with Consul (continuing without Consul): Connection refused`, then INFO
+    `Service Manager registered with Consul` 1 ms later. The deployment succeeded.
+    `GET /health` answered 200 with `"consul":"connected"`. The health field tests only that the
+    client object exists. A service manager with no Consul reports itself as registered and
+    connected; the WARN line is the only true signal.
+12. `rest/handlers/ManagementApiHandler.java` 1210 to 1217 and 1282 to 1289: the branch answers
+    404 `Setup or queue not found` at WARN for every failure that is not a `ResponseException`.
+    `getSetupResult` fails only with `SetupNotFoundException`
+    (`PeeGeeQDatabaseSetupService.java` 1160 to 1167). Any other exception raised in the chain
+    would get the same 404. From reading; no other exception was produced in a run.
+13. vertx-junit5 5.0.4 `VertxExtension.joinActiveTestContexts` (lines 171 to 173) returns at
+    once when the test has already failed. An asynchronous `@AfterEach` is then not awaited and
+    Vert.x is closed under it. Confirmed by the source and by a probe run
+    (`logs/probe-teardown-after-failure-20261009.log`): the teardown of a passing test completed
+    after 1.5 s; the teardown timer of a failing test got `CancellationException` 1 ms after it
+    started. 244 test classes use `VertxExtension` with an `@AfterEach` that takes
+    `VertxTestContext`. After a failed test, such a teardown can leave containers, pools, or
+    child processes open, and the next test then fails for a second reason.
+14. `servicemanager/PeeGeeQServiceManager.java` 53 to 54 reads `consul.host` and `consul.port`
+    from system properties, and `PeeGeeQServiceManagerIntegrationTest.java` 47 to 48 sets them.
+    The project rule bans system properties for configuration.
+15. `db/health/HealthCheckManager.java` 366 to 387: an unhealthy result whose message contains
+    `Connection refused`, `connection may have been lost`, `underlying connection`, or
+    `Pool closed` is logged at DEBUG with the text `expected during shutdown`. The method does
+    not test whether a shutdown is in progress. Its caller at line 300 runs on every health
+    check cycle. Confirmed by a run (`logs/probe-health-check-outage-20261009.log`, 1 test,
+    0 failures). A manager ran with a one-second health check interval. The PostgreSQL container
+    was stopped and no shutdown was requested. In the next 8 s the `database`, `outbox-queue`,
+    `native-queue`, and `dead-letter-queue` checks each logged the DEBUG line 4 times with
+    `Connection refused`. The circuit breaker then opened and each check logged WARN
+    `Health check failed: <name> - Circuit breaker open` 4 times. The other lines in the window
+    were WARN: `Pool acquisition canary failed` twice, `Circuit breaker 'database' failure rate
+    exceeded` once, and `Queue depth cache refresh failed (first failure)` once. No logger wrote
+    an ERROR line during the outage, and the unexpected-ERROR gate passed the test.
+    `manager.isHealthy()` returned false. A longer outage was not run, so the lines that
+    escalate after repeated failures were not observed.
+16. `outbox/OutboxConsumer.java` 443 to 456 and 561 to 572: `isShutdownRelatedError` returns
+    true when the cause chain holds `RejectedExecutionException` or `ClosedChannelException`,
+    with the consumer still open. The catch block at 448 to 452 then logs DEBUG
+    `Expected error during shutdown` and sets `closed` to true. `processAvailableMessages`
+    returns at 307 to 309 without reading when `closed` is true. From reading: one such
+    exception thrown synchronously in the claim path stops the consumer for good, and the only
+    line logged is DEBUG. No run produced this path, and whether production code can throw one
+    of the two types there was not established.
+17. Seven test log configurations detach or switch off production loggers. The unexpected-ERROR
+    gate attaches its capture appender to the root logger only
+    (`UnexpectedErrorLogCaptureCoordinator.java` 99 to 104). A logger with `additivity="false"`
+    does not pass events to the root logger, and a logger at `OFF` creates none. An ERROR from
+    these classes cannot fail a test, and their WARN lines are not printed. Confirmed for
+    `peegeeq-native` by a run (`logs/probe-detached-logger-gate-20261009.log`, 3 tests, 1 failure
+    by design): an undeclared ERROR on `PgNativeQueueConsumer`, which is attached, failed its
+    test with `Unexpected ERROR`; an undeclared ERROR on `PgNativeConsumerGroupMember` and one
+    on `PgNotificationStream` both passed.
+    - `peegeeq-native/src/test/resources/logback-test.xml`: `PgNotificationStream` is `OFF`
+      (45); `PgNativeConsumerGroupMember` (67) and `PgNativeConsumer` (70) are detached. The
+      member WARN lines 232 and 290 are therefore absent from every native test log.
+    - `peegeeq-outbox`: `OutboxConsumer` (36) and `OutboxConsumerGroupMember` (43) are detached.
+    - `peegeeq-rest`: `ConsumerGroupHandler` (25) and `EventStoreHandler` (28) are detached.
+    - `peegeeq-db`: `PgQueueFactoryProvider` is `OFF` (86).
+    - `peegeeq-bitemporal` (60, 63, 66, 69), `peegeeq-service-manager` (25, 28, 31, 34), and
+      `peegeeq-examples` (26) detach outbox and native consumer loggers.
+    The six configurations outside `peegeeq-native` were read and not run.
+
+The per-row tables, with the trigger and the evidence line for all 318 calls, were produced in
+the review session and are not in the repository.
 
 ## Completed Work
 

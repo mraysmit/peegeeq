@@ -255,13 +255,21 @@ public final class PgLocalStateStore {
         try {
             result = operation.execute();
         } catch (RuntimeException failure) {
-            logger.warn("Node-local state operation rejected", failure);
-            return Future.failedFuture(wrap(failure));
+            PgLocalStateException rejection = wrap(failure);
+            logger.error("Node-local state operation rejected", rejection);
+            return Future.failedFuture(rejection);
         }
         return result.transform(outcome -> {
             if (outcome.failed()) {
-                logger.warn("Node-local state operation failed", outcome.cause());
-                return Future.failedFuture(wrap(outcome.cause()));
+                PgLocalStateException failure = wrap(outcome.cause());
+                // A rule of this store refused the operation, or the storage could not be read or
+                // written. The two are reported apart.
+                if (outcome.cause() instanceof PgLocalStateException) {
+                    logger.error("Node-local state operation failed", failure);
+                } else {
+                    logger.error("Node-local storage failed", failure);
+                }
+                return Future.failedFuture(failure);
             }
             return Future.succeededFuture(outcome.result());
         });

@@ -15,6 +15,9 @@ import java.util.concurrent.TimeUnit;
  * Node-owned ownership state above the coordinator port: intent validation, the freshness
  * deadline, retirement, and late-reply rejection. Control ownership alone does not authorise
  * PostgreSQL writes.
+ *
+ * <p>Every operation that fails, is refused, or completes too late is logged once at ERROR and
+ * returned to the caller as a failed Future.
  */
 public final class PgPrimaryElector {
     @FunctionalInterface
@@ -39,7 +42,7 @@ public final class PgPrimaryElector {
     public Future<PgControlRecord> createInitialIntent(JsonObject intent) {
         final long current;
         synchronized (this) {
-            if (closed || retired || attempted || busy) return failed("Initial acquisition is unavailable");
+            if (closed || retired || attempted || busy) return refused("Initial acquisition is unavailable");
             attempted = true;
             busy = true;
             current = epoch;
@@ -66,7 +69,7 @@ public final class PgPrimaryElector {
     public Future<PgControlRecord> acquireAfterRelease(PgControlRecord released, JsonObject intent) {
         final long current;
         synchronized (this) {
-            if (closed || retired || attempted || busy) return failed("Acquisition after release is unavailable");
+            if (closed || retired || attempted || busy) return refused("Acquisition after release is unavailable");
             attempted = true;
             busy = true;
             current = epoch;
@@ -100,7 +103,7 @@ public final class PgPrimaryElector {
     public Future<Optional<PgControlRecord>> read() {
         final long current;
         synchronized (this) {
-            if (closed) return failed("Elector is closed");
+            if (closed) return refused("Elector is closed");
             current = epoch;
         }
         return bounded(() -> coordinator.read().map(found -> {
@@ -124,7 +127,7 @@ public final class PgPrimaryElector {
         final long current;
         final PgControlRecord expected;
         synchronized (this) {
-            if (!hasFreshOwnership() || busy) return failed("No renewable local ownership");
+            if (!hasFreshOwnership() || busy) return refused("No renewable local ownership");
             current = epoch;
             expected = held;
             busy = true;
@@ -144,7 +147,7 @@ public final class PgPrimaryElector {
         final long deadline;
         synchronized (this) {
             if (!hasFreshOwnership() || busy || expected == null || !held.equals(expected)) {
-                return failed("Update requires current local ownership and revision");
+                return refused("Update requires current local ownership and revision");
             }
             current = epoch;
             deadline = freshUntil;
@@ -179,7 +182,7 @@ public final class PgPrimaryElector {
         final long current;
         synchronized (this) {
             if (closed || retired || busy || held == null || expected == null || !held.equals(expected)) {
-                return failed("Release requires the held control record at its current revision");
+                return refused("Release requires the held control record at its current revision");
             }
             current = epoch;
             busy = true;
@@ -196,7 +199,7 @@ public final class PgPrimaryElector {
                 boolean superseded = epoch != current;
                 if (!superseded) retire();
                 if (result.failed()) return Future.failedFuture(result.cause());
-                if (superseded) return failed("Release completed after retirement");
+                if (superseded) return late("Release completed after retirement");
             }
             return Future.succeededFuture(result.result());
         });
@@ -243,7 +246,10 @@ public final class PgPrimaryElector {
         return bounded(operation).map(record -> {
             synchronized (this) {
                 if (closed || retired || epoch != current || System.nanoTime() - deadline >= 0) {
-                    throw protocol("Lease operation completed after retirement or freshness deadline");
+                    PgLeaseProtocolException late =
+                        protocol("Lease operation completed after retirement or freshness deadline");
+                    logger.error("Late coordinator reply rejected", late);
+                    throw late;
                 }
                 held = record;
                 freshUntil = deadline;
@@ -264,16 +270,19 @@ public final class PgPrimaryElector {
         try {
             result = operation.execute();
         } catch (RuntimeException failure) {
-            logger.warn("Coordinator request rejected", failure);
-            return Future.failedFuture(failure instanceof PgLeaseProtocolException
-                ? failure : new PgLeaseProtocolException("Coordinator request rejected", failure));
+            // Every caller retires ownership on this failure. The logged exception is the one returned.
+            PgLeaseProtocolException rejection = failure instanceof PgLeaseProtocolException known
+                ? known : new PgLeaseProtocolException("Coordinator request rejected", failure);
+            logger.error("Coordinator request rejected", rejection);
+            return Future.failedFuture(rejection);
         }
-        if (result == null) return failed("Coordinator returned no result");
+        if (result == null) return refused("Coordinator returned no result");
         return result.timeout(config.requestTimeout().toMillis(), TimeUnit.MILLISECONDS).transform(outcome -> {
             if (outcome.failed()) {
-                logger.warn("Coordinator operation failed", outcome.cause());
-                return Future.failedFuture(outcome.cause() instanceof PgLeaseProtocolException
-                    ? outcome.cause() : new PgLeaseProtocolException("Coordinator operation failed", outcome.cause()));
+                PgLeaseProtocolException failure = outcome.cause() instanceof PgLeaseProtocolException known
+                    ? known : new PgLeaseProtocolException("Coordinator operation failed", outcome.cause());
+                logger.error("Coordinator operation failed", failure);
+                return Future.failedFuture(failure);
             }
             return Future.succeededFuture(outcome.result());
         });
@@ -359,5 +368,18 @@ public final class PgPrimaryElector {
     }
 
     private static PgLeaseProtocolException protocol(String message) { return new PgLeaseProtocolException(message); }
-    private static <T> Future<T> failed(String message) { return Future.failedFuture(protocol(message)); }
+
+    /** Fails an operation that this instance refuses to start. Every refusal is reported. */
+    private static <T> Future<T> refused(String message) {
+        PgLeaseProtocolException refusal = protocol(message);
+        logger.error("Lease operation refused", refusal);
+        return Future.failedFuture(refusal);
+    }
+
+    /** Fails an operation whose reply arrived after this instance was retired. */
+    private static <T> Future<T> late(String message) {
+        PgLeaseProtocolException late = protocol(message);
+        logger.error("Late coordinator reply rejected", late);
+        return Future.failedFuture(late);
+    }
 }

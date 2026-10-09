@@ -50,13 +50,22 @@ public final class LocalCommandRunner implements PgCommandRunner {
             return new PgCommandResult(process.exitValue(),
                 new String(Files.readAllBytes(output), StandardCharsets.UTF_8));
         } catch (IOException failure) {
-            logger.warn("Command could not run: {}", arguments, failure);
+            logger.error("Command could not run: {}", arguments, failure);
             throw new PgProcessControlException("Command could not run: " + arguments, failure);
         } catch (InterruptedException failure) {
+            boolean killed = false;
+            if (process != null) {
+                try {
+                    // The child holds the capture file open. It must exit before the file is deleted.
+                    killed = process.destroyForcibly().waitFor(KILL_WAIT_SECONDS, TimeUnit.SECONDS);
+                } catch (InterruptedException again) {
+                    failure.addSuppressed(again);
+                }
+            }
             Thread.currentThread().interrupt();
-            if (process != null) process.destroyForcibly();
-            logger.warn("Interrupted while waiting for command: {}", arguments, failure);
-            throw new PgProcessControlException("Interrupted while waiting for command: " + arguments, failure);
+            logger.error("Interrupted while waiting for command: {}", arguments, failure);
+            throw new PgProcessControlException("Interrupted while waiting for command"
+                + (killed ? " and killed it: " : " and could not kill it: ") + arguments, failure);
         } finally {
             discard(output);
         }

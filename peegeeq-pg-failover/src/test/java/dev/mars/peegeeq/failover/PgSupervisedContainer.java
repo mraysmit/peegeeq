@@ -80,7 +80,8 @@ public final class PgSupervisedContainer implements AutoCloseable {
         return exec(runner, "psql", "-X", "-tA", "-h", "127.0.0.1", "-c", statement);
     }
 
-    private Future<Void> write(PgCommandRunner runner, String file, String printfFormat) {
+    /** Writes a file in the container from a {@code printf} format string. */
+    public Future<Void> write(PgCommandRunner runner, String file, String printfFormat) {
         return exec(runner, "sh", "-c", "printf '" + printfFormat + "' > " + file).map(result -> {
             if (result.exitCode() != 0) throw new AssertionError("Could not write " + file + ": " + result.output());
             return null;

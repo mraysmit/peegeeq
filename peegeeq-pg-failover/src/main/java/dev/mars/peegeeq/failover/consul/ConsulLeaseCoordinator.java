@@ -178,8 +178,9 @@ public final class ConsulLeaseCoordinator implements PgLeaseCoordinator {
         try {
             result = operation.execute();
         } catch (RuntimeException failure) {
-            logger.warn("Consul request rejected before sending", failure);
-            return Future.failedFuture(wrap(failure));
+            PgLeaseProtocolException rejection = wrap(failure);
+            logger.error("Consul request rejected before sending", rejection);
+            return Future.failedFuture(rejection);
         }
         return result.transform(outcome -> outcome.failed()
             ? Future.failedFuture(wrap(outcome.cause())) : Future.succeededFuture(outcome.result()));

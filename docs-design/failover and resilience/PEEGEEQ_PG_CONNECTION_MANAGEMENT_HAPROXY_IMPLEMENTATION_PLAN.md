@@ -1,8 +1,10 @@
 # PeeGeeQ Connection Management and HAProxy Failover — Implementation Plan
 
-**Document revision**: 2026-10-08, coordinator port, companion design alignment, and next-scope update.
+**Document revision**: 2026-10-09, local admission record, rerun of the `peegeeq-pg-failover`
+tests, Consul fixture readiness correction, and failure-logging correction (§9.11).
 Sections 2 to 4 retain dated baseline evidence. Current implementation evidence is in §8.1.
-Saved build and per-class test summaries were reread for this revision. No Java test was rerun.
+The `peegeeq-pg-failover` tests and the guard tests were rerun on 2026-10-09, and the
+whole-repository `-Pall-tests` run was executed once (§8.1). It is red on the open phase 5 test.
 The next implementation scope is in §8.2.
 **Created**: 2026-10-07 at commit `ff5c17da`
 **Controls**: Task 8 of the [consolidated task register](../tasks/tasks.md). Status and execution
@@ -549,6 +551,26 @@ confined to `PgCtlProcessControl` and `LocalCommandRunner`, behind the `PgProces
   of the stop command is not the evidence; the following `pg_ctl status` observation is.
 - Not decided: promotion, rewind, and rebuild commands. They belong to 7b.3.
 
+**OD-1 decided for implementation, 2026-10-08.** Same basis as OD-3 and OD-2: the implementer's
+choice under the owner's instruction to proceed, not reviewed by the owner, reversible. This
+entry was written on 2026-10-09 from the source and from the message of commit `ea045d7f`. The
+choice is confined to `PgHbaAdmissionGate`, behind the `PgAdmissionGate` port.
+
+- Mechanism: PostgreSQL host-based authentication. The deployment provisions two files. One
+  admits application connections and one rejects them. Both keep the local socket for the
+  supervisor and keep the replication rules. The gate copies one of them over `pg_hba.conf`,
+  compares the result with the source, and runs `pg_ctl reload`.
+- Reload evidence: the value of `pg_conf_load_time()` changes, and `pg_hba_file_rules` then has
+  no row with an error.
+- Close: installs the closed file and reloads. A reload blocks new connections only, so the gate
+  also ends every client backend that has a client address and polls `pg_stat_activity` until
+  none remains. All of it runs inside one budget. With PostgreSQL stopped, the gate installs the
+  closed file for the next start and does nothing else.
+- Open: requires PostgreSQL to be running. Installs the open file and reloads.
+- Scope: connections over the network. A connection through the local socket is not gated.
+- The gate is not the takeover fence. Writer exclusion is the local stop.
+- Not decided: the content of the two files for a deployment, and how they are provisioned.
+
 ## 6. TDD method
 
 Every phase that changes Java follows these steps in order.
@@ -625,7 +647,7 @@ on zero executed tests or swallowed teardown failure.
 | 6 | Completed earlier document alignment. The optional-watchdog correction superseded its mandatory wording. The companion designs were aligned on 2026-10-08 (§9.10). No Java or Maven change in this reconciliation. |
 | 7a | Architecture selection complete. One local supervisor, node-owned Consul lease, optional watchdog modes, local admission, persistent node storage, and configurable redundant endpoints. Same protocol on Linux hosts/VMs, Docker hosts, and Kubernetes. G-1 to G-7 remain qualification gates. |
 | 7b.1 | Complete: production-manager owned commit-policy enforcement and bounded failure observation. Recorded evidence in §8.1. Broad caller migration remains phase 11. |
-| 7b.2 | Partial: the coordinator port, the Consul adapter, acquisition after release, guarded release, and the watchdog timing correction are implemented and tested (§8.1, §9.11). Next scope is in §8.2 items 3 to 5: local persistent contracts, then local supervision/admission, using Docker/Testcontainers. Then implement optional watchdog modes and authenticated bootstrap. Complete G-7 incrementally. Machine-reset qualification is not an implementation prerequisite. |
+| 7b.2 | Partial: the coordinator port, the Consul adapter, acquisition after release, guarded release, the watchdog timing correction, local persistent contracts, supervisor-owned start and lease-loss shutdown, and local admission are implemented and tested (§8.1, §9.11). Remaining in 7b.2: the timer that calls `renew` on the HA interval, optional watchdog modes, and authenticated bootstrap. Complete G-7 incrementally. Machine-reset qualification is not an implementation prerequisite. |
 | 7b.3 | Implement manual B takeover through local supervision. Test planned stop-before-release and unplanned safe-expiry takeover without failed-host acknowledgement. Prove old-writer exclusion, stale-effect rejection, policy cutover, repeated failover, two-node unavailability, and rewind/rebuild/re-join with production-manager data assertions. |
 | 8a | Enable autonomous initiation on the verified common A/B boundary. No second provider, authority, or generation barrier. Test concurrent standby contenders, invalid requests, lease loss during effects, and local activation/revocation races. |
 | 8b | Complete per-node automatic ownership and bootstrap reconciliation. Prove quorum loss, namespace/restore handling, invalid records, and distinction between sidecar/observer failure and writer-supervisor death. |
@@ -654,10 +676,11 @@ old-writer exclusion. Optional watchdog mode alone is not exclusion evidence.
 This reconciliation records completed implementation slices. It does not close any new
 runtime or production qualification obligation. Task 8 carries the same status and next scope.
 
-### 8.1 Current Implementation and Recorded Evidence, 2026-10-08
+### 8.1 Current Implementation and Recorded Evidence, 2026-10-08 and 2026-10-09
 
-Source inventory and saved logs were checked for this reconciliation. The working tree contains
-the implementation below. These are recorded runs, not new test executions or a release gate.
+Source inventory and saved logs were checked for the 2026-10-08 reconciliation. The working tree
+contains the implementation below. The runs dated 2026-10-08 are recorded runs, not new test
+executions. The runs dated 2026-10-09 were executed for this revision. None is a release gate.
 
 | Slice | State | Artifact and limit |
 |---|---|---|
@@ -668,9 +691,11 @@ the implementation below. These are recorded runs, not new test executions or a 
 | 7b.2 policy validation | Corrected, 2026-10-08 | The earlier elector rejected any policy that named the writer. A takeover intent must carry the former writer's policy, which names the new writer. The rule is now: a policy this node introduces never names the writer; a policy carried unchanged from the prior record may; a `SERVING` confirmed policy never names the writer. |
 | 7b.2 timing and watchdog configuration | Corrected and tested, 2026-10-08 | `PgWatchdogMode` is `AUTOMATIC`, `OFF`, or `REQUIRED`. `PgNodeConfig` applies the lease rule in every mode: `loop + 2 × retry <= TTL` and `loop + retry + stop < TTL`. Only `REQUIRED` rejects a configuration without watchdog slack (`loop + retry < TTL/2` and `stop < TTL/2`). `ownershipBudget()` is derived: `TTL − stop` in `OFF` or when watchdog timing is not usable; otherwise the smaller of that and `TTL − TTL/2`. The elector's freshness deadline uses it. No watchdog device code exists. |
 | 7b.2 local persistent contracts | Implemented and tested, 2026-10-08 | `PgLocalStateStore` with `PgWriterGrant` (mode, generation, operation, policy revision, node, state), `PgQuarantine`, and `PgActionReceipt` (generation, operation, action, target node, immutable parameters, result, effect). A grant loaded at open is closed durably before the store is returned. Quarantine blocks preparation and activation and survives restart. A receipt begun twice with equal parameters is one receipt; changed parameters are rejected; a final result is never replaced. `PgLocalStateStoreTest` runs 29 tests against a real directory: `logs/phase7b2-local-state-core-20261008.log`; guards 14: `logs/phase7b2-local-state-guards-20261008.log`. No caller uses the store yet. |
-| 7b.2 supervisor-owned start and local shutdown | Implemented and tested, 2026-10-08 | `PgProcessControl` port; `PgCtlProcessControl` adapter; `LocalCommandRunner`. `PgFailoverMonitor` has `startStandby`, `startPrimary(held)`, `renew`, and `demote`. Primary start is refused without fresh ownership or under quarantine, runs with admission closed, and records a `start-primary` receipt. A failed renewal retires ownership, closes the grant, stops PostgreSQL within the stop budget, and records a `stop-writer` receipt. An unconfirmed stop fails the demotion, quarantines the node, and records the receipt as `UNKNOWN`. Local effects run one at a time; renewal does not queue behind them. Tests use a real PostgreSQL whose container entry point does not start it, a real Consul server, and a real state directory. Not implemented: the loop timer that calls `renew` on the HA interval, promotion, and any SQL admission gate. |
+| 7b.2 supervisor-owned start and local shutdown | Implemented and tested, 2026-10-08 | `PgProcessControl` port; `PgCtlProcessControl` adapter; `LocalCommandRunner`. `PgFailoverMonitor` has `startStandby`, `startPrimary(held)`, `renew`, and `demote`. Primary start is refused without fresh ownership or under quarantine, runs with admission closed, and records a `start-primary` receipt. A failed renewal retires ownership, closes the grant, stops PostgreSQL within the stop budget, and records a `stop-writer` receipt. An unconfirmed stop fails the demotion, quarantines the node, and records the receipt as `UNKNOWN`. Local effects run one at a time; renewal does not queue behind them. Tests use a real PostgreSQL whose container entry point does not start it, a real Consul server, and a real state directory. Not implemented: the loop timer that calls `renew` on the HA interval, and promotion. |
+| 7b.2 local admission (OD-1) | Implemented 2026-10-08, compiled and tested 2026-10-09 | `PgAdmissionGate` port; `PgHbaAdmissionGate` adapter (§5.3). `PgFailoverMonitor` has `prepareWriter`, `activateWriter`, and `revokeWriter`; `PgPrimaryElector` has `holds`. Standby start and primary start close the gate first. Preparation requires fresh ownership and a confirmed policy. Activation requires fresh ownership of `SERVING` intent and the matching prepared grant; if the gate does not open, admission is revoked and the call fails. Revocation closes the grant and the gate and leaves PostgreSQL running. Commit `ea045d7f` contained this code before it had been compiled. `PgHbaAdmissionGateIntegrationTest` (6 tests) covers the gate's failure modes: an active file that does not hold the installed rules, a `pg_ctl status` exit code other than 0 or 3, a reload with invalid rules on open and on close, an exhausted or non-positive budget, and `open` while PostgreSQL is stopped. A close with invalid rules fails and PostgreSQL keeps the rules that admit applications, so the caller must stop the writer. Each test was confirmed by removing the behaviour from the gate (§9.11). |
+| 7b.2 failure logging | Corrected and tested, 2026-10-09 | The module had twelve WARN statements, and eleven of them reported failed, refused, or forced operations. The test-support gate fails a test on an undeclared ERROR and does not see WARN, so no test had to declare them. Those eleven now log at ERROR or, for a requested demotion or revocation, at INFO. `pg_ctl stop` returning a non-zero exit code stays at WARN because the following status check decides. `PgLocalStateStore` reports a storage or decoding fault as "Node-local storage failed", apart from a refusal by one of its rules. Failures that were returned to the caller without any log are now reported too: `PgFailoverMonitor` logs every failed operation at its boundary, and `PgPrimaryElector` logs every refused operation and every late reply. 75 test methods declare the errors they cause with 82 `@ExpectedErrorLog` declarations (§9.11). |
 | Sidecar | Role-only | `PgPrimaryCheckVerticle` answers `/primary` from `pg_is_in_recovery()` alone. The sidecar source has no commit since `ff5c17da`. It has no coordinator read, grant check, node identity check, coverage check, `/writer` route, authentication, or request deadline. |
-| 7b.2 local supervision and bootstrap | Not implemented | Persistent grants/quarantine/receipts, guarded startup, SQL/LISTEN admission, local shutdown, stopped-before-release, and authenticated bootstrap remain to implement. `createInitialIntent` is a low-level conditional operation, not provisioning verification. |
+| 7b.2 renewal loop, watchdog integration, and bootstrap | Not implemented | The timer that calls `renew` on the HA interval, watchdog device integration, stopped-before-release, and authenticated bootstrap remain to implement. `createInitialIntent` is a low-level conditional operation, not provisioning verification. |
 | 7b.3 manual takeover and re-join | Not implemented by the new module | Requires supervised transitions, old-writer exclusion, policy cutover, repeated failover, and routed production-manager assertions. |
 | G-7 full coordinator qualification | Open | Snapshot/restore, TLS, stopped-before-release, and expiry versus independent old-writer exclusion remain unverified. Component success does not close G-7. |
 
@@ -737,9 +762,86 @@ failure: the close-verification read returned HTTP 403. The isolated close diagn
 one test successfully. The final full class ran 28 successfully. The intermediate failure's
 cause remains unverified. Do not report it as fixed or add a retry to conceal it.
 
-Not checked by this reconciliation: new runtime behavior, Java regressions after a code
+Not checked by the 2026-10-08 reconciliation: new runtime behavior, Java regressions after a code
 change, end-to-end admission/takeover, production TLS/restore, independent watchdog
 exclusion, whole-VM pause/resume, or the 45-second recovery objective.
+
+Runs of 2026-10-09, executed on a second development machine after the last source change of
+that day. The logs dated 2026-10-08 named above are untracked files (`logs/` is ignored by git)
+and were not present on that machine, so none of them was reread. Rebuild:
+`rebuild-peegeeq-pg-failover-gaps-green-20261009.log`. Every class reports zero failures,
+errors, and skips.
+
+| Profile | Class | Tests run | Saved log under `logs/` |
+|---|---|---:|---|
+| `integration-tests` | `ConsulLeaseCoordinatorIntegrationTest` | 61 | `peegeeq-pg-failover-integration-gaps-green-20261009.log` |
+| `integration-tests` | `PgFailoverMonitorIntegrationTest` | 20 | `peegeeq-pg-failover-integration-gaps-green-20261009.log` |
+| `integration-tests` | `PgCtlProcessControlIntegrationTest` | 10 | `peegeeq-pg-failover-integration-gaps-green-20261009.log` |
+| `integration-tests` | `PgHbaAdmissionGateIntegrationTest` | 6 | `peegeeq-pg-failover-integration-gaps-green-20261009.log` |
+| default/core | `LocalCommandRunnerTest` | 6 | `peegeeq-pg-failover-core-gaps-green-20261009.log` |
+| default/core | `PgLocalStateStoreTest` | 29 | `peegeeq-pg-failover-core-gaps-green-20261009.log` |
+| default/core | `PgNodeConfigTest` | 17 | `peegeeq-pg-failover-core-gaps-green-20261009.log` |
+| default/core guards | five guard classes | 14 | `peegeeq-test-support-core-guards-errorlevels-20261009.log` |
+
+After these runs the gate source was changed for a probe and restored to the same SHA-256.
+`PgHbaAdmissionGateIntegrationTest` then passed 6 of 6 again:
+`peegeeq-pg-failover-gate-restored-20261009.log`.
+
+Red evidence of 2026-10-09:
+
+- `peegeeq-pg-failover-integration-20261009.log`: 88 run, 1 failure. The first test of
+  `ConsulLeaseCoordinatorIntegrationTest` failed in its setup with HTTP 403 (§9.11).
+- `pg-failover-consul-acl-red-run1-20261009.log` to `-run6-`: one contract test run alone six
+  times before the fixture correction. Four runs failed, two with HTTP 403 in setup and two with
+  HTTP 500 from session creation. `pg-failover-consul-acl-green-run1-20261009.log` to `-run10-`:
+  the same test passed ten times after the correction.
+- `peegeeq-pg-failover-core-errorlevels-red-20261009.log`: 51 run, 23 failures.
+  `peegeeq-pg-failover-integration-errorlevels-red-20261009.log`: 91 run, 43 failures. These runs
+  had the `@ExpectedErrorLog` declarations and the unchanged production code. Every failure is
+  "Expected ERROR occurrence mismatch" with `observed=0`.
+- `peegeeq-pg-failover-integration-gaps-red-20261009.log`: 97 run, 14 failures, the same reason,
+  for the refusals and late replies that were not yet logged.
+- `peegeeq-pg-failover-core-gaps-red-20261009.log`: 52 run, 1 failure. The new
+  interrupted-command test found an output file that could not be deleted.
+- `peegeeq-pg-failover-gate-mutation-red-20261009.log` and
+  `peegeeq-pg-failover-gate-mutation-c-red-20261009.log`: the six gate tests against a gate with
+  each behaviour removed. All six failed.
+
+Whole-repository run of 2026-10-09, after the last source change. `mvn clean test -Pall-tests`
+stopped at `peegeeq-db`: `peegeeq-test-support` 87 tests and `peegeeq-api` 228 tests passed;
+`peegeeq-db` ran 1,124 tests with 1 failure. The failure is
+`HaProxyConnectionFailoverTest.testFailbackAfterPrimaryRecovery`, at the step that §4.2 records
+as red since 2026-10-07: the pool that served queries during the outage did not reach the
+replacement primary within 30,000 ms. Log: `all-tests-20261009.log`. No file in `peegeeq-db` was
+changed on 2026-10-09. After `mvn clean install -DskipTests -pl :peegeeq-db -am`, the run was
+resumed with `mvn test -Pall-tests -rf :peegeeq-outbox`. All 17 remaining modules passed.
+Log: `all-tests-resume-outbox-20261009.log`.
+
+| Module | Tests run | Failures |
+|---|---:|---:|
+| `peegeeq-outbox` | 667 | 0 |
+| `peegeeq-native` | 361 | 0 |
+| `peegeeq-bitemporal` | 506 | 0 |
+| `peegeeq-runtime` | 48 | 0 |
+| `peegeeq-rest` | 521 | 0 |
+| `peegeeq-rest-client` | 48 | 0 |
+| `peegeeq-service-manager` | 76 | 0 |
+| `peegeeq-pg-sidecar` | 9 | 0 |
+| `peegeeq-pg-failover` | 149 | 0 |
+| `peegeeq-examples` | 178 | 0 |
+| `peegeeq-benchmarking` | 151 | 0 |
+| `peegeeq-migrations` | 53 | 0 |
+| `peegeeq-integration-tests` | 109 | 0 |
+| `peegeeq-management-ui` | Vitest 128, Playwright 419 | 0 |
+| `peegeeq-utilities-ui` | Vitest 836, Playwright 246 | 0 |
+
+No module total reports a skipped test. Twelve classes report zero tests. Each is an outer class
+whose tests are in nested classes, and the nested counts equal the test annotations in the
+source. The whole-repository gate is not green: it cannot pass while the phase 5 test is red.
+
+Not checked on 2026-10-09: end-to-end admission through a proxy, takeover, production
+TLS/restore, independent watchdog exclusion, whole-VM pause/resume, and the 45-second recovery
+objective.
 
 ### 8.2 Next Implementation Scope: Phase 7b.2
 
@@ -783,8 +885,12 @@ test run through `Tee-Object`, per-class counts read from the saved log, then a 
    and stale completion each require a failing test before their calling code. Blocked on
    `OD-1`.
 
-Items 1 to 4 are complete as of 2026-10-08 (§8.1, §9.11). Items 3 and 4 used the OD-3 and OD-2
-choices recorded in §5.3. Item 5 needs OD-1.
+Items 1 to 4 are complete as of 2026-10-08 (§8.1, §9.11). Items 3, 4, and 5 used the OD-3, OD-2,
+and OD-1 choices recorded in §5.3. Item 5 is implemented, and its tests were first compiled and
+run on 2026-10-09. Its code was written before its tests ran. On 2026-10-09 the gate's failure
+modes received tests, and each test was confirmed by removing the behaviour from the gate
+(§9.11). One guard has no test: the gate and `PgCtlProcessControl` each reject a command runner
+that returns no result, and the real runner never returns none. Item 5 is otherwise complete.
 
 After item 5, complete optional watchdog integration and authenticated first-start bootstrap in
 separate verified scopes within 7b.2. Bootstrap must verify provisioning, withdrawn intent,
@@ -1076,4 +1182,122 @@ title is now "PostgreSQL Failover: Coordinator Lease and Local Supervision".
 This revision changes documentation only. No Java, Maven, deployment configuration, or test was
 changed or run. Sections 2 to 4 and §9.1 to §9.9 retain dated evidence and still use the Consul
 vocabulary of their dates.
+
+### 9.11 Local Supervision, Admission, and Verification, 2026-10-08 and 2026-10-09
+
+**2026-10-08.** Commit `ea045d7f` implemented §8.2 items 1 to 4 and recorded their runs in §8.1.
+It also contained the item 5 code: `PgAdmissionGate`, `PgHbaAdmissionGate`, the admission
+methods of `PgFailoverMonitor`, `PgPrimaryElector.holds`, and nine admission tests. That code had
+not been compiled. `PgFailoverMonitor` had been rewritten after its 9-test run. The commit
+referred to this section, which did not exist, and did not record the OD-1 choice.
+
+**2026-10-09, verification.** The module was rebuilt on a second development machine with
+`mvn clean install -DskipTests -pl :peegeeq-pg-failover -am`. The item 5 code compiled without
+change. `PgFailoverMonitorIntegrationTest` ran 18 tests with zero failures. The OD-1 choice is now
+recorded in §5.3.
+
+**2026-10-09, Consul fixture readiness.** The first full run of
+`ConsulLeaseCoordinatorIntegrationTest` failed its first test in setup with HTTP 403. The fixture
+waited for `/v1/status/leader` to name a leader and nothing else. A probe against four new
+three-server quorums with ACLs showed the same sequence each time. For about 50 ms after a leader
+is visible, the management token receives `403 ACL system must be bootstrapped`. Until about
+190 ms, `PUT /v1/session/create` receives `500 Missing node registration`. The servers then
+appear in the catalog one at a time. Only the first test of the class meets this window. The
+binding now also waits, inside the same 30-second deadline, until `/v1/catalog/nodes` lists all
+three servers for the management token. This is a readiness condition of the fixture. No lease
+operation is retried. `PgFailoverMonitorIntegrationTest` uses the same leader-only wait against
+one dev-mode agent. Four probe rounds found no window there, and it is unchanged.
+
+§8.1 records an HTTP 403 in an intermediate run of 2026-10-08 whose cause was unverified. Its log
+was not available on 2026-10-09. Whether it had this cause is not established.
+
+**2026-10-09, test logging.** The module had no `logback-test.xml`. Logback's default
+configuration applied, and one integration run wrote 1,349,968 bytes with 4,235 DEBUG lines.
+`src/test/resources/logback-test.xml` was added from the `peegeeq-test-support` file with the
+Testcontainers and Vert.x blocks used by `peegeeq-db`. It sets no logger to `OFF` and uses no
+`additivity="false"`, so every ERROR event still reaches the capture appender on the root
+logger.
+
+**2026-10-09, failure logging.** The test logs held 73 WARN entries from the module. A read of
+each found that 69 reported failures: coordinator failures that retire ownership, corrupt or
+foreign node-local records, storage faults, refused operations, a command that could not run,
+and demotion after lease loss. The other 4 were a demotion or revocation that the test had
+requested. The rule now applied in the module is: a failed or refused operation is ERROR; a demotion or
+revocation that the caller requested is INFO; WARN is for a condition the code resolves by
+itself.
+
+| Class | Statement | Level now |
+|---|---|---|
+| `PgPrimaryElector` | "Coordinator operation failed", "Coordinator request rejected" | ERROR. The exception logged is the one returned. |
+| `ConsulLeaseCoordinator` | "Consul request rejected before sending" | ERROR |
+| `PgFailoverMonitor` | "Demoting local PostgreSQL", "Revoking writer admission" | ERROR with the cause when a failure forces it; INFO when the caller requests it |
+| `PgFailoverMonitor` | "Local supervision operation rejected" | ERROR |
+| `PgFailoverMonitor` | "Local supervision operation failed" (new: any operation that fails after it has started) | ERROR |
+| `PgPrimaryElector` | "Lease operation refused" (new), "Late coordinator reply rejected" (new) | ERROR |
+| `PgLocalStateStore` | "Node-local state operation rejected", "Node-local state operation failed" | ERROR |
+| `PgLocalStateStore` | "Node-local storage failed" (new: I/O failure or undecodable record) | ERROR |
+| `LocalCommandRunner` | "Command could not run", "Interrupted while waiting for command" | ERROR |
+| `PgHbaAdmissionGate` | "Admission command failed" | ERROR |
+| `PgCtlProcessControl` | `pg_ctl stop` exit code | WARN, unchanged |
+
+The tests were changed first. 60 existing test methods received `@ExpectedErrorLog`
+declarations, one already had one, and three tests were added for paths that had none:
+`failedPrimaryStartDemotesTheNodeAndFails`, `admissionCommandThatCannotRunRefusesStandbyStart`,
+and `adapterRejectsRenewalOfARecordWithoutALeaseHolder`. With the production code unchanged, 23
+core tests and 43 integration tests failed, each with "Expected ERROR occurrence mismatch" and
+`observed=0`. After the production change every test passed on the first run. The final counts
+and logs are in §8.1.
+
+**2026-10-09, failures that had no log.** Three kinds of failure were returned to the caller
+with no log entry: a refusal raised inside an asynchronous step of `PgFailoverMonitor` (for
+example a primary start under quarantine, or with the closed admission file missing), an
+operation that `PgPrimaryElector` refuses to start, and a reply that arrives after retirement or
+after the freshness deadline. `PgFailoverMonitor` now logs every failed operation at its
+boundary. `PgPrimaryElector` logs each refusal and each late reply. 14 tests declare them. With
+the declarations and the unchanged production code, those 14 failed with `observed=0`.
+
+**2026-10-09, admission gate failure modes.** `PgHbaAdmissionGateIntegrationTest` was added with
+six tests against a real PostgreSQL (§8.1). The tests describe existing code, so they passed on
+their first run. Each behaviour was then removed from the gate in turn and each test failed. The
+gate source was restored to the same SHA-256. An experiment against `postgres:15.13-alpine3.20`
+gave the facts the tests rest on: `pg_ctl status` exits 4 for a directory that is not a cluster;
+a reload with an invalid rule exits 0, changes `pg_conf_load_time()`, reports one row with an
+error in `pg_hba_file_rules`, and leaves the previous rules in force; `cp -f` onto a path that
+is a directory exits 0 and `cmp` then exits 2.
+
+**2026-10-09, interrupted command.** A test now interrupts the worker thread while it waits for
+a child process. It found a defect: the runner killed the child and did not wait for it to
+exit. On Windows the child still held the output capture file, the delete failed, and the file
+was left behind. The runner now waits for the kill, as the timeout path does. The existing
+timeout test decided whether the child survived by reading its command line. Windows reports no
+command line for a child process, so that assertion could not fail there. It now compares
+process identifiers.
+
+Known gaps after 2026-10-09:
+
+- The gate and `PgCtlProcessControl` each reject a command runner that returns no result. That
+  guard has no test, because the real runner never returns none.
+- A failed open or close leaves the file it installed in place. After a reload with invalid
+  rules, `pg_hba.conf` on disk holds the invalid rules although PostgreSQL still applies the
+  previous ones.
+- When a test fails, its asynchronous `@AfterEach` is not awaited. vertx-junit5 5.0.4,
+  `VertxExtension.joinActiveTestContexts`, returns at once when the extension context already
+  holds an execution exception, and `interceptAfterEachMethod` relies on it. Vert.x is then
+  closed under the running teardown. A probe confirmed it: after a passing test a 1.5-second
+  teardown completed; after a failing test the teardown's timer was cancelled 1 ms after it
+  started (`logs/probe-teardown-after-failure-20261009.log`). In this module the effect is that
+  PostgreSQL can stay running after a failed test and the next test cannot start it. The same
+  applies to every test class in the repository that uses `VertxExtension` with an `@AfterEach`
+  that takes a `VertxTestContext`: 244 classes.
+- The integration tests of `PgFailoverMonitor` never renew the lease. Their configuration gives a
+  12-second ownership budget, and the slowest test took 8.89 seconds on the second machine.
+- `ConsulLeaseCoordinator` reports the HTTP status of a rejected request and drops the response
+  body.
+- The other modules hold 318 `warn` calls in production sources. They were classified on
+  2026-10-09 with two reads each, and none was changed. A text search found 44 more failure
+  sites that log below WARN. Probe runs on the same day confirmed four queue and stream defects
+  outside this module; one of them deletes a message. Seven test log configurations in other
+  modules detach or switch off production loggers, which hides their ERROR events from the
+  unexpected-ERROR gate; a run confirmed it for `peegeeq-native`. The results are in the task
+  register under "Failure log level classification".
 

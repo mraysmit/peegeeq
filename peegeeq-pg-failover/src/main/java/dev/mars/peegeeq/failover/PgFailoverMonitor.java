@@ -12,6 +12,9 @@ import java.util.Objects;
  * Per-node supervision of the local PostgreSQL process under the node's own writer lease.
  * It owns guarded start, the local writer grant and admission gate, and lease-loss shutdown.
  * Local effects run one at a time. Lease renewal does not queue behind them.
+ *
+ * <p>A demotion or revocation that the caller requested is logged at INFO. One forced by a
+ * failure, and every refused or failed operation, is logged at ERROR.
  */
 public final class PgFailoverMonitor {
     @FunctionalInterface
@@ -74,6 +77,8 @@ public final class PgFailoverMonitor {
                         }
                         Throwable cause = started.failed() ? started.cause()
                             : new PgLeaseProtocolException("Ownership was lost while PostgreSQL started");
+                        logger.error("Demoting local PostgreSQL on node {}: {}", config.nodeId(),
+                            "Primary start did not complete under ownership", cause);
                         return demoteNow(held, "Primary start did not complete under ownership")
                             .transform(demotion -> {
                                 if (demotion.failed()) cause.addSuppressed(demotion.cause());
@@ -130,7 +135,9 @@ public final class PgFailoverMonitor {
                     if (opened.succeeded() && elector.holds(serving)) return Future.succeededFuture(open);
                     Throwable cause = opened.failed() ? opened.cause()
                         : new PgLeaseProtocolException("Ownership was lost while admission opened");
-                    return revokeNow("Writer activation did not complete under ownership").transform(revoked -> {
+                    logger.error("Revoking writer admission on node {}: {}", config.nodeId(),
+                        "Writer activation did not complete under ownership", cause);
+                    return revokeNow().transform(revoked -> {
                         if (revoked.failed()) cause.addSuppressed(revoked.cause());
                         return Future.<PgWriterGrant>failedFuture(cause);
                     });
@@ -145,7 +152,10 @@ public final class PgFailoverMonitor {
      * not confirmed closed; the caller must stop the writer.
      */
     public Future<Void> revokeWriter(String reason) {
-        return serialized(() -> revokeNow(reason));
+        return serialized(() -> {
+            logger.info("Revoking writer admission on node {}: {}", config.nodeId(), reason);
+            return revokeNow();
+        });
     }
 
     /**
@@ -158,7 +168,12 @@ public final class PgFailoverMonitor {
                 lastHeld = renewal.result();
                 return Future.succeededFuture(renewal.result());
             }
-            return demote(lastHeld, "Lease renewal failed").transform(demotion -> {
+            PgControlRecord held = lastHeld;
+            return serialized(() -> {
+                logger.error("Demoting local PostgreSQL on node {}: {}", config.nodeId(), "Lease renewal failed",
+                    renewal.cause());
+                return demoteNow(held, "Lease renewal failed");
+            }).transform(demotion -> {
                 if (demotion.failed()) renewal.cause().addSuppressed(demotion.cause());
                 return Future.<PgControlRecord>failedFuture(renewal.cause());
             });
@@ -173,11 +188,13 @@ public final class PgFailoverMonitor {
      * @param held the record this node last held, used to identify the action receipt; may be null
      */
     public Future<Void> demote(PgControlRecord held, String reason) {
-        return serialized(() -> demoteNow(held, reason));
+        return serialized(() -> {
+            logger.info("Demoting local PostgreSQL on node {}: {}", config.nodeId(), reason);
+            return demoteNow(held, reason);
+        });
     }
 
-    private Future<Void> revokeNow(String reason) {
-        logger.warn("Revoking writer admission on node {}: {}", config.nodeId(), reason);
+    private Future<Void> revokeNow() {
         List<Throwable> failures = new ArrayList<>();
         return attempt(store.closeGrant(), failures)
             .compose(ignored -> attempt(gate.close(config.stopTimeout()), failures))
@@ -186,7 +203,6 @@ public final class PgFailoverMonitor {
 
     private Future<Void> demoteNow(PgControlRecord held, String reason) {
         elector.retire();
-        logger.warn("Demoting local PostgreSQL on node {}: {}", config.nodeId(), reason);
         List<Throwable> failures = new ArrayList<>();
         String operation = held == null ? null : held.intent().getString("operationId");
         // Every step runs even when an earlier one fails: a storage fault must not leave the writer running.
@@ -237,12 +253,16 @@ public final class PgFailoverMonitor {
 
     private synchronized <T> Future<T> serialized(Operation<T> operation) {
         Future<T> next = tail.transform(previous -> {
+            Future<T> result;
             try {
-                return operation.execute();
+                result = operation.execute();
             } catch (RuntimeException failure) {
-                logger.warn("Local supervision operation rejected on node {}", config.nodeId(), failure);
+                logger.error("Local supervision operation rejected on node {}", config.nodeId(), failure);
                 return Future.failedFuture(failure);
             }
+            // The failure is also returned to the caller. This is the one place that reports every one.
+            return result.onFailure(failure ->
+                logger.error("Local supervision operation failed on node {}", config.nodeId(), failure));
         });
         tail = next;
         return next;
