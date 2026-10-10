@@ -101,6 +101,10 @@ coverage/
 notes.txt
 TODO.txt
 
+### Local credentials ###
+# Holds the Jenkins API token and local helper scripts. Committing it publishes the token.
+/.env/
+
 ### OS Generated Files ###
 Thumbs.db
 ehthumbs.db

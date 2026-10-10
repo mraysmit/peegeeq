@@ -195,7 +195,9 @@ class ConsumerModeGracefulDegradationTest {
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicInteger errorCount = new AtomicInteger(0);
         AtomicBoolean resourceExhaustionSimulated = new AtomicBoolean(false);
-        Checkpoint processed = testContext.checkpoint(10);
+        // One flag per sent message. The test ends only after all 15 are processed, so no send
+        // is still in flight when teardown closes the pool.
+        Checkpoint processed = testContext.checkpoint(15);
 
             consumer.subscribe(message -> {
                 int count = processedCount.incrementAndGet();
@@ -224,11 +226,11 @@ class ConsumerModeGracefulDegradationTest {
             .onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(35, TimeUnit.SECONDS), "Test timed out");
-            assertTrue(processedCount.get() >= 10, "Should process at least 10 messages");
-            assertTrue(errorCount.get() > 0, "Should encounter some resource exhaustion errors");
+            assertEquals(1, errorCount.intValue(), "Exactly one delivery should fail with simulated resource exhaustion");
+            assertEquals(16, processedCount.intValue(), "15 messages plus one redelivery of the failed message");
 
         logger.info("Resource exhaustion handling verified - processed: {}, errors: {}",
-            processedCount.get(), errorCount.get());
+            processedCount.intValue(), errorCount.intValue());
     }
 
     /**
