@@ -811,7 +811,7 @@ runbook has saved output for every scenario.
 | Authentication and Authorization | Proposed; no auth module, JWT middleware, or tenant-management implementation exists | Define threat model and product boundary |
 | TypeScript REST client coverage | Shared client is used by two Management UI pages (`AggregateStreamPage`, `CausationTreePage`). `PeeGeeQClient.test.ts` has nine cases: eight send requests over a real socket to the local `HttpTestServer` fixture, and one drives `streamEvents` through a hand-written `EventSource` replacement. No test runs the client against the PeeGeeQ REST backend | Add integration tests against the real REST backend; decide whether the `EventSource` replacement complies with the no-mocking rule |
 | Failures logged at WARN outside `peegeeq-pg-failover` | Classified on 2026-10-09 at `ea045d7f`. The production sources of 12 modules hold 318 `warn` calls. 196 report a failed, refused, or lost operation that the code does not resolve. 26 report a condition the code resolves. 95 are notices. 1 relays a PostgreSQL warning and is a notice outside a commit and a failure during one. Of the 196, 134 are swallowed, 51 are returned to the caller, and 11 repeat with no bound and no escalation. All 318 have two reads. A text search of `debug`, `info`, and `trace` calls found 44 more failure sites below WARN: 34 swallowed, 10 returned. No level was changed. The unexpected-ERROR gate does not see WARN or lower, so no test declares these failures. The sites are listed in "Failure log level classification" below | Decide per module whether to raise the 196 to ERROR and add `@ExpectedErrorLog` to each test that causes one. A change in `peegeeq-db` needs the tests of every module that depends on it |
-| Queue and stream defects confirmed by probe runs | Found 2026-10-09 at `ea045d7f`. Four defects were confirmed by runs against real PostgreSQL and are recorded as findings 3, 4, 5, and 9 under "Failure log level classification". A native consumer group member filter that throws deletes the message. A handler that always fails blocks an `OFFSET_WATERMARK` partition with no bound, no retry count, and no dead-letter row. A handler that exceeds the visibility timeout is redelivered with no bound, and `max-retries` does not apply. A WebSocket queue stream that is idle for 300 s drops every later message and stays open. Three more were confirmed by runs: a service manager with no Consul logs that it registered and reports `connected` (finding 11); a stopped database produced no ERROR line in 8 s, and the health checks logged the refused connections at DEBUG (finding 15); and seven test log configurations hide production loggers from the unexpected-ERROR gate (finding 17). No production code was changed | Decide the intended behaviour for each, then fix test-first. Finding 3 loses data and comes first |
+| Queue and stream defects confirmed by probe runs | Found 2026-10-09 at `ea045d7f`. Four defects were confirmed by runs against real PostgreSQL and are recorded as findings 3, 4, 5, and 9 under "Failure log level classification". A native consumer group member filter that throws deletes the message. A handler that always fails blocks an `OFFSET_WATERMARK` partition with no bound, no retry count, and no dead-letter row. A handler that exceeds the visibility timeout is redelivered with no bound, and `max-retries` does not apply. A WebSocket queue stream that is idle for 300 s drops every later message and stays open. The same day's runs added: a started consumer group with no member, or with a filter that returns false, also deletes the message (finding 3); the outbox consumer group blocks the same way (finding 4); a hanging handler starves every later message on the topic (finding 5); a stream that is quiet for its first 300 s never delivers (finding 9); an event posted with an unparseable `validTime` is stored with the current time and answered 201 (finding 18). Three more were confirmed by runs: a service manager with no Consul logs that it registered and reports `connected` (finding 11); a stopped database produced its first ERROR line after 10.9 s, from the depth cache and not from the health checks, which logged the refused connections at DEBUG (finding 15); and seven test log configurations hide production loggers from the unexpected-ERROR gate, confirmed in all seven modules (finding 17). Finding 16 did not reproduce under real connection loss. A scan found 17 catch blocks and 2 Future conversions that drop a failure with no log (finding 19). No production code was changed | Decide the intended behaviour for each, then fix test-first. Finding 3 loses messages and finding 18 stores a wrong valid time; they come first |
 
 ### Failure log level classification, 2026-10-09
 
@@ -832,9 +832,12 @@ in the sources with the classified rows found 318 on each side and no site missi
 The audit above covers `warn` calls only. A text search then listed every `debug`, `info`, and
 `trace` call in the same 12 modules whose message names a failure (fail, error, exception, could
 not, unable, cannot, rejected, refused, timed out, lost). It found 103 calls. Each was read with
-the lines around it. The search matches message text on the line of the call, so a call whose
-message starts on the next line, or uses other words, is not in the 103. A failure path that
-logs nothing is not in it either; finding 10 is one.
+the lines around it. The search matches message text on the line of the call. A second scan
+covered the calls whose message starts on a later line: 8 more calls name a failure. None is a
+new failure site. Three are stop summaries that print a failure counter, one follows a failure
+already logged at ERROR, and four are `OutboxConsumer` lines selected by the exception-type
+test in finding 16. A call that names a failure in other words is in neither scan. Failure
+paths that log nothing were scanned separately; see finding 19.
 
 Of the 103, 44 report a failure. 34 are swallowed and 10 are returned to the caller. The other
 59 are a second line for a failure already logged at WARN or ERROR on the same path (16), a
@@ -1003,9 +1006,9 @@ category rule.
 - `examples/springbootretry/service/TransactionProcessorService.java`: 109 P
 
 Findings that a level change does not fix. Each states its evidence: a run, or reading only.
-Findings 3, 4, 5, 9, 11, 13, 15, and 17 were run on 2026-10-09 with temporary probe tests against
-real PostgreSQL and real sockets. The probe sources are in `logs/probes-20261009/` and the run
-logs are in `logs/`; neither is in the repository. No probe remains in a module.
+Findings 3, 4, 5, 9, 11, 12, 13, 15, 16, 17, and 18 were run on 2026-10-09 with temporary probe
+tests against real PostgreSQL and real sockets. The probe sources are in `logs/probes-20261009/`
+and the run logs are in `logs/`; neither is in the repository. No probe remains in a module.
 
 1. `rest/handlers/ConsumerGroupHandler.java` 147 to 170: a failed subscription is answered 201
    with `subscriptionConfigured` true. Confirmed by the second read.
@@ -1021,8 +1024,14 @@ logs are in `logs/`; neither is in the repository. No probe remains in a module.
    is member 231 to 234 (the catch returns false), group 755 to 762 (no eligible member, a
    succeeded Future), consumer 817 to 822 (`deleteMessage`). The only log line is the WARN at
    232, and the native test configuration does not print it (finding 17): the probe log holds no
-   line from that logger. From reading, the same group branch also deletes a message when every
-   member filter returns false and when no member is active; those two cases were not run.
+   line from that logger. The same group branch deletes a message in two more cases, both run
+   (`logs/probe-native-filter-variants-20261009.log`, 2 tests, 0 failures). With one member
+   whose filter returns false, the row was deleted, the filter ran once, and the handler ran 0
+   times. With a started group whose only member had been removed, the row was deleted with no
+   filter call and no handler call; the group reported active with 0 active members. In both
+   runs the consumer logged `Deleted processed message`, `dead_letter_queue` held 0 rows, and
+   the group counters read processed 0, failed 0, filtered 1. A message sent while a group has
+   no member is therefore lost, with no log line above DEBUG.
 4. `db/consumer/PartitionedConsumerEngine.java` 363 to 374: a handler that always fails blocks
    its partition with no bound. Confirmed by a run
    (`logs/probe-native-partitioned-handler-failure-20261009.log`, 1 test, 0 failures). An
@@ -1036,11 +1045,20 @@ logs are in `logs/`; neither is in the repository. No probe remains in a module.
    fetch failure for a handler failure. The design states the replay and no bound:
    `docs-design/consumer-groups/PEEGEEQ_PARTITIONED_CONSUMPTION_DESIGN.md` 95 to 101 says the
    offset commits only if all handlers succeed and the next cycle replays from the last
-   committed position. A search of the design set found no retry bound, no dead-letter step, and
-   no statement that a permanently failing handler is meant to block the partition; that search
-   was done by a review pass and only the lines cited here were read again. The probe used the
-   native consumer group. The outbox consumer group hands its handler to the same engine and was
-   not run.
+   committed position. That document was read in full on 2026-10-09 and the other eight current
+   documents that name the mode were searched for retry, dead-letter, poison, and block. None
+   states a retry bound, a dead-letter step, or that a permanently failing handler is meant to
+   block the partition. The design record lists "retry and dead-letter automation for fan-out
+   processing" as complete (line 36); that is `ConsumerGroupRetryService`, which does not act
+   in this mode. The only operational control the documents name is an alert on pending-offset
+   age (design 130 to 131, `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md` 332 to 333).
+   The outbox consumer group gives the same result
+   (`logs/probe-outbox-partitioned-handler-failure-20261009.log`, 1 test, 0 failures): 9 calls
+   on the first message in 8.2 s, the second message never delivered, `committed_offset` 0,
+   `retry_count` 0, no dead-letter row. That run read 2 `outbox_consumer_groups` rows for the
+   topic; the native run read 0. Their status was not read. In the outbox run
+   `OutboxConsumerGroupMember` logged ERROR `Failed to process message` 9 times and the test
+   passed, because that logger is detached (finding 17).
 5. `pgqueue/PgNativeQueueConsumer.java` 813 to 815 and 859 to 900: a handler that exceeds the
    visibility timeout is redelivered with no bound. Confirmed by a run
    (`logs/probe-native-visibility-timeout-20261009.log`, 1 test, 0 failures). Configuration:
@@ -1051,7 +1069,14 @@ logs are in `logs/`; neither is in the repository. No probe remains in a module.
    `max-retries` does not apply on this path: the expired settlement returns at 813 to 815
    before `handleProcessingFailure`, and the release statement at 896 to 900 does not write
    `retry_count`. A handler that hangs on one message repeats its side effects every visibility
-   timeout. Whether other messages on the topic are starved while this repeats was not run.
+   timeout. It also starves the topic. Run
+   (`logs/probe-native-hanging-handler-starvation-20261009.log`, 1 test, 0 failures): with the
+   default single consumer thread, a hanging first message was delivered 12 times in 12.1 s
+   and a second message sent after it was never delivered; its row stayed `AVAILABLE` with
+   `retry_count` 0. `docs/PEEGEEQ_REST_API_REFERENCE.md` 2077 to 2085 states that a message
+   "not acknowledged within visibility timeout (multiple times)" is dead-lettered and that
+   `maxRetries` failures move a message to the dead letter queue. The runs contradict that
+   statement for a visibility timeout.
 6. `PeeGeeQManagerCloseLogLevelTest` and `PgBiTemporalEventStoreCloseLogLevelTest` say in
    Javadoc that close failures log at ERROR. Production logs them at WARN
    (`PeeGeeQManager.java` 466, 475, 485, 492, 503; `PgBiTemporalEventStore.java` 1694, 1702,
@@ -1076,9 +1101,14 @@ logs are in `logs/`; neither is in the repository. No probe remains in a module.
    read `Messages received: 3, sent: 1`. The client gets no close frame and no error frame, so
    it cannot detect the state; reconnecting is the only recovery. The limit is a literal at line
    87 with no configuration key. `lastActivityTime` is set in the constructor (57) and after a
-   data send (107) and nowhere else, so from reading, a stream on a queue that is quiet for its
-   first 300 seconds drops its first message; that case was not run. An earlier run of the probe
-   stopped on a defect in the probe after it had observed the same drop
+   data send (107) and nowhere else. A stream on a queue that is quiet for its first 300 seconds
+   therefore never delivers anything. Run
+   (`logs/probe-rest-websocket-quiet-first-20261009.log`, 1 test, 0 failures, 340.5 s): no
+   message was sent for 305 s after the stream reported `subscribed`; the first message and a
+   second one 20 s later were both dropped; the server logged WARN `inactive for 306031 ms` and
+   `326031 ms`; the socket stayed open and answered a `ping`; the server statistics at close
+   read `Messages received: 2, sent: 0`. An earlier run of the first probe stopped on a defect
+   in the probe after it had observed the same drop
    (`logs/probe-rest-websocket-idle-drop-run1-crashed-20261009.log`).
 10. `db/connection/PgConnectionManager.java` 334 to 352: a commit whose outcome is unknown is
     not logged. A server warning during the commit, or a failed commit call, fails the Future
@@ -1099,8 +1129,18 @@ logs are in `logs/`; neither is in the repository. No probe remains in a module.
 12. `rest/handlers/ManagementApiHandler.java` 1210 to 1217 and 1282 to 1289: the branch answers
     404 `Setup or queue not found` at WARN for every failure that is not a `ResponseException`.
     `getSetupResult` fails only with `SetupNotFoundException`
-    (`PeeGeeQDatabaseSetupService.java` 1160 to 1167). Any other exception raised in the chain
-    would get the same 404. From reading; no other exception was produced in a run.
+    (`PeeGeeQDatabaseSetupService.java` 1160 to 1167). Run
+    (`logs/probe-rest-management-queue-404-20261009.log`, 1 test, 0 failures): `PUT` and
+    `DELETE` for an unknown setup answered 404 `Setup or queue not found: Setup not found` and
+    logged the WARN; for an unknown queue in a known setup they answered 404 `Queue not found`
+    with no WARN; for an existing queue they answered 200; a second `DELETE` answered 404. The
+    rest of each chain was read line by line: the queue factory map is the map built at setup
+    time, and no other statement in either chain fails in a way that reaches the branch. The
+    branch is broader than its one cause, and no run produced a second cause. Two facts from the
+    same run and read: `PUT` with an empty body answered `configuration updated successfully`,
+    and the handler applies nothing (1194 to 1202); `deleteQueue` discards the Future of
+    `queueFactory.close()` at 1259, so a failed close is never seen. The branch had no test:
+    the whole-repository run log of 2026-10-09 holds no line from it.
 13. vertx-junit5 5.0.4 `VertxExtension.joinActiveTestContexts` (lines 171 to 173) returns at
     once when the test has already failed. An asynchronous `@AfterEach` is then not awaited and
     Vert.x is closed under it. Confirmed by the source and by a probe run
@@ -1125,25 +1165,50 @@ logs are in `logs/`; neither is in the repository. No probe remains in a module.
     were WARN: `Pool acquisition canary failed` twice, `Circuit breaker 'database' failure rate
     exceeded` once, and `Queue depth cache refresh failed (first failure)` once. No logger wrote
     an ERROR line during the outage, and the unexpected-ERROR gate passed the test.
-    `manager.isHealthy()` returned false. A longer outage was not run, so the lines that
-    escalate after repeated failures were not observed.
+    `manager.isHealthy()` returned false. A 60-second outage was then run
+    (`logs/probe-health-check-long-outage-20261009.log`, 1 test, 1 failure raised by the
+    unexpected-ERROR gate). The first ERROR came 10.9 s after the stop:
+    `Queue depth cache refresh is still failing (3 consecutive failures, 3 total failures)`
+    from `PeeGeeQManager`. It repeated at 6, 9, and 12 failures. That was the only ERROR text in
+    60 s. `HealthCheckManager` logged no ERROR: each of the four database checks logged WARN
+    `Circuit breaker open` 56 times, and the `Connection refused` DEBUG lines stopped once the
+    breaker opened. `Pool acquisition canary failed` was logged at WARN 12 times.
 16. `outbox/OutboxConsumer.java` 443 to 456 and 561 to 572: `isShutdownRelatedError` returns
     true when the cause chain holds `RejectedExecutionException` or `ClosedChannelException`,
     with the consumer still open. The catch block at 448 to 452 then logs DEBUG
     `Expected error during shutdown` and sets `closed` to true. `processAvailableMessages`
-    returns at 307 to 309 without reading when `closed` is true. From reading: one such
-    exception thrown synchronously in the claim path stops the consumer for good, and the only
-    line logged is DEBUG. No run produced this path, and whether production code can throw one
-    of the two types there was not established.
+    returns at 307 to 309 without reading when `closed` is true. From reading, one such
+    exception thrown synchronously in the claim path would stop the consumer for good with only
+    a DEBUG line. A run did not reach that path
+    (`logs/probe-outbox-connection-loss-20261009.log`, 1 test, 0 failures). 70 backends were
+    terminated in 100 rounds under a subscribed consumer. A query on the same pool failed 50
+    times with `io.vertx.sqlclient.ClosedConnectionException`, which is neither of the two
+    types. Of 19 polls during the loss, 18 read normally and 1 failed; the consumer logged that
+    one at ERROR twice (`Error querying messages` and `Reactive message processing failed`),
+    logged no `Expected error during shutdown` line, and delivered a message sent afterwards.
+    The statements inside the `try` block were read: the pool lookup returns a failed Future
+    for every exception (`PgConnectionProvider.java` 65 to 89, `OutboxConsumer.java` 1117 to
+    1137), and a throw inside a `compose` step becomes a failed Future. No statement in the
+    block was found that can throw either type synchronously. The path is latent. The same
+    test of exception type also selects DEBUG at 292, 437, 914, 956, 1018, and 1035, and
+    selects WARN in place of ERROR at 824.
+    The run passed although `OutboxConsumer` logged two ERROR lines, because that logger is
+    detached in the module's test configuration (finding 17).
 17. Seven test log configurations detach or switch off production loggers. The unexpected-ERROR
     gate attaches its capture appender to the root logger only
     (`UnexpectedErrorLogCaptureCoordinator.java` 99 to 104). A logger with `additivity="false"`
     does not pass events to the root logger, and a logger at `OFF` creates none. An ERROR from
-    these classes cannot fail a test, and their WARN lines are not printed. Confirmed for
-    `peegeeq-native` by a run (`logs/probe-detached-logger-gate-20261009.log`, 3 tests, 1 failure
-    by design): an undeclared ERROR on `PgNativeQueueConsumer`, which is attached, failed its
-    test with `Unexpected ERROR`; an undeclared ERROR on `PgNativeConsumerGroupMember` and one
-    on `PgNotificationStream` both passed.
+    these classes cannot fail a test, and their WARN lines are not printed. Confirmed by a run in
+    every one of the seven modules. Each run logged one undeclared ERROR per configured logger
+    and one on an attached control logger. In every module the control failed its test with
+    `Unexpected ERROR` and every configured logger passed unseen:
+    `peegeeq-native` 3 tests, 1 failure (`logs/probe-detached-logger-gate-20261009.log`);
+    `peegeeq-outbox` 3 tests, 1 failure; `peegeeq-rest` 3 tests, 1 failure; `peegeeq-db` 2
+    tests, 1 failure; `peegeeq-bitemporal` 5 tests, 1 failure; `peegeeq-service-manager` 5
+    tests, 1 failure; `peegeeq-examples` 2 tests, 1 failure (`logs/probe-gate-<module>-20261009.log`).
+    Three other probe runs showed the effect on real paths: 9 ERROR lines from
+    `OutboxConsumerGroupMember` (finding 4), 2 from `OutboxConsumer` (finding 16), and 1 from
+    `EventStoreHandler` (finding 18) each left their test passing.
     - `peegeeq-native/src/test/resources/logback-test.xml`: `PgNotificationStream` is `OFF`
       (45); `PgNativeConsumerGroupMember` (67) and `PgNativeConsumer` (70) are detached. The
       member WARN lines 232 and 290 are therefore absent from every native test log.
@@ -1152,7 +1217,49 @@ logs are in `logs/`; neither is in the repository. No probe remains in a module.
     - `peegeeq-db`: `PgQueueFactoryProvider` is `OFF` (86).
     - `peegeeq-bitemporal` (60, 63, 66, 69), `peegeeq-service-manager` (25, 28, 31, 34), and
       `peegeeq-examples` (26) detach outbox and native consumer loggers.
-    The six configurations outside `peegeeq-native` were read and not run.
+18. `rest/dto/EventRequest.java` 54 to 65 and `rest/handlers/EventStoreHandler.java:123`: an
+    event posted with a `validTime` that is not a timestamp is stored with the current time as
+    its valid time. This is silent replacement of business data in an append-only store. Run
+    (`logs/probe-rest-event-valid-time-20261009.log`, 1 test, 0 failures). A request with
+    `"validTime":"2020-01-01T00:00:00Z"` answered 201 and read back with that valid time. A
+    request with `"validTime":"not-a-time"` also answered 201 `stored successfully`; it read
+    back with a valid time equal to its transaction time, 2026-10-09T14:22:46.539431Z. No line
+    was logged and the response carries no valid time, so the client cannot tell. The same text
+    in `validFrom` answered 400 `Invalid request format` and stored nothing. The cause is a
+    catch block that returns null for any parse failure, followed by a null check that falls
+    back to `Instant.now()`. The correction request at `EventStoreHandler.java` 1070 to 1071
+    has the same fallback; it was not run. `validTo` is accepted in the request and
+    `storeEvent` never reads it.
+19. Failure paths that log nothing. A scan of the production sources of 15 modules on
+    2026-10-09 (all except `peegeeq-pg-failover`) listed 29 catch blocks with no log call, no
+    throw, and no hand-off of the failure, and 31 `transform` lambdas that return success with
+    no log call inside. Each was read. 12 of the 29 catch blocks log through a helper, pass the
+    failure on, or handle an interrupt. The other 17 drop the failure:
+    - six empty catch blocks: `api/logging/VertxSpanIdConverter.java:60`,
+      `api/logging/VertxTraceIdConverter.java:49`, `rest/handlers/ManagementApiHandler.java`
+      1073 and 2189 (around `browser.close()`), and `rest/handlers/SystemMonitoringHandler.java`
+      200 and 216;
+    - five that put a value in place of the failure: `rest/dto/EventRequest.java:60`
+      (finding 18), `db/provider/PgConnectionProvider.java:122` (`hasClient` returns false for
+      any exception), `rest/handlers/QueueHandler.java:571`,
+      `bitemporal/ReactiveNotificationHandler.java:292`, and
+      `test/metrics/PerformanceSnapshot.java:227`;
+    - six that replace an invalid numeric request parameter with the default and answer no
+      400: `rest/handlers/DeadLetterHandler.java:333`, `rest/handlers/EventStoreHandler.java`
+      354 and 358, `rest/handlers/ServerSentEventsHandler.java:393`, and
+      `rest/handlers/SystemMonitoringHandler.java` 1121 and 1131.
+    Of the 31 `transform` lambdas, 15 follow an `onFailure` that logs; these are WARN sites in
+    the list above. Four log through a helper or pass the failure on. Two follow logging
+    handlers in `db/health/HealthCheckManager.java` (314, 324). Two return success for a
+    failure with no log anywhere: `rest/handlers/ManagementApiHandler.java:1933` (a failed
+    subscription listing becomes an empty list) and `rest/handlers/SubscriptionHandler.java:153`
+    (a failed read after a subscribe becomes null and the response reports success). Eight in
+    `db/health/HealthCheckManager.java` (535, 555, 568, 596, 616, 640, 660, 689) turn a failed
+    check into an unhealthy status that keeps only the exception message; finding 15 shows how
+    that text then selects the level. The six `onComplete` handlers in production sources were
+    read and each logs or passes the failure on. The scan matches `catch`, `transform`, and
+    `onComplete` only. A Future that is created and never observed is not in it;
+    `queueFactory.close()` at `ManagementApiHandler.java:1259` is one that was seen.
 
 The per-row tables, with the trigger and the evidence line for all 318 calls, were produced in
 the review session and are not in the repository.

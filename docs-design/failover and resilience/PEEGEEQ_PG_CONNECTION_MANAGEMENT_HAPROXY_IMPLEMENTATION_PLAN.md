@@ -1295,9 +1295,11 @@ Known gaps after 2026-10-09:
   body.
 - The other modules hold 318 `warn` calls in production sources. They were classified on
   2026-10-09 with two reads each, and none was changed. A text search found 44 more failure
-  sites that log below WARN. Probe runs on the same day confirmed four queue and stream defects
-  outside this module; one of them deletes a message. Seven test log configurations in other
-  modules detach or switch off production loggers, which hides their ERROR events from the
-  unexpected-ERROR gate; a run confirmed it for `peegeeq-native`. The results are in the task
-  register under "Failure log level classification".
+  sites that log below WARN, and a further scan found 17 catch blocks and 2 Future conversions
+  that drop a failure with no log. Probe runs on the same day confirmed queue, stream, and
+  event-store defects outside this module; one deletes a message and one stores an event with
+  the wrong valid time. Seven test log configurations in other modules detach or switch off
+  production loggers, which hides their ERROR events from the unexpected-ERROR gate; a run
+  confirmed it in each of the seven modules. The results are in the task register under
+  "Failure log level classification".
 

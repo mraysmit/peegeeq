@@ -193,7 +193,9 @@ class ConsumerModeFailureTest {
 
         AtomicInteger consumer1Count = new AtomicInteger(0);
         AtomicInteger consumer2Count = new AtomicInteger(0);
-        Checkpoint messagesProcessed = testContext.checkpoint(2);
+        // One flag per sent message. The test ends only after all three are processed, so no
+        // send is still in flight when teardown closes the pool.
+        Checkpoint messagesProcessed = testContext.checkpoint(3);
 
             Future.all(
                 consumer1.subscribe(message -> {
@@ -217,11 +219,11 @@ class ConsumerModeFailureTest {
             // Wait for message processing
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process messages despite channel name collision");
 
-            int totalProcessed = consumer1Count.get() + consumer2Count.get();
-            assertTrue(totalProcessed >= 2, "Should process at least 2 messages across consumers");
+            int totalProcessed = consumer1Count.intValue() + consumer2Count.intValue();
+            assertEquals(3, totalProcessed, "Each of the 3 messages should be processed once across both consumers");
 
         logger.info("Channel collision handling verified - consumer1: {}, consumer2: {}, total: {}",
-            consumer1Count.get(), consumer2Count.get(), totalProcessed);
+            consumer1Count.intValue(), consumer2Count.intValue(), totalProcessed);
 
         logger.info("Channel name collision handling test completed successfully");
     }
