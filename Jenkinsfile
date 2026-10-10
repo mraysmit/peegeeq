@@ -89,6 +89,10 @@ pipeline {
                     free -h
                     swapon --show
                 '''
+                script {
+                    // The UI stage's container needs this group to use the mounted Docker socket.
+                    env.DOCKER_SOCKET_GID = sh(returnStdout: true, script: 'stat -c %g /var/run/docker.sock').trim()
+                }
             }
         }
 
@@ -110,9 +114,10 @@ pipeline {
                           "$frontend/target/ui-reports/playwright.xml"
                     done
 
+                    # The browser suites of both UI modules run on Firefox.
                     peegeeq-management-ui/node/node \
                       peegeeq-management-ui/node_modules/@playwright/test/cli.js \
-                      install chromium
+                      install firefox
                 '''
             }
         }
@@ -291,35 +296,57 @@ pipeline {
             when {
                 expression { params.TEST_SUITE == 'all' }
             }
-            steps {
-                // A browser cancels a page load when the network interfaces of the host change.
-                // A stage of another job that creates or removes Docker networks changes them, so
-                // every such stage on this node holds this lock and waits while this stage runs.
-                // The step needs the Lockable Resources plugin.
-                lock('host-network-interfaces') {
-                    sh '''
-                        set -eu
-                        selection="$(peegeeq-management-ui/node/node \
-                          scripts/ci/regression-stages.mjs ui "$ALL_TESTS_START_MODULE")"
-                        case "$selection" in
-                            skip)
-                                echo "No UI module is at or after $ALL_TESTS_START_MODULE. This stage runs no test."
-                                exit 0
-                                ;;
-                            -Pall-tests*)
-                                echo "Maven arguments of the UI stage: $selection"
-                                ;;
-                            *)
-                                echo "Unexpected stage selection: $selection" >&2
-                                exit 1
-                                ;;
-                        esac
-
-                        bash -o pipefail -c \
-                          "xvfb-run -a mvn --no-transfer-progress clean test $selection \
-                          2>&1 | tee logs/all-tests-ui.log"
-                    '''
+            // The browser tests run in the Playwright image, as the Playwright CI guide describes.
+            // A browser on the host cancels its page loads when another job creates or removes a
+            // Docker network, because that changes the network interfaces of the host. A container
+            // has its own interfaces. The image tag must equal the @playwright/test version.
+            // The stage also runs Maven and starts a PostgreSQL container, so the JDK, Maven, the
+            // local Maven repository, and the Docker socket of the host are mounted.
+            agent {
+                docker {
+                    image 'mcr.microsoft.com/playwright:v1.60.0-noble'
+                    reuseNode true
+                    args "--ipc=host --init " +
+                         "-e HOME=/var/lib/jenkins -e npm_config_cache=/tmp/npm-cache " +
+                         // HOME holds only the Maven repository and is not writable in the
+                         // container. The browser needs writable profile directories to start.
+                         "-e XDG_CONFIG_HOME=/tmp/xdg-config -e XDG_CACHE_HOME=/tmp/xdg-cache " +
+                         "-v /var/lib/jenkins/.m2:/var/lib/jenkins/.m2 " +
+                         "-v /usr/lib/jvm/temurin-25-jdk-amd64:/usr/lib/jvm/temurin-25-jdk-amd64:ro " +
+                         "-v /opt/maven:/opt/maven:ro " +
+                         "-v /var/run/docker.sock:/var/run/docker.sock " +
+                         "--group-add ${env.DOCKER_SOCKET_GID}"
                 }
+            }
+            steps {
+                sh '''
+                    set -eu
+                    # The Docker Pipeline plugin does not pass the PATH of the environment block
+                    # into the container.
+                    export PATH="$JAVA_HOME/bin:$MAVEN_HOME/bin:$PATH"
+                    java -version
+                    mvn -version
+
+                    selection="$(peegeeq-management-ui/node/node \
+                      scripts/ci/regression-stages.mjs ui "$ALL_TESTS_START_MODULE")"
+                    case "$selection" in
+                        skip)
+                            echo "No UI module is at or after $ALL_TESTS_START_MODULE. This stage runs no test."
+                            exit 0
+                            ;;
+                        -Pall-tests*)
+                            echo "Maven arguments of the UI stage: $selection"
+                            ;;
+                        *)
+                            echo "Unexpected stage selection: $selection" >&2
+                            exit 1
+                            ;;
+                    esac
+
+                    bash -o pipefail -c \
+                      "xvfb-run -a mvn --no-transfer-progress clean test $selection \
+                      2>&1 | tee logs/all-tests-ui.log"
+                '''
             }
         }
     }

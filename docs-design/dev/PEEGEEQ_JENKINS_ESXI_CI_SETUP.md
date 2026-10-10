@@ -674,8 +674,16 @@ done
 
 peegeeq-management-ui/node/node \
   peegeeq-management-ui/node_modules/@playwright/test/cli.js \
-  install chromium
+  install firefox
 ```
+
+The browser suites of both UI modules run on Firefox with its preference
+`network.notify.changed` switched off in `playwright.config.ts`. A browser on Linux is told
+when an address appears on any network interface of the host, and every new Docker network or
+container causes that. Chromium then cancels the requests in flight and has no setting to
+prevent it. Firefox closes connections on the same event unless that preference is off. The
+operating-system packages that Firefox needs are part of the one-time administrative
+installation; `playwright install-deps firefox` lists and installs them as root.
 
 These commands are non-root and run inside Jenkins after Maven has provisioned the pinned
 frontend runtime and dependencies. Do not replace them with a system `npm` or `npx`
