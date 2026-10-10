@@ -292,28 +292,34 @@ pipeline {
                 expression { params.TEST_SUITE == 'all' }
             }
             steps {
-                sh '''
-                    set -eu
-                    selection="$(peegeeq-management-ui/node/node \
-                      scripts/ci/regression-stages.mjs ui "$ALL_TESTS_START_MODULE")"
-                    case "$selection" in
-                        skip)
-                            echo "No UI module is at or after $ALL_TESTS_START_MODULE. This stage runs no test."
-                            exit 0
-                            ;;
-                        -Pall-tests*)
-                            echo "Maven arguments of the UI stage: $selection"
-                            ;;
-                        *)
-                            echo "Unexpected stage selection: $selection" >&2
-                            exit 1
-                            ;;
-                    esac
+                // A browser cancels a page load when the network interfaces of the host change.
+                // A stage of another job that creates or removes Docker networks changes them, so
+                // every such stage on this node holds this lock and waits while this stage runs.
+                // The step needs the Lockable Resources plugin.
+                lock('host-network-interfaces') {
+                    sh '''
+                        set -eu
+                        selection="$(peegeeq-management-ui/node/node \
+                          scripts/ci/regression-stages.mjs ui "$ALL_TESTS_START_MODULE")"
+                        case "$selection" in
+                            skip)
+                                echo "No UI module is at or after $ALL_TESTS_START_MODULE. This stage runs no test."
+                                exit 0
+                                ;;
+                            -Pall-tests*)
+                                echo "Maven arguments of the UI stage: $selection"
+                                ;;
+                            *)
+                                echo "Unexpected stage selection: $selection" >&2
+                                exit 1
+                                ;;
+                        esac
 
-                    bash -o pipefail -c \
-                      "xvfb-run -a mvn --no-transfer-progress clean test $selection \
-                      2>&1 | tee logs/all-tests-ui.log"
-                '''
+                        bash -o pipefail -c \
+                          "xvfb-run -a mvn --no-transfer-progress clean test $selection \
+                          2>&1 | tee logs/all-tests-ui.log"
+                    '''
+                }
             }
         }
     }

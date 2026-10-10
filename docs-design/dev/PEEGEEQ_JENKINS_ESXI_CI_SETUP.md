@@ -755,7 +755,8 @@ Start with a minimal plugin set:
 - Git;
 - Credentials Binding;
 - JUnit;
-- Pipeline Graph View; and
+- Pipeline Graph View;
+- Lockable Resources, which provides the `lock` step that the `all` suite uses; and
 - the branch-source plugin for the Git hosting system in use.
 
 Add notification plugins only when there is a defined recipient and escalation policy.
@@ -866,6 +867,14 @@ stage of their own so that a lock can cover them without covering the Java tests
 `pom.xml` and from the UI module list in `scripts/ci/check-ui-reports.mjs`. Its contracts are
 in `scripts/ci/regression-stages.test.mjs`. The Maven logs are `logs/all-tests-java.log` and
 `logs/all-tests-ui.log`.
+
+The UI stage holds the lock `host-network-interfaces` while it runs. A browser cancels a page
+load when the network interfaces of the host change, and a stage of another job that creates
+or removes Docker networks changes them. Every such stage on the same node must hold the same
+lock. The `Docker cluster tests` stage of the `Qraft` job does. A build waits at its stage
+until the other build releases the lock, and the wait counts against the build timeout. The
+`lock` step comes from the Lockable Resources plugin, so the server must have that plugin.
+The lock does not cover a job that changes Docker networks without holding it.
 
 `ALL_TESTS_START_MODULE` applies only when `TEST_SUITE=all`. Its values are `beginning`
 plus each reactor module in build order, from `peegeeq-test-support` through
