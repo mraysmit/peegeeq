@@ -856,15 +856,25 @@ an arbitrary shell command:
 | `smoke` | `mvn test -Psmoke-tests` | Explicit ultra-fast end-to-end checks |
 | `integration` | `mvn test -Pintegration-tests` | Explicit Testcontainers integration selection |
 | `untagged` | `mvn test -Puntagged-tests` | Audit for tests missing a supported tag |
-| `all` | `xvfb-run -a mvn clean test -Pall-tests` | Explicit approximately 90-minute regression gate |
+| `all` | `mvn clean test -Pall-tests` for the Java modules, then `xvfb-run -a mvn clean test -Pall-tests` for the two UI modules | Explicit approximately 90-minute regression gate |
+
+The `all` suite runs in two stages. `Full regression: Java modules` runs every reactor
+module except the two UI modules. `Full regression: UI modules` then runs
+`peegeeq-management-ui` and `peegeeq-utilities-ui` under `xvfb-run`. The browser tests are a
+stage of their own so that a lock can cover them without covering the Java tests.
+`scripts/ci/regression-stages.mjs` derives the Maven arguments of each stage from the root
+`pom.xml` and from the UI module list in `scripts/ci/check-ui-reports.mjs`. Its contracts are
+in `scripts/ci/regression-stages.test.mjs`. The Maven logs are `logs/all-tests-java.log` and
+`logs/all-tests-ui.log`.
 
 `ALL_TESTS_START_MODULE` applies only when `TEST_SUITE=all`. Its values are `beginning`
 plus each reactor module in build order, from `peegeeq-test-support` through
 `peegeeq-utilities-ui`. `beginning` runs the entire full regression and is mandatory for
-final release acceptance. Selecting a module adds Maven `-rf :<module>` so diagnosis can
-continue at the last failed module. A resumed run proves only the selected module and the
-reactor tail; it is never a whole-repository result. After the tail is green, rerun `all`
-from `beginning` for the release gate.
+final release acceptance. Selecting a Java module adds Maven `-rf :<module>` to the Java
+stage so diagnosis can continue at the last failed module. Selecting a UI module leaves the
+Java stage with no module and starts the UI stage at that module. A resumed run proves only
+the selected module and the reactor tail; it is never a whole-repository result. After the
+tail is green, rerun `all` from `beginning` for the release gate.
 
 Every selection first runs `mvn clean install -DskipTests`, which compiles tests and
 installs the complete reactor before verification. This complete rebuild also prepares

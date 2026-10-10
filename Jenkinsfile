@@ -255,26 +255,65 @@ pipeline {
             }
         }
 
-        stage('Full regression') {
+        // The full regression runs in two stages so that the browser tests are a stage of their
+        // own. scripts/ci/regression-stages.mjs derives each stage's modules from the root pom.xml.
+        stage('Full regression: Java modules') {
             when {
                 expression { params.TEST_SUITE == 'all' }
             }
             steps {
-                script {
-                    def startModule = params.ALL_TESTS_START_MODULE ?: 'beginning'
-                    def resumeOption = startModule == 'beginning' ? '' : "-rf :${startModule}"
-                    def startMessage = startModule == 'beginning'
-                        ? 'Running the full regression from the beginning.'
-                        : "Resuming the full regression at Maven module ${startModule}."
+                sh '''
+                    set -eu
+                    selection="$(peegeeq-management-ui/node/node \
+                      scripts/ci/regression-stages.mjs java "$ALL_TESTS_START_MODULE")"
+                    case "$selection" in
+                        skip)
+                            echo "No Java module is at or after $ALL_TESTS_START_MODULE. This stage runs no test."
+                            exit 0
+                            ;;
+                        -Pall-tests*)
+                            echo "Maven arguments of the Java stage: $selection"
+                            ;;
+                        *)
+                            echo "Unexpected stage selection: $selection" >&2
+                            exit 1
+                            ;;
+                    esac
 
-                    echo startMessage
+                    bash -o pipefail -c \
+                      "mvn --no-transfer-progress clean test $selection \
+                      2>&1 | tee logs/all-tests-java.log"
+                '''
+            }
+        }
 
-                    sh """
-                        bash -o pipefail -c \\
-                          'xvfb-run -a mvn --no-transfer-progress clean test -Pall-tests ${resumeOption} \\
-                          2>&1 | tee logs/all-tests.log'
-                    """
-                }
+        stage('Full regression: UI modules') {
+            when {
+                expression { params.TEST_SUITE == 'all' }
+            }
+            steps {
+                sh '''
+                    set -eu
+                    selection="$(peegeeq-management-ui/node/node \
+                      scripts/ci/regression-stages.mjs ui "$ALL_TESTS_START_MODULE")"
+                    case "$selection" in
+                        skip)
+                            echo "No UI module is at or after $ALL_TESTS_START_MODULE. This stage runs no test."
+                            exit 0
+                            ;;
+                        -Pall-tests*)
+                            echo "Maven arguments of the UI stage: $selection"
+                            ;;
+                        *)
+                            echo "Unexpected stage selection: $selection" >&2
+                            exit 1
+                            ;;
+                    esac
+
+                    bash -o pipefail -c \
+                      "xvfb-run -a mvn --no-transfer-progress clean test $selection \
+                      2>&1 | tee logs/all-tests-ui.log"
+                '''
             }
         }
     }
