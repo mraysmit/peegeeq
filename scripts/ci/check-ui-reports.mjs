@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-const frontends = ['peegeeq-management-ui', 'peegeeq-utilities-ui']
+export const frontends = ['peegeeq-management-ui', 'peegeeq-utilities-ui']
 
 export function expectedReports(suite, start, modules) {
   if (!['core', 'smoke', 'integration', 'untagged', 'performance', 'partitioned-release', 'all'].includes(suite)) {
