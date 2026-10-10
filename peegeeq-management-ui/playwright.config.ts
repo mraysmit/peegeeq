@@ -1,7 +1,11 @@
 import { defineConfig, devices } from '@playwright/test'
 
-const chromeMaximized = {
-  ...devices['Desktop Chrome'],
+/* Firefox, because it has a switch that Chromium lacks. A browser on Linux is told when an
+   address appears on any network interface of the host, and every new Docker network or container
+   causes that. Chromium then cancels the requests in flight and has no setting to prevent it.
+   Firefox has one: network.notify.changed, switched off in launchOptions below. */
+const desktopBrowser = {
+  ...devices['Desktop Firefox'],
 }
 
 /**
@@ -49,6 +53,8 @@ export default defineConfig({
     /* Slow down operations for visibility during development */
     launchOptions: {
       slowMo: process.env.SLOW_MO ? parseInt(process.env.SLOW_MO) : 0,
+      /* Keeps Firefox from closing connections when a network interface of the host changes. */
+      firefoxUserPrefs: { 'network.notify.changed': false },
     },
 
     /* Capture a trace for the failing attempt itself (not just a passing retry) so the
@@ -82,351 +88,351 @@ export default defineConfig({
     {
       name: '0-setup-empty-state',
       testMatch: '**/setup-empty-state.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
     },
     // Quick test: WebSocket and SSE connection validation (standalone, no dependencies)
     {
       name: 'websocket-sse-quick',
       testMatch: '**/websocket-sse-connection.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
     },
     // Quick test: Database Setups details-failure row (standalone — all backend
     // traffic is route-intercepted fault injection; no setup dependencies)
     {
       name: 'database-setups-details-failure',
       testMatch: '**/database-setups-details-failure.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
     },
     // Quick test: System Metrics SSE – validates /api/v1/sse/metrics versioned URL (standalone)
     {
       name: 'system-metrics-sse',
       testMatch: '**/system-metrics-sse.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
     },
     // Step 1: Settings - Validates REST API connection to backend (MUST run first)
     {
       name: '1-settings',
       testMatch: '**/settings.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
     },
     // Step 1b: Settings Health Checks - Ping buttons, auto-ping toggles, Disconnect
     {
       name: '1b-settings-health-checks',
       testMatch: '**/settings-health-checks.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['1-settings'],
     },
     // Step 1c: Settings Ping Utilities – individual REST/WS/SSE ping buttons
     {
       name: '1c-settings-ping-utilities',
       testMatch: '**/settings-ping-utilities.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['1-settings'],
     },
     // Step 1d: Settings Auto-Ping – toggle + interval fires background pings
     {
       name: '1d-settings-auto-ping',
       testMatch: '**/settings-auto-ping.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['1-settings'],
     },
     // Step 2: Connection Status - Tests connection status functionality
     {
       name: '2-connection-status',
       testMatch: '**/connection-status.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['1-settings'],
     },
     // Step 3: System Integration - Validates overall system integration
     {
       name: '3-system-integration',
       testMatch: '**/system-integration.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['2-connection-status'],
     },
     // Step 3b: Overview System Status - Tests Overview page system status
     {
       name: '3b-overview-system-status',
       testMatch: '**/overview-system-status.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['3-system-integration'],
     },
     // Step 3c: Setup Prerequisite - Creates default setup for queue/event store tests
     {
       name: '3c-setup-prerequisite',
       testMatch: '**/setup-prerequisite.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['3b-overview-system-status'],
     },
     // Step 4: Database Setup - Creates database setup via REST API
     {
       name: '4-database-setup',
       testMatch: '**/database-setup.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['3c-setup-prerequisite'],
     },
     // Step 4b: Database Setup Form Defaults and Port Range Validation
     {
       name: '4b-database-setup-form',
       testMatch: '**/database-setup-form-defaults.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['3c-setup-prerequisite'],
     },
     // Step 5: Queue Management - Standalone tests (creates own database setup)
     {
       name: '5-queue-management',
       testMatch: '**/queue-management.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       // No dependencies - standalone like event store tests
     },
     // Step 6: Event Store Management - Tests event store CRUD operations (standalone - creates own setup)
     {
       name: '6-event-store-management',
       testMatch: '**/event-store-management.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
     },
     // Step 7: Queue Messaging Workflow - Comprehensive queue and messaging tests (standalone)
     {
       name: '7-queue-messaging-workflow',
       testMatch: '**/queue-messaging-workflow.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       // No dependencies - standalone test that creates queue and sends messages
     },
     // Step 7b: Queue Details Operations - Pause/Resume, Get Messages, Purge, Delete via UI
     {
       name: '7b-queue-details-operations',
       testMatch: '**/queue-details-operations.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['3c-setup-prerequisite'],
     },
     // Step 7c: Queue Details Overview – validates field mapping between backend response and UI
     {
       name: '7c-queue-details-overview',
       testMatch: '**/queue-details-overview.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['3c-setup-prerequisite'],
     },
     // Step 7c2: Queue Details Consumers – Consumers tab renders real subscription data
     {
       name: '7c2-queue-details-consumers',
       testMatch: '**/queue-details-consumers.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['3c-setup-prerequisite'],
     },
     // Step 7c3: Queue Details Live Messages – non-destructive browse-poll live view (Phase 5)
     {
       name: '7c3-queue-details-live-messages',
       testMatch: '**/queue-details-live-messages.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['3c-setup-prerequisite'],
     },
     // Step 7d: Queue Config Create and Display – create-form fields + config card on Overview tab
     {
       name: '7d-queue-config-create-and-display',
       testMatch: '**/queue-config-create-and-display.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['3c-setup-prerequisite'],
     },
     // Step 7e: advanced publish transport/validation and backwards-compatible queue routes
     {
       name: '7e-queue-publish-legacy-remediation',
       testMatch: '**/queue-publish-legacy-remediation.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
     },
     // Step 8: Event Store Workflow - Comprehensive event store workflow with event posting (standalone)
     {
       name: '8-event-store-workflow',
       testMatch: '**/event-store-workflow.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       // No dependencies - standalone test that creates event store and posts events
     },
     // Step 8b: Events Filter - Creates event store, seeds 5 events, validates all filter controls
     {
       name: '8b-events-filter',
       testMatch: '**/events-filter.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['3c-setup-prerequisite'],
     },
     // Step 8b2: Event Detail Modal - Verifies every card in the detail modal (event info, bitemporal, correlation, metadata, event data)
     {
       name: '8b2-event-detail-modal',
       testMatch: '**/event-detail-modal.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['3c-setup-prerequisite'],
     },
     // Step 8c: Events Scope Selector – inline setup selector on Events page
     {
       name: '8c-events-scope-selector',
       testMatch: '**/events-scope-selector.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['3c-setup-prerequisite'],
     },
     // Step 9: Event Visualization - Tests Causation Tree and Aggregate Stream (standalone)
     {
       name: '9-event-visualization',
       testMatch: '**/event-visualization.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
     },
     // Smoke Test: Visualization Tab
     {
       name: 'smoke-visualization-tab',
       testMatch: '**/visualization-tab-smoke.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
     },
     // Event Visualization causation data contract (real backend — seeds an isolated
     // event store + causation chain; requires SETUP_ID from setup-prerequisite)
     {
       name: 'visualization-isolated',
       testMatch: '**/visualization-isolated.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['3c-setup-prerequisite'],
     },
     // Visualization Scope Selector – setup/event-store selectors on Causation Tree and Aggregate Stream
     {
       name: 'visualization-scope-selector',
       testMatch: '**/visualization-scope-selector.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['4-database-setup'],
     },
     // Causation Tree Page - integration tests (requires setup-prerequisite)
     {
       name: 'causation-tree',
       testMatch: '**/causation-tree.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['3c-setup-prerequisite'],
     },
     // Aggregate Stream Page - integration tests (requires setup-prerequisite)
     {
       name: 'aggregate-stream',
       testMatch: '**/aggregate-stream.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['3c-setup-prerequisite'],
     },
     // Step 10: Overview Scope Selector - Tests Setup selector on Overview page
     {
       name: '10-overview-scope-selector',
       testMatch: '**/overview-setup-selector.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['3c-setup-prerequisite'],
     },
     // Step 10a: Scope Selector Persistence – selected setup/queue survives page nav and reload
     {
       name: '10a-scope-selector-persistence',
       testMatch: '**/scope-selector-persistence.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['3c-setup-prerequisite'],
     },
     // Step 10b: Overview Setup Details Modal - Tests the "..." details button and modal
     {
       name: '10b-overview-setup-details-modal',
       testMatch: '**/overview-setup-details-modal.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['3c-setup-prerequisite'],
     },
     // Step 10c: Overview Recent Activity - Recent Activity table rows, status tags, Queue Overview table + "View All"
     {
       name: '10c-overview-recent-activity',
       testMatch: '**/overview-recent-activity.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['3c-setup-prerequisite'],
     },
     // Step 10d: Overview Reconnecting Banner - WS/SSE gold reconnecting tag via route interception
     {
       name: '10d-overview-reconnecting-banner',
       testMatch: '**/overview-reconnecting-banner.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
     },
     // Step 10e: Overview Live Stats Update – SSE metrics event updates stats cards/charts
     {
       name: '10e-overview-live-stats-update',
       testMatch: '**/overview-live-stats-update.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
     },
     // Step 10f: Overview WS reconnect recovery – drop /ws/monitoring then proxy back → tag returns green (Phase 6)
     {
       name: '10f-overview-reconnect-recovery',
       testMatch: '**/overview-reconnect-recovery.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
     },
     // Step 10g: Overview SSE reconnecting banner – aborted SSE → gold "Reconnecting" tag (Phase 6)
     {
       name: '10g-overview-sse-reconnecting-banner',
       testMatch: '**/overview-sse-reconnecting-banner.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
     },
     // Step 10h: Overview live stats values – monitoringSessions (§8.1 / Phase 11) and messagesPerSecond (§8.2) invariants
     {
       name: '10h-overview-stats-values',
       testMatch: '**/overview-stats-values.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
     },
     // Step 10i: Overview connection metrics (Phase 11) – the three split cards + DB-pool chart
     {
       name: '10i-overview-connection-metrics',
       testMatch: '**/overview-connection-metrics.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
     },
     // Step 11: Queues Scope Selector - Tests Setup selector on Queues page
     {
       name: '11-queues-scope-selector',
       testMatch: '**/queues-setup-selector.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['4-database-setup'],
     },
     // Step 11b: Queues Filter and Sort – search box, type/status multi-select, column sort
     {
       name: '11b-queues-filter-sort',
       testMatch: '**/queues-filter-sort.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['3c-setup-prerequisite'],
     },
     // Step 12: Event Stores Scope Selector - Tests Setup selector on Event Stores page
     {
       name: '12-event-stores-scope-selector',
       testMatch: '**/event-stores-setup-selector.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['4-database-setup'],
     },
     // Step 12b: Event Stores Scope Filter – row count updates when scope changes
     {
       name: '12b-event-stores-scope-filter',
       testMatch: '**/event-stores-scope-filter.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['3c-setup-prerequisite'],
     },
     // Step 13: Consumer Groups Scope Selectors - Tests Setup+Queue selectors on Consumer Groups page
     {
       name: '13-consumer-groups-scope-selectors',
       testMatch: '**/consumer-groups-scope-selectors.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['4-database-setup'],
     },
     // Step 13b: Consumer Groups Validation – duplicate name produces error toast
     {
       name: '13b-consumer-groups-validation',
       testMatch: '**/consumer-groups-validation.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['3c-setup-prerequisite'],
     },
     // Step 14: Message Browser Scope Selectors - Tests Setup+Queue selectors on Message Browser page
     {
       name: '14-message-browser-scope-selectors',
       testMatch: '**/message-browser-scope-selectors.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['4-database-setup'],
     },
     // Step 14b: Message Browser - Retrieval, filtering, and SSE Live mode integration tests
     {
       name: '14b-message-browser',
       testMatch: '**/message-browser.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['3c-setup-prerequisite'],
     },
     // Step 14b2: Message Browser Advanced Filters – drawer filter inputs applied to table rows
     {
       name: '14b2-message-browser-advanced-filters',
       testMatch: '**/message-browser-advanced-filters.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['3c-setup-prerequisite'],
     },
     // Step 14c removed 2026-06-18 (Phase 12.0): message-sse-stream.spec tested the consuming
@@ -435,7 +441,7 @@ export default defineConfig({
     {
       name: '14c2-message-browser-nondestructive-live',
       testMatch: '**/message-browser-nondestructive-live.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['3c-setup-prerequisite'],
     },
     // Step 14c3: Message Browser Live mode failure & recovery – terminal SSE disconnect surfaces
@@ -443,40 +449,40 @@ export default defineConfig({
     {
       name: '14c3-message-browser-live-failure',
       testMatch: '**/message-browser-live-failure.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['3c-setup-prerequisite'],
     },
     // Step 14d: Queue Updates SSE – Direct API tests for GET /api/v1/sse/queues/:setupId
     {
       name: '14d-queue-updates-sse',
       testMatch: '**/queue-updates-sse.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['3c-setup-prerequisite'],
     },
     // Error paths: validates that backend error responses surface as UI toasts (standalone, no dependencies)
     {
       name: 'error-paths',
       testMatch: '**/api-error-paths.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
     },
     // Header page title mapping (Phase 4a) – route-derived <h1> title incl. dynamic Queue Details (standalone)
     {
       name: 'header-page-title',
       testMatch: '**/header-page-title.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
     },
     // Step 15: Notifications Page (Phase 7a) – /notifications history, mark-all-read, clear-all
     {
       name: '15-notifications-page',
       testMatch: '**/notification-page.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['3c-setup-prerequisite'],
     },
     // Step 16: Notification bell backend path (Phase 8) – API mutation increments the bell via /ws/monitoring
     {
       name: '16-notification-bell-backend',
       testMatch: '**/notification-bell-backend.spec.ts',
-      use: chromeMaximized,
+      use: desktopBrowser,
       dependencies: ['3c-setup-prerequisite'],
     },
   ],
