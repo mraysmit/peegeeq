@@ -311,6 +311,9 @@ pipeline {
                          // HOME holds only the Maven repository and is not writable in the
                          // container. The browser needs writable profile directories to start.
                          "-e XDG_CONFIG_HOME=/tmp/xdg-config -e XDG_CACHE_HOME=/tmp/xdg-cache " +
+                         // Jenkins runs the container as its own user id, which the image does
+                         // not know. Node fails to read the current user without this entry.
+                         "-v /etc/passwd:/etc/passwd:ro " +
                          "-v /var/lib/jenkins/.m2:/var/lib/jenkins/.m2 " +
                          "-v /usr/lib/jvm/temurin-25-jdk-amd64:/usr/lib/jvm/temurin-25-jdk-amd64:ro " +
                          "-v /opt/maven:/opt/maven:ro " +
