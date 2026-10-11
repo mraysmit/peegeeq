@@ -319,6 +319,52 @@ connection. It was one run.
 
 The test is red in the working tree. See position `P-14` in §5.
 
+### 4.3 Phase 5 repair of the profile D test, 2026-10-11
+
+The red result of §4.2 stands as dated evidence. It was seen again on 2026-10-09 (§9.11) and on
+2026-10-11 in Jenkins build 30 at `f318b68d`: `peegeeq-db` ran 1,124 tests with that 1 failure.
+
+Under `P-14` the last step of `testFailbackAfterPrimaryRecovery` was removed: the wait for the
+pool that served queries during the outage to reach the replacement primary. The test still
+proves, by system identifier, that the pool reaches the secondary after the primary stops and
+that a new connection through HAProxy reaches the replacement primary. No production file and
+no HAProxy configuration was changed.
+
+Why the removed step could not pass: that step polled the pool every 250 ms, so its connection
+was never idle and the idle timeout never applied; `PgPoolConfig` has no maximum lifetime
+(`IMP-15`); the configuration does not shut down backup sessions (`IMP-06`); and both nodes are
+independent and writable, so no query is rejected.
+
+What the repaired test no longer determines: where the pool points after the replacement
+primary starts. The test stops querying the pool once it has reached the secondary. From then
+on the pool's connection is idle, and the configured idle timeout is 30 seconds.
+
+Rebuild: `mvn clean install -DskipTests -pl :peegeeq-db -am`, `BUILD SUCCESS`.
+Log: `logs\rebuild-task8-phase5-repair-20261011.log`. The test's description was corrected
+afterwards in three edits, comment text only, and the slice was rebuilt after each:
+`logs\rebuild-task8-phase5-repair-comment-20261011.log`,
+`logs\rebuild-task8-phase5-repair-comment2-20261011.log`, and
+`logs\rebuild-task8-phase5-repair-comment3-20261011.log`, all `BUILD SUCCESS`. The test class
+was last run by the reviewer after the first comment edit (6 tests, 0 failures) and was not
+rerun after the second or third.
+
+Test: `mvn test -Pintegration-tests -pl :peegeeq-db "-Dtest=HaProxyConnectionFailoverTest"`.
+`Tests run: 6, Failures: 0, Errors: 0, Skipped: 0`.
+Log: `logs\peegeeq-db-haproxy-failover-phase5-repair-20261011.log`. In that run 20.623 seconds
+passed between the last answer from the primary and the first answer from the secondary. That
+interval includes the container stop; the log has no line for the moment the stop completed.
+3.020 seconds passed between that answer from the secondary and the answer from the
+replacement primary on a new connection.
+
+Still owed, and not covered by any test now: after a role change every connection PeeGeeQ
+holds ends on the one primary (design §2 principle 3). It depends on proxy session shutdown
+(`R-3`) and on connection discard and maximum lifetime (`R-5`). That assertion must be made by
+future role-and-authority tests. Removing the step did not make the requirement met.
+
+Phase 5 stays open until a Jenkins build from `beginning` passes `peegeeq-db`.
+
+Not run in this repair: the whole `peegeeq-db` module, and a build from `beginning` on Jenkins.
+
 ---
 
 ## 5. Adopted Design Contracts and Deployment Gates

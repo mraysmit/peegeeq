@@ -15,6 +15,10 @@ confirmed to exist in the repository at the reconciliation commit. Statements ab
 runtime behaviour come from static reading of the source unless a test or Jenkins record
 is cited.
 
+The section [Delivery Outcome Redesign](#delivery-outcome-redesign), added 2026-10-11, is
+the one exception. It is a proposal. It names tables, columns, and types that do not exist
+yet, and it says so where it does.
+
 User guide: [Consumer Groups Guide](../../docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md).
 
 ---
@@ -38,8 +42,20 @@ User guide: [Consumer Groups Guide](../../docs/PEEGEEQ_CONSUMER_GROUP_GETTING_ST
    3. [Scalability Conclusions](#scalability-conclusions)
    4. [Comparison With Other Systems](#comparison-with-other-systems)
 5. [Partitioned Consumption](#partitioned-consumption)
-6. [Release Gates](#release-gates)
-7. [References](#references)
+6. [Delivery Outcome Redesign](#delivery-outcome-redesign) (PROPOSED 2026-10-11)
+   1. [Purpose and End State](#purpose-and-end-state)
+   2. [The Three Contracts](#the-three-contracts)
+   3. [Data Model](#data-model)
+   4. [Delivery Outcome Contract](#delivery-outcome-contract)
+   5. [Queue Decisions](#queue-decisions)
+   6. [Retirement of REFERENCE_COUNTING](#retirement-of-reference_counting)
+   7. [Consolidated Design Review](#consolidated-design-review)
+   8. [Reading Record](#reading-record)
+   9. [Phased Test Plan](#phased-test-plan)
+   10. [Decisions for the Owner](#decisions-for-the-owner)
+   11. [Not Checked](#not-checked)
+7. [Release Gates](#release-gates)
+8. [References](#references)
 
 ---
 

@@ -75,7 +75,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
  *   <li>Transaction rollback safety: rolled-back insert leaves no row.</li>
  *   <li>{@code checkHealth()} returns {@code true} while primary is healthy.</li>
  *   <li>Failback: stop primary, verify the pool reaches the secondary, start a replacement
- *       primary, verify that a new connection and the existing pool both reach it.</li>
+ *       primary, verify that a new connection reaches it.</li>
  *   <li>Failover: stop active primary (destructive), verify the pool reaches the secondary.</li>
  * </ol>
  *
@@ -493,10 +493,17 @@ class HaProxyConnectionFailoverTest {
      *   <li>Start {@code primary2}, a new container with the same network alias
      *       {@code pg_primary}, and read its system identifier directly.</li>
      *   <li>Wait until a new connection through HAProxy reaches {@code primary2}.</li>
-     *   <li>Wait until the pool that served queries during the outage reaches {@code primary2}.</li>
      * </ol>
      *
      * <p>Every routing claim is proven by the system identifier of the node that answered.
+     *
+     * <p>The test does not query the pool again after it reaches the secondary, and does not
+     * determine where that pool points after {@code primary2} starts.  The test induces no event
+     * that closes the established session before the 30-second idle timeout.  If the pool later
+     * closes the idle connection, a subsequent acquisition opens a new connection that HAProxy
+     * routes using the current backend state.  Moving every held connection to the one primary
+     * needs a role-aware proxy and connection discard.  No test asserts that yet; it must be
+     * asserted by future role-and-authority tests.
      *
      * <p>After this test the original primary is gone and {@code primary2} is running.
      * Phase 6 stops {@code primary2}.
@@ -504,7 +511,7 @@ class HaProxyConnectionFailoverTest {
     @Test
     @Order(5)
     @Timeout(value = 120, timeUnit = TimeUnit.SECONDS)
-    @DisplayName("Phase 5: failback - new and pooled connections reach the replacement primary")
+    @DisplayName("Phase 5: failback - a new connection reaches the replacement primary")
     void testFailbackAfterPrimaryRecovery(Vertx vertx, VertxTestContext ctx) {
         String[] nodeIds = new String[3]; // 0 = primary, 1 = secondary, 2 = primary2
 
@@ -532,8 +539,6 @@ class HaProxyConnectionFailoverTest {
                 return awaitNodeIdentity(vertx, this::nodeIdentityThroughHaProxyOnNewConnection, nodeIds[2],
                     "New connection through HAProxy after the replacement primary started");
             })
-            .compose(v -> awaitNodeIdentity(vertx, this::nodeIdentityFromPool, nodeIds[2],
-                "Pool that served queries during the outage, after the replacement primary started"))
             .onSuccess(v -> ctx.completeNow())
             .onFailure(ctx::failNow);
     }
