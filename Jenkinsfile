@@ -113,11 +113,6 @@ pipeline {
                         rm -f "$frontend/target/ui-reports/vitest.xml" \
                           "$frontend/target/ui-reports/playwright.xml"
                     done
-
-                    # The browser suites of both UI modules run on Firefox.
-                    peegeeq-management-ui/node/node \
-                      peegeeq-management-ui/node_modules/@playwright/test/cli.js \
-                      install firefox
                 '''
             }
         }

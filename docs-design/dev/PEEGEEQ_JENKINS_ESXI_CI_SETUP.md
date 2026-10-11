@@ -671,19 +671,11 @@ for frontend in peegeeq-management-ui peegeeq-utilities-ui; do
     test -x "$frontend/node/npm"
     test -x "$frontend/node/npx"
 done
-
-peegeeq-management-ui/node/node \
-  peegeeq-management-ui/node_modules/@playwright/test/cli.js \
-  install firefox
 ```
 
-The browser suites of both UI modules run on Firefox with its preference
-`network.notify.changed` switched off in `playwright.config.ts`. A browser on Linux is told
-when an address appears on any network interface of the host, and every new Docker network or
-container causes that. Chromium then cancels the requests in flight and has no setting to
-prevent it. Firefox closes connections on the same event unless that preference is off. The
-operating-system packages that Firefox needs are part of the one-time administrative
-installation; `playwright install-deps firefox` lists and installs them as root.
+The pipeline installs no browser on the host. The browser suites of both UI modules run on
+Chromium inside the Playwright image, which holds the browsers and their operating-system
+packages; see "Repository Jenkinsfile".
 
 These commands are non-root and run inside Jenkins after Maven has provisioned the pinned
 frontend runtime and dependencies. Do not replace them with a system `npm` or `npx`
@@ -764,7 +756,8 @@ Start with a minimal plugin set:
 - Credentials Binding;
 - JUnit;
 - Pipeline Graph View;
-- Lockable Resources, which provides the `lock` step that the `all` suite uses; and
+- Docker Pipeline, which provides the `agent { docker { ... } }` block that the UI stage of the
+  `all` suite uses; and
 - the branch-source plugin for the Git hosting system in use.
 
 Add notification plugins only when there is a defined recipient and escalation policy.
@@ -876,13 +869,16 @@ stage of their own so that a lock can cover them without covering the Java tests
 in `scripts/ci/regression-stages.test.mjs`. The Maven logs are `logs/all-tests-java.log` and
 `logs/all-tests-ui.log`.
 
-The UI stage holds the lock `host-network-interfaces` while it runs. A browser cancels a page
-load when the network interfaces of the host change, and a stage of another job that creates
-or removes Docker networks changes them. Every such stage on the same node must hold the same
-lock. The `Docker cluster tests` stage of the `Qraft` job does. A build waits at its stage
-until the other build releases the lock, and the wait counts against the build timeout. The
-`lock` step comes from the Lockable Resources plugin, so the server must have that plugin.
-The lock does not cover a job that changes Docker networks without holding it.
+The UI stage runs inside the image `mcr.microsoft.com/playwright`, as the Playwright CI guide
+describes. Chromium cancels its page loads when a network interface of its host changes, and
+any job that creates or removes a Docker network on the node changes them. A container has
+its own interfaces, so the browser does not see those changes. On 2026-10-10 the browser
+tests lost 7 first attempts on the host in two builds beside a `Qraft` build, and none of 665
+in the container beside one. The image tag must equal the `@playwright/test` version of the
+UI modules. The stage also runs Maven and starts a PostgreSQL container, so the container
+mounts the JDK, Maven, the local Maven repository, `/etc/passwd`, and the Docker socket of the
+host. The `agent { docker { ... } }` block comes from the Docker Pipeline plugin, so the
+server must have that plugin.
 
 `ALL_TESTS_START_MODULE` applies only when `TEST_SUITE=all`. Its values are `beginning`
 plus each reactor module in build order, from `peegeeq-test-support` through
