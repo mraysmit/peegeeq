@@ -2,17 +2,13 @@ import { defineConfig, devices } from '@playwright/test'
 
 const SINGLE_VIEWPORT = { width: 1440, height: 900 }
 
-/* Firefox, because it has a switch that Chromium lacks. A browser on Linux is told when an
-   address appears on any network interface of the host, and every new Docker network or container
-   causes that. Chromium then cancels the requests in flight and has no setting to prevent it.
-   Firefox has one: network.notify.changed, switched off in launchOptions below. */
-const desktopBrowser = {
-  ...devices['Desktop Firefox'],
+const desktopChrome = {
+  ...devices['Desktop Chrome'],
   viewport: SINGLE_VIEWPORT,
 }
 
-const desktopBrowserHeaded = {
-  ...desktopBrowser,
+const chromeMaximized = {
+  ...desktopChrome,
   headless: false,
 }
 
@@ -59,8 +55,6 @@ export default defineConfig({
     /* Slow down operations for visibility during development */
     launchOptions: {
       slowMo: process.env.SLOW_MO ? parseInt(process.env.SLOW_MO) : 0,
-      /* Keeps Firefox from closing connections when a network interface of the host changes. */
-      firefoxUserPrefs: { 'network.notify.changed': false },
     },
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
@@ -91,13 +85,13 @@ export default defineConfig({
     {
       name: '1-navigation',
       testMatch: '**/navigation.spec.ts',
-      use: desktopBrowserHeaded,
+      use: chromeMaximized,
     },
     // Step 2: Overview - Tests Overview page heading, status, stats, charts, and queue table
     {
       name: '2-overview',
       testMatch: '**/overview.spec.ts',
-      use: desktopBrowserHeaded,
+      use: chromeMaximized,
       dependencies: ['1-navigation'],
     },
     // Expanded app-shell and Overview contracts. These cases deliberately run
@@ -105,18 +99,18 @@ export default defineConfig({
     {
       name: '2a-shell-overview-contracts',
       testMatch: '**/shell-overview-contracts.spec.ts',
-      use: desktopBrowser,
+      use: desktopChrome,
       dependencies: ['1-navigation'],
     },
     {
       name: '2b-setup-target-contracts',
       testMatch: '**/setup-target-contracts.spec.ts',
-      use: desktopBrowser,
+      use: desktopChrome,
     },
     {
       name: '3a-template-value-list-contracts',
       testMatch: '**/template-value-list-contracts.spec.ts',
-      use: desktopBrowser,
+      use: desktopChrome,
     },
     // Semantic template/value-list lifecycle coverage: real localStorage,
     // browser downloads, imports, collisions, confirmations, and downstream
@@ -125,33 +119,33 @@ export default defineConfig({
     {
       name: '3b-template-value-list-lifecycle',
       testMatch: '**/template-value-list-lifecycle.spec.ts',
-      use: desktopBrowser,
+      use: desktopChrome,
     },
     {
       name: '4a-scenario-schedule-contracts',
       testMatch: '**/scenario-schedule-contracts.spec.ts',
-      use: desktopBrowser,
+      use: desktopChrome,
     },
     {
       name: '5a-generator-core-contracts',
       testMatch: '**/generator-core-contracts.spec.ts',
-      use: desktopBrowser,
+      use: desktopChrome,
     },
     {
       name: '6a-generator-mode-contracts',
       testMatch: '**/generator-mode-contracts.spec.ts',
-      use: desktopBrowser,
+      use: desktopChrome,
     },
     {
       name: '7a-compare-cross-cutting-contracts',
       testMatch: '**/compare-cross-cutting-contracts.spec.ts',
-      use: desktopBrowser,
+      use: desktopChrome,
     },
     // Step 3: Generator - Tests Message Generator, Template Manager, Value Lists, and Tools pages
     {
       name: '3-generator',
       testMatch: '**/generator.spec.ts',
-      use: desktopBrowserHeaded,
+      use: chromeMaximized,
       dependencies: ['1-navigation'],
     },
     // Step 4: Setups - /setups list page, detail page, and connect navigation.
@@ -161,7 +155,7 @@ export default defineConfig({
     {
       name: '5-setups',
       testMatch: '**/setups.spec.ts',
-      use: desktopBrowserHeaded,
+      use: chromeMaximized,
       dependencies: ['3-generator'],
     },
     // Connect-to-existing-setup — independent, real backend (provision → detach → connect via UI).
@@ -169,7 +163,7 @@ export default defineConfig({
     {
       name: 'connect',
       testMatch: '**/connect-setup.spec.ts',
-      use: desktopBrowser,
+      use: desktopChrome,
     },
     // Generator run (B.5/B.6) — full Zone A–E flow with real publishing.
     // Owns its own throwaway setup + queue; depends on 3-generator only for
@@ -177,7 +171,7 @@ export default defineConfig({
     {
       name: '4-generator-run',
       testMatch: '**/generator-run.spec.ts',
-      use: desktopBrowser,
+      use: desktopChrome,
       dependencies: ['3-generator'],
     },
     // Scheduled runs (SCH.7) — schedule via the UI, real firing with real
@@ -186,7 +180,7 @@ export default defineConfig({
     {
       name: '6-generator-schedules',
       testMatch: '**/generator-schedule.spec.ts',
-      use: desktopBrowser,
+      use: desktopChrome,
       dependencies: ['3-generator'],
     },
     // Publish FAILURE (2026-07-23) — a real mid-run backend fault (setup
@@ -195,7 +189,7 @@ export default defineConfig({
     {
       name: '7-generator-failure',
       testMatch: '**/generator-failure.spec.ts',
-      use: desktopBrowser,
+      use: desktopChrome,
       dependencies: ['3-generator'],
     },
     // Target-selection FAILURE (2026-07-23) — real faults on the two GET
@@ -205,7 +199,7 @@ export default defineConfig({
     {
       name: '8-target-failure',
       testMatch: '**/target-failure.spec.ts',
-      use: desktopBrowser,
+      use: desktopChrome,
       dependencies: ['3-generator'],
     },
     // Saved scenarios (G.4) — the full round trip: save from the generator,
@@ -217,7 +211,7 @@ export default defineConfig({
     {
       name: '9-scenarios',
       testMatch: '**/scenarios.spec.ts',
-      use: desktopBrowser,
+      use: desktopChrome,
       dependencies: ['3-generator'],
     },
     // Traffic profile mode (G.3d) — the only automated coverage of the page
@@ -227,7 +221,7 @@ export default defineConfig({
     {
       name: '10-profile',
       testMatch: '**/profile.spec.ts',
-      use: desktopBrowser,
+      use: desktopChrome,
       dependencies: ['3-generator'],
     },
     // Ramp mode (G.1a) — planned steps before the run, a real climbing run with
@@ -236,7 +230,7 @@ export default defineConfig({
     {
       name: '11-ramp',
       testMatch: '**/ramp.spec.ts',
-      use: desktopBrowser,
+      use: desktopChrome,
       dependencies: ['3-generator'],
     },
     // Exerciser mode (G.5) — ordering controls + plan preview, a real run with
@@ -247,7 +241,7 @@ export default defineConfig({
     {
       name: '12-exerciser',
       testMatch: '**/exerciser.spec.ts',
-      use: desktopBrowser,
+      use: desktopChrome,
       dependencies: ['3-generator'],
     },
     // Trace-seed mode (G.6) — correlation controls + scheme summary, a real
@@ -258,7 +252,7 @@ export default defineConfig({
     {
       name: '13-trace',
       testMatch: '**/trace.spec.ts',
-      use: desktopBrowser,
+      use: desktopChrome,
       dependencies: ['3-generator'],
     },
     // Compare mode (G.2) — the only automated coverage of the page driving TWO
@@ -269,7 +263,7 @@ export default defineConfig({
     {
       name: '14-compare',
       testMatch: '**/compare.spec.ts',
-      use: desktopBrowser,
+      use: desktopChrome,
       dependencies: ['3-generator'],
     },
     // Remediation for previously unit-only or screenshot-only operations:
@@ -281,7 +275,7 @@ export default defineConfig({
         '**/scheduled-runs-operations.spec.ts',
         '**/generator-output-degraded.spec.ts',
       ],
-      use: desktopBrowser,
+      use: desktopChrome,
     },
   ],
 
