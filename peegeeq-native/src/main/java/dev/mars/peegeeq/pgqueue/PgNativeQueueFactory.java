@@ -277,6 +277,11 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
     }
 
     @Override
+    public dev.mars.peegeeq.api.subscription.SubscriptionStore getSubscriptionStore() {
+        return dev.mars.peegeeq.api.subscription.SubscriptionStore.NATIVE;
+    }
+
+    @Override
     public Future<Boolean> isHealthy() {
         if (closed) {
             return Future.succeededFuture(false);

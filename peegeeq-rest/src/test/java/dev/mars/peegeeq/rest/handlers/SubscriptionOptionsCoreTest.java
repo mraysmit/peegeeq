@@ -165,7 +165,10 @@ public class SubscriptionOptionsCoreTest {
                 assertEquals(200, response.statusCode(), response.bodyAsString());
                 JsonObject options = response.bodyAsJsonObject().getJsonObject("subscriptionOptions");
                 assertNotNull(options, "response must carry subscriptionOptions");
-                assertEquals("FROM_NOW", options.getString("startPosition"));
+                // The response returns the stored options, not the submitted object. FROM_NOW
+                // is resolved to start_from_message_id = maxId + 1, which is 1 on this empty
+                // queue, and a stored id of 1 is reported as FROM_BEGINNING.
+                assertEquals("FROM_BEGINNING", options.getString("startPosition"));
                 assertEquals(30, options.getInteger("heartbeatIntervalSeconds"));
                 assertEquals(180, options.getInteger("heartbeatTimeoutSeconds"));
                 testContext.completeNow();

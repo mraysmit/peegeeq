@@ -15,6 +15,8 @@ package dev.mars.peegeeq.db.subscription;
  *   <li>PAUSED  CANCELLED (manual cancellation)</li>
  *   <li>DEAD  ACTIVE (manual reactivation)</li>
  *   <li>CANCELLED  (terminal state, no transitions)</li>
+ *   <li>ACTIVE to STOPPED (graceful stop of the whole group)</li>
+ *   <li>STOPPED to ACTIVE (start of the group)</li>
  * </ul>
  * 
  * @author Mark Andrew Ray-Smith Cityline Ltd
@@ -47,6 +49,13 @@ public enum SubscriptionStatus {
      * Consumer group failed to send heartbeats within the configured timeout.
      * Can be manually reactivated if the consumer recovers.
      */
-    DEAD
+    DEAD,
+
+    /**
+     * Subscription is stopped for a planned outage of the whole consumer group.
+     * A graceful stop of the group sets this state. The start bound and the
+     * committed offsets are kept. A start of the group makes it active again.
+     */
+    STOPPED
 }
 

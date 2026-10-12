@@ -9,6 +9,7 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
+import dev.mars.peegeeq.examples.shared.CleanupResultSupport;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -191,29 +192,29 @@ class ConsumerGroupLoadBalancingDemoTest {
             return;
         }
 
-        // Close the consumer group (if set) BEFORE the manager so that all pooled
+        // Stop and close the consumer group (if set) BEFORE the manager so that all pooled
         // connections used by in-flight ACK / LISTEN operations are returned before
-        // pool.close() is called inside manager.closeReactive().
+        // pool.close() is called inside manager.closeReactive(). Every step runs, in order,
+        // and the first failure fails the teardown.
         ConsumerGroup<WorkItem> groupToClose = consumerGroupToCleanup;
         consumerGroupToCleanup = null;
 
-        Future<Void> groupClose = (groupToClose != null)
-            ? groupToClose.stopGracefully()
-                .compose(v -> groupToClose.close())
-                .transform(ar -> {
-                    if (ar.failed()) logger.warn("Consumer group close failed during teardown: {}", ar.cause().getMessage());
-                    return Future.<Void>succeededFuture();
-                })
-            : Future.<Void>succeededFuture();
+        Future<Void> groupClose = Future.succeededFuture();
+        if (groupToClose != null) {
+            Future<Void> groupStop = groupToClose.stopGracefully();
+            groupClose = CleanupResultSupport.merge(
+                groupStop, groupStop.transform(ignored -> groupToClose.close()));
+        }
+        Future<Void> orderedGroupClose = groupClose;
 
-        groupClose
-            .compose(v -> manager.closeReactive())
+        CleanupResultSupport.merge(
+                orderedGroupClose, orderedGroupClose.transform(ignored -> manager.closeReactive()))
             .onSuccess(v -> {
                 logger.info("Cleanup complete");
                 testContext.completeNow();
             })
             .onFailure(err -> {
-                logger.error("Error during manager cleanup", err);
+                logger.error("Error during consumer group or manager cleanup", err);
                 testContext.failNow(err);
             });
     }

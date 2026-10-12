@@ -4,6 +4,7 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.messaging.StartPosition;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
+import dev.mars.peegeeq.api.subscription.SubscriptionStore;
 import dev.mars.peegeeq.db.BaseIntegrationTest;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
@@ -91,7 +92,7 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
             .build();
 
         createTopic(topic)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, options))
             .compose(v -> queryDatabaseState(topic, groupName))
             .compose(dbState -> {
                 assertNotNull(dbState, "Subscription should exist in database");
@@ -127,7 +128,7 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
             .compose(v -> getMaxMessageId(topic))
             .compose(maxId -> {
                 maxIdRef.set(maxId);
-                return subscriptionManager.subscribe(topic, groupName,
+                return subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX,
                     SubscriptionOptions.builder().startPosition(StartPosition.FROM_NOW).build());
             })
             .compose(v -> queryDatabaseState(topic, groupName))
@@ -169,7 +170,7 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
             .build();
 
         createTopic(topic)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, options))
             .compose(v -> queryDatabaseState(topic, groupName))
             .compose(dbState -> {
                 assertNotNull(dbState);
@@ -202,7 +203,7 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
             .build();
 
         createTopic(topic)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, options))
             .compose(v -> queryDatabaseState(topic, groupName))
             .compose(dbState -> {
                 assertNotNull(dbState);
@@ -241,7 +242,7 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
             .build();
 
         createTopic(topic)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, options))
             .compose(v -> queryDatabaseState(topic, groupName))
             .onComplete(testContext.succeeding(dbState -> testContext.verify(() -> {
                 assertNotNull(dbState);
@@ -253,8 +254,8 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
     }
     
     @Test
-    void testUpdateSubscriptionChangesStartPosition(VertxTestContext testContext) {
-        logger.info("=== Testing update subscription changes start position in database ===");
+    void testResubscribeKeepsStartPositionInDatabase(VertxTestContext testContext) {
+        logger.info("=== Testing that a second subscribe keeps the start position in the database ===");
 
         String uniqueId = UUID.randomUUID().toString().substring(0, 8);
         String topic = "test-update-position-" + uniqueId;
@@ -269,7 +270,7 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
             .compose(v -> getMaxMessageId(topic))
             .compose(maxId -> {
                 maxIdRef.set(maxId);
-                return subscriptionManager.subscribe(topic, groupName,
+                return subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX,
                     SubscriptionOptions.builder().startPosition(StartPosition.FROM_NOW).build());
             })
             .compose(v -> queryDatabaseState(topic, groupName))
@@ -277,16 +278,14 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
                 assertEquals(maxIdRef.get() + 1, initialState.startFromMessageId,
                     "FROM_NOW should store max_id + 1");
                 initialStartIdRef.set(initialState.startFromMessageId);
-                return subscriptionManager.subscribe(topic, groupName,
+                return subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX,
                     SubscriptionOptions.builder().startPosition(StartPosition.FROM_BEGINNING).build());
             })
             .compose(v -> queryDatabaseState(topic, groupName))
             .onComplete(testContext.succeeding(updatedState -> testContext.verify(() -> {
-                assertEquals(1L, updatedState.startFromMessageId,
-                    "After update to FROM_BEGINNING, database should store start_from_message_id = 1");
-                assertNotEquals(initialStartIdRef.get(), updatedState.startFromMessageId,
-                    "Start position should have changed in database");
-                logger.info("Update PASSED: {} -> 1 (FROM_NOW -> FROM_BEGINNING)",
+                assertEquals(initialStartIdRef.get(), updatedState.startFromMessageId,
+                    "A second subscribe with FROM_BEGINNING must keep the stored start_from_message_id");
+                logger.info("Second subscribe PASSED: start_from_message_id stays {}",
                     initialStartIdRef.get());
                 testContext.completeNow();
             })));

@@ -29,6 +29,8 @@ import dev.mars.peegeeq.api.messaging.ConsumerGroupMember;
 import dev.mars.peegeeq.api.messaging.ConsumerGroupStats;
 import dev.mars.peegeeq.api.messaging.ConsumerMemberStats;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.subscription.SubscriptionService;
+import dev.mars.peegeeq.api.subscription.SubscriptionStore;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.consumer.PartitionedConsumerEngine;
@@ -432,41 +434,69 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
         logger.info("Starting consumer group '{}' for topic '{}' with subscription options: {}",
                    groupName, topic, subscriptionOptions);
 
-        startFuture = resolveNativeQueueStartPosition(subscriptionOptions)
-                .compose(startPosition -> {
-                    if (databaseService != null) {
-                        logger.debug("Creating subscription for group '{}' on topic '{}' with options: {}",
-                                groupName, topic, subscriptionOptions);
-                        return databaseService.getSubscriptionService()
-                                .subscribe(topic, groupName, subscriptionOptions)
-                                .compose(v -> {
-                                    logger.info("Subscription created successfully for group '{}' on topic '{}'",
-                                            groupName, topic);
-                                    startedWithSubscription = true;
-                                    return startInternal(startPosition);
-                                });
-                    }
-
-                    logger.warn("DatabaseService is null - cannot create subscription. " +
-                            "Subscription must be created manually via SubscriptionManager before starting.");
-                    return startInternal(startPosition);
-                })
+        startFuture = startWithSubscription(subscriptionOptions)
                 .onFailure(err -> state.compareAndSet(State.STARTING, State.NEW));
         return startFuture;
     }
 
+    /**
+     * Creates the subscription or makes it active, then starts from the stored start bound.
+     *
+     * <p>The subscription service resolves the start position. It reads {@code queue_messages},
+     * the table of the {@link SubscriptionStore#NATIVE} store, and only when this start creates
+     * the subscription. An existing subscription keeps its stored start bound.</p>
+     */
+    private Future<Void> startWithSubscription(SubscriptionOptions subscriptionOptions) {
+        try {
+            if (databaseService == null) {
+                logger.warn("DatabaseService is null - cannot create subscription. " +
+                        "Subscription must be created manually via SubscriptionManager before starting.");
+                return resolveNativeQueueStartPosition(subscriptionOptions).compose(this::startInternal);
+            }
+
+            logger.debug("Creating subscription for group '{}' on topic '{}' with options: {}",
+                    groupName, topic, subscriptionOptions);
+            SubscriptionService subscriptionService = databaseService.getSubscriptionService();
+            return subscriptionService.subscribe(topic, groupName, SubscriptionStore.NATIVE, subscriptionOptions)
+                    .compose(v -> subscriptionService.getSubscription(topic, groupName))
+                    .compose(subscription -> {
+                        if (subscription == null) {
+                            return Future.<Void>failedFuture(new IllegalStateException(
+                                    "Subscription not found after subscribe: topic='" + topic
+                                            + "', group='" + groupName + "'"));
+                        }
+                        // The stored start bound is authoritative. The first subscription
+                        // created it, and this start does not replace it.
+                        NativeQueueStartPosition storedPosition = new NativeQueueStartPosition(
+                                subscription.startFromMessageId(),
+                                subscription.startFromTimestamp() == null
+                                        ? null
+                                        : subscription.startFromTimestamp().atOffset(ZoneOffset.UTC));
+                        logger.info("Subscription ready for group '{}' on topic '{}' "
+                                        + "(status={}, start_from_message_id={}, start_from_timestamp={})",
+                                groupName, topic, subscription.state(),
+                                subscription.startFromMessageId(), subscription.startFromTimestamp());
+                        startedWithSubscription = true;
+                        return startInternal(storedPosition);
+                    });
+        } catch (Exception e) {
+            return Future.failedFuture(e);
+        }
+    }
+
+    /**
+     * Returns the start position of a start that has no subscription service.
+     *
+     * <p>FROM_NOW names a message id that only the subscription service resolves. A start
+     * without a subscription service fails for FROM_NOW.</p>
+     */
     private Future<NativeQueueStartPosition> resolveNativeQueueStartPosition(
             SubscriptionOptions subscriptionOptions) {
         try {
             return switch (subscriptionOptions.getStartPosition()) {
-                case FROM_NOW -> poolAdapter.getPoolOrThrow()
-                        .preparedQuery(
-                            "SELECT COALESCE(MAX(id), 0) AS max_id FROM queue_messages WHERE topic = $1")
-                        .execute(io.vertx.sqlclient.Tuple.of(topic))
-                        .map(rows -> {
-                            long maximumMessageId = rows.iterator().next().getLong("max_id");
-                            return new NativeQueueStartPosition(maximumMessageId + 1, null);
-                        });
+                case FROM_NOW -> Future.failedFuture(new IllegalStateException(
+                        "FROM_NOW needs the subscription service to resolve the start position: topic='"
+                                + topic + "', group='" + groupName + "'"));
                 case FROM_BEGINNING -> Future.succeededFuture(
                         new NativeQueueStartPosition(1L, null));
                 case FROM_MESSAGE_ID -> Future.succeededFuture(
@@ -506,14 +536,14 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
         }
 
         if (startedWithSubscription && databaseService != null) {
-            logger.info("Gracefully stopping consumer group '{}': cancelling subscription for topic '{}'",
+            logger.info("Gracefully stopping consumer group '{}': stopping subscription for topic '{}'",
                     groupName, topic);
             stopFuture = databaseService.getSubscriptionService()
-                    .cancel(topic, groupName)
+                    .stopGroup(topic, groupName)
                     .onFailure(err ->
-                        logger.warn("Failed to cancel subscription for group '{}' on topic '{}': {}",
+                        logger.warn("Failed to stop subscription for group '{}' on topic '{}': {}",
                                 groupName, topic, err.getMessage()))
-                    .compose(v -> stopInternal(), this::stopAfterCancellationFailure);
+                    .compose(v -> stopInternal(), this::stopAfterSubscriptionStopFailure);
             return stopFuture;
         }
 
@@ -521,11 +551,11 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
         return stopFuture;
     }
 
-    private Future<Void> stopAfterCancellationFailure(Throwable cancellationFailure) {
+    private Future<Void> stopAfterSubscriptionStopFailure(Throwable subscriptionStopFailure) {
         return stopInternal()
-                .compose(v -> Future.failedFuture(cancellationFailure), stopFailure -> {
-                    cancellationFailure.addSuppressed(stopFailure);
-                    return Future.failedFuture(cancellationFailure);
+                .compose(v -> Future.failedFuture(subscriptionStopFailure), stopFailure -> {
+                    subscriptionStopFailure.addSuppressed(stopFailure);
+                    return Future.failedFuture(subscriptionStopFailure);
                 });
     }
 

@@ -19,6 +19,7 @@ package dev.mars.peegeeq.db.fanout;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.messaging.BackfillScope;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.subscription.SubscriptionStore;
 import dev.mars.peegeeq.db.BaseIntegrationTest;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
@@ -152,7 +153,7 @@ public class BackfillTeardownDeadlockProofTest extends BaseIntegrationTest {
         String groupName = "probe-grp-alpha";
 
         setupTopicAndMessages(topic, MESSAGE_COUNT)
-                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning()))
                 .compose(v -> backfillService.startBackfill(topic, groupName, BATCH_SIZE, 0, BackfillScope.PENDING_ONLY))
                 .onSuccess(result -> testContext.verify(() -> {
                     assertEquals(BackfillResult.Status.COMPLETED, result.status());
@@ -170,7 +171,7 @@ public class BackfillTeardownDeadlockProofTest extends BaseIntegrationTest {
         String groupName = "probe-grp-beta";
 
         setupTopicAndMessages(topic, MESSAGE_COUNT)
-                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning()))
                 .compose(v -> backfillService.startBackfill(topic, groupName, BATCH_SIZE, 0, BackfillScope.PENDING_ONLY))
                 .onSuccess(result -> testContext.verify(() -> {
                     assertEquals(BackfillResult.Status.COMPLETED, result.status());
@@ -188,7 +189,7 @@ public class BackfillTeardownDeadlockProofTest extends BaseIntegrationTest {
         String groupName = "probe-grp-gamma";
 
         setupTopicAndMessages(topic, MESSAGE_COUNT)
-                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning()))
                 .compose(v -> backfillService.startBackfill(topic, groupName, BATCH_SIZE, 0, BackfillScope.PENDING_ONLY))
                 .onSuccess(result -> testContext.verify(() -> {
                     assertEquals(BackfillResult.Status.COMPLETED, result.status());
@@ -210,7 +211,7 @@ public class BackfillTeardownDeadlockProofTest extends BaseIntegrationTest {
                         .messageRetentionHours(24)
                         .build())
                 .compose(v -> subscriptionManager.subscribe(topic,
-                        "initial-group-" + UUID.randomUUID().toString().substring(0, 4),
+                        "initial-group-" + UUID.randomUUID().toString().substring(0, 4), SubscriptionStore.OUTBOX,
                         SubscriptionOptions.defaults()))
                 .compose(v -> connectionManager.withTransaction("peegeeq-main", connection -> {
                     String sql = """

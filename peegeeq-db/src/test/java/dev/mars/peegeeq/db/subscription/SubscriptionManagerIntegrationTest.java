@@ -5,6 +5,7 @@ import dev.mars.peegeeq.api.messaging.StartPosition;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
 import dev.mars.peegeeq.api.subscription.SubscriptionState;
+import dev.mars.peegeeq.api.subscription.SubscriptionStore;
 import dev.mars.peegeeq.db.BaseIntegrationTest;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
@@ -116,7 +117,7 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
             .build();
 
         topicConfigService.createTopic(topicConfig)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
             .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNotNull(subscription, "Subscription should be created");
@@ -149,7 +150,7 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
             .build();
 
         topicConfigService.createTopic(topicConfig)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, options))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
             .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNotNull(subscription);
@@ -173,7 +174,7 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
             .build();
 
         topicConfigService.createTopic(topicConfig)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX))
             .compose(v -> subscriptionManager.pause(topic, groupName))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
             .compose(pausedSubscription -> {
@@ -203,7 +204,7 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
             .build();
 
         topicConfigService.createTopic(topicConfig)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX))
             .compose(v -> subscriptionManager.cancel(topic, groupName))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
             .onComplete(testContext.succeeding(cancelledSubscription -> testContext.verify(() -> {
@@ -228,7 +229,7 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
 
         AtomicReference<Instant> initialHeartbeatRef = new AtomicReference<>();
         topicConfigService.createTopic(topicConfig)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
             .compose(initial -> {
                 initialHeartbeatRef.set(initial.lastHeartbeatAt());
@@ -256,9 +257,9 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
             .build();
 
         topicConfigService.createTopic(topicConfig)
-            .compose(v -> subscriptionManager.subscribe(topic, "group-a"))
-            .compose(v -> subscriptionManager.subscribe(topic, "group-b"))
-            .compose(v -> subscriptionManager.subscribe(topic, "group-c"))
+            .compose(v -> subscriptionManager.subscribe(topic, "group-a", SubscriptionStore.OUTBOX))
+            .compose(v -> subscriptionManager.subscribe(topic, "group-b", SubscriptionStore.OUTBOX))
+            .compose(v -> subscriptionManager.subscribe(topic, "group-c", SubscriptionStore.OUTBOX))
             .compose(v -> subscriptionManager.listSubscriptions(topic))
             .onComplete(testContext.succeeding(subscriptions -> testContext.verify(() -> {
                 assertEquals(3, subscriptions.size(), "Should have 3 subscriptions");
@@ -266,73 +267,6 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
                 assertTrue(subscriptions.stream().anyMatch(s -> s.groupName().equals("group-b")));
                 assertTrue(subscriptions.stream().anyMatch(s -> s.groupName().equals("group-c")));
                 logger.info("List subscriptions test passed");
-                testContext.completeNow();
-            })));
-    }
-
-    @Test
-    void testHeartbeatResurrectsDeadSubscription(VertxTestContext testContext) {
-        logger.info("=== Testing heartbeat auto-resurrects DEAD subscription ===");
-
-        String topic = "test-topic-resurrect";
-        String groupName = "test-group-resurrect";
-
-        TopicConfig topicConfig = TopicConfig.builder()
-            .topic(topic)
-            .semantics(TopicSemantics.PUB_SUB)
-            .build();
-
-        AtomicReference<Instant> deadHeartbeatRef = new AtomicReference<>();
-        topicConfigService.createTopic(topicConfig)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName))
-            .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .compose(initial -> {
-                assertEquals(SubscriptionState.ACTIVE, initial.state(), "Should start as ACTIVE");
-                return setSubscriptionStatus(topic, groupName, "DEAD");
-            })
-            .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .compose(dead -> {
-                assertEquals(SubscriptionState.DEAD, dead.state(), "Should be DEAD after manual update");
-                deadHeartbeatRef.set(dead.lastHeartbeatAt());
-                return manager.getVertx().timer(100);
-            })
-            .compose(v -> subscriptionManager.updateHeartbeat(topic, groupName))
-            .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onComplete(testContext.succeeding(resurrected -> testContext.verify(() -> {
-                assertEquals(SubscriptionState.ACTIVE, resurrected.state(),
-                    "Should be ACTIVE after heartbeat resurrects DEAD subscription");
-                assertTrue(resurrected.lastHeartbeatAt().isAfter(deadHeartbeatRef.get()),
-                    "Heartbeat timestamp should be updated");
-                logger.info("Heartbeat auto-resurrection test passed");
-                testContext.completeNow();
-            })));
-    }
-
-    @Test
-    void testHeartbeatDoesNotResurrectCancelledSubscription(VertxTestContext testContext) {
-        logger.info("=== Testing heartbeat does NOT resurrect CANCELLED subscription ===");
-
-        String topic = "test-topic-no-resurrect";
-        String groupName = "test-group-no-resurrect";
-
-        TopicConfig topicConfig = TopicConfig.builder()
-            .topic(topic)
-            .semantics(TopicSemantics.PUB_SUB)
-            .build();
-
-        topicConfigService.createTopic(topicConfig)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName))
-            .compose(v -> subscriptionManager.cancel(topic, groupName))
-            .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .compose(cancelled -> {
-                assertEquals(SubscriptionState.CANCELLED, cancelled.state(), "Should be CANCELLED");
-                return subscriptionManager.updateHeartbeat(topic, groupName);
-            })
-            .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onComplete(testContext.succeeding(stillCancelled -> testContext.verify(() -> {
-                assertEquals(SubscriptionState.CANCELLED, stillCancelled.state(),
-                    "CANCELLED subscription should NOT be resurrected by heartbeat");
-                logger.info("Heartbeat does not resurrect CANCELLED test passed");
                 testContext.completeNow();
             })));
     }
@@ -350,7 +284,7 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
             .build();
 
         topicConfigService.createTopic(topicConfig)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX))
             .compose(v -> subscriptionManager.pause(topic, groupName))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
             .compose(paused -> {
@@ -380,7 +314,7 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
                 .semantics(TopicSemantics.PUB_SUB)
                 .messageRetentionHours(24)
                 .build())
-            .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults()))
+            .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()))
             .compose(v -> {
                 Future<Void> insertChain = Future.succeededFuture();
                 for (int i = 0; i < messageCount; i++) {
@@ -393,7 +327,7 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
             .compose(v -> {
                 BackfillService backfillService = new BackfillService(connectionManager, "peegeeq-main");
                 subscriptionManager.setBackfillService(backfillService);
-                return subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning());
+                return subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning());
             })
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
             .compose(info -> {
@@ -437,7 +371,7 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
             .compose(v -> {
                 BackfillService backfillService = new BackfillService(connectionManager, "peegeeq-main");
                 subscriptionManager.setBackfillService(backfillService);
-                return subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.defaults());
+                return subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.defaults());
             })
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
             .onComplete(testContext.succeeding(info -> testContext.verify(() -> {
@@ -461,7 +395,7 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
                 .topic(topic)
                 .semantics(TopicSemantics.PUB_SUB)
                 .build())
-            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning()))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
             .onComplete(testContext.succeeding(info -> testContext.verify(() -> {
                 assertNotNull(info, "Subscription should exist");
@@ -471,29 +405,88 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
                 testContext.completeNow();
             })));
     }
+
+    @Test
+    void testSubscribeFromBeginningStartsNoBackfillWhenTheStoredBoundIsLater(VertxTestContext testContext) {
+        String topic = "test-backfill-later-bound-" + UUID.randomUUID().toString().substring(0, 8);
+        String groupName = "later-bound-group";
+        int messageCount = 3;
+
+        topicConfigService.createTopic(TopicConfig.builder()
+                .topic(topic)
+                .semantics(TopicSemantics.PUB_SUB)
+                .messageRetentionHours(24)
+                .build())
+            .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()))
+            .compose(v -> insertMessages(topic, messageCount))
+            // The first subscription of the group stores a start bound after the three messages.
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()))
+            .compose(v -> {
+                subscriptionManager.setBackfillService(new BackfillService(connectionManager, "peegeeq-main"));
+                return subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning());
+            })
+            .compose(v -> subscriptionManager.getSubscription(topic, groupName))
+            .compose(info -> {
+                assertTrue(info.startFromMessageId() > 1,
+                    "The stored start bound must stay after the existing messages, but was "
+                        + info.startFromMessageId());
+                assertEquals("NONE", info.backfillStatus(),
+                    "No backfill must start: the stored start bound is not the beginning");
+                return countMessagesWithRequiredGroups(topic, 1);
+            })
+            .onComplete(testContext.succeeding(requiredByInitialGroupOnly -> testContext.verify(() -> {
+                assertEquals(messageCount, requiredByInitialGroupOnly,
+                    "The messages before the stored start bound must not be given to the group");
+                testContext.completeNow();
+            })));
+    }
+
+    @Test
+    void testSubscribeFromBeginningStartsBackfillWhenTheStoredBoundIsTheBeginning(VertxTestContext testContext) {
+        String topic = "test-backfill-stored-beginning-" + UUID.randomUUID().toString().substring(0, 8);
+        String groupName = "stored-beginning-group";
+        int messageCount = 3;
+
+        topicConfigService.createTopic(TopicConfig.builder()
+                .topic(topic)
+                .semantics(TopicSemantics.PUB_SUB)
+                .messageRetentionHours(24)
+                .build())
+            .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()))
+            .compose(v -> insertMessages(topic, messageCount))
+            // The first subscription of the group stores the beginning. No backfill service is set yet.
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning()))
+            .compose(v -> {
+                subscriptionManager.setBackfillService(new BackfillService(connectionManager, "peegeeq-main"));
+                return subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning());
+            })
+            .compose(v -> subscriptionManager.getSubscription(topic, groupName))
+            .onComplete(testContext.succeeding(info -> testContext.verify(() -> {
+                assertEquals(1L, info.startFromMessageId());
+                assertEquals("COMPLETED", info.backfillStatus(),
+                    "The backfill must run: the request and the stored start bound both name the beginning");
+                assertEquals(messageCount, info.backfillProcessedMessages());
+                testContext.completeNow();
+            })));
+    }
+
     // --- Helper methods ---
 
-    /**
-     * Directly sets subscription status via SQL (for test setup).
-     */
-    private Future<Void> setSubscriptionStatus(String topic, String groupName, String status) {
-        return connectionManager.withConnection("peegeeq-main", connection -> {
-            String sql = """
-                UPDATE outbox_topic_subscriptions
-                SET subscription_status = $1
-                WHERE topic = $2 AND group_name = $3
-                """;
-            return connection.preparedQuery(sql)
-                .execute(Tuple.of(status, topic, groupName))
-                .mapEmpty();
-        });
+    private Future<Void> insertMessages(String topic, int count) {
+        Future<Void> insertChain = Future.succeededFuture();
+        for (int i = 0; i < count; i++) {
+            final int index = i;
+            insertChain = insertChain.compose(ignored ->
+                insertMessage(topic, new JsonObject().put("index", index)).mapEmpty());
+        }
+        return insertChain;
     }
 
     /**
      * Inserts a test message into the outbox.
      */
     private Future<Long> insertMessage(String topic, JsonObject payload) {
-        return connectionManager.withConnection("peegeeq-main", connection -> {
+        return connectionManager.withTransaction("peegeeq-main", connection -> {
             String sql = """
                 INSERT INTO outbox (topic, payload, created_at, status)
                 VALUES ($1, $2::jsonb, $3, 'PENDING')

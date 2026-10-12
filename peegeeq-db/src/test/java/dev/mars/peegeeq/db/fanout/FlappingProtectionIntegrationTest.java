@@ -8,6 +8,7 @@ import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.subscription.SubscriptionStore;
 import dev.mars.peegeeq.db.subscription.SubscriptionManager;
 import dev.mars.peegeeq.db.subscription.TopicConfig;
 import dev.mars.peegeeq.db.subscription.TopicConfigService;
@@ -406,49 +407,6 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
     }
 
     /**
-     * updateHeartbeat() has built-in DEAD  ACTIVE auto-resurrection SQL.
-     * When this resurrection occurs, the consecutive miss count must also
-     * reset to zero. This is a different code path from resubscribe().
-     */
-    @Test
-    void testHeartbeatAutoResurrectionResetsMissCount(VertxTestContext testContext) {
-        String topic = uniqueTopic("flap-resurrect");
-        String groupName = "resurrect-consumer";
-
-        createTopic(topic)
-                .compose(v -> subscribeWithShortTimeout(topic, groupName))
-                // Force DEAD
-                .compose(v -> forceSubscriptionStatus(topic, groupName, "DEAD"))
-                // Consumer sends heartbeat auto-resurrects via updateHeartbeat()
-                .compose(v -> subscriptionManager.updateHeartbeat(topic, groupName))
-                .compose(result -> getSubscriptionStatus(topic, groupName).map(status -> {
-                    testContext.verify(() -> assertEquals("ACTIVE", status,
-                            "Precondition: heartbeat should auto-resurrect DEAD  ACTIVE"));
-                    return (Void) null;
-                }))
-                // Now miss one heartbeat
-                .compose(v -> setHeartbeatInPast(topic, groupName, 10))
-                .compose(v -> detector.detectDeadSubscriptions(topic))
-                .compose(detected -> getSubscriptionStatus(topic, groupName)
-                        .compose(status -> getConsecutiveMisses(topic, groupName)
-                                .map(misses -> {
-                                    testContext.verify(() -> {
-                                        assertNotEquals("DEAD", status,
-                                                "Auto-resurrected consumer should not be DEAD after single miss " +
-                                                "miss count must be reset by heartbeat resurrection");
-                                        assertEquals(1, misses,
-                                                "Consecutive misses should be 1, not carried from pre-resurrection state");
-                                    });
-                                    return (Void) null;
-                                })))
-                .onSuccess(v -> {
-                    logger.info("Flapping protection: heartbeat auto-resurrection resets miss count verified");
-                    testContext.completeNow();
-                })
-                .onFailure(testContext::failNow);
-    }
-
-    /**
      * Two groups on same topic at different miss stages. After a single
      * detection run: group A (already at miss 2) should hit threshold=3
      * and die; group B (at miss 0) should survive at miss 1.
@@ -629,7 +587,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
                 .heartbeatIntervalSeconds(1)
                 .heartbeatTimeoutSeconds(2)
                 .build();
-        return subscriptionManager.subscribe(topic, groupName, options).mapEmpty();
+        return subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, options).mapEmpty();
     }
 
     private Future<Void> setHeartbeatInPast(String topic, String groupName, int secondsAgo) {

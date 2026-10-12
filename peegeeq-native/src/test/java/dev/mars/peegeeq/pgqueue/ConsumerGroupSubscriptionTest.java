@@ -104,7 +104,15 @@ class ConsumerGroupSubscriptionTest {
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start()
-            .compose(v -> manager.getPool().preparedQuery("DELETE FROM queue_messages WHERE topic = $1").execute(Tuple.of("test-topic")))
+            // Each test starts with no message and no subscription on the topic. A start keeps a
+            // stored start bound, so a subscription left by an earlier test would decide the start
+            // position of this one.
+            .compose(v -> manager.getPool().withTransaction(connection ->
+                connection.preparedQuery("DELETE FROM queue_messages WHERE topic = $1")
+                    .execute(Tuple.of("test-topic"))
+                    .compose(deleted -> connection
+                        .preparedQuery("DELETE FROM outbox_topic_subscriptions WHERE topic = $1")
+                        .execute(Tuple.of("test-topic")))))
             .onSuccess(v -> {
                 DatabaseService databaseService = new PgDatabaseService(manager);
                 QueueFactoryProvider provider = new PgQueueFactoryProvider();

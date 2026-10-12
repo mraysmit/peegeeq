@@ -8,11 +8,13 @@ import dev.mars.peegeeq.api.TemporalRange;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
 import dev.mars.peegeeq.api.setup.DatabaseSetupResult;
+import dev.mars.peegeeq.api.setup.QueueImplementationChangeException;
 import dev.mars.peegeeq.api.setup.SetupNotFoundException;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
 import dev.mars.peegeeq.api.subscription.SubscriptionService;
 import dev.mars.peegeeq.api.subscription.SubscriptionState;
+import dev.mars.peegeeq.api.subscription.SubscriptionStateException;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonArray;
@@ -894,6 +896,7 @@ public class ManagementApiHandler {
             case PAUSED -> "paused";
             case DEAD -> "dead";
             case CANCELLED -> "cancelled";
+            case STOPPED -> "stopped";
         };
     }
 
@@ -1136,11 +1139,18 @@ public class ManagementApiHandler {
                             .end(response.encode());
                     })
                     .onFailure(throwable -> {
+                        Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
+                        if (cause instanceof QueueImplementationChangeException) {
+                            // The queue has subscriptions and keeps its implementation type. Nothing changed.
+                            logger.warn("Queue '{}' not created in setup '{}': {}", queueName, setupId,
+                                    cause.getMessage());
+                            sendError(ctx, 409, cause.getMessage());
+                            return;
+                        }
                         logger.error("Error creating queue '{}' in setup '{}': {}", queueName, setupId,
                                 throwable.getMessage());
                         int statusCode = 503;
                         String errorMessage = "Failed to create queue '" + queueName + "': " + throwable.getMessage();
-                        Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                         if (cause.getMessage() != null && cause.getMessage().contains("Setup not found")) {
                             statusCode = 404;
                             errorMessage = "Setup not found: " + setupId;
@@ -1337,7 +1347,8 @@ public class ManagementApiHandler {
                                         return Future.failedFuture(new ResponseException(409,
                                                 "Consumer group '" + groupName + "' already exists for queue '" + queueName + "' in setup '" + setupId + "'"));
                                     }
-                                    return subscriptionService.subscribe(queueName, groupName);
+                                    return QueueSubscriptionStore.of(queueFactory, setupId, queueName)
+                                            .compose(store -> subscriptionService.subscribe(queueName, groupName, store));
                                 });
                     })
                     .map(v -> {
@@ -1360,6 +1371,9 @@ public class ManagementApiHandler {
                     .onFailure(throwable -> {
                         if (throwable instanceof ResponseException re) {
                             sendError(ctx, re.statusCode, re.getMessage());
+                        } else if (throwable instanceof SubscriptionStateException) {
+                            // The existing subscription refuses the call, for example a CANCELLED one.
+                            sendError(ctx, 409, "Failed to create consumer group: " + throwable.getMessage());
                         } else {
                             logger.error("Error creating consumer group {} for queue {} in setup {}: {}",
                                     groupName, queueName, setupId, throwable.getMessage());
@@ -1484,6 +1498,9 @@ public class ManagementApiHandler {
                     .onFailure(throwable -> {
                         if (throwable instanceof ResponseException re) {
                             sendError(ctx, re.statusCode, re.getMessage());
+                        } else if (throwable instanceof SubscriptionStateException) {
+                            // The current status of the subscription refuses a pause. Nothing changed.
+                            sendError(ctx, 409, "Failed to pause consumer group: " + throwable.getMessage());
                         } else {
                             logger.error("Error pausing consumer group {} for queue {} in setup {}: {}", groupName, queueName, setupId,
                                     throwable.getMessage());
@@ -1546,6 +1563,9 @@ public class ManagementApiHandler {
                     .onFailure(throwable -> {
                         if (throwable instanceof ResponseException re) {
                             sendError(ctx, re.statusCode, re.getMessage());
+                        } else if (throwable instanceof SubscriptionStateException) {
+                            // The current status of the subscription refuses a resume. Nothing changed.
+                            sendError(ctx, 409, "Failed to resume consumer group: " + throwable.getMessage());
                         } else {
                             logger.error("Error resuming consumer group {} for queue {} in setup {}: {}", groupName, queueName, setupId,
                                     throwable.getMessage());
@@ -2317,12 +2337,15 @@ public class ManagementApiHandler {
                     // Pause all subscriptions
                     java.util.List<io.vertx.core.Future<?>> pauseFutures = new java.util.ArrayList<>();
                     for (var sub : subscriptions) {
-                        pauseFutures.add(subscriptionService.pause(queueName, sub.groupName()));
+                        // A DEAD or CANCELLED subscription refuses a pause. It is left as it is.
+                        if (sub.state() != SubscriptionState.DEAD && sub.state() != SubscriptionState.CANCELLED) {
+                            pauseFutures.add(subscriptionService.pause(queueName, sub.groupName()));
+                        }
                     }
 
                     // Wait for all pause operations to complete
                     return io.vertx.core.Future.all(pauseFutures)
-                            .map(v -> subscriptions.size());
+                            .map(v -> pauseFutures.size());
                 })
                 .map(pausedCount -> {
                     logger.info("Paused {} subscriptions for queue: {}", pausedCount, queueName);
@@ -2373,12 +2396,16 @@ public class ManagementApiHandler {
                     // Resume all subscriptions
                     java.util.List<io.vertx.core.Future<?>> resumeFutures = new java.util.ArrayList<>();
                     for (var sub : subscriptions) {
-                        resumeFutures.add(subscriptionService.resume(queueName, sub.groupName()));
+                        // Only a paused subscription is resumed. A STOPPED or CANCELLED subscription
+                        // refuses a resume, and a DEAD one is revived only by a call that names its group.
+                        if (sub.state() == SubscriptionState.PAUSED) {
+                            resumeFutures.add(subscriptionService.resume(queueName, sub.groupName()));
+                        }
                     }
 
                     // Wait for all resume operations to complete
                     return io.vertx.core.Future.all(resumeFutures)
-                            .map(v -> subscriptions.size());
+                            .map(v -> resumeFutures.size());
                 })
                 .map(resumedCount -> {
                     logger.info("Resumed {} subscriptions for queue: {}", resumedCount, queueName);

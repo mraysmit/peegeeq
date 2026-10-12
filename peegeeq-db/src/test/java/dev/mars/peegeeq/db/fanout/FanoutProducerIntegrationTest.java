@@ -6,6 +6,7 @@ import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.subscription.SubscriptionStore;
 import dev.mars.peegeeq.db.subscription.SubscriptionManager;
 import dev.mars.peegeeq.db.subscription.TopicConfig;
 import dev.mars.peegeeq.db.subscription.TopicConfigService;
@@ -168,7 +169,7 @@ public class FanoutProducerIntegrationTest extends BaseIntegrationTest {
             .build();
 
         topicConfigService.createTopic(config)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.defaults()))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()))
             .compose(v -> insertMessage(topic, new JsonObject().put("test", "data")))
             .compose(messageId -> getRequiredConsumerGroups(messageId))
             .onComplete(testContext.succeeding(requiredGroups -> testContext.verify(() -> {
@@ -196,9 +197,9 @@ public class FanoutProducerIntegrationTest extends BaseIntegrationTest {
             .build();
 
         topicConfigService.createTopic(config)
-            .compose(v -> subscriptionManager.subscribe(topic, "group-a", SubscriptionOptions.defaults()))
-            .compose(v -> subscriptionManager.subscribe(topic, "group-b", SubscriptionOptions.defaults()))
-            .compose(v -> subscriptionManager.subscribe(topic, "group-c", SubscriptionOptions.defaults()))
+            .compose(v -> subscriptionManager.subscribe(topic, "group-a", SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()))
+            .compose(v -> subscriptionManager.subscribe(topic, "group-b", SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()))
+            .compose(v -> subscriptionManager.subscribe(topic, "group-c", SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()))
             .compose(v -> insertMessage(topic, new JsonObject().put("test", "data")))
             .compose(messageId -> getRequiredConsumerGroups(messageId))
             .onComplete(testContext.succeeding(requiredGroups -> testContext.verify(() -> {
@@ -226,7 +227,7 @@ public class FanoutProducerIntegrationTest extends BaseIntegrationTest {
             .build();
 
         topicConfigService.createTopic(config)
-            .compose(v -> subscriptionManager.subscribe(topic, "group-a", SubscriptionOptions.defaults()))
+            .compose(v -> subscriptionManager.subscribe(topic, "group-a", SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()))
             .compose(v -> insertMessage(topic, new JsonObject().put("test", "data")))
             .compose(messageId -> {
                 messageIdRef.set(messageId);
@@ -238,7 +239,7 @@ public class FanoutProducerIntegrationTest extends BaseIntegrationTest {
                 } catch (Throwable t) {
                     return Future.failedFuture(t);
                 }
-                return subscriptionManager.subscribe(topic, "group-b", SubscriptionOptions.defaults())
+                return subscriptionManager.subscribe(topic, "group-b", SubscriptionStore.OUTBOX, SubscriptionOptions.defaults())
                     .compose(v -> getRequiredConsumerGroups(messageIdRef.get()));
             })
             .onComplete(testContext.succeeding(requiredGroupsAfter -> testContext.verify(() -> {

@@ -3,6 +3,7 @@ package dev.mars.peegeeq.db.consumer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.subscription.SubscriptionStore;
 import dev.mars.peegeeq.db.BaseIntegrationTest;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
@@ -235,8 +236,8 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
 
         topicConfigService.createTopic(topicConfig)
-                .compose(v -> subscriptionManager.subscribe(topic, group1, subscriptionOptions))
-                .compose(v -> subscriptionManager.subscribe(topic, group2, subscriptionOptions))
+                .compose(v -> subscriptionManager.subscribe(topic, group1, SubscriptionStore.OUTBOX, subscriptionOptions))
+                .compose(v -> subscriptionManager.subscribe(topic, group2, SubscriptionStore.OUTBOX, subscriptionOptions))
                 .compose(v -> insertMessageWithMaxRetries(topic, new JsonObject().put("test", "mixed"), 3))
                 .compose(messageId ->
                     // group1 completes, group2 fails
@@ -429,8 +430,8 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
 
         topicConfigService.createTopic(topicConfig)
-                .compose(v -> subscriptionManager.subscribe(topic, retryGroup, subscriptionOptions))
-                .compose(v -> subscriptionManager.subscribe(topic, dlqGroup, subscriptionOptions))
+                .compose(v -> subscriptionManager.subscribe(topic, retryGroup, SubscriptionStore.OUTBOX, subscriptionOptions))
+                .compose(v -> subscriptionManager.subscribe(topic, dlqGroup, SubscriptionStore.OUTBOX, subscriptionOptions))
                 .compose(v -> insertMessageWithMaxRetries(topic, new JsonObject().put("test", "combined"), 3))
                 .compose(messageId ->
                     // retryGroup fails once (retry_count=0, below max_retries=3)
@@ -527,9 +528,9 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
 
         topicConfigService.createTopic(topicConfig)
-                .compose(v -> subscriptionManager.subscribe(topic, completedGroup, subscriptionOptions))
-                .compose(v -> subscriptionManager.subscribe(topic, retryGroup, subscriptionOptions))
-                .compose(v -> subscriptionManager.subscribe(topic, dlqGroup, subscriptionOptions))
+                .compose(v -> subscriptionManager.subscribe(topic, completedGroup, SubscriptionStore.OUTBOX, subscriptionOptions))
+                .compose(v -> subscriptionManager.subscribe(topic, retryGroup, SubscriptionStore.OUTBOX, subscriptionOptions))
+                .compose(v -> subscriptionManager.subscribe(topic, dlqGroup, SubscriptionStore.OUTBOX, subscriptionOptions))
                 .compose(v -> insertMessageWithMaxRetries(topic, new JsonObject().put("test", "mixed-groups"), 3))
                 .compose(messageId ->
                     // completedGroup: COMPLETED
@@ -610,7 +611,7 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
 
         return topicConfigService.createTopic(topicConfig)
-                .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions));
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, subscriptionOptions));
     }
 
     private Future<Long> insertMessageWithMaxRetries(String topic, JsonObject payload, int maxRetries) {

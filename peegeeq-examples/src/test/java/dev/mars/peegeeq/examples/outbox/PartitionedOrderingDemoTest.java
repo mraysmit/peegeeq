@@ -253,9 +253,7 @@ class PartitionedOrderingDemoTest {
                         }
                     }
                     producer.close();
-                    return group.stopGracefully()
-                            .onFailure(err -> logger.warn("stopGracefully error: {}", err.getMessage()))
-                            .transform(ar -> Future.<Void>succeededFuture());
+                    return group.stopGracefully();
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
@@ -361,9 +359,7 @@ class PartitionedOrderingDemoTest {
                                     + aggIds.get(1) + "=[" + firstB + ".." + lastB + "]");
 
                     producer.close();
-                    return group.stopGracefully()
-                            .onFailure(err -> logger.warn("stopGracefully error: {}", err.getMessage()))
-                            .transform(ar -> Future.<Void>succeededFuture());
+                    return group.stopGracefully();
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
@@ -442,9 +438,7 @@ class PartitionedOrderingDemoTest {
                     assertEquals(1L, (long) count,
                             "should be exactly one __default__ partition assignment for (topic, group); got " + count);
                     producer.close();
-                    return group.stopGracefully()
-                            .onFailure(err -> logger.warn("stopGracefully error: {}", err.getMessage()))
-                            .transform(ar -> Future.<Void>succeededFuture());
+                    return group.stopGracefully();
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
@@ -454,9 +448,10 @@ class PartitionedOrderingDemoTest {
     // Test 2d idempotent redelivery: committed offset prevents re-delivery.
     //
     // Sends a first batch of 3 messages, starts the consumer group, processes
-    // them, and stops it gracefully (committing the offset). Then sends a
-    // second batch of 3 messages, starts a new consumer group with the same
-    // (topic, groupName), and asserts:
+    // them, and stops it gracefully (the subscription becomes STOPPED and the
+    // committed offset is kept). Then sends a second batch of 3 messages, starts
+    // a new consumer group with the same (topic, groupName), which makes the
+    // subscription ACTIVE again, and asserts:
     //   1. Only the second batch is delivered (versions 46); the first batch
     //      (versions 13) is not redelivered.
     //   2. Second batch arrives in send order.
@@ -527,21 +522,9 @@ class PartitionedOrderingDemoTest {
                         assertEquals((long) (i + 1), (long) received1.get(i),
                                 "first batch out-of-order at position " + i);
                     }
-                    // Stop group1 gracefully  this commits the offset so a new consumer starts after message 3.
-                    return group1.stopGracefully()
-                            .onFailure(err -> logger.warn("group1 stopGracefully error: {}", err.getMessage()))
-                            .transform(ar -> Future.<Void>succeededFuture());
-                })
-                .compose(v -> {
-                    // Re-activate the subscription so group2 can resume from the committed offset.
-                    // (stopGracefully cancels the subscription as part of lifecycle management;
-                    // re-activation simulates a consumer restart without resetting committed offsets.)
-                    return databaseService.getPool()
-                            .withConnection(conn -> conn.preparedQuery(
-                                    "UPDATE outbox_topic_subscriptions SET subscription_status = 'ACTIVE'" +
-                                    " WHERE topic = $1 AND group_name = $2")
-                                    .execute(Tuple.of(topic, groupName)))
-                            .<Void>mapEmpty();
+                    // Stop group1 gracefully. The subscription becomes STOPPED and the committed
+                    // offset is kept, so a new consumer starts after message 3.
+                    return group1.stopGracefully();
                 })
                 .compose(v -> {
                     Future<Void> sendBatch2 = Future.succeededFuture();
@@ -568,9 +551,7 @@ class PartitionedOrderingDemoTest {
                                 "second batch out-of-order at position " + i);
                     }
                     producer.close();
-                    return group2.stopGracefully()
-                            .onFailure(err -> logger.warn("group2 stopGracefully error: {}", err.getMessage()))
-                            .transform(ar -> Future.<Void>succeededFuture());
+                    return group2.stopGracefully();
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);

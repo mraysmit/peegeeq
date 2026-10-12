@@ -322,8 +322,8 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
         logger.info("NOTE: This test verifies the database layer works correctly, even though REST API");
         logger.info("      cannot access it after restart due to setup cache being in-memory.");
 
-        // The topic stored in database is a composite: setupId + "-" + queueName
-        String expectedTopic = setupId + "-" + QUEUE_NAME;
+        // The subscription is stored under the topic of the consumer group: the queue name.
+        String expectedTopic = QUEUE_NAME;
         // Schema-qualified from the SAME constant the setup was provisioned with — a hardcoded
         // "peegeeq" here queried a schema that was never created (the setup uses TEST_SCHEMA).
         String sql = """
@@ -465,7 +465,7 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
     private Future<Void> verifySubscriptionInDatabase(VertxTestContext testContext, int cycleNumber) {
         logger.info("Simulating restart cycle {} - verifying database persistence...", cycleNumber);
 
-        String expectedTopic = setupId + "-" + QUEUE_NAME;
+        String expectedTopic = QUEUE_NAME;
         String sql = """
             SELECT topic, group_name, subscription_status,
                    heartbeat_interval_seconds, heartbeat_timeout_seconds

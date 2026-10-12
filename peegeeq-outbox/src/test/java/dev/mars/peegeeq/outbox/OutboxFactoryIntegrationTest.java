@@ -450,6 +450,13 @@ class OutboxFactoryIntegrationTest {
         assertEquals("outbox", type);
     }
 
+    @Test
+    void testGetSubscriptionStore_ReturnsOutbox() {
+        OutboxFactory factory = new OutboxFactory(databaseService);
+
+        assertEquals(dev.mars.peegeeq.api.subscription.SubscriptionStore.OUTBOX, factory.getSubscriptionStore());
+    }
+
     // ============================================================
     // isHealthy Tests
     // ============================================================

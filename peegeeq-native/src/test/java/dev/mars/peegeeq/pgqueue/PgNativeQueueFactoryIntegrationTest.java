@@ -109,6 +109,15 @@ class PgNativeQueueFactoryIntegrationTest {
     }
 
     // ============================================================
+    // getSubscriptionStore Tests
+    // ============================================================
+
+    @Test
+    void testGetSubscriptionStore_ReturnsNative() {
+        assertEquals(dev.mars.peegeeq.api.subscription.SubscriptionStore.NATIVE, factory.getSubscriptionStore());
+    }
+
+    // ============================================================
     // createBrowser Tests
     // ============================================================
 

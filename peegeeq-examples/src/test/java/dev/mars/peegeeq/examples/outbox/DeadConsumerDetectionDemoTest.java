@@ -27,6 +27,7 @@ import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.subscription.Subscription;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.subscription.SubscriptionStore;
 import dev.mars.peegeeq.db.subscription.SubscriptionManager;
 import dev.mars.peegeeq.db.subscription.SubscriptionStatus;
 import dev.mars.peegeeq.db.subscription.TopicConfig;
@@ -192,7 +193,7 @@ class DeadConsumerDetectionDemoTest {
             .build();
 
         topicConfigService.createTopic(topicConfig)
-            .compose(v -> subscriptionManager.subscribe(topic, consumerGroup, heartbeatOptions))
+            .compose(v -> subscriptionManager.subscribe(topic, consumerGroup, SubscriptionStore.OUTBOX, heartbeatOptions))
             .compose(v -> subscriptionManager.getSubscriptionInternal(topic, consumerGroup))
             .onSuccess(subscription -> testContext.verify(() -> {
                 assertNotNull(subscription, "Subscription should exist");
@@ -235,8 +236,8 @@ class DeadConsumerDetectionDemoTest {
             .build();
 
         topicConfigService.createTopic(topicConfig)
-            .compose(v -> subscriptionManager.subscribe(topic, healthyGroup, shortTimeoutOptions))
-            .compose(v -> subscriptionManager.subscribe(topic, deadGroup, shortTimeoutOptions))
+            .compose(v -> subscriptionManager.subscribe(topic, healthyGroup, SubscriptionStore.OUTBOX, shortTimeoutOptions))
+            .compose(v -> subscriptionManager.subscribe(topic, deadGroup, SubscriptionStore.OUTBOX, shortTimeoutOptions))
             .compose(v -> subscriptionManager.updateHeartbeat(topic, healthyGroup))
             .compose(v -> setHeartbeatInPast(topic, deadGroup, 12))
             .compose(v -> deadConsumerDetector.detectDeadSubscriptions(topic))
@@ -290,7 +291,7 @@ class DeadConsumerDetectionDemoTest {
             .build();
 
         topicConfigService.createTopic(topicConfig)
-            .compose(v -> subscriptionManager.subscribe(topic, consumerGroup, shortTimeoutOptions))
+            .compose(v -> subscriptionManager.subscribe(topic, consumerGroup, SubscriptionStore.OUTBOX, shortTimeoutOptions))
             .compose(v -> subscriptionManager.getSubscriptionInternal(topic, consumerGroup))
             .compose(initialSub -> {
                 assertEquals(SubscriptionStatus.ACTIVE, initialSub.getStatus(), "Initial status should be ACTIVE");

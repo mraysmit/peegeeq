@@ -876,17 +876,17 @@ class EventSourcingCQRSDemoTest {
 
         AtomicInteger commandsProcessed = new AtomicInteger(0);
         AtomicInteger eventsProcessed = new AtomicInteger(0);
-        Checkpoint commandCheckpoint = testContext.checkpoint(4);
-        Checkpoint eventCheckpoint = testContext.checkpoint(4);
         // Promise completes when all 4 commands and all 4 events have been processed.
+        // It is the only completion signal. The test completes after the final assertions
+        // and the graceful stop, so a failed assertion or a failed stop fails the test.
         Promise<Void> allDone = Promise.promise();
         Runnable maybeAllDone = () -> {
             if (commandsProcessed.get() >= 4 && eventsProcessed.get() >= 4) {
                 allDone.tryComplete();
             }
         };
-        // OFFSET_WATERMARK uses at-least-once delivery; dedupe redeliveries before flagging
-        // the per-unique-event checkpoint. The read-model version fence is the same
+        // OFFSET_WATERMARK uses at-least-once delivery; dedupe redeliveries before counting
+        // an event. The read-model version fence is the same
         // idempotency guarantee a production consumer must provide.
         Set<String> seenEventIds = ConcurrentHashMap.newKeySet();
 
@@ -938,9 +938,8 @@ class EventSourcingCQRSDemoTest {
                     }
                 }
             } catch (Exception e) {
-                logger.warn("Command processing error: {}", e.getMessage());
-                commandCheckpoint.flag();
-                return Future.succeededFuture();
+                testContext.failNow(e);
+                return Future.failedFuture(e);
             }
 
             // Publish each event with messageGroup = aggregateId so OFFSET_WATERMARK routes
@@ -956,8 +955,7 @@ class EventSourcingCQRSDemoTest {
             return sendChain
                     .onSuccess(v -> {
                         finalAggregate.markEventsAsCommitted();
-                        int processed = commandsProcessed.incrementAndGet();
-                        commandCheckpoint.flag();
+                        commandsProcessed.incrementAndGet();
                         maybeAllDone.run();
                         // Once the OpenAccount event is persisted, signal that the partition
                         // exists so the event consumer group can join.
@@ -965,11 +963,7 @@ class EventSourcingCQRSDemoTest {
                             openPhaseDone.tryComplete();
                         }
                     })
-                    .onFailure(err -> {
-                        logger.warn("Failed to publish events for {}: {}",
-                                command.getCommandId(), err.getMessage());
-                        commandCheckpoint.flag();
-                    });
+                    .onFailure(testContext::failNow);
         });
 
         // READ SIDE - per-partition ordered event consumption.
@@ -994,7 +988,6 @@ class EventSourcingCQRSDemoTest {
                 });
             readModelAggregate.applyEvent(event);
             eventsProcessed.incrementAndGet();
-            eventCheckpoint.flag();
             maybeAllDone.run();
             return Future.succeededFuture();
         });
@@ -1066,13 +1059,7 @@ class EventSourcingCQRSDemoTest {
                     });
                     // Cleanup
                     commandConsumer.close();
-                    return eventGroup.stopGracefully()
-                            .transform(ar -> {
-                                if (ar.failed()) {
-                                    logger.warn("eventGroup.stopGracefully failed: {}", ar.cause().getMessage());
-                                }
-                                return Future.<Void>succeededFuture();
-                            });
+                    return eventGroup.stopGracefully();
                 })
                 .onSuccess(v -> logger.info("CQRS test completed successfully"));
     }
@@ -1133,17 +1120,17 @@ class EventSourcingCQRSDemoTest {
         AtomicInteger commandsProcessed = new AtomicInteger(0);
         AtomicInteger eventsProcessed = new AtomicInteger(0);
         AtomicInteger opensProcessed = new AtomicInteger(0);
-        Checkpoint commandCheckpoint = testContext.checkpoint(totalCommands);
-        Checkpoint eventCheckpoint = testContext.checkpoint(totalCommands);
         // Promise completes when every command AND every event has been processed.
+        // It is the only completion signal. The test completes after the final assertions
+        // and the graceful stop, so a failed assertion or a failed stop fails the test.
         Promise<Void> allDone = Promise.promise();
         Runnable maybeAllDone = () -> {
             if (commandsProcessed.get() >= totalCommands && eventsProcessed.get() >= totalCommands) {
                 allDone.tryComplete();
             }
         };
-        // OFFSET_WATERMARK uses at-least-once delivery; dedupe redeliveries before flagging
-        // the per-unique-event checkpoint.
+        // OFFSET_WATERMARK uses at-least-once delivery; dedupe redeliveries before counting
+        // an event.
         Set<String> seenEventIds = ConcurrentHashMap.newKeySet();
 
         // Promise that completes once every OpenAccount event has been persisted, so
@@ -1193,9 +1180,8 @@ class EventSourcingCQRSDemoTest {
                     }
                 }
             } catch (Exception e) {
-                logger.warn("Command processing error", e);
-                commandCheckpoint.flag();
-                return Future.succeededFuture();
+                testContext.failNow(e);
+                return Future.failedFuture(e);
             }
 
             // Send each event with messageGroup = aggregateId to enforce per-aggregate
@@ -1212,18 +1198,13 @@ class EventSourcingCQRSDemoTest {
                     .onSuccess(v -> {
                         finalAggregate.markEventsAsCommitted();
                         commandsProcessed.incrementAndGet();
-                        commandCheckpoint.flag();
                         maybeAllDone.run();
                         if ("OpenAccount".equals(command.getCommandType())
                                 && opensProcessed.incrementAndGet() == accountIds.size()) {
                             openPhaseDone.tryComplete();
                         }
                     })
-                    .onFailure(err -> {
-                        logger.warn("Failed to publish events for {}: {}",
-                                command.getCommandId(), err.getMessage());
-                        commandCheckpoint.flag();
-                    });
+                    .onFailure(testContext::failNow);
         });
 
         // READ SIDE - partitioned consumer group; per-partition ordering guaranteed.
@@ -1248,7 +1229,6 @@ class EventSourcingCQRSDemoTest {
                 });
             readModelAggregate.applyEvent(event);
             eventsProcessed.incrementAndGet();
-            eventCheckpoint.flag();
             maybeAllDone.run();
             return Future.succeededFuture();
         });
@@ -1332,13 +1312,7 @@ class EventSourcingCQRSDemoTest {
                     });
 
                     commandConsumer.close();
-                    return eventGroup.stopGracefully()
-                            .transform(ar -> {
-                                if (ar.failed()) {
-                                    logger.warn("eventGroup.stopGracefully failed: {}", ar.cause().getMessage());
-                                }
-                                return Future.<Void>succeededFuture();
-                            });
+                    return eventGroup.stopGracefully();
                 })
                 .onSuccess(v -> logger.info("Multi-account CQRS ordering test completed successfully"));
     }

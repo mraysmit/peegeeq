@@ -31,11 +31,12 @@ class SubscriptionStateTest {
     @Test
     @DisplayName("all states exist")
     void allStatesExist() {
-        assertEquals(4, SubscriptionState.values().length);
+        assertEquals(5, SubscriptionState.values().length);
         assertNotNull(SubscriptionState.ACTIVE);
         assertNotNull(SubscriptionState.PAUSED);
         assertNotNull(SubscriptionState.CANCELLED);
         assertNotNull(SubscriptionState.DEAD);
+        assertNotNull(SubscriptionState.STOPPED);
     }
 
     @Test
@@ -45,6 +46,7 @@ class SubscriptionStateTest {
         assertEquals(SubscriptionState.PAUSED, SubscriptionState.valueOf("PAUSED"));
         assertEquals(SubscriptionState.CANCELLED, SubscriptionState.valueOf("CANCELLED"));
         assertEquals(SubscriptionState.DEAD, SubscriptionState.valueOf("DEAD"));
+        assertEquals(SubscriptionState.STOPPED, SubscriptionState.valueOf("STOPPED"));
     }
 
     @Test
@@ -54,6 +56,7 @@ class SubscriptionStateTest {
         assertEquals("PAUSED", SubscriptionState.PAUSED.name());
         assertEquals("CANCELLED", SubscriptionState.CANCELLED.name());
         assertEquals("DEAD", SubscriptionState.DEAD.name());
+        assertEquals("STOPPED", SubscriptionState.STOPPED.name());
     }
 
     @Test
@@ -63,6 +66,7 @@ class SubscriptionStateTest {
         assertEquals(1, SubscriptionState.PAUSED.ordinal());
         assertEquals(2, SubscriptionState.CANCELLED.ordinal());
         assertEquals(3, SubscriptionState.DEAD.ordinal());
+        assertEquals(4, SubscriptionState.STOPPED.ordinal());
     }
 }
 

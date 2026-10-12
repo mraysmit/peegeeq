@@ -4,6 +4,7 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
 import dev.mars.peegeeq.api.subscription.SubscriptionState;
+import dev.mars.peegeeq.api.subscription.SubscriptionStore;
 import dev.mars.peegeeq.db.BaseIntegrationTest;
 import dev.mars.peegeeq.db.cleanup.DeadConsumerGroupCleanup;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
@@ -110,8 +111,8 @@ public class CancelCleanupIntegrationTest extends BaseIntegrationTest {
                 .semantics(TopicSemantics.PUB_SUB)
                 .messageRetentionHours(24)
                 .build())
-            .compose(v -> subscriptionManager.subscribe(topic, groupA, SubscriptionOptions.defaults()))
-            .compose(v -> subscriptionManager.subscribe(topic, groupB, SubscriptionOptions.defaults()))
+            .compose(v -> subscriptionManager.subscribe(topic, groupA, SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()))
+            .compose(v -> subscriptionManager.subscribe(topic, groupB, SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()))
             .compose(v -> {
                 DeadConsumerGroupCleanup cleanup = new DeadConsumerGroupCleanup(connectionManager, "peegeeq-main");
                 subscriptionManager.setDeadConsumerGroupCleanup(cleanup);
@@ -169,7 +170,7 @@ public class CancelCleanupIntegrationTest extends BaseIntegrationTest {
                 .topic(topic)
                 .semantics(TopicSemantics.PUB_SUB)
                 .build())
-            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.defaults()))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()))
             .compose(v -> subscriptionManager.cancel(topic, groupName))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
             .onComplete(testContext.succeeding(cancelled -> testContext.verify(() -> {
@@ -204,7 +205,7 @@ public class CancelCleanupIntegrationTest extends BaseIntegrationTest {
                 .topic(topic)
                 .semantics(TopicSemantics.PUB_SUB)
                 .build())
-            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.defaults()))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()))
             .compose(v -> {
                 PgConnectionManager brokenConnectionManager = new PgConnectionManager(manager.getVertx(), null);
                 DeadConsumerGroupCleanup brokenCleanup = new DeadConsumerGroupCleanup(brokenConnectionManager, "no-such-pool");
@@ -242,8 +243,8 @@ public class CancelCleanupIntegrationTest extends BaseIntegrationTest {
                 .semantics(TopicSemantics.PUB_SUB)
                 .messageRetentionHours(24)
                 .build())
-            .compose(v -> subscriptionManager.subscribe(topic, groupA, SubscriptionOptions.defaults()))
-            .compose(v -> subscriptionManager.subscribe(topic, groupB, SubscriptionOptions.defaults()))
+            .compose(v -> subscriptionManager.subscribe(topic, groupA, SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()))
+            .compose(v -> subscriptionManager.subscribe(topic, groupB, SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()))
             .compose(v -> {
                 DeadConsumerGroupCleanup cleanup = new DeadConsumerGroupCleanup(connectionManager, "peegeeq-main");
                 subscriptionManager.setDeadConsumerGroupCleanup(cleanup);

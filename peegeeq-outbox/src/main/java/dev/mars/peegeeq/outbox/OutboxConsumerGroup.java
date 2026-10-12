@@ -27,6 +27,7 @@ import dev.mars.peegeeq.api.messaging.ConsumerGroupStats;
 import dev.mars.peegeeq.api.messaging.ConsumerMemberStats;
 import dev.mars.peegeeq.api.messaging.RejectedMessageException;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.subscription.SubscriptionStore;
 import dev.mars.peegeeq.api.tracing.TraceContextUtil;
 import dev.mars.peegeeq.api.tracing.TraceCtx;
 import dev.mars.peegeeq.db.client.PgClientFactory;
@@ -417,7 +418,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
                        groupName, topic, subscriptionOptions);
 
             return databaseService.getSubscriptionService()
-                .subscribe(topic, groupName, subscriptionOptions)
+                .subscribe(topic, groupName, SubscriptionStore.OUTBOX, subscriptionOptions)
                 .compose(v -> {
                     logger.info("Subscription created successfully for group '{}' on topic '{}'", groupName, topic);
                     startedWithSubscription = true;
@@ -613,18 +614,25 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
         }
 
         if (startedWithSubscription && databaseService != null) {
-            logger.info("Gracefully stopping outbox consumer group '{}': cancelling subscription for topic '{}'",
+            logger.info("Gracefully stopping outbox consumer group '{}': stopping subscription for topic '{}'",
                     groupName, topic);
             return databaseService.getSubscriptionService()
-                    .cancel(topic, groupName)
+                    .stopGroup(topic, groupName)
                     .onFailure(err ->
-                        logger.warn("Failed to cancel subscription for group '{}' on topic '{}': {}",
+                        logger.warn("Failed to stop subscription for group '{}' on topic '{}': {}",
                                 groupName, topic, err.getMessage()))
-                    .transform(ar -> Future.<Void>succeededFuture())
-                    .compose(v -> stopInternal());
+                    .compose(v -> stopInternal(), this::stopAfterSubscriptionStopFailure);
         }
 
         return stopInternal();
+    }
+
+    private Future<Void> stopAfterSubscriptionStopFailure(Throwable subscriptionStopFailure) {
+        return stopInternal()
+                .compose(v -> Future.failedFuture(subscriptionStopFailure), stopFailure -> {
+                    subscriptionStopFailure.addSuppressed(stopFailure);
+                    return Future.failedFuture(subscriptionStopFailure);
+                });
     }
 
     /**

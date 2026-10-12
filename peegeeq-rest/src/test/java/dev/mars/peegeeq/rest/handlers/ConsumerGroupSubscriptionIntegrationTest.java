@@ -10,9 +10,11 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.core.buffer.Buffer;
 import io.vertx.core.http.HttpClient;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
+import io.vertx.ext.web.client.HttpResponse;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -43,7 +45,6 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class ConsumerGroupSubscriptionIntegrationTest {
     
@@ -64,6 +65,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
     }
     
     private PeeGeeQRestServer server;
+    private DatabaseSetupService setupService;
     private String deploymentId;
     private String setupId;
     private HttpClient httpClient;
@@ -75,7 +77,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
         logger.info("=== Setting up Consumer Group + Subscription Integration Test ===");
 
         // Create the setup service using PeeGeeQRuntime - handles all wiring internally
-        DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
+        setupService = PeeGeeQRuntime.createDatabaseSetupService();
 
         // Start REST server
         RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults(), java.util.List.of("*"));
@@ -176,10 +178,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
     }
     
     @Test
-    @Order(1)
-    void testSetSubscriptionOptionsWithoutConsumerGroup(Vertx vertx, VertxTestContext testContext) {
-        logger.info("=== Test 1: Set Subscription Options Without Creating Consumer Group ===");
-        
+    void testSetSubscriptionOptionsWithoutConsumerGroup(VertxTestContext testContext) {
         JsonObject subscriptionOptions = new JsonObject()
             .put("startPosition", "FROM_BEGINNING")
             .put("heartbeatIntervalSeconds", 60);
@@ -190,9 +189,6 @@ public class ConsumerGroupSubscriptionIntegrationTest {
         webClient.post(TEST_PORT, "localhost", path)
             .sendJsonObject(subscriptionOptions)
             .onSuccess(response -> testContext.verify(() -> {
-                logger.info("Response status: {}", response.statusCode());
-                logger.info("Response body: {}", response.bodyAsString());
-                
                 // Should return 404 - consumer group not found
                 assertEquals(404, response.statusCode(), 
                            "Should return 404 when consumer group doesn't exist");
@@ -201,187 +197,74 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                 assertNotNull(errorResponse.getString("error"));
                 assertTrue(errorResponse.getString("error").contains("not found"));
                 
-                logger.info("Correctly rejected subscription options for non-existent group");
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
     }
     
     @Test
-    @Order(4)
-    void testGetSubscriptionOptionsForNonExistentGroup(Vertx vertx, VertxTestContext testContext) {
-        logger.info("=== Test 4: Get Subscription Options For Non-Existent Group ===");
-        
-        String path = String.format("/api/v1/consumer-groups/%s/%s/nonexistent-group/subscription",
-                                    setupId, QUEUE_NAME);
-        
-        webClient.get(TEST_PORT, "localhost", path)
-            .send()
+    void testGetSubscriptionOptionsForNonExistentGroup(VertxTestContext testContext) {
+        getOptions("nonexistent-group")
             .onSuccess(response -> testContext.verify(() -> {
-                logger.info("Response status: {}", response.statusCode());
-                logger.info("Response body: {}", response.bodyAsString());
-
-                // Accept 200 (success) or 500 (subscription table not available)
-                int status = response.statusCode();
-                if (status == 500) {
-                    // Subscription table not available - this is expected if fanout schema not applied
-                    logger.info("Subscription table not available (expected if fanout schema not applied)");
-                    testContext.completeNow();
-                    return;
-                }
-
-                assertEquals(200, status);
+                assertEquals(200, response.statusCode(),
+                    "A group with no subscription must return the defaults. Response: " + response.bodyAsString());
 
                 JsonObject responseObj = response.bodyAsJsonObject();
+                assertEquals("NOT_CONFIGURED", responseObj.getString("status"));
+
                 JsonObject options = responseObj.getJsonObject("subscriptionOptions");
+                assertNotNull(options, "The response must carry the default options");
+                assertEquals("FROM_NOW", options.getString("startPosition"));
+                assertEquals(60, options.getInteger("heartbeatIntervalSeconds"));
+                assertEquals(300, options.getInteger("heartbeatTimeoutSeconds"));
 
-                // Should return defaults
-                if (options != null) {
-                    assertEquals("FROM_NOW", options.getString("startPosition"));
-                    assertNotNull(options.getInteger("heartbeatIntervalSeconds"));
-                }
-
-                logger.info("Returns default options for non-existent group");
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
     }
-    
+
     @Test
-    @Order(5)
-    void testDeleteSubscriptionOptions(Vertx vertx, VertxTestContext testContext) {
-        logger.info("=== Test 5: Delete Subscription Options ===");
-        
+    void testDeleteSubscriptionOptions(VertxTestContext testContext) {
         String groupName = "test-delete-group";
-        
-        // Step 1: Create consumer group
-        JsonObject createGroupRequest = new JsonObject()
-            .put("groupName", groupName)
-            .put("maxMembers", 5);
-        
-        String createGroupPath = String.format("/api/v1/queues/%s/%s/consumer-groups",
-                                              setupId, QUEUE_NAME);
-        
-        webClient.post(TEST_PORT, "localhost", createGroupPath)
-            .sendJsonObject(createGroupRequest)
-            .compose(createResponse -> {
-                logger.info("Consumer group created");
-                
-                // Step 2: Set subscription options
-                JsonObject subscriptionOptions = new JsonObject()
-                    .put("startPosition", "FROM_BEGINNING");
-                
-                String setOptionsPath = String.format("/api/v1/consumer-groups/%s/%s/%s/subscription",
-                                                     setupId, QUEUE_NAME, groupName);
-                
-                return webClient.post(TEST_PORT, "localhost", setOptionsPath)
-                    .sendJsonObject(subscriptionOptions);
-            })
+
+        createGroup(groupName)
+            .compose(v -> postOptions(groupName, new JsonObject().put("startPosition", "FROM_BEGINNING")))
             .compose(optionsResponse -> {
-                // Accept 200 (success) or 500 (subscription table not available)
-                int status = optionsResponse.statusCode();
-                if (status == 500) {
-                    // Subscription table not available - this is expected if fanout schema not applied
-                    logger.info("Subscription table not available (expected if fanout schema not applied)");
-                    testContext.completeNow();
-                    return Future.succeededFuture(null);
-                }
-
-                logger.info("Subscription options set");
-
-                // Step 3: Delete subscription options
-                String deletePath = String.format("/api/v1/consumer-groups/%s/%s/%s/subscription",
-                                                 setupId, QUEUE_NAME, groupName);
-
-                return webClient.delete(TEST_PORT, "localhost", deletePath)
-                    .send();
+                assertEquals(200, optionsResponse.statusCode(),
+                    "Setting the options must succeed. Response: " + optionsResponse.bodyAsString());
+                return webClient.delete(TEST_PORT, "localhost", subscriptionPath(groupName)).send();
             })
-            .onSuccess(deleteResponse -> testContext.verify(() -> {
-                // If deleteResponse is null, we already completed (subscription table not available)
-                if (deleteResponse == null) {
-                    return;
-                }
+            .compose(deleteResponse -> {
+                assertEquals(204, deleteResponse.statusCode(), "Should return 204 No Content on successful delete");
+                return getOptions(groupName);
+            })
+            .onSuccess(getResponse -> testContext.verify(() -> {
+                assertEquals(200, getResponse.statusCode());
+                assertEquals("CANCELLED", getResponse.bodyAsJsonObject().getString("status"),
+                    "A deleted subscription is stored as CANCELLED");
 
-                logger.info("Delete response status: {}", deleteResponse.statusCode());
-
-                // Accept 204 (success) or 500 (subscription table not available)
-                int status = deleteResponse.statusCode();
-                if (status == 500) {
-                    // Subscription table not available - this is expected if fanout schema not applied
-                    logger.info("Subscription table not available (expected if fanout schema not applied)");
-                    testContext.completeNow();
-                    return;
-                }
-
-                assertEquals(204, status, "Should return 204 No Content on successful delete");
-
-                logger.info("Subscription options deleted successfully");
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
     }
-    
+
     @Test
-    @Order(7)
-    void testFromMessageIdWithExplicitValue(Vertx vertx, VertxTestContext testContext) {
-        logger.info("=== Test 7: FROM_MESSAGE_ID with explicit message ID ===");
-        
+    void testFromMessageIdWithExplicitValue(VertxTestContext testContext) {
         String groupName = "test-message-id-group";
-        
-        // Create consumer group
-        JsonObject createGroupRequest = new JsonObject()
-            .put("groupName", groupName)
-            .put("maxMembers", 5);
-        
-        String createGroupPath = String.format("/api/v1/queues/%s/%s/consumer-groups",
-                                              setupId, QUEUE_NAME);
-        
-        webClient.post(TEST_PORT, "localhost", createGroupPath)
-            .sendJsonObject(createGroupRequest)
-            .compose(createResponse -> {
-                logger.info("Consumer group created");
-                
-                // Set subscription with FROM_MESSAGE_ID = 42
-                JsonObject subscriptionOptions = new JsonObject()
-                    .put("startPosition", "FROM_MESSAGE_ID")
-                    .put("startFromMessageId", 42);
-                
-                String setOptionsPath = String.format("/api/v1/consumer-groups/%s/%s/%s/subscription",
-                                                     setupId, QUEUE_NAME, groupName);
-                
-                return webClient.post(TEST_PORT, "localhost", setOptionsPath)
-                    .sendJsonObject(subscriptionOptions);
-            })
+
+        createGroup(groupName)
+            .compose(v -> postOptions(groupName, fromMessageId(42)))
             .compose(optionsResponse -> {
-                logger.info("Subscription options set: {}", optionsResponse.bodyAsString());
+                assertEquals(200, optionsResponse.statusCode(),
+                    "The first request creates the subscription. Response: " + optionsResponse.bodyAsString());
 
-                // Accept 200 (success) or 500 (subscription table not available)
-                int status = optionsResponse.statusCode();
-                if (status == 500) {
-                    // Subscription table not available - this is expected if fanout schema not applied
-                    logger.info("Subscription table not available (expected if fanout schema not applied)");
-                    testContext.completeNow();
-                    return Future.succeededFuture(null);
-                }
-
-                assertEquals(200, status);
-
-                JsonObject response = optionsResponse.bodyAsJsonObject();
-                JsonObject options = response.getJsonObject("subscriptionOptions");
+                JsonObject options = optionsResponse.bodyAsJsonObject().getJsonObject("subscriptionOptions");
                 assertEquals("FROM_MESSAGE_ID", options.getString("startPosition"));
                 assertEquals(42, options.getInteger("startFromMessageId"));
 
-                // Verify via GET
-                String getPath = String.format("/api/v1/consumer-groups/%s/%s/%s/subscription",
-                                              setupId, QUEUE_NAME, groupName);
-                return webClient.get(TEST_PORT, "localhost", getPath).send();
+                return getOptions(groupName);
             })
             .onSuccess(getResponse -> testContext.verify(() -> {
-                // If getResponse is null, we already completed (subscription table not available)
-                if (getResponse == null) {
-                    return;
-                }
-
                 JsonObject options = getResponse.bodyAsJsonObject()
                     .getJsonObject("subscriptionOptions");
 
@@ -390,149 +273,114 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                 assertEquals(42, options.getInteger("startFromMessageId"),
                            "Retrieved message ID should be 42");
 
-                logger.info("FROM_MESSAGE_ID(42) persisted and retrieved correctly");
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
     }
-    
+
     @Test
-    @Order(8)
-    void testUpdateSubscriptionChangesStartPosition(Vertx vertx, VertxTestContext testContext) {
-        logger.info("=== Test 8: Update subscription changes start position ===");
-        
+    void testUpdateWithDifferentStartPositionReturns409(VertxTestContext testContext) {
         String groupName = "test-update-start-position";
-        
-        // Create consumer group
-        JsonObject createGroupRequest = new JsonObject()
-            .put("groupName", groupName)
-            .put("maxMembers", 5);
-        
-        String createGroupPath = String.format("/api/v1/queues/%s/%s/consumer-groups",
-                                              setupId, QUEUE_NAME);
-        
-        webClient.post(TEST_PORT, "localhost", createGroupPath)
-            .sendJsonObject(createGroupRequest)
-            .compose(createResponse -> {
-                // Initial: FROM_NOW
-                JsonObject initialOptions = new JsonObject()
-                    .put("startPosition", "FROM_NOW");
-                
-                String setOptionsPath = String.format("/api/v1/consumer-groups/%s/%s/%s/subscription",
-                                                     setupId, QUEUE_NAME, groupName);
-                
-                return webClient.post(TEST_PORT, "localhost", setOptionsPath)
-                    .sendJsonObject(initialOptions);
+
+        createGroup(groupName)
+            .compose(v -> postOptions(groupName, fromMessageId(42)))
+            .compose(created -> {
+                assertEquals(200, created.statusCode(), "Response: " + created.bodyAsString());
+                return postOptions(groupName, fromMessageId(43));
             })
-            .compose(initialResponse -> {
-                // Accept 200 (success) or 500 (subscription table not available)
-                int status = initialResponse.statusCode();
-                if (status == 500) {
-                    // Subscription table not available - this is expected if fanout schema not applied
-                    logger.info("Subscription table not available (expected if fanout schema not applied)");
-                    testContext.completeNow();
-                    return Future.succeededFuture(null);
-                }
-
-                logger.info("Initial subscription: FROM_NOW");
-
-                // Update: FROM_BEGINNING
-                JsonObject updatedOptions = new JsonObject()
-                    .put("startPosition", "FROM_BEGINNING");
-
-                String setOptionsPath = String.format("/api/v1/consumer-groups/%s/%s/%s/subscription",
-                                                     setupId, QUEUE_NAME, groupName);
-
-                return webClient.post(TEST_PORT, "localhost", setOptionsPath)
-                    .sendJsonObject(updatedOptions);
+            .compose(otherMessageId -> {
+                assertEquals(409, otherMessageId.statusCode(),
+                    "Another message id must return 409. Response: " + otherMessageId.bodyAsString());
+                assertNotNull(otherMessageId.bodyAsJsonObject().getString("error"));
+                return postOptions(groupName, new JsonObject().put("startPosition", "FROM_BEGINNING"));
             })
-            .compose(updatedResponse -> {
-                // If updatedResponse is null, we already completed (subscription table not available)
-                if (updatedResponse == null) {
-                    return Future.succeededFuture(null);
-                }
-
-                // Accept 200 (success) or 500 (subscription table not available)
-                int status = updatedResponse.statusCode();
-                if (status == 500) {
-                    // Subscription table not available - this is expected if fanout schema not applied
-                    logger.info("Subscription table not available (expected if fanout schema not applied)");
-                    testContext.completeNow();
-                    return Future.succeededFuture(null);
-                }
-
-                logger.info("Updated subscription: FROM_BEGINNING");
-
-                // Verify via GET
-                String getPath = String.format("/api/v1/consumer-groups/%s/%s/%s/subscription",
-                                              setupId, QUEUE_NAME, groupName);
-                return webClient.get(TEST_PORT, "localhost", getPath).send();
+            .compose(fromBeginning -> {
+                assertEquals(409, fromBeginning.statusCode(),
+                    "FROM_BEGINNING must return 409 when the stored bound is not 1. Response: "
+                        + fromBeginning.bodyAsString());
+                return postOptions(groupName, new JsonObject().put("startPosition", "FROM_NOW"));
+            })
+            .compose(fromNow -> {
+                assertEquals(409, fromNow.statusCode(),
+                    "FROM_NOW does not identify the stored bound and must return 409. Response: "
+                        + fromNow.bodyAsString());
+                return getOptions(groupName);
             })
             .onSuccess(getResponse -> testContext.verify(() -> {
-                // If getResponse is null, we already completed (subscription table not available)
-                if (getResponse == null) {
-                    return;
-                }
-
                 JsonObject options = getResponse.bodyAsJsonObject()
                     .getJsonObject("subscriptionOptions");
 
-                assertEquals("FROM_BEGINNING", options.getString("startPosition"),
-                           "Start position should be updated to FROM_BEGINNING");
+                assertEquals("FROM_MESSAGE_ID", options.getString("startPosition"),
+                           "A refused update must keep the stored start position");
+                assertEquals(42, options.getInteger("startFromMessageId"),
+                           "A refused update must keep the stored message id");
 
-                logger.info("Subscription update FROM_NOW  FROM_BEGINNING verified");
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
     }
-    
+
     @Test
-    @Order(10)
-    void testInvalidStartPositionValues(Vertx vertx, VertxTestContext testContext) {
-        logger.info("=== Test 10: Invalid start position values ===");
-        logger.info("--- EXPECTED ERROR (Test 10: invalid start position → 400/500, IllegalArgumentException) ---");
+    void testUpdateChangesOnlyNamedHeartbeatSetting(VertxTestContext testContext) {
+        String groupName = "test-update-heartbeat-only";
+
+        createGroup(groupName)
+            // Stored settings that differ from the defaults (60 s, 300 s).
+            .compose(v -> postOptions(groupName, fromMessageId(42)
+                .put("heartbeatIntervalSeconds", 45)
+                .put("heartbeatTimeoutSeconds", 200)))
+            .compose(created -> {
+                assertEquals(200, created.statusCode(), "Response: " + created.bodyAsString());
+                return postOptions(groupName, new JsonObject().put("heartbeatIntervalSeconds", 30));
+            })
+            .compose(updated -> {
+                assertEquals(200, updated.statusCode(), "Response: " + updated.bodyAsString());
+
+                // The response returns the stored options, not the submitted object.
+                JsonObject options = updated.bodyAsJsonObject().getJsonObject("subscriptionOptions");
+                assertEquals(30, options.getInteger("heartbeatIntervalSeconds"));
+                assertEquals(200, options.getInteger("heartbeatTimeoutSeconds"),
+                    "The omitted timeout must keep its stored value and must not become the default");
+                assertEquals("FROM_MESSAGE_ID", options.getString("startPosition"),
+                    "The omitted start position must not be reported as the default");
+                assertEquals(42, options.getInteger("startFromMessageId"));
+
+                return getOptions(groupName);
+            })
+            .onSuccess(getResponse -> testContext.verify(() -> {
+                JsonObject body = getResponse.bodyAsJsonObject();
+                JsonObject options = body.getJsonObject("subscriptionOptions");
+
+                assertEquals(30, options.getInteger("heartbeatIntervalSeconds"));
+                assertEquals(200, options.getInteger("heartbeatTimeoutSeconds"));
+                assertEquals("FROM_MESSAGE_ID", options.getString("startPosition"));
+                assertEquals(42, options.getInteger("startFromMessageId"));
+                assertEquals("ACTIVE", body.getString("status"));
+
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    void testInvalidStartPositionValues(VertxTestContext testContext) {
+        logger.info("--- EXPECTED ERROR (Test 10: invalid start position → 400, IllegalArgumentException) ---");
         
         String groupName = "test-invalid-group";
-        
-        // Create consumer group
-        JsonObject createGroupRequest = new JsonObject()
-            .put("groupName", groupName)
-            .put("maxMembers", 5);
-        
-        String createGroupPath = String.format("/api/v1/queues/%s/%s/consumer-groups", setupId, QUEUE_NAME);
-        
-        webClient.post(TEST_PORT, "localhost", createGroupPath)
-            .sendJsonObject(createGroupRequest)
-            .compose(createResponse -> {
-                // Try to set invalid startPosition
-                JsonObject invalidOptions = new JsonObject()
-                    .put("startPosition", "INVALID_POSITION");
-                
-                String setOptionsPath = String.format("/api/v1/consumer-groups/%s/%s/%s/subscription",
-                                                     setupId, QUEUE_NAME, groupName);
-                
-                return webClient.post(TEST_PORT, "localhost", setOptionsPath)
-                    .sendJsonObject(invalidOptions);
-            })
+
+        createGroup(groupName)
+            .compose(v -> postOptions(groupName, new JsonObject().put("startPosition", "INVALID_POSITION")))
             .onSuccess(response -> testContext.verify(() -> {
-                logger.info("Response status: {}", response.statusCode());
-                logger.info("Response body: {}", response.bodyAsString());
+                assertEquals(400, response.statusCode(),
+                         "An invalid start position must return 400 Bad Request");
                 
-                // Should return 400 Bad Request
-                assertTrue(response.statusCode() == 400 || response.statusCode() == 500,
-                         "Should reject invalid start position");
-                
-                logger.info("Invalid start position rejected correctly");
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
     }
     
     @Test
-    @Order(12)
-    void testConsumerGroupWithMessageFiltering(Vertx vertx, VertxTestContext testContext) {
-        logger.info("=== Test 12: Consumer Group With Message Filtering ===");
-
+    void testConsumerGroupWithMessageFiltering(VertxTestContext testContext) {
         String groupName = "filtered_group_" + System.currentTimeMillis();
 
         // Step 1: Create consumer group with group-level filter (only US region)
@@ -552,15 +400,9 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                 testContext.verify(() -> {
                     assertEquals(201, createResponse.statusCode(),
                                 "Consumer group creation should succeed. Response: " + createResponse.bodyAsString());
-
-                    JsonObject createBody = createResponse.bodyAsJsonObject();
-                    logger.info("Consumer group created with group filter: {}", createBody.encodePrettily());
-
-                    logger.info("Consumer group created with group-level filter");
                 });
 
                 // Step 2: Add consumer with per-consumer filter (only HIGH priority)
-                logger.info("Step 2: Adding consumer with per-consumer filter");
                 JsonObject joinRequest = new JsonObject()
                     .put("memberName", "priority-consumer")
                     .put("messageFilter", new JsonObject()
@@ -579,18 +421,6 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                     assertEquals(201, joinResponse.statusCode(),
                                 "Consumer join should succeed. Response: " + joinResponse.bodyAsString());
 
-                    JsonObject joinBody = joinResponse.bodyAsJsonObject();
-                    logger.info("Consumer joined with message filter: {}", joinBody.encodePrettily());
-
-                    logger.info("");
-                    logger.info("========================================");
-                    logger.info("MESSAGE FILTERING TEST PASSED:");
-                    logger.info("  Created consumer group with group-level filter (region=US)");
-                    logger.info("  Added consumer with per-consumer filter (priority=HIGH)");
-                    logger.info("  Filters will be applied: group filter first, then consumer filter");
-                    logger.info("========================================");
-                    logger.info("");
-
                     testContext.completeNow();
                 });
             })
@@ -598,18 +428,14 @@ public class ConsumerGroupSubscriptionIntegrationTest {
     }
 
     @Test
-    @Order(13)
     @DisplayName("POST subscription options for non-existent setup returns 404 with JSON error body")
     void testPostSubscriptionOptionsNonExistentSetup(VertxTestContext testContext) {
-        logger.info("=== Test 13: POST subscription options with nonexistent setup ===");
-
         String path = String.format("/api/v1/consumer-groups/%s/%s/%s/subscription",
                 "nonexistent-setup-" + System.currentTimeMillis(), QUEUE_NAME, "some-group");
 
         webClient.post(TEST_PORT, "localhost", path)
                 .sendJsonObject(new JsonObject().put("startPosition", "FROM_NOW"))
                 .onSuccess(response -> testContext.verify(() -> {
-                    logger.info("Response status: {} body: {}", response.statusCode(), response.bodyAsString());
                     assertEquals(404, response.statusCode(),
                             "Expected 404 for nonexistent setup, got: " + response.statusCode()
                             + " - " + response.bodyAsString());
@@ -618,5 +444,218 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @DisplayName("An update that names the stored start position is accepted")
+    void testUpdateWithEqualStartPositionIsAccepted(VertxTestContext testContext) {
+        String groupName = "test-update-equal-position";
+
+        createGroup(groupName)
+            .compose(v -> postOptions(groupName, fromMessageId(42)
+                .put("heartbeatIntervalSeconds", 45)
+                .put("heartbeatTimeoutSeconds", 200)))
+            .compose(created -> {
+                assertEquals(200, created.statusCode(), "Response: " + created.bodyAsString());
+                return postOptions(groupName, fromMessageId(42).put("heartbeatTimeoutSeconds", 400));
+            })
+            .onSuccess(updated -> testContext.verify(() -> {
+                assertEquals(200, updated.statusCode(),
+                    "The stored start position must be accepted. Response: " + updated.bodyAsString());
+
+                JsonObject options = updated.bodyAsJsonObject().getJsonObject("subscriptionOptions");
+                assertEquals(42, options.getInteger("startFromMessageId"));
+                assertEquals(45, options.getInteger("heartbeatIntervalSeconds"));
+                assertEquals(400, options.getInteger("heartbeatTimeoutSeconds"));
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @DisplayName("An update leaves the lifecycle status unchanged")
+    void testUpdateKeepsLifecycleStatus(VertxTestContext testContext) {
+        String groupName = "test-update-keeps-status";
+        // The subscription has the topic of the consumer group: the queue name.
+        String topic = QUEUE_NAME;
+
+        createGroup(groupName)
+            .compose(v -> postOptions(groupName, fromMessageId(42)))
+            .compose(created -> {
+                assertEquals(200, created.statusCode(), "Response: " + created.bodyAsString());
+                // A graceful stop of the whole group stores STOPPED. Only a start makes it ACTIVE again.
+                return setupService.getSubscriptionServiceForSetup(setupId).stopGroup(topic, groupName);
+            })
+            .compose(v -> postOptions(groupName, new JsonObject().put("heartbeatIntervalSeconds", 30)))
+            .compose(updated -> {
+                assertEquals(200, updated.statusCode(), "Response: " + updated.bodyAsString());
+                return getOptions(groupName);
+            })
+            .onSuccess(getResponse -> testContext.verify(() -> {
+                JsonObject body = getResponse.bodyAsJsonObject();
+                assertEquals("STOPPED", body.getString("status"),
+                    "An update must not make a stopped subscription active");
+                assertEquals(30, body.getJsonObject("subscriptionOptions").getInteger("heartbeatIntervalSeconds"));
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @DisplayName("An update whose timeout does not exceed the stored interval returns 400")
+    void testUpdateWithTimeoutNotGreaterThanStoredIntervalReturns400(VertxTestContext testContext) {
+        String groupName = "test-update-timeout-low";
+
+        createGroup(groupName)
+            .compose(v -> postOptions(groupName, fromMessageId(42)
+                .put("heartbeatIntervalSeconds", 150)
+                .put("heartbeatTimeoutSeconds", 400)))
+            .compose(created -> {
+                assertEquals(200, created.statusCode(), "Response: " + created.bodyAsString());
+                // 100 exceeds the default interval of 60, but not the stored interval of 150.
+                return postOptions(groupName, new JsonObject().put("heartbeatTimeoutSeconds", 100));
+            })
+            .compose(rejected -> {
+                assertEquals(400, rejected.statusCode(),
+                    "The timeout is checked against the stored interval. Response: " + rejected.bodyAsString());
+                return getOptions(groupName);
+            })
+            .onSuccess(getResponse -> testContext.verify(() -> {
+                JsonObject options = getResponse.bodyAsJsonObject().getJsonObject("subscriptionOptions");
+                assertEquals(150, options.getInteger("heartbeatIntervalSeconds"));
+                assertEquals(400, options.getInteger("heartbeatTimeoutSeconds"),
+                    "A refused update must change no heartbeat setting");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @DisplayName("Creating a consumer group fails when its subscription cannot be created")
+    void testCreateConsumerGroupFailsWhenSubscriptionIsCancelled(VertxTestContext testContext) {
+        String groupName = "test-create-with-cancelled-subscription";
+        String groupPath = String.format("/api/v1/queues/%s/%s/consumer-groups/%s", setupId, QUEUE_NAME, groupName);
+        String createGroupPath = String.format("/api/v1/queues/%s/%s/consumer-groups", setupId, QUEUE_NAME);
+
+        createGroup(groupName)
+            .compose(v -> postOptions(groupName, fromMessageId(42)))
+            .compose(created -> {
+                assertEquals(200, created.statusCode(), "Response: " + created.bodyAsString());
+                // Cancel the subscription, then delete the in-memory group.
+                return webClient.delete(TEST_PORT, "localhost", subscriptionPath(groupName)).send();
+            })
+            .compose(cancelled -> {
+                assertEquals(204, cancelled.statusCode());
+                return webClient.delete(TEST_PORT, "localhost", groupPath).send();
+            })
+            .compose(deleted -> {
+                assertEquals(200, deleted.statusCode(), "Response: " + deleted.bodyAsString());
+                // The subscription of this group is CANCELLED, so it cannot be created again.
+                return webClient.post(TEST_PORT, "localhost", createGroupPath)
+                    .sendJsonObject(new JsonObject()
+                        .put("groupName", groupName)
+                        .put("subscriptionOptions", new JsonObject().put("startPosition", "FROM_BEGINNING")));
+            })
+            .compose(createResponse -> {
+                assertEquals(409, createResponse.statusCode(),
+                    "The request must fail when the subscription cannot be created. Response: "
+                        + createResponse.bodyAsString());
+                return webClient.get(TEST_PORT, "localhost", groupPath).send();
+            })
+            .onSuccess(getGroupResponse -> testContext.verify(() -> {
+                assertEquals(404, getGroupResponse.statusCode(),
+                    "No consumer group must exist after the failed request. Response: "
+                        + getGroupResponse.bodyAsString());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @DisplayName("An update with a malformed startFromTimestamp returns 400 and keeps the stored bound")
+    void testUpdateWithMalformedStartFromTimestampReturns400(VertxTestContext testContext) {
+        String groupName = "test-update-malformed-timestamp";
+
+        createGroup(groupName)
+            .compose(v -> postOptions(groupName, fromMessageId(42)))
+            .compose(created -> {
+                assertEquals(200, created.statusCode(), "Response: " + created.bodyAsString());
+                return postOptions(groupName, new JsonObject()
+                    .put("startPosition", "FROM_TIMESTAMP")
+                    .put("startFromTimestamp", "not-a-timestamp"));
+            })
+            .compose(rejected -> {
+                assertEquals(400, rejected.statusCode(),
+                    "A malformed timestamp is an invalid request. Response: " + rejected.bodyAsString());
+                return getOptions(groupName);
+            })
+            .onSuccess(getResponse -> testContext.verify(() -> {
+                JsonObject options = getResponse.bodyAsJsonObject().getJsonObject("subscriptionOptions");
+                assertEquals("FROM_MESSAGE_ID", options.getString("startPosition"));
+                assertEquals(42, options.getInteger("startFromMessageId"),
+                    "A refused update must keep the stored start bound");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @DisplayName("An update with no request body returns 400 and creates no subscription")
+    void testUpdateWithoutBodyReturns400(VertxTestContext testContext) {
+        String groupName = "test-update-no-body";
+
+        createGroup(groupName)
+            .compose(v -> webClient.post(TEST_PORT, "localhost", subscriptionPath(groupName)).send())
+            .compose(rejected -> {
+                assertEquals(400, rejected.statusCode(),
+                    "A request with no body is an invalid request. Response: " + rejected.bodyAsString());
+                return getOptions(groupName);
+            })
+            .onSuccess(getResponse -> testContext.verify(() -> {
+                assertEquals("NOT_CONFIGURED", getResponse.bodyAsJsonObject().getString("status"),
+                    "A refused request must create no subscription");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private String subscriptionPath(String groupName) {
+        return String.format("/api/v1/consumer-groups/%s/%s/%s/subscription", setupId, QUEUE_NAME, groupName);
+    }
+
+    private static JsonObject fromMessageId(int messageId) {
+        return new JsonObject()
+            .put("startPosition", "FROM_MESSAGE_ID")
+            .put("startFromMessageId", messageId);
+    }
+
+    /** Creates a consumer group and fails when the server does not answer 201. */
+    private Future<Void> createGroup(String groupName) {
+        JsonObject createGroupRequest = new JsonObject()
+            .put("groupName", groupName)
+            .put("maxMembers", 5);
+
+        String createGroupPath = String.format("/api/v1/queues/%s/%s/consumer-groups", setupId, QUEUE_NAME);
+
+        return webClient.post(TEST_PORT, "localhost", createGroupPath)
+            .sendJsonObject(createGroupRequest)
+            .compose(response -> {
+                if (response.statusCode() == 201) {
+                    return Future.<Void>succeededFuture();
+                }
+                return Future.failedFuture("Failed to create consumer group: "
+                    + response.statusCode() + " " + response.bodyAsString());
+            });
+    }
+
+    private Future<HttpResponse<Buffer>> postOptions(String groupName, JsonObject options) {
+        return webClient.post(TEST_PORT, "localhost", subscriptionPath(groupName))
+            .sendJsonObject(options);
+    }
+
+    private Future<HttpResponse<Buffer>> getOptions(String groupName) {
+        return webClient.get(TEST_PORT, "localhost", subscriptionPath(groupName)).send();
     }
 }

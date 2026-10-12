@@ -6,6 +6,7 @@ import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.subscription.SubscriptionStore;
 import dev.mars.peegeeq.db.subscription.BackfillService;
 import dev.mars.peegeeq.db.subscription.BackfillService.BackfillProgress;
 import dev.mars.peegeeq.db.subscription.BackfillService.BackfillResult;
@@ -122,7 +123,7 @@ public class BackfillServiceConcurrencyTest extends BaseIntegrationTest {
 
         // Setup phase
         setupTopicAndMessages(topic, 1000)
-                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning()))
                 .compose(v -> {
                     // Launch 5 concurrent backfill attempts
                     List<Future<BackfillResult>> futures = new ArrayList<>();
@@ -241,7 +242,7 @@ public class BackfillServiceConcurrencyTest extends BaseIntegrationTest {
                     long setupTime = System.currentTimeMillis() - setupStartRef.get();
                     logger.info("Setup completed in {} ms ({} msgs/sec)",
                             setupTime, (long) (messageCount * 1000.0 / setupTime));
-                    return subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning());
+                    return subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning());
                 })
                 .compose(v -> {
                     logger.info("Starting backfill of {} messages with batch size {}", messageCount, batchSize);
@@ -290,7 +291,7 @@ public class BackfillServiceConcurrencyTest extends BaseIntegrationTest {
         int concurrentWorkers = 3;
 
         setupTopicAndMessages(topic, 2000)
-                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning()))
                 .compose(v -> {
                     // Launch 3 concurrent backfills with small batch size
                     List<Future<BackfillResult>> futures = new ArrayList<>();
@@ -330,7 +331,7 @@ public class BackfillServiceConcurrencyTest extends BaseIntegrationTest {
         String groupName = "resume-group";
 
         setupTopicAndMessages(topic, 5000)
-                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning()))
                 .compose(v -> {
                     // Start backfill, then pause with timer, then cancel
                     Future<BackfillResult> backfillFuture = backfillService.startBackfill(topic, groupName, 500, 0);
@@ -399,7 +400,7 @@ public class BackfillServiceConcurrencyTest extends BaseIntegrationTest {
                         .build())
                 .compose(v -> subscriptionManager.subscribe(
                         topic,
-                        "initial-group-" + UUID.randomUUID().toString().substring(0, 4),
+                        "initial-group-" + UUID.randomUUID().toString().substring(0, 4), SubscriptionStore.OUTBOX,
                         SubscriptionOptions.defaults()))
                 .compose(v -> insertMessagesBulk(topic, messageCount));
     }
@@ -420,7 +421,7 @@ public class BackfillServiceConcurrencyTest extends BaseIntegrationTest {
             String group = groups.get(i);
             
             chain = chain.compose(v -> setupTopicAndMessages(topic, messagesPerTopic))
-                    .compose(v -> subscriptionManager.subscribe(topic, group, SubscriptionOptions.fromBeginning()));
+                    .compose(v -> subscriptionManager.subscribe(topic, group, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning()));
         }
         return chain;
     }

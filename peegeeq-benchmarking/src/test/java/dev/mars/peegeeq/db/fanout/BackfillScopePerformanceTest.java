@@ -19,6 +19,7 @@ package dev.mars.peegeeq.db.fanout;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.messaging.BackfillScope;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.subscription.SubscriptionStore;
 import dev.mars.peegeeq.db.BaseIntegrationTest;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
@@ -142,7 +143,7 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
 
         final long[] startMs = {0};
         setupTopicAndMessages(topic, messageCount)
-                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning()))
                 .compose(v -> {
                     startMs[0] = System.currentTimeMillis();
                     return backfillService.startBackfill(topic, groupName, batchSize, 0, BackfillScope.PENDING_ONLY);
@@ -185,7 +186,7 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
         final long[] startMs = {0};
         setupTopicAndMessages(topic, messageCount)
                 .compose(v -> markOldestMessagesCompleted(topic, completedCount))
-                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning()))
                 .compose(v -> {
                     startMs[0] = System.currentTimeMillis();
                     return backfillService.startBackfill(topic, groupName, batchSize, 0, BackfillScope.ALL_RETAINED);
@@ -236,7 +237,7 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
                     testContext.verify(() ->
                             assertEquals(completedMessages, originalIncrCount.longValue(),
                                     "COMPLETED messages should start with required_consumer_groups = 1"));
-                    return subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning());
+                    return subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning());
                 })
                 .compose(v -> backfillService.startBackfill(topic, groupName, 50, 0, BackfillScope.ALL_RETAINED))
                 .compose(result -> {
@@ -288,7 +289,7 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
         // --- PENDING_ONLY ---
         setupTopicAndMessages(pendingTopic, messageCount)
                 .compose(v -> markOldestMessagesCompleted(pendingTopic, completedCount))
-                .compose(v -> subscriptionManager.subscribe(pendingTopic, pendingGroup, SubscriptionOptions.fromBeginning()))
+                .compose(v -> subscriptionManager.subscribe(pendingTopic, pendingGroup, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning()))
                 .compose(v -> {
                     long start = System.currentTimeMillis();
                     return backfillService.startBackfill(pendingTopic, pendingGroup, batchSize, 0, BackfillScope.PENDING_ONLY)
@@ -308,7 +309,7 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
                     return setupTopicAndMessages(retainedTopic, messageCount);
                 })
                 .compose(v -> markOldestMessagesCompleted(retainedTopic, completedCount))
-                .compose(v -> subscriptionManager.subscribe(retainedTopic, retainedGroup, SubscriptionOptions.fromBeginning()))
+                .compose(v -> subscriptionManager.subscribe(retainedTopic, retainedGroup, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning()))
                 .compose(v -> {
                     long start = System.currentTimeMillis();
                     return backfillService.startBackfill(retainedTopic, retainedGroup, batchSize, 0, BackfillScope.ALL_RETAINED)
@@ -344,7 +345,7 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
                         .messageRetentionHours(24)
                         .build())
                 .compose(v -> subscriptionManager.subscribe(topic,
-                        "initial-group-" + UUID.randomUUID().toString().substring(0, 4),
+                        "initial-group-" + UUID.randomUUID().toString().substring(0, 4), SubscriptionStore.OUTBOX,
                         SubscriptionOptions.defaults()))
                 .compose(v -> insertMessagesBulk(topic, messageCount));
     }

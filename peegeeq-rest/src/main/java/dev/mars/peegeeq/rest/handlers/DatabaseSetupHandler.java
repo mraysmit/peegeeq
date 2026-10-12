@@ -437,8 +437,15 @@ public class DatabaseSetupHandler {
                     logger.info("Queue added successfully: {} to setup {}", queueConfig.getQueueName(), setupId);
                 })
                 .onFailure(err -> {
-                    logger.error("Failed to add queue '{}' to setup: {}", queueConfig.getQueueName(), setupId, err);
                     Throwable cause = err.getCause() != null ? err.getCause() : err;
+                    if (cause instanceof QueueImplementationChangeException) {
+                        // The queue has subscriptions and keeps its implementation type. Nothing changed.
+                        logger.warn("Queue '{}' not added to setup '{}': {}", queueConfig.getQueueName(), setupId,
+                                cause.getMessage());
+                        sendError(ctx, 409, cause.getMessage());
+                        return;
+                    }
+                    logger.error("Failed to add queue '{}' to setup: {}", queueConfig.getQueueName(), setupId, err);
                     if (cause.getMessage() != null && cause.getMessage().contains("Setup not found")) {
                         sendError(ctx, 404, "Setup not found: " + setupId);
                     } else if (cause instanceof IllegalArgumentException) {

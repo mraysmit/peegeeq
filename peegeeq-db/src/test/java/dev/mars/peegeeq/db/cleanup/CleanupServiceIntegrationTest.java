@@ -6,6 +6,7 @@ import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.subscription.SubscriptionStore;
 import dev.mars.peegeeq.db.subscription.SubscriptionManager;
 import dev.mars.peegeeq.db.subscription.TopicConfig;
 import dev.mars.peegeeq.db.subscription.TopicConfigService;
@@ -162,11 +163,11 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
                 .compose(v -> {
                     // Subscribe two groups
                     SubscriptionOptions options = SubscriptionOptions.builder().build();
-                    return subscriptionManager.subscribe(topic, group1, options);
+                    return subscriptionManager.subscribe(topic, group1, SubscriptionStore.OUTBOX, options);
                 })
                 .compose(v -> {
                     SubscriptionOptions options = SubscriptionOptions.builder().build();
-                    return subscriptionManager.subscribe(topic, group2, options);
+                    return subscriptionManager.subscribe(topic, group2, SubscriptionStore.OUTBOX, options);
                 })
                 .compose(v -> {
                     // Insert a message (trigger will set required_consumer_groups=2 for PUB_SUB with 2 subscriptions)
@@ -264,11 +265,11 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
                 .compose(v -> {
                     // Subscribe two groups
                     SubscriptionOptions options = SubscriptionOptions.builder().build();
-                    return subscriptionManager.subscribe(topic, group1, options);
+                    return subscriptionManager.subscribe(topic, group1, SubscriptionStore.OUTBOX, options);
                 })
                 .compose(v -> {
                     SubscriptionOptions options = SubscriptionOptions.builder().build();
-                    return subscriptionManager.subscribe(topic, group2, options);
+                    return subscriptionManager.subscribe(topic, group2, SubscriptionStore.OUTBOX, options);
                 })
                 .compose(v -> {
                     // Insert a message with PENDING status (trigger will set required_consumer_groups=2)

@@ -2,6 +2,7 @@ package dev.mars.peegeeq.db.subscription;
 
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.subscription.SubscriptionStore;
 import dev.mars.peegeeq.db.BaseIntegrationTest;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
@@ -170,7 +171,7 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
                 .messageRetentionHours(24)
                 .blockWritesOnZeroSubscriptions(true)
                 .build())
-            .compose(v -> subscriptionManager.subscribe(topic, "group-a", SubscriptionOptions.defaults()))
+            .compose(v -> subscriptionManager.subscribe(topic, "group-a", SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()))
             .compose(v -> validator.isWriteAllowed(topic))
             .onComplete(testContext.succeeding(allowed -> testContext.verify(() -> {
                 assertTrue(allowed, "PUB_SUB topics with blocking enabled and active subscriptions should allow writes");

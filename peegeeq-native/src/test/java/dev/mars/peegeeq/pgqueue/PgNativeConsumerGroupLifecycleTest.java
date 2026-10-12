@@ -381,6 +381,24 @@ class PgNativeConsumerGroupLifecycleTest {
             assertSucceeded(result, "start(options) with null databaseService");
             assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState());
         }
+
+        @Test
+        @DisplayName("start(SubscriptionOptions) with FROM_NOW fails without databaseService")
+        void withoutDatabaseService_fromNowFails() {
+            group = createGroup("sub-group", "topic-a");
+            group.addConsumer("c1", msg -> Future.succeededFuture());
+
+            var options = SubscriptionOptions.builder()
+                    .startPosition(StartPosition.FROM_NOW)
+                    .build();
+            Future<Void> result = group.start(options);
+
+            assertTrue(result.failed(), "FROM_NOW cannot be resolved without a subscription service");
+            assertInstanceOf(IllegalStateException.class, result.cause());
+            assertTrue(result.cause().getMessage().contains("FROM_NOW needs the subscription service"),
+                    "The failure must name the missing subscription service, got: " + result.cause().getMessage());
+            assertEquals(PgNativeConsumerGroup.State.NEW, group.getState());
+        }
     }
 
     // ========================================================================

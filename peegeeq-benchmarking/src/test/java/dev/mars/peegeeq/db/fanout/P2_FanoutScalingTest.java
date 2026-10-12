@@ -10,6 +10,7 @@ import dev.mars.peegeeq.db.consumer.CompletionTracker;
 import dev.mars.peegeeq.db.consumer.ConsumerGroupFetcher;
 import dev.mars.peegeeq.db.consumer.OutboxMessage;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.subscription.SubscriptionStore;
 import dev.mars.peegeeq.db.subscription.SubscriptionManager;
 import dev.mars.peegeeq.db.subscription.TopicConfig;
 import dev.mars.peegeeq.db.subscription.TopicConfigService;
@@ -184,7 +185,7 @@ public class P2_FanoutScalingTest extends BaseIntegrationTest {
                 Future<Void> subscribeChain = Future.succeededFuture();
                 for (String groupName : consumerGroups) {
                     subscribeChain = subscribeChain.compose(ignored ->
-                        subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.defaults())
+                        subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.defaults())
                     );
                 }
                 return subscribeChain;
