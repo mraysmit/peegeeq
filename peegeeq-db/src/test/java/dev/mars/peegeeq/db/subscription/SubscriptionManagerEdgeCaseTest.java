@@ -4,6 +4,7 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.messaging.StartPosition;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
+import dev.mars.peegeeq.api.subscription.SubscriptionStore;
 import dev.mars.peegeeq.db.BaseIntegrationTest;
 import dev.mars.peegeeq.db.cleanup.DeadConsumerGroupCleanup;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
@@ -110,7 +111,7 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
             .build();
 
         createTopic(topic)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, options))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
             .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNotNull(subscription.startFromMessageId(),
@@ -136,7 +137,7 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
             .build();
 
         createTopic(topic)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, options))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
             .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNotNull(subscription.startFromMessageId(),
@@ -164,7 +165,7 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
             .build();
 
         createTopic(topic)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, options))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
             .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNotNull(subscription.startFromMessageId());
@@ -190,7 +191,7 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
             .build();
 
         createTopic(topic)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, options))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
             .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNull(subscription.startFromMessageId(),
@@ -207,8 +208,8 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testUpdateFromNowToFromBeginning(VertxTestContext testContext) {
-        logger.info("=== Testing update FROM_NOW to FROM_BEGINNING ===");
+    void testResubscribeFromBeginningKeepsFromNowBound(VertxTestContext testContext) {
+        logger.info("=== Testing that a second subscribe with FROM_BEGINNING keeps the FROM_NOW bound ===");
 
         String topic = "test-update-position";
         String groupName = "group-update-position";
@@ -223,19 +224,19 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
 
         AtomicReference<Long> initialMessageIdRef = new AtomicReference<>();
         createTopic(topic)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName, initialOptions))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, initialOptions))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
             .compose(initialSub -> {
                 Long initialMessageId = initialSub.startFromMessageId();
                 assertNotNull(initialMessageId, "Initial message ID should not be null");
                 initialMessageIdRef.set(initialMessageId);
-                return subscriptionManager.subscribe(topic, groupName, updatedOptions);
+                return subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, updatedOptions);
             })
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
             .onComplete(testContext.succeeding(updatedSub -> testContext.verify(() -> {
-                assertEquals(1L, updatedSub.startFromMessageId().longValue(),
-                    "After update, start_from_message_id should be 1 (FROM_BEGINNING)");
-                logger.info("Update FROM_NOW to FROM_BEGINNING verified");
+                assertEquals(initialMessageIdRef.get(), updatedSub.startFromMessageId(),
+                    "A second subscribe must keep the start bound that the first subscribe stored");
+                logger.info("Second subscribe with FROM_BEGINNING kept the FROM_NOW bound");
                 testContext.completeNow();
             })));
     }
@@ -253,7 +254,7 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
             .build();
 
         createTopic(topic)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, options))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
             .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNotNull(subscription.startFromMessageId());
@@ -281,19 +282,19 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testUpdateFromBeginningToMessageId(VertxTestContext testContext) {
-        logger.info("=== Testing update FROM_BEGINNING to FROM_MESSAGE_ID ===");
+    void testResubscribeFromMessageIdKeepsFromBeginningBound(VertxTestContext testContext) {
+        logger.info("=== Testing that a second subscribe with FROM_MESSAGE_ID keeps the FROM_BEGINNING bound ===");
 
         String topic = "test-update-beginning-to-id";
         String groupName = "group-update-beg-id";
 
         createTopic(topic)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName,
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX,
                 SubscriptionOptions.builder().startPosition(StartPosition.FROM_BEGINNING).build()))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
             .compose(initial -> {
                 assertEquals(1L, initial.startFromMessageId());
-                return subscriptionManager.subscribe(topic, groupName,
+                return subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX,
                     SubscriptionOptions.builder()
                         .startPosition(StartPosition.FROM_MESSAGE_ID)
                         .startFromMessageId(100L)
@@ -301,37 +302,38 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
             })
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
             .onComplete(testContext.succeeding(updated -> testContext.verify(() -> {
-                assertEquals(100L, updated.startFromMessageId().longValue());
-                logger.info("Update FROM_BEGINNING to FROM_MESSAGE_ID(100) verified");
+                assertEquals(1L, updated.startFromMessageId().longValue(),
+                    "A second subscribe must keep the start bound that the first subscribe stored");
+                logger.info("Second subscribe with FROM_MESSAGE_ID(100) kept the FROM_BEGINNING bound");
                 testContext.completeNow();
             })));
     }
 
     @Test
-    void testMultipleUpdatesLastWins(VertxTestContext testContext) {
-        logger.info("=== Testing multiple updates (last write wins) ===");
+    void testRepeatedResubscribeKeepsFirstBound(VertxTestContext testContext) {
+        logger.info("=== Testing that repeated subscribes keep the first start bound ===");
 
         String topic = "test-multiple-updates";
         String groupName = "group-multiple-updates";
 
         createTopic(topic)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName,
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX,
                 SubscriptionOptions.builder().startPosition(StartPosition.FROM_BEGINNING).build()))
-            .compose(v -> subscriptionManager.subscribe(topic, groupName,
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX,
                 SubscriptionOptions.builder()
                     .startPosition(StartPosition.FROM_MESSAGE_ID)
                     .startFromMessageId(50L)
                     .build()))
-            .compose(v -> subscriptionManager.subscribe(topic, groupName,
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX,
                 SubscriptionOptions.builder()
                     .startPosition(StartPosition.FROM_MESSAGE_ID)
                     .startFromMessageId(100L)
                     .build()))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
             .onComplete(testContext.succeeding(final_sub -> testContext.verify(() -> {
-                assertEquals(100L, final_sub.startFromMessageId().longValue(),
-                    "Last update should win");
-                logger.info("Multiple updates: last write (100) wins");
+                assertEquals(1L, final_sub.startFromMessageId().longValue(),
+                    "The first subscribe creates the start bound and later subscribes keep it");
+                logger.info("Repeated subscribes kept the first start bound (1)");
                 testContext.completeNow();
             })));
     }
@@ -343,7 +345,7 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
         String topic = "test-heartbeat-edge";
 
         createTopic(topic)
-            .compose(v -> subscriptionManager.subscribe(topic, "group-hb-1",
+            .compose(v -> subscriptionManager.subscribe(topic, "group-hb-1", SubscriptionStore.OUTBOX,
                 SubscriptionOptions.builder()
                     .startPosition(StartPosition.FROM_NOW)
                     .heartbeatIntervalSeconds(1)
@@ -353,7 +355,7 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
             .compose(sub1 -> {
                 assertEquals(1, sub1.heartbeatIntervalSeconds());
                 assertEquals(2, sub1.heartbeatTimeoutSeconds());
-                return subscriptionManager.subscribe(topic, "group-hb-3600",
+                return subscriptionManager.subscribe(topic, "group-hb-3600", SubscriptionStore.OUTBOX,
                     SubscriptionOptions.builder()
                         .startPosition(StartPosition.FROM_NOW)
                         .heartbeatIntervalSeconds(3600)

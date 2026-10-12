@@ -7,6 +7,7 @@ import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.subscription.SubscriptionStore;
 import dev.mars.peegeeq.db.subscription.BackfillService;
 import dev.mars.peegeeq.db.subscription.BackfillService.BackfillResult;
 import dev.mars.peegeeq.db.subscription.SubscriptionManager;
@@ -129,8 +130,8 @@ public class BackfillRateLimitingIntegrationTest extends BaseIntegrationTest {
 
         setup
             // Subscribe both late-joining groups
-            .compose(v -> subscriptionManager.subscribe(topicNoDelay, groupNoDelay, SubscriptionOptions.fromBeginning()))
-            .compose(v -> subscriptionManager.subscribe(topicWithDelay, groupDelay, SubscriptionOptions.fromBeginning()))
+            .compose(v -> subscriptionManager.subscribe(topicNoDelay, groupNoDelay, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning()))
+            .compose(v -> subscriptionManager.subscribe(topicWithDelay, groupDelay, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning()))
             // No-delay backfill
             .compose(v -> {
                 long start = System.currentTimeMillis();
@@ -183,7 +184,7 @@ public class BackfillRateLimitingIntegrationTest extends BaseIntegrationTest {
         int messageCount = 10;
 
         createTopicWithSubscriberAndMessages(topic, messageCount)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning()))
             .compose(v -> backfillService.startBackfill(topic, groupName, 5, 0, 0L))
             .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 assertEquals(BackfillResult.Status.COMPLETED, result.status());
@@ -206,7 +207,7 @@ public class BackfillRateLimitingIntegrationTest extends BaseIntegrationTest {
         long delayMs = 200L; // 200ms between batches total ~1.8s of delays
 
         createTopicWithSubscriberAndMessages(topic, messageCount)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning()))
             .compose(v -> {
                 // Start backfill (it will run asynchronously due to delays)
                 Future<BackfillResult> backfillFuture = backfillService.startBackfill(
@@ -246,7 +247,7 @@ public class BackfillRateLimitingIntegrationTest extends BaseIntegrationTest {
         int messageCount = 5;
 
         createTopicWithSubscriberAndMessages(topic, messageCount)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning()))
             .compose(v -> backfillService.startBackfill(topic, groupName, 100, 0))
             .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 assertEquals(BackfillResult.Status.COMPLETED, result.status());
@@ -270,7 +271,7 @@ public class BackfillRateLimitingIntegrationTest extends BaseIntegrationTest {
                         .semantics(TopicSemantics.PUB_SUB)
                         .messageRetentionHours(24)
                         .build())
-                .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults()))
+                .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()))
                 .compose(v -> insertMessages(topic, messageCount));
     }
 

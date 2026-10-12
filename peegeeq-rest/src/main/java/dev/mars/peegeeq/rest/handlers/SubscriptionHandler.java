@@ -26,6 +26,7 @@ import dev.mars.peegeeq.api.subscription.PartitionAssignmentInfo;
 import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
 import dev.mars.peegeeq.api.subscription.SubscriptionService;
 import dev.mars.peegeeq.api.subscription.SubscriptionState;
+import dev.mars.peegeeq.api.subscription.SubscriptionStateException;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.rest.error.ErrorResponse;
 import io.vertx.core.Future;
@@ -96,6 +97,10 @@ public class SubscriptionHandler {
      * Creates a new subscription.
      * POST /api/v1/setups/:setupId/subscriptions/:topic
      *
+     * <p>The topic is a queue of the setup. The message table that the start bound belongs to is
+     * taken from the queue factory of that queue. The request does not name it. A topic that is
+     * not a queue of the setup returns HTTP 404.</p>
+     *
      * <p>Request body:</p>
      * <pre>
      * {
@@ -147,10 +152,12 @@ public class SubscriptionHandler {
                 if (existing != null && existing.state() == SubscriptionState.ACTIVE) {
                     return Future.failedFuture(new ResponseException(409, "CONFLICT"));
                 }
-                return service.subscribe(topic, groupName, options);
+                // The topic is a queue of the setup. The store of the subscription is the
+                // store of that queue.
+                return QueueSubscriptionStore.of(setupService, setupId, topic)
+                    .compose(store -> service.subscribe(topic, groupName, store, options));
             })
-            .compose(v -> service.getSubscription(topic, groupName)
-                    .transform(ar -> Future.succeededFuture(ar.succeeded() ? ar.result() : null)))
+            .compose(v -> service.getSubscription(topic, groupName))
             .map(info -> {
                 JsonObject result = new JsonObject()
                     .put("success", true)
@@ -170,6 +177,14 @@ public class SubscriptionHandler {
                 if (error instanceof ResponseException re && re.statusCode == 409) {
                     sendError(ctx, 409, PeeGeeQErrorCodes.SUBSCRIPTION_ALREADY_EXISTS,
                              "Subscription already exists for topic '" + topic + "' and group '" + groupName + "'");
+                } else if (error instanceof ResponseException re && re.statusCode == 404) {
+                    // The setup has no queue of that name, so no store can be derived.
+                    sendError(ctx, 404, PeeGeeQErrorCodes.QUEUE_NOT_FOUND, re.getMessage());
+                } else if (error instanceof ResponseException re) {
+                    sendError(ctx, re.statusCode, PeeGeeQErrorCodes.SUBSCRIPTION_CREATE_FAILED, re.getMessage());
+                } else if (error instanceof SubscriptionStateException) {
+                    // The existing subscription refuses the call, for example a CANCELLED one.
+                    sendError(ctx, 409, PeeGeeQErrorCodes.SUBSCRIPTION_INVALID_STATE, error.getMessage());
                 } else {
                     logger.error("Failed to create subscription: {}/{}", topic, groupName, error);
                     sendError(ctx, 503, PeeGeeQErrorCodes.SUBSCRIPTION_CREATE_FAILED,
@@ -248,6 +263,9 @@ public class SubscriptionHandler {
                 if (isSubscriptionNotFoundError(error)) {
                     logger.debug("Subscription not found for pause: {}/{}", topic, groupName);
                     sendSubscriptionNotFoundError(ctx, topic, groupName);
+                } else if (error instanceof SubscriptionStateException) {
+                    // The current status of the subscription refuses the call. Nothing changed.
+                    sendError(ctx, 409, PeeGeeQErrorCodes.SUBSCRIPTION_INVALID_STATE, error.getMessage());
                 } else {
                     logger.error("Failed to pause subscription: {}/{}", topic, groupName, error);
                     sendError(ctx, 503, PeeGeeQErrorCodes.SUBSCRIPTION_PAUSE_FAILED, "Failed to pause subscription: " + error.getMessage());
@@ -287,6 +305,9 @@ public class SubscriptionHandler {
                 if (isSubscriptionNotFoundError(error)) {
                     logger.debug("Subscription not found for resume: {}/{}", topic, groupName);
                     sendSubscriptionNotFoundError(ctx, topic, groupName);
+                } else if (error instanceof SubscriptionStateException) {
+                    // The current status of the subscription refuses the call. Nothing changed.
+                    sendError(ctx, 409, PeeGeeQErrorCodes.SUBSCRIPTION_INVALID_STATE, error.getMessage());
                 } else {
                     logger.error("Failed to resume subscription: {}/{}", topic, groupName, error);
                     sendError(ctx, 503, PeeGeeQErrorCodes.SUBSCRIPTION_RESUME_FAILED, "Failed to resume subscription: " + error.getMessage());
@@ -326,6 +347,9 @@ public class SubscriptionHandler {
                 if (isSubscriptionNotFoundError(error)) {
                     logger.debug("Subscription not found for heartbeat: {}/{}", topic, groupName);
                     sendSubscriptionNotFoundError(ctx, topic, groupName);
+                } else if (error instanceof SubscriptionStateException) {
+                    // The current status of the subscription refuses the call. Nothing changed.
+                    sendError(ctx, 409, PeeGeeQErrorCodes.SUBSCRIPTION_INVALID_STATE, error.getMessage());
                 } else {
                     logger.error("Failed to update heartbeat: {}/{}", topic, groupName, error);
                     sendError(ctx, 503, PeeGeeQErrorCodes.SUBSCRIPTION_HEARTBEAT_FAILED, "Failed to update heartbeat: " + error.getMessage());

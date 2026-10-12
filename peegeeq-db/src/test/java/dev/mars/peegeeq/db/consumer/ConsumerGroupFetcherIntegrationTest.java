@@ -6,6 +6,7 @@ import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.subscription.SubscriptionStore;
 import dev.mars.peegeeq.db.subscription.SubscriptionManager;
 import dev.mars.peegeeq.db.subscription.TopicConfig;
 import dev.mars.peegeeq.db.subscription.TopicConfigService;
@@ -122,7 +123,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                 .build();
 
         topicConfigService.createTopic(topicConfig)
-                .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, subscriptionOptions))
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message1")))
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message2")))
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message3")))
@@ -158,7 +159,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                 .build();
 
         topicConfigService.createTopic(topicConfig)
-                .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, subscriptionOptions))
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message1")))
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message2")))
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message3")))
@@ -192,8 +193,8 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                 .build();
 
         topicConfigService.createTopic(topicConfig)
-                .compose(v -> subscriptionManager.subscribe(topic, group1, subscriptionOptions))
-                .compose(v -> subscriptionManager.subscribe(topic, group2, subscriptionOptions))
+                .compose(v -> subscriptionManager.subscribe(topic, group1, SubscriptionStore.OUTBOX, subscriptionOptions))
+                .compose(v -> subscriptionManager.subscribe(topic, group2, SubscriptionStore.OUTBOX, subscriptionOptions))
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message1")))
                 .compose(messageId -> {
                     // Mark message as completed for group1 only
@@ -233,7 +234,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                 .build();
 
         topicConfigService.createTopic(topicConfig)
-                .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, subscriptionOptions))
                 .compose(v -> fetcher.fetchMessages(topic, groupName, 10))
                 .onComplete(testContext.succeeding(messages -> testContext.verify(() -> {
                     logger.info("Fetched {} messages (expected 0)", messages.size());
@@ -259,7 +260,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
 
         topicConfigService.createTopic(topicConfig)
-                .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, subscriptionOptions))
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message1")))
                 .compose(v -> {
                     Future<List<OutboxMessage>> fetch1 = fetcher.fetchMessages(topic, groupName, 1);
@@ -295,7 +296,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
 
         topicConfigService.createTopic(topicConfig)
-                .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, subscriptionOptions))
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message1")))
                 .compose(v -> fetcher.fetchMessages(topic, groupName, 1)
                         .compose(firstFetch -> {
@@ -334,7 +335,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
 
         topicConfigService.createTopic(topicConfig)
-                .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, subscriptionOptions))
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message1")))
                 .compose(messageId -> fetcher.fetchMessages(topic, groupName, 1)
                         .compose(firstFetch -> {
@@ -386,7 +387,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
 
         topicConfigService.createTopic(topicConfig)
-                .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, subscriptionOptions))
                 .compose(v -> insertMessages(topic, messageCount))
                 .compose(v -> fetchConcurrently(topic, groupName, workers, batchSize))
                 .compose(firstFetch -> {

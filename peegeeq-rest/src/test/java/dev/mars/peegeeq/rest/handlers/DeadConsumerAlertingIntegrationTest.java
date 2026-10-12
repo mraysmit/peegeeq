@@ -9,6 +9,7 @@ import dev.mars.peegeeq.api.health.HealthService;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.api.setup.*;
 import dev.mars.peegeeq.api.subscription.SubscriptionService;
+import dev.mars.peegeeq.api.subscription.SubscriptionStore;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.rest.PeeGeeQRestServer;
@@ -132,8 +133,8 @@ public class DeadConsumerAlertingIntegrationTest {
                 .deadAfterMisses(1)
                 .build();
 
-            return subscriptionService.subscribe(TOPIC_NAME, HEALTHY_GROUP, healthyOptions)
-                .compose(ignored -> subscriptionService.subscribe(TOPIC_NAME, DEAD_GROUP, deadOptions));
+            return subscriptionService.subscribe(TOPIC_NAME, HEALTHY_GROUP, SubscriptionStore.OUTBOX, healthyOptions)
+                .compose(ignored -> subscriptionService.subscribe(TOPIC_NAME, DEAD_GROUP, SubscriptionStore.OUTBOX, deadOptions));
         })
         .compose(v -> makeGroupDead(vertx))
         .onSuccess(v -> {

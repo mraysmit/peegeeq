@@ -30,46 +30,66 @@ public interface SubscriptionService {
     
     /**
      * Subscribes a consumer group to a topic with default options.
-     * 
+     *
      * @param topic The topic name
      * @param groupName The consumer group name
+     * @param store The message table that the message ids of the subscription belong to
      * @return Future that completes when subscription is created
      */
-    Future<Void> subscribe(String topic, String groupName);
-    
+    Future<Void> subscribe(String topic, String groupName, SubscriptionStore store);
+
     /**
      * Subscribes a consumer group to a topic with custom options.
-     * 
-     * <p>This method creates a new subscription record. If a subscription already exists,
-     * it will be reactivated if it was PAUSED or DEAD.</p>
-     * 
+     *
+     * <p>When the group has no subscription on the topic, this method creates one. The new
+     * subscription is ACTIVE and its start bound comes from the options. {@code FROM_NOW} is
+     * resolved against the message table of the store, in the transaction that creates the
+     * subscription.</p>
+     *
+     * <p>When a subscription exists, its stored start bound is kept. The start position of
+     * the options is not applied and no message table is read. An ACTIVE, STOPPED, or DEAD
+     * subscription becomes ACTIVE. A PAUSED subscription stays PAUSED. A CANCELLED
+     * subscription is unchanged and the returned Future fails with
+     * {@link SubscriptionStateException}. The heartbeat settings of the options are stored.</p>
+     *
+     * <p>The store has no default. The caller names it: a queue factory or a consumer group
+     * names its own store, and a caller that has a queue takes the store from
+     * {@link dev.mars.peegeeq.api.messaging.QueueFactory#getSubscriptionStore()}.</p>
+     *
      * @param topic The topic name
      * @param groupName The consumer group name
+     * @param store The message table that the message ids of the subscription belong to
      * @param options Subscription configuration options
-     * @return Future that completes when subscription is created
+     * @return Future that completes when subscription is created or made active
      */
-    Future<Void> subscribe(String topic, String groupName, SubscriptionOptions options);
-    
+    Future<Void> subscribe(String topic, String groupName, SubscriptionStore store, SubscriptionOptions options);
+
     /**
-     * Pauses an active subscription.
-     * 
-     * <p>Paused subscriptions will not receive new messages until resumed.
-     * Existing messages remain in the queue.</p>
-     * 
+     * Pauses a subscription.
+     *
+     * <p>An ACTIVE, STOPPED, or PAUSED subscription becomes PAUSED. Only
+     * {@link #resume(String, String)} ends a pause. A DEAD or CANCELLED subscription is
+     * unchanged and the returned Future fails with {@link SubscriptionStateException}.</p>
+     *
      * @param topic The topic name
      * @param groupName The consumer group name
-     * @return Future that completes when subscription is paused
+     * @return Future that completes when subscription is paused; it fails when the
+     *         group has no subscription on the topic
      */
     Future<Void> pause(String topic, String groupName);
-    
+
     /**
-     * Resumes a paused subscription.
-     * 
-     * <p>Resumed subscriptions will start receiving new messages again.</p>
-     * 
+     * Resumes a subscription.
+     *
+     * <p>An ACTIVE, PAUSED, or DEAD subscription becomes ACTIVE. A STOPPED or CANCELLED
+     * subscription is unchanged and the returned Future fails with
+     * {@link SubscriptionStateException}. A STOPPED subscription becomes ACTIVE through
+     * {@link #subscribe(String, String, SubscriptionStore, SubscriptionOptions)}.</p>
+     *
      * @param topic The topic name
      * @param groupName The consumer group name
-     * @return Future that completes when subscription is resumed
+     * @return Future that completes when subscription is resumed; it fails when the
+     *         group has no subscription on the topic
      */
     Future<Void> resume(String topic, String groupName);
     
@@ -90,10 +110,17 @@ public interface SubscriptionService {
      * 
      * <p>Consumer groups must call this method periodically to prevent being marked as DEAD.
      * The heartbeat interval and timeout are configured in SubscriptionOptions.</p>
-     * 
+     *
+     * <p>A heartbeat changes no status. On an ACTIVE subscription it sets the heartbeat
+     * time and clears the count of missed heartbeats. On a PAUSED subscription it sets the
+     * heartbeat time. On a STOPPED, DEAD, or CANCELLED subscription the row is unchanged
+     * and the returned Future fails with {@link SubscriptionStateException}, which names
+     * the status. A heartbeat does not make a DEAD subscription ACTIVE.</p>
+     *
      * @param topic The topic name
      * @param groupName The consumer group name
-     * @return Future that completes when heartbeat is updated
+     * @return Future that completes when heartbeat is updated; it fails when the
+     *         group has no subscription on the topic
      */
     Future<Void> updateHeartbeat(String topic, String groupName);
     
@@ -156,6 +183,48 @@ public interface SubscriptionService {
      */
     default Future<Void> cancelBackfill(String topic, String groupName) {
         return Future.failedFuture(new UnsupportedOperationException("Backfill not supported"));
+    }
+
+    /**
+     * Stops a consumer group's subscription for a planned outage of the whole group.
+     *
+     * <p>An ACTIVE subscription becomes STOPPED. A subscription in any other state is
+     * left unchanged. The start position and the committed offsets are kept. A later
+     * {@link #subscribe(String, String, SubscriptionStore, SubscriptionOptions)} makes a STOPPED
+     * subscription ACTIVE again.</p>
+     *
+     * @param topic The topic name
+     * @param groupName The consumer group name
+     * @return Future that completes when the status is stored; it fails when the
+     *         group has no subscription on the topic
+     * @throws UnsupportedOperationException if stopping a group is not supported by this implementation
+     */
+    default Future<Void> stopGroup(String topic, String groupName) {
+        return Future.failedFuture(new UnsupportedOperationException("Stop group not supported"));
+    }
+
+    /**
+     * Updates the settings of an existing subscription.
+     *
+     * <p>Only the heartbeat settings that the update supplies are changed. The lifecycle
+     * status is never changed. The stored start bound is never changed.</p>
+     *
+     * <p>When the update names a start position, the call succeeds only if that position
+     * is the stored start bound: FROM_BEGINNING for a stored message id of 1,
+     * FROM_MESSAGE_ID for an equal stored message id, FROM_TIMESTAMP for an equal stored
+     * timestamp. A different bound, and FROM_NOW, fail with
+     * {@link SubscriptionBoundConflictException} and change nothing.</p>
+     *
+     * @param topic The topic name
+     * @param groupName The consumer group name
+     * @param update The settings to change and the start bound the caller names, if any
+     * @return Future containing the subscription as stored after the update; it fails when
+     *         the group has no subscription on the topic
+     * @throws UnsupportedOperationException if a settings update is not supported by this implementation
+     */
+    default Future<SubscriptionInfo> updateSubscriptionSettings(String topic, String groupName,
+                                                                SubscriptionSettingsUpdate update) {
+        return Future.failedFuture(new UnsupportedOperationException("Subscription settings update not supported"));
     }
 
     /**

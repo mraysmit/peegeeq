@@ -10,6 +10,7 @@ import dev.mars.peegeeq.db.consumer.CompletionTracker;
 import dev.mars.peegeeq.db.consumer.ConsumerGroupFetcher;
 import dev.mars.peegeeq.db.consumer.OutboxMessage;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.subscription.SubscriptionStore;
 import dev.mars.peegeeq.db.subscription.SubscriptionManager;
 import dev.mars.peegeeq.db.subscription.TopicConfig;
 import dev.mars.peegeeq.db.subscription.TopicConfigService;
@@ -136,7 +137,7 @@ public class P3_MixedTopicsTest extends BaseIntegrationTest {
                 Future<Void> chain = Future.succeededFuture();
                 for (String g : queueGroups) {
                     chain = chain.compose(ignored ->
-                        subscriptionManager.subscribe(queueTopic, g, SubscriptionOptions.defaults()).mapEmpty());
+                        subscriptionManager.subscribe(queueTopic, g, SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()).mapEmpty());
                 }
                 return chain;
             })
@@ -147,7 +148,7 @@ public class P3_MixedTopicsTest extends BaseIntegrationTest {
                 Future<Void> chain = Future.succeededFuture();
                 for (String g : pubsubGroups) {
                     chain = chain.compose(ignored ->
-                        subscriptionManager.subscribe(pubsubTopic, g, SubscriptionOptions.defaults()).mapEmpty());
+                        subscriptionManager.subscribe(pubsubTopic, g, SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()).mapEmpty());
                 }
                 return chain;
             })

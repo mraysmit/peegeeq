@@ -140,12 +140,17 @@ public interface ConsumerGroup<T> {
     Future<Void> stop();
 
     /**
-     * Gracefully stops the consumer group.
+     * Gracefully stops the whole consumer group for a planned outage.
      * <p>
      * If this group was started with {@link #start(SubscriptionOptions)}, the subscription
-     * is cancelled in the database before local resources are stopped. This ensures downstream
-     * systems (heartbeat detection, dead-group cleanup) see the group as explicitly cancelled
-     * rather than dead.
+     * status is set to STOPPED in the database before local resources are stopped. The
+     * status belongs to the group, not to this instance. The start position and the
+     * committed offsets are kept, and no cleanup runs. A later
+     * {@link #start(SubscriptionOptions)} makes the subscription ACTIVE again.
+     * </p>
+     * <p>
+     * If the status cannot be stored, local resources are still stopped and the returned
+     * Future fails with the cause.
      * </p>
      * <p>
      * If the group was started without subscription options, this behaves identically to {@link #stop()}.

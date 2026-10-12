@@ -10,6 +10,7 @@ import dev.mars.peegeeq.db.consumer.CompletionTracker;
 import dev.mars.peegeeq.db.consumer.ConsumerGroupFetcher;
 import dev.mars.peegeeq.db.consumer.OutboxMessage;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.subscription.SubscriptionStore;
 import dev.mars.peegeeq.db.subscription.SubscriptionManager;
 import dev.mars.peegeeq.db.subscription.TopicConfig;
 import dev.mars.peegeeq.db.subscription.TopicConfigService;
@@ -152,7 +153,7 @@ public class FanoutPerformanceValidationTest extends BaseIntegrationTest {
                 Future<Void> subChain = Future.succeededFuture();
                 for (String groupName : groups) {
                     subChain = subChain.compose(ignored ->
-                        subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.defaults()).mapEmpty());
+                        subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()).mapEmpty());
                 }
                 return subChain;
             })

@@ -13,8 +13,11 @@ import dev.mars.peegeeq.api.messaging.StartPosition;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
+import dev.mars.peegeeq.api.subscription.SubscriptionBoundConflictException;
 import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
 import dev.mars.peegeeq.api.subscription.SubscriptionService;
+import dev.mars.peegeeq.api.subscription.SubscriptionSettingsUpdate;
+import dev.mars.peegeeq.api.subscription.SubscriptionStateException;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
@@ -23,6 +26,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -74,8 +78,9 @@ public class ConsumerGroupHandler {
      * which is backed by PostgreSQL (either native or outbox pattern depending on the queue configuration).</p>
      *
      * <p>Optionally accepts subscriptionOptions in the request body to configure the consumer group's
-     * subscription settings in a single call. If provided, the subscription will be created via
-     * SubscriptionService before starting the consumer group.</p>
+     * subscription settings in a single call. If provided, the subscription is created via
+     * SubscriptionService before the consumer group is created. If the subscription cannot be
+     * created, the request fails and no consumer group is created.</p>
      *
      * <p>Optionally accepts groupFilter in the request body to filter messages at the group level.
      * The group filter is applied before messages are distributed to individual consumers.</p>
@@ -134,40 +139,42 @@ public class ConsumerGroupHandler {
                 return Future.succeededFuture(queueFactory);
             })
             .compose(queueFactory -> {
-                ConsumerGroup<Object> realConsumerGroup = (ConsumerGroup<Object>)
-                    queueFactory.createConsumerGroup(groupName, queueName, Object.class);
-                if (finalGroupFilter != null) {
-                    realConsumerGroup.setGroupFilter(finalGroupFilter);
-                    logger.info("Applied group filter to consumer group '{}'", groupName);
-                }
+                // The subscription is created first. A failed subscription fails the request,
+                // and no consumer group is created.
+                Future<Void> subscriptionCreated = Future.succeededFuture();
                 if (finalSubscriptionOptions != null) {
-                    String topic = setupId + "-" + queueName;
+                    // The subscription has the topic of the consumer group: the queue name. Its
+                    // store is the store of the queue.
                     logger.info("Creating subscription for group '{}' on topic '{}' with options: {}",
-                               groupName, topic, finalSubscriptionOptions);
-                    try {
-                        subscriptionManagerFactory.getManager(setupId)
-                            .subscribe(topic, groupName, finalSubscriptionOptions)
-                            .onSuccess(v -> logger.info("Subscription created for group '{}' on topic '{}'", groupName, topic))
-                            .onFailure(e -> logger.warn("Consumer group '{}' created without subscription: {}", groupName, e.getMessage()));
-                    } catch (Exception e) {
-                        logger.warn("Consumer group '{}' created without subscription: {}", groupName, e.getMessage());
-                    }
+                               groupName, queueName, finalSubscriptionOptions);
+                    subscriptionCreated = QueueSubscriptionStore.of(queueFactory, setupId, queueName)
+                        .compose(store -> subscriptionManagerFactory.getManager(setupId)
+                            .subscribe(queueName, groupName, store, finalSubscriptionOptions))
+                        .onSuccess(v -> logger.info("Subscription created for group '{}' on topic '{}'", groupName, queueName));
                 }
-                consumerGroups.put(groupKey, realConsumerGroup);
-                logger.info("Consumer group created via QueueFactory: {} for queue {} in setup {} (type: {})",
-                           groupName, queueName, setupId, queueFactory.getImplementationType());
-                return Future.succeededFuture(new JsonObject()
-                    .put("message", "Consumer group created successfully")
-                    .put("groupName", groupName)
-                    .put("setupId", setupId)
-                    .put("queueName", queueName)
-                    .put("groupId", groupKey)
-                    .put("maxMembers", realConsumerGroup.getMaxMembers())
-                    .put("loadBalancingStrategy", realConsumerGroup.getLoadBalancingStrategy().name())
-                    .put("sessionTimeout", realConsumerGroup.getSessionTimeout())
-                    .put("implementationType", queueFactory.getImplementationType())
-                    .put("subscriptionConfigured", finalSubscriptionOptions != null)
-                    .put("timestamp", System.currentTimeMillis()));
+                return subscriptionCreated.map(v -> {
+                    ConsumerGroup<Object> realConsumerGroup = (ConsumerGroup<Object>)
+                        queueFactory.createConsumerGroup(groupName, queueName, Object.class);
+                    if (finalGroupFilter != null) {
+                        realConsumerGroup.setGroupFilter(finalGroupFilter);
+                        logger.info("Applied group filter to consumer group '{}'", groupName);
+                    }
+                    consumerGroups.put(groupKey, realConsumerGroup);
+                    logger.info("Consumer group created via QueueFactory: {} for queue {} in setup {} (type: {})",
+                               groupName, queueName, setupId, queueFactory.getImplementationType());
+                    return new JsonObject()
+                        .put("message", "Consumer group created successfully")
+                        .put("groupName", groupName)
+                        .put("setupId", setupId)
+                        .put("queueName", queueName)
+                        .put("groupId", groupKey)
+                        .put("maxMembers", realConsumerGroup.getMaxMembers())
+                        .put("loadBalancingStrategy", realConsumerGroup.getLoadBalancingStrategy().name())
+                        .put("sessionTimeout", realConsumerGroup.getSessionTimeout())
+                        .put("implementationType", queueFactory.getImplementationType())
+                        .put("subscriptionConfigured", finalSubscriptionOptions != null)
+                        .put("timestamp", System.currentTimeMillis());
+                });
             })
             .onSuccess(response -> ctx.response()
                 .setStatusCode(201)
@@ -176,6 +183,10 @@ public class ConsumerGroupHandler {
             .onFailure(throwable -> {
                 if (throwable instanceof ResponseException re) {
                     sendError(ctx, re.statusCode, re.getMessage());
+                } else if (throwable instanceof SubscriptionStateException) {
+                    // The existing subscription refuses the call, for example a CANCELLED one.
+                    logger.warn("Consumer group {} not created: {}", groupName, throwable.getMessage());
+                    sendError(ctx, 409, "Failed to create consumer group: " + throwable.getMessage());
                 } else {
                     logger.error("Error creating consumer group {}: {}", groupName, throwable.getMessage(), throwable);
                     sendError(ctx, 503, "Failed to create consumer group: " + throwable.getMessage());
@@ -585,6 +596,17 @@ public class ConsumerGroupHandler {
     /**
      * Updates subscription options for a consumer group.
      * POST /api/v1/consumer-groups/:setupId/:queueName/:groupName/subscription
+     *
+     * <p>When the group has no subscription, the request creates it. Omitted fields take the
+     * defaults.</p>
+     *
+     * <p>When the subscription exists, only the heartbeat settings that the request names are
+     * changed. The lifecycle status is not changed. The stored start bound is not changed: an
+     * omitted {@code startPosition} requests no change, a start position that names the stored
+     * bound is accepted, and any other start position, including {@code FROM_NOW}, returns
+     * HTTP 409.</p>
+     *
+     * <p>The response returns the options as stored after the call.</p>
      */
     public void updateSubscriptionOptions(RoutingContext ctx) {
         String setupId = ctx.pathParam("setupId");
@@ -602,27 +624,51 @@ public class ConsumerGroupHandler {
                 sendError(ctx, 404, "Consumer group not found: " + groupName);
                 return;
             }
-            
+
             JsonObject body = ctx.body().asJsonObject();
-            
-            // Parse subscription options from request
-            SubscriptionOptions options = parseSubscriptionOptions(body);
-            
-            // Use topic naming convention: setupId-queueName
-            String topic = setupId + "-" + queueName;
-            
+            if (body == null) {
+                sendError(ctx, 400, "Request body is required");
+                return;
+            }
+
+            // The fields that the request names. An omitted field is null and is not changed.
+            SubscriptionSettingsUpdate update = parseSubscriptionSettingsUpdate(body);
+
+            // The subscription has the topic of the consumer group: the queue name.
+            String topic = queueName;
+
             // Get SubscriptionService for this setup
             SubscriptionService subscriptionService = subscriptionManagerFactory.getManager(setupId);
 
-            // Subscribe via SubscriptionService (database-backed)
-            subscriptionService.subscribe(topic, groupName, options)
-                .map(v -> {
+            subscriptionService.getSubscription(topic, groupName)
+                .compose(existing -> {
+                    if (existing == null) {
+                        // The group has no subscription. The request creates it, and omitted
+                        // fields take the defaults. The store is the store of the queue.
+                        SubscriptionOptions creationOptions = parseSubscriptionOptions(body);
+                        return QueueSubscriptionStore.of(setupService, setupId, queueName)
+                            .compose(store -> subscriptionService.subscribe(topic, groupName, store, creationOptions))
+                            .compose(v -> subscriptionService.getSubscription(topic, groupName));
+                    }
+                    // The subscription exists. A distinct settings update changes only the
+                    // named heartbeat settings and keeps the status and the start bound.
+                    return subscriptionService.updateSubscriptionSettings(topic, groupName, update);
+                })
+                .compose(persisted -> {
+                    if (persisted == null) {
+                        return Future.failedFuture(new IllegalStateException(
+                            "Subscription not found after it was created: topic='" + topic
+                                + "', group='" + groupName + "'"));
+                    }
+                    return Future.succeededFuture(persisted);
+                })
+                .map(persisted -> {
                     logger.info("Successfully updated subscription options for group '{}' on topic '{}'", groupName, topic);
                     return new JsonObject()
                         .put("setupId", setupId)
                         .put("queueName", queueName)
                         .put("groupName", groupName)
-                        .put("subscriptionOptions", toJsonObject(options))
+                        .put("subscriptionOptions", toJsonObject(subscriptionInfoToOptions(persisted)))
                         .put("message", "Subscription options updated successfully")
                         .put("timestamp", System.currentTimeMillis());
                 })
@@ -631,10 +677,23 @@ public class ConsumerGroupHandler {
                     .putHeader("Content-Type", "application/json")
                     .end(response.encode()))
                 .onFailure(throwable -> {
-                    logger.error("Failed to update subscription options in database", throwable);
-                    sendError(ctx, 503, "Failed to update subscription: " + throwable.getMessage());
+                    if (throwable instanceof ResponseException re) {
+                        sendError(ctx, re.statusCode, re.getMessage());
+                    } else if (throwable instanceof SubscriptionBoundConflictException
+                            || throwable instanceof SubscriptionStateException) {
+                        logger.warn("Subscription update refused for group '{}' on topic '{}': {}",
+                                   groupName, topic, throwable.getMessage());
+                        sendError(ctx, 409, throwable.getMessage());
+                    } else if (throwable instanceof IllegalArgumentException) {
+                        logger.warn("Invalid subscription options for group '{}' on topic '{}': {}",
+                                   groupName, topic, throwable.getMessage());
+                        sendError(ctx, 400, "Invalid subscription options: " + throwable.getMessage());
+                    } else {
+                        logger.error("Failed to update subscription options in database", throwable);
+                        sendError(ctx, 503, "Failed to update subscription: " + throwable.getMessage());
+                    }
                 });
-                
+
         } catch (IllegalArgumentException e) {
             logger.error("Invalid subscription options for consumer group '{}'", groupName, e);
             sendError(ctx, 400, "Invalid subscription options: " + e.getMessage());
@@ -643,7 +702,7 @@ public class ConsumerGroupHandler {
             sendError(ctx, 503, "Internal server error: " + e.getMessage());
         }
     }
-    
+
     /**
      * Gets subscription options for a consumer group.
      * GET /api/v1/consumer-groups/:setupId/:queueName/:groupName/subscription
@@ -653,8 +712,8 @@ public class ConsumerGroupHandler {
         String queueName = ctx.pathParam("queueName");
         String groupName = ctx.pathParam("groupName");
         
-        // Use topic naming convention: setupId-queueName
-        String topic = setupId + "-" + queueName;
+        // The subscription has the topic of the consumer group: the queue name.
+        String topic = queueName;
 
         // Get SubscriptionService for this setup
         SubscriptionService subscriptionService = subscriptionManagerFactory.getManager(setupId);
@@ -742,8 +801,8 @@ public class ConsumerGroupHandler {
         logger.info("Deleting subscription options for consumer group '{}' on queue '{}' in setup '{}'",
                    groupName, queueName, setupId);
         
-        // Use topic naming convention: setupId-queueName
-        String topic = setupId + "-" + queueName;
+        // The subscription has the topic of the consumer group: the queue name.
+        String topic = queueName;
 
         // Get SubscriptionService for this setup
         SubscriptionService subscriptionService = subscriptionManagerFactory.getManager(setupId);
@@ -762,41 +821,52 @@ public class ConsumerGroupHandler {
     }
     
     /**
-     * Gets subscription options for a consumer group (internal use).
-     * Returns a Future that completes with null if consumer group doesn't exist
-     * or has no subscription options configured.
-     * Caller should handle null by using defaults if appropriate.
+     * Parses the fields that an update request names. A field that the request omits stays
+     * null: the update does not change it and no default is applied.
+     *
+     * @throws IllegalArgumentException if the start position or a heartbeat value is invalid
      */
-    public Future<SubscriptionOptions> getSubscriptionOptionsInternal(String setupId, String queueName, String groupName) {
-        // Use topic naming convention: setupId-queueName
-        String topic = setupId + "-" + queueName;
+    private SubscriptionSettingsUpdate parseSubscriptionSettingsUpdate(JsonObject json) {
+        StartPosition startPosition = null;
+        Long startFromMessageId = null;
+        Instant startFromTimestamp = null;
 
-        try {
-            // Get SubscriptionService for this setup
-            SubscriptionService subscriptionService = subscriptionManagerFactory.getManager(setupId);
+        String startPositionStr = json.getString("startPosition");
+        if (startPositionStr != null) {
+            try {
+                startPosition = StartPosition.valueOf(startPositionStr);
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException("Invalid start position: " + startPositionStr);
+            }
 
-            return subscriptionService.getSubscription(topic, groupName)
-                .map(subscriptionInfo -> {
-                    if (subscriptionInfo == null) {
-                        return null;
+            switch (startPosition) {
+                case FROM_MESSAGE_ID:
+                    startFromMessageId = json.getLong("startFromMessageId");
+                    break;
+                case FROM_TIMESTAMP:
+                    String timestampStr = json.getString("startFromTimestamp");
+                    if (timestampStr != null) {
+                        try {
+                            startFromTimestamp = Instant.parse(timestampStr);
+                        } catch (DateTimeParseException e) {
+                            throw new IllegalArgumentException("Invalid startFromTimestamp: " + timestampStr, e);
+                        }
                     }
-                    return subscriptionInfoToOptions(subscriptionInfo);
-                })
-                .transform(ar -> {
-                    if (ar.failed()) {
-                        logger.debug("No subscription options found for consumer group '{}' on topic '{}', caller should use defaults: {}",
-                                   groupName, topic, ar.cause().getMessage());
-                        return Future.succeededFuture(null);
-                    }
-                    return Future.succeededFuture(ar.result());
-                });
-        } catch (Exception e) {
-            logger.debug("No subscription options found for consumer group '{}' on topic '{}', caller should use defaults: {}",
-                       groupName, topic, e.getMessage());
-            return Future.succeededFuture(null);
+                    break;
+                default:
+                    // FROM_NOW and FROM_BEGINNING don't need additional fields
+                    break;
+            }
         }
+
+        return new SubscriptionSettingsUpdate(
+            json.getInteger("heartbeatIntervalSeconds"),
+            json.getInteger("heartbeatTimeoutSeconds"),
+            startPosition,
+            startFromMessageId,
+            startFromTimestamp);
     }
-    
+
     /**
      * Parses subscription options from JSON.
      */

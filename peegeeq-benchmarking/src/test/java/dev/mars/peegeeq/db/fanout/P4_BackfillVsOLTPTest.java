@@ -3,6 +3,7 @@ package dev.mars.peegeeq.db.fanout;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.messaging.BackfillScope;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.subscription.SubscriptionStore;
 import dev.mars.peegeeq.db.BaseIntegrationTest;
 import dev.mars.peegeeq.db.cleanup.CleanupService;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
@@ -277,8 +278,8 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
         topicConfigService.createTopic(topicConfig)
             .compose(v -> seedHistoricalMessages(topic, historicalMessageCount))
             .compose(v -> markOldestMessagesCompleted(topic, completedHistoricalCount))
-            .compose(v -> subscriptionManager.subscribe(topic, backfillGroup, SubscriptionOptions.fromBeginning()).mapEmpty())
-            .compose(v -> subscriptionManager.subscribe(topic, oltpGroup, SubscriptionOptions.defaults()).mapEmpty())
+            .compose(v -> subscriptionManager.subscribe(topic, backfillGroup, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning()).mapEmpty())
+            .compose(v -> subscriptionManager.subscribe(topic, oltpGroup, SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()).mapEmpty())
             .compose(v -> {
                 long testStart = System.currentTimeMillis();
                 testStartRef.set(testStart);
@@ -339,8 +340,8 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
     ) {
         testTopics.add(topic);
         return topicConfigService.createTopic(topicConfig)
-            .compose(v -> subscriptionManager.subscribe(topic, backfillGroup, SubscriptionOptions.defaults()).mapEmpty())
-            .compose(v -> subscriptionManager.subscribe(topic, oltpGroup, SubscriptionOptions.defaults()).mapEmpty());
+            .compose(v -> subscriptionManager.subscribe(topic, backfillGroup, SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()).mapEmpty())
+            .compose(v -> subscriptionManager.subscribe(topic, oltpGroup, SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()).mapEmpty());
     }
 
     private Future<Void> runBackfillLoop(

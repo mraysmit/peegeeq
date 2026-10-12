@@ -26,6 +26,7 @@ import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.api.messaging.StartPosition;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.subscription.SubscriptionStore;
 import dev.mars.peegeeq.db.subscription.SubscriptionManager;
 import dev.mars.peegeeq.db.subscription.TopicConfig;
 import dev.mars.peegeeq.db.subscription.TopicConfigService;
@@ -54,6 +55,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 import io.vertx.junit5.VertxTestContext;
@@ -177,7 +179,7 @@ class LateJoiningConsumerDemoTest {
      */
     @Test
     void testFromNowConsumer(VertxTestContext testContext) throws InterruptedException {
-        String topic = "orders.events";
+        String topic = uniqueTopic("orders.events");
         String emailGroup = "email-service";
 
         TopicConfig topicConfig = TopicConfig.builder()
@@ -204,7 +206,7 @@ class LateJoiningConsumerDemoTest {
                 }
                 return chain;
             })
-            .compose(v -> subscriptionManager.subscribe(topic, emailGroup, SubscriptionOptions.defaults()))
+            .compose(v -> subscriptionManager.subscribe(topic, emailGroup, SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()))
             .compose(v -> {
                 Future<Void> chain = Future.succeededFuture();
                 for (int i = 11; i <= 15; i++) {
@@ -245,7 +247,7 @@ class LateJoiningConsumerDemoTest {
      */
     @Test
     void testFromBeginningConsumer(VertxTestContext testContext) throws InterruptedException {
-        String topic = "orders.analytics";
+        String topic = uniqueTopic("orders.analytics");
         String emailGroup = "email-service";
         String analyticsGroup = "analytics-service";
 
@@ -261,7 +263,7 @@ class LateJoiningConsumerDemoTest {
         List<Long> allMessageIds = new ArrayList<>();
 
         topicConfigService.createTopic(topicConfig)
-            .compose(v -> subscriptionManager.subscribe(topic, emailGroup, SubscriptionOptions.defaults()))
+            .compose(v -> subscriptionManager.subscribe(topic, emailGroup, SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()))
             .compose(v -> {
                 Future<Void> chain = Future.succeededFuture();
                 for (int i = 1; i <= 20; i++) {
@@ -276,7 +278,7 @@ class LateJoiningConsumerDemoTest {
                 }
                 return chain;
             })
-            .compose(v -> subscriptionManager.subscribe(topic, analyticsGroup, fromBeginningOptions))
+            .compose(v -> subscriptionManager.subscribe(topic, analyticsGroup, SubscriptionStore.OUTBOX, fromBeginningOptions))
             .compose(v -> fetcher.fetchMessages(topic, analyticsGroup, 25))
             .onSuccess(analyticsMessages -> testContext.verify(() -> {
                 assertEquals(20, analyticsMessages.size(),
@@ -303,7 +305,7 @@ class LateJoiningConsumerDemoTest {
      */
     @Test
     void testFromTimestampConsumer(VertxTestContext testContext) throws InterruptedException {
-        String topic = "orders.replay";
+        String topic = uniqueTopic("orders.replay");
         String replayGroup = "disaster-recovery-service";
 
         TopicConfig topicConfig = TopicConfig.builder()
@@ -347,7 +349,7 @@ class LateJoiningConsumerDemoTest {
                             .mapEmpty());
                 }
                 return chain.compose(unused ->
-                    subscriptionManager.subscribe(topic, replayGroup, fromTimestampOptions));
+                    subscriptionManager.subscribe(topic, replayGroup, SubscriptionStore.OUTBOX, fromTimestampOptions));
             })
             .compose(v -> fetcher.fetchMessages(topic, replayGroup, 25))
             .onSuccess(replayMessages -> testContext.verify(() -> {
@@ -366,6 +368,15 @@ class LateJoiningConsumerDemoTest {
     }
 
     // Helper Methods
+
+    /**
+     * Returns a topic name that no earlier run used. The test database is reused between
+     * runs, and a subscription on a topic of an earlier run keeps the start bound that the
+     * earlier run stored.
+     */
+    private static String uniqueTopic(String name) {
+        return name + "-" + UUID.randomUUID().toString().substring(0, 8);
+    }
 
     /**
      * Inserts a message into the outbox table.

@@ -173,7 +173,10 @@ public class SubscriptionLifecycleIntegrationTest {
         SubscriptionOptions options = SubscriptionOptions.builder()
             .build();  // Uses FROM_NOW with default heartbeat settings
 
-        return subscriptionService.subscribe(TOPIC_NAME, GROUP_NAME, options)
+        // The topic is a queue of the setup. Its queue factory declares the subscription store.
+        return setupService.getSetupResult(setupId)
+            .compose(setupResult -> subscriptionService.subscribe(TOPIC_NAME, GROUP_NAME,
+                setupResult.getQueueFactories().get(TOPIC_NAME).getSubscriptionStore(), options))
             .onSuccess(v -> logger.info("Subscription created: topic={}, group={}", TOPIC_NAME, GROUP_NAME))
             .onFailure(e -> logger.error("Failed to create subscription: {}", e.getMessage(), e));
     }

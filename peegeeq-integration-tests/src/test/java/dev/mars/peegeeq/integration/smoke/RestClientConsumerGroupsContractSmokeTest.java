@@ -23,7 +23,9 @@ import dev.mars.peegeeq.client.PeeGeeQRestClient;
 import dev.mars.peegeeq.client.config.ClientConfig;
 import dev.mars.peegeeq.client.dto.ConsumerGroupInfo;
 import dev.mars.peegeeq.client.dto.SubscriptionOptionsRequest;
+import dev.mars.peegeeq.client.exception.PeeGeeQApiException;
 import dev.mars.peegeeq.integration.SmokeTestBase;
+import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -169,9 +171,11 @@ class RestClientConsumerGroupsContractSmokeTest extends SmokeTestBase {
                     assertFalse(member.isActive(),
                         "a member joined to a not-started group is inactive on the real payload; got " + member);
                 });
+                // The group has no subscription yet, so this request creates it.
                 return client.updateSubscriptionOptions(setupId, queueName, groupName,
                     new SubscriptionOptionsRequest()
-                        .withStartPosition("FROM_NOW")
+                        .withStartPosition("FROM_MESSAGE_ID")
+                        .withStartFromMessageId(42L)
                         .withHeartbeatIntervalSeconds(15)
                         .withHeartbeatTimeoutSeconds(45));
             })
@@ -183,8 +187,10 @@ class RestClientConsumerGroupsContractSmokeTest extends SmokeTestBase {
                         "updateSubscriptionOptions must echo queueName; got " + updated);
                     assertEquals(groupName, updated.groupName(),
                         "updateSubscriptionOptions must echo groupName; got " + updated);
-                    assertEquals("FROM_NOW", updated.startPosition(),
+                    assertEquals("FROM_MESSAGE_ID", updated.startPosition(),
                         "updateSubscriptionOptions must unwrap subscriptionOptions.startPosition; got " + updated);
+                    assertEquals(42L, updated.startFromMessageId(),
+                        "updateSubscriptionOptions must map the stored startFromMessageId; got " + updated);
                     assertEquals(15, updated.heartbeatIntervalSeconds(),
                         "updateSubscriptionOptions must map heartbeatIntervalSeconds; got " + updated);
                     assertEquals(45, updated.heartbeatTimeoutSeconds(),
@@ -196,11 +202,10 @@ class RestClientConsumerGroupsContractSmokeTest extends SmokeTestBase {
             })
             .compose(options -> {
                 testContext.verify(() -> {
-                    // FROM_NOW does not round-trip by server design: subscribe resolves
-                    // it to start_from_message_id = maxId + 1 (1 on this empty queue),
-                    // and the get endpoint reconstructs id 1 as FROM_BEGINNING.
-                    assertEquals("FROM_BEGINNING", options.startPosition(),
-                        "getSubscriptionOptions must map the server's watermark reconstruction of FROM_NOW on an empty queue; got " + options);
+                    assertEquals("FROM_MESSAGE_ID", options.startPosition(),
+                        "getSubscriptionOptions must round-trip the FROM_MESSAGE_ID start position; got " + options);
+                    assertEquals(42L, options.startFromMessageId(),
+                        "getSubscriptionOptions must round-trip startFromMessageId; got " + options);
                     assertEquals(15, options.heartbeatIntervalSeconds(),
                         "getSubscriptionOptions must round-trip heartbeatIntervalSeconds; got " + options);
                     assertEquals(45, options.heartbeatTimeoutSeconds(),
@@ -208,24 +213,49 @@ class RestClientConsumerGroupsContractSmokeTest extends SmokeTestBase {
                     assertNotNull(options.status(),
                         "the get payload emits a status for a configured subscription; got " + options);
                 });
+                // The subscription exists now. A request that names one heartbeat setting
+                // changes that setting only, and the response returns the stored options.
                 return client.updateSubscriptionOptions(setupId, queueName, groupName,
                     new SubscriptionOptionsRequest()
-                        .withStartPosition("FROM_MESSAGE_ID")
-                        .withStartFromMessageId(42L)
-                        .withHeartbeatIntervalSeconds(15)
-                        .withHeartbeatTimeoutSeconds(45));
+                        .withHeartbeatIntervalSeconds(20));
             })
             .compose(updated -> {
-                testContext.verify(() -> assertEquals(42L, updated.startFromMessageId(),
-                    "updateSubscriptionOptions must map the echoed startFromMessageId; got " + updated));
-                return client.getSubscriptionOptions(setupId, queueName, groupName);
+                testContext.verify(() -> {
+                    assertEquals(20, updated.heartbeatIntervalSeconds(),
+                        "the named heartbeat interval must be stored; got " + updated);
+                    assertEquals(45, updated.heartbeatTimeoutSeconds(),
+                        "the omitted heartbeat timeout must keep its stored value; got " + updated);
+                    assertEquals("FROM_MESSAGE_ID", updated.startPosition(),
+                        "the omitted start position must keep its stored value; got " + updated);
+                    assertEquals(42L, updated.startFromMessageId(),
+                        "the omitted start bound must keep its stored value; got " + updated);
+                });
+                // A request that names another start bound is refused with 409.
+                return client.updateSubscriptionOptions(setupId, queueName, groupName,
+                        new SubscriptionOptionsRequest()
+                            .withStartPosition("FROM_MESSAGE_ID")
+                            .withStartFromMessageId(43L))
+                    .transform(result -> {
+                        if (result.succeeded()) {
+                            return Future.<Void>failedFuture(new AssertionError(
+                                "an update that names another start bound must fail; got " + result.result()));
+                        }
+                        if (result.cause() instanceof PeeGeeQApiException apiException
+                                && apiException.getStatusCode() == 409) {
+                            return Future.<Void>succeededFuture();
+                        }
+                        return Future.<Void>failedFuture(new AssertionError(
+                            "an update that names another start bound must fail with HTTP 409, but failed with: "
+                                + result.cause(), result.cause()));
+                    });
             })
+            .compose(v -> client.getSubscriptionOptions(setupId, queueName, groupName))
             .compose(options -> {
                 testContext.verify(() -> {
-                    assertEquals("FROM_MESSAGE_ID", options.startPosition(),
-                        "getSubscriptionOptions must round-trip the FROM_MESSAGE_ID start position; got " + options);
                     assertEquals(42L, options.startFromMessageId(),
-                        "getSubscriptionOptions must round-trip startFromMessageId; got " + options);
+                        "a refused update must keep the stored start bound; got " + options);
+                    assertEquals(20, options.heartbeatIntervalSeconds(),
+                        "a refused update must keep the stored heartbeat interval; got " + options);
                 });
                 return cleanupSetupStrict(setupId);
             })

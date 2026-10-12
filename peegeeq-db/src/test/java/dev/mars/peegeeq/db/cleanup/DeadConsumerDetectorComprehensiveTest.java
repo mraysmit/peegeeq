@@ -25,6 +25,7 @@ import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.subscription.SubscriptionStore;
 import dev.mars.peegeeq.db.subscription.SubscriptionManager;
 import dev.mars.peegeeq.db.subscription.TopicConfig;
 import dev.mars.peegeeq.db.subscription.TopicConfigService;
@@ -618,7 +619,7 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
                 .heartbeatIntervalSeconds(Math.max(1, timeoutSeconds / 2))
                 .heartbeatTimeoutSeconds(timeoutSeconds)
                 .build();
-        return subscriptionManager.subscribe(topic, groupName, options)
+        return subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, options)
                 .compose(v -> setDeadAfterMisses(topic, groupName, 1));
     }
 

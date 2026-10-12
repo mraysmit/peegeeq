@@ -100,6 +100,11 @@ class OutboxConsumerGroupSubscriptionTest {
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start()
+                // Each test creates its own subscription. A start keeps a stored start bound, so a
+                // subscription left by an earlier test would decide the start position of this one.
+                .compose(v -> manager.getPool().withTransaction(connection -> connection
+                        .preparedQuery("DELETE FROM outbox_topic_subscriptions WHERE topic = $1")
+                        .execute(Tuple.of("test-topic"))))
                 .onSuccess(v -> {
                     DatabaseService databaseService = new PgDatabaseService(manager);
                     QueueFactoryProvider provider = new PgQueueFactoryProvider();
@@ -171,6 +176,32 @@ class OutboxConsumerGroupSubscriptionTest {
                 .onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        }
+
+        @Test
+        @DisplayName("should resolve FROM_NOW against the outbox table")
+        void testStartWithOptions_FromNowStoresTheNextOutboxId(VertxTestContext testContext) {
+            ConsumerGroup<String> group = factory.createConsumerGroup(
+                "store-group", "test-topic", String.class);
+            group.addConsumer("consumer-1", msg -> Future.succeededFuture());
+
+            // The topic has rows in both message tables, and its next id differs between them.
+            insertMessages("outbox", 2)
+                .compose(v -> insertMessages("queue_messages", 5))
+                .compose(v -> Future.all(nextMessageId("outbox"), nextMessageId("queue_messages")))
+                .compose(nextIds -> group.start(SubscriptionOptions.defaults())
+                    .compose(started -> storedStartBound("store-group"))
+                    .map(storedBound -> {
+                        long nextOutboxId = nextIds.resultAt(0);
+                        long nextQueueMessageId = nextIds.resultAt(1);
+                        assertNotEquals(nextOutboxId, nextQueueMessageId,
+                            "The test needs different next ids in the two message tables");
+                        assertEquals(nextOutboxId, storedBound,
+                            "FROM_NOW must resolve to the next id of the topic in outbox: outbox="
+                                + nextOutboxId + ", queue_messages=" + nextQueueMessageId);
+                        return (Void) null;
+                    }))
+                .onComplete(testContext.succeedingThenComplete());
         }
 
         @Test
@@ -588,6 +619,33 @@ class OutboxConsumerGroupSubscriptionTest {
                 executor.shutdown();
             }
         }
+    }
+
+    private Future<Void> insertMessages(String table, int count) {
+        String sql = "INSERT INTO " + table + " (topic, payload) "
+            + "SELECT $1::varchar, '{}'::jsonb FROM generate_series(1, $2::int)";
+        return manager.getPool().withTransaction(connection -> connection
+            .preparedQuery(sql)
+            .execute(Tuple.of("test-topic", count))
+            .mapEmpty());
+    }
+
+    private Future<Long> nextMessageId(String table) {
+        return manager.getPool()
+            .preparedQuery("SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM " + table + " WHERE topic = $1")
+            .execute(Tuple.of("test-topic"))
+            .map(rows -> rows.iterator().next().getLong("next_id"));
+    }
+
+    private Future<Long> storedStartBound(String groupName) {
+        return manager.getPool()
+            .preparedQuery("""
+                SELECT start_from_message_id
+                FROM outbox_topic_subscriptions
+                WHERE topic = $1 AND group_name = $2
+                """)
+            .execute(Tuple.of("test-topic", groupName))
+            .map(rows -> rows.iterator().next().getLong("start_from_message_id"));
     }
 
     private Future<Void> sendBatch(String prefix, int count) {

@@ -38,11 +38,12 @@ class SubscriptionStatusTest {
     void testEnumValues() {
         SubscriptionStatus[] values = SubscriptionStatus.values();
         
-        assertEquals(4, values.length);
+        assertEquals(5, values.length);
         assertEquals(SubscriptionStatus.ACTIVE, values[0]);
         assertEquals(SubscriptionStatus.PAUSED, values[1]);
         assertEquals(SubscriptionStatus.CANCELLED, values[2]);
         assertEquals(SubscriptionStatus.DEAD, values[3]);
+        assertEquals(SubscriptionStatus.STOPPED, values[4]);
     }
 
     @Test
@@ -51,6 +52,7 @@ class SubscriptionStatusTest {
         assertEquals(SubscriptionStatus.PAUSED, SubscriptionStatus.valueOf("PAUSED"));
         assertEquals(SubscriptionStatus.CANCELLED, SubscriptionStatus.valueOf("CANCELLED"));
         assertEquals(SubscriptionStatus.DEAD, SubscriptionStatus.valueOf("DEAD"));
+        assertEquals(SubscriptionStatus.STOPPED, SubscriptionStatus.valueOf("STOPPED"));
     }
 
     @Test
@@ -75,6 +77,7 @@ class SubscriptionStatusTest {
         assertEquals("PAUSED", SubscriptionStatus.PAUSED.toString());
         assertEquals("CANCELLED", SubscriptionStatus.CANCELLED.toString());
         assertEquals("DEAD", SubscriptionStatus.DEAD.toString());
+        assertEquals("STOPPED", SubscriptionStatus.STOPPED.toString());
     }
 
     @Test
@@ -83,6 +86,7 @@ class SubscriptionStatusTest {
         assertEquals("PAUSED", SubscriptionStatus.PAUSED.name());
         assertEquals("CANCELLED", SubscriptionStatus.CANCELLED.name());
         assertEquals("DEAD", SubscriptionStatus.DEAD.name());
+        assertEquals("STOPPED", SubscriptionStatus.STOPPED.name());
     }
 
     @Test
@@ -91,6 +95,7 @@ class SubscriptionStatusTest {
         assertEquals(1, SubscriptionStatus.PAUSED.ordinal());
         assertEquals(2, SubscriptionStatus.CANCELLED.ordinal());
         assertEquals(3, SubscriptionStatus.DEAD.ordinal());
+        assertEquals(4, SubscriptionStatus.STOPPED.ordinal());
     }
 
     @Test
@@ -101,6 +106,10 @@ class SubscriptionStatusTest {
         assertNotEquals(SubscriptionStatus.PAUSED, SubscriptionStatus.CANCELLED);
         assertNotEquals(SubscriptionStatus.PAUSED, SubscriptionStatus.DEAD);
         assertNotEquals(SubscriptionStatus.CANCELLED, SubscriptionStatus.DEAD);
+        assertNotEquals(SubscriptionStatus.ACTIVE, SubscriptionStatus.STOPPED);
+        assertNotEquals(SubscriptionStatus.PAUSED, SubscriptionStatus.STOPPED);
+        assertNotEquals(SubscriptionStatus.CANCELLED, SubscriptionStatus.STOPPED);
+        assertNotEquals(SubscriptionStatus.DEAD, SubscriptionStatus.STOPPED);
     }
 }
 

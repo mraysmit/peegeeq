@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS {schema}.outbox_topic_subscriptions (
     topic VARCHAR(255) NOT NULL,
     group_name VARCHAR(255) NOT NULL,
     durable_enabled BOOLEAN DEFAULT TRUE,
-    subscription_status VARCHAR(20) DEFAULT 'ACTIVE' CHECK (subscription_status IN ('ACTIVE', 'PAUSED', 'CANCELLED', 'DEAD')),
+    subscription_status VARCHAR(20) DEFAULT 'ACTIVE' CHECK (subscription_status IN ('ACTIVE', 'PAUSED', 'CANCELLED', 'DEAD', 'STOPPED')),
     subscribed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     last_active_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     start_from_message_id BIGINT,

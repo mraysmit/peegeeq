@@ -17,7 +17,11 @@ package dev.mars.peegeeq.outbox;
  */
 
 import dev.mars.peegeeq.api.database.DatabaseService;
+import dev.mars.peegeeq.api.messaging.MessageProducer;
+import dev.mars.peegeeq.api.messaging.StartPosition;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
+import dev.mars.peegeeq.api.subscription.SubscriptionState;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
@@ -28,9 +32,11 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -42,9 +48,10 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.lang.reflect.Field;
 import java.util.Properties;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.*;
 import org.slf4j.Logger;
@@ -53,9 +60,9 @@ import org.slf4j.LoggerFactory;
 /**
  * Integration tests for {@link OutboxConsumerGroup#stopGracefully()} against a real PostgreSQL container.
  *
- * <p>Validates that graceful shutdown cancels the subscription in the database
- * when the group was started with subscription options, and is a no-op when
- * the group was started without subscription options or is not active.</p>
+ * <p>Validates that graceful shutdown stores the status STOPPED for the subscription
+ * when the group was started with subscription options, runs no cleanup, and is a
+ * no-op when the group was started without subscription options or is not active.</p>
  *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2026-04-04
@@ -152,7 +159,7 @@ class OutboxConsumerGroupGracefulShutdownTest {
     // =========================================================================
 
     @Test
-    @DisplayName("stopGracefully on group started without subscription stops locally, no cancel call")
+    @DisplayName("stopGracefully on group started without subscription stops locally, no status update")
     void stopGracefully_withoutSubscription_stopsLocallyOnly(VertxTestContext testContext) throws Exception {
         group = createGroup("local-group", "test-topic");
         group.addConsumer("c1", msg -> Future.succeededFuture());
@@ -161,70 +168,163 @@ class OutboxConsumerGroupGracefulShutdownTest {
                 .compose(v -> group.stopGracefully())
                 .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     assertFalse(group.isActive(), "Group should be stopped");
-                    // Group was started without SubscriptionOptions: stopGracefully completes without DB cancel
+                    // Group was started without SubscriptionOptions: stopGracefully completes without a status update
                     testContext.completeNow();
                 })));
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     // =========================================================================
-    // With subscription cancel then stop
+    // With subscription: store STOPPED, then stop
     // =========================================================================
 
     @Test
-    @DisplayName("stopGracefully on subscription-started group cancels subscription then stops")
-    void stopGracefully_withSubscription_cancelsAndStops(VertxTestContext testContext) throws Exception {
+    @DisplayName("stopGracefully on subscription-started group stores STOPPED then stops")
+    void stopGracefully_withSubscription_storesStoppedAndStops(VertxTestContext testContext) throws Exception {
         group = createGroup("sub-group", "test-topic");
         group.addConsumer("c1", msg -> Future.succeededFuture());
-        // Start with subscription options  creates the subscription in the DB
+        // Start with subscription options: creates the subscription in the DB
         group.start(SubscriptionOptions.builder().build())
                 .map(v -> { testContext.verify(() -> assertTrue(group.isActive())); return v; })
                 .compose(v -> group.stopGracefully())
-                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                .compose(v -> subscriptionState("test-topic", "sub-group"))
+                .onComplete(testContext.succeeding(state -> testContext.verify(() -> {
                     assertFalse(group.isActive(), "Group should be stopped");
+                    assertEquals(SubscriptionState.STOPPED, state,
+                            "stopGracefully must store STOPPED for the subscription");
                     testContext.completeNow();
                 })));
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test
-    @DisplayName("stopGracefully when cancel fails still stops the group")
-    void stopGracefully_cancelFails_stillStops(VertxTestContext testContext) throws Exception {
-        group = createGroup("no-sub-cancel-fail-group", "test-topic");
+    @DisplayName("start after stopGracefully makes the stopped subscription ACTIVE")
+    void start_afterStopGracefully_makesSubscriptionActive(VertxTestContext testContext) throws Exception {
+        group = createGroup("restart-group", "test-topic");
         group.addConsumer("c1", msg -> Future.succeededFuture());
-        group.start()
-                .map(v -> { testContext.verify(() -> assertTrue(group.isActive())); return v; })
-                .compose(v -> {
-                    // Force startedWithSubscription=true without actually creating a DB subscription,
-                    // so the cancel call will fail (subscription not found in DB).
-                    // stopGracefully() must still succeed via its .transform(ar -> succeededFuture()) guard.
-                    try {
-                        setPrivateField(group, "startedWithSubscription", true);
-                    } catch (Exception e) {
-                        return Future.failedFuture(e);
+        SubscriptionOptions options = SubscriptionOptions.builder().build();
+        group.start(options)
+                .compose(v -> group.stopGracefully())
+                .compose(v -> subscriptionState("test-topic", "restart-group"))
+                .compose(state -> {
+                    assertEquals(SubscriptionState.STOPPED, state,
+                            "Pre-condition: the subscription must be STOPPED before the restart");
+                    return group.start(options);
+                })
+                .compose(v -> subscriptionState("test-topic", "restart-group"))
+                .onComplete(testContext.succeeding(state -> testContext.verify(() -> {
+                    assertTrue(group.isActive(), "Group should be active after the restart");
+                    assertEquals(SubscriptionState.ACTIVE, state,
+                            "A start must make the stopped subscription ACTIVE");
+                    testContext.completeNow();
+                })));
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+    }
+
+    @Test
+    @DisplayName("start after stopGracefully delivers a message sent while the group was stopped")
+    void start_afterStopGracefully_deliversMessageSentWhileStopped(VertxTestContext testContext) throws Exception {
+        String topic = "restart-delivery-topic-" + UUID.randomUUID().toString().substring(0, 8);
+        group = createGroup("restart-delivery-group", topic);
+        Promise<String> received = Promise.promise();
+        group.addConsumer("c1", msg -> {
+            received.tryComplete(msg.getPayload());
+            return Future.succeededFuture();
+        });
+        OutboxFactory producerFactory = new OutboxFactory(databaseService, config);
+        MessageProducer<String> producer = producerFactory.createProducer(topic, String.class);
+        // Both starts name FROM_NOW. The first start creates the start bound. The second start
+        // must keep it, so the message sent while the group was stopped is inside the bound.
+        SubscriptionOptions options = SubscriptionOptions.builder().build();
+        group.start(options)
+                .compose(v -> group.stopGracefully())
+                .compose(v -> producer.send("sent-while-stopped"))
+                .compose(v -> group.start(options))
+                .compose(v -> received.future())
+                // The producer factory is closed whatever the result. The scenario failure comes
+                // first; a failed close fails the test when the scenario passed.
+                .transform(result -> producerFactory.close().transform(closed -> {
+                    if (result.failed()) {
+                        return Future.<String>failedFuture(result.cause());
                     }
+                    if (closed.failed()) {
+                        return Future.<String>failedFuture(closed.cause());
+                    }
+                    return Future.succeededFuture(result.result());
+                }))
+                .onComplete(testContext.succeeding(payload -> testContext.verify(() -> {
+                    assertEquals("sent-while-stopped", payload);
+                    testContext.completeNow();
+                })));
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS),
+                "The message sent while the group was stopped was not delivered after the restart");
+    }
+
+    @Test
+    @DisplayName("stopGracefully leaves a pending message of the topic PENDING")
+    void stopGracefully_leavesPendingMessagePending(VertxTestContext testContext) throws Exception {
+        String topic = "pending-topic-" + UUID.randomUUID().toString().substring(0, 8);
+        group = createGroup("pending-group", topic);
+        group.addConsumer("c1", msg -> Future.succeededFuture());
+        AtomicLong messageId = new AtomicLong();
+        // The start position is above every message id, so the running group never claims the message.
+        group.start(SubscriptionOptions.builder()
+                        .startPosition(StartPosition.FROM_MESSAGE_ID)
+                        .startFromMessageId(Long.MAX_VALUE)
+                        .build())
+                .compose(v -> insertPendingMessageAfterSubscription(topic, "pending-group"))
+                .compose(id -> {
+                    messageId.set(id);
                     return group.stopGracefully();
                 })
-                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
-                    assertFalse(group.isActive(), "Group should be stopped even when cancel fails");
+                .compose(v -> messageStatus(messageId.get()))
+                .onComplete(testContext.succeeding(status -> testContext.verify(() -> {
+                    assertEquals("PENDING", status,
+                            "A graceful stop must not change a pending message of the topic");
                     testContext.completeNow();
                 })));
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test
-    @DisplayName("stopGracefully after stop() is no-op does not cancel again")
+    @DisplayName("stopGracefully stops the group and returns the failure when the status update fails")
+    void stopGracefully_statusUpdateFails_stopsAndReturnsFailure(VertxTestContext testContext) throws Exception {
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Failed to stop subscription') is EXPECTED: this test deletes the subscription row so the status update of stopGracefully fails");
+        group = createGroup("status-update-fails-group", "test-topic");
+        group.addConsumer("c1", msg -> Future.succeededFuture());
+        group.start(SubscriptionOptions.builder().build())
+                // Without its row the status update fails with "Subscription not found".
+                .compose(v -> deleteSubscription("test-topic", "status-update-fails-group"))
+                .compose(v -> group.stopGracefully())
+                .onSuccess(v -> testContext.failNow("stopGracefully must return the failed status update"))
+                .onFailure(err -> testContext.verify(() -> {
+                    assertInstanceOf(IllegalStateException.class, err);
+                    assertTrue(err.getMessage().contains("Subscription not found"),
+                            "The failure of the status update must be returned; got: " + err.getMessage());
+                    assertFalse(group.isActive(), "Group must be stopped when the status update fails");
+                    testContext.completeNow();
+                }));
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+    }
+
+    @Test
+    @DisplayName("stopGracefully after stop() is a no-op and the subscription stays ACTIVE")
     void stopGracefully_afterStop_isNoOp(VertxTestContext testContext) throws Exception {
         group = createGroup("stop-then-graceful", "test-topic");
         group.addConsumer("c1", msg -> Future.succeededFuture());
         // Start with subscription options, then stop (not gracefully), then verify stopGracefully is no-op
         group.start(SubscriptionOptions.builder().build())
                 .map(v -> { testContext.verify(() -> assertTrue(group.isActive())); return v; })
-                .compose(v -> group.stop())  // regular stop  does not cancel DB subscription
-                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                .compose(v -> group.stop())  // regular stop: instance-local, no status update
+                .compose(v -> {
                     assertFalse(group.isActive());
                     var future = group.stopGracefully();
-                    assertTrue(future.succeeded(), "Should succeed as no-op  group is already stopped");
+                    assertTrue(future.succeeded(), "Should succeed as no-op: group is already stopped");
+                    return subscriptionState("test-topic", "stop-then-graceful");
+                })
+                .onComplete(testContext.succeeding(state -> testContext.verify(() -> {
+                    assertEquals(SubscriptionState.ACTIVE, state,
+                            "stop() and a no-op stopGracefully must leave the subscription status unchanged");
                     testContext.completeNow();
                 })));
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
@@ -240,18 +340,41 @@ class OutboxConsumerGroupGracefulShutdownTest {
                 databaseService, null, null, config);
     }
 
-    private static void setPrivateField(Object target, String fieldName, Object value) throws Exception {
-        Class<?> clazz = target.getClass();
-        while (clazz != null) {
-            try {
-                Field field = clazz.getDeclaredField(fieldName);
-                field.setAccessible(true);
-                field.set(target, value);
-                return;
-            } catch (NoSuchFieldException e) {
-                clazz = clazz.getSuperclass();
-            }
-        }
-        throw new NoSuchFieldException("Field '" + fieldName + "' not found on " + target.getClass().getName());
+    private Future<SubscriptionState> subscriptionState(String topic, String groupName) {
+        return databaseService.getSubscriptionService()
+                .getSubscription(topic, groupName)
+                .map(SubscriptionInfo::state);
+    }
+
+    /**
+     * Inserts a PENDING message whose creation time is one second after the group subscribed.
+     * The creation time is derived from the stored subscription time, so the test does not
+     * depend on the clocks of the JVM and the database being equal.
+     */
+    private Future<Long> insertPendingMessageAfterSubscription(String topic, String groupName) {
+        return manager.getPool().withTransaction(connection -> connection
+                .preparedQuery("""
+                    INSERT INTO outbox (topic, payload, status, created_at)
+                    SELECT s.topic, $1::jsonb, 'PENDING', s.subscribed_at + INTERVAL '1 second'
+                    FROM outbox_topic_subscriptions s
+                    WHERE s.topic = $2 AND s.group_name = $3
+                    RETURNING id
+                    """)
+                .execute(Tuple.of("{\"value\": \"pending-after-subscription\"}", topic, groupName))
+                .map(rows -> rows.iterator().next().getLong("id")));
+    }
+
+    private Future<String> messageStatus(long messageId) {
+        return manager.getPool()
+                .preparedQuery("SELECT status FROM outbox WHERE id = $1")
+                .execute(Tuple.of(messageId))
+                .map(rows -> rows.iterator().next().getString("status"));
+    }
+
+    private Future<Void> deleteSubscription(String topic, String groupName) {
+        return manager.getPool().withTransaction(connection -> connection
+                .preparedQuery("DELETE FROM outbox_topic_subscriptions WHERE topic = $1 AND group_name = $2")
+                .execute(Tuple.of(topic, groupName))
+                .mapEmpty());
     }
 }

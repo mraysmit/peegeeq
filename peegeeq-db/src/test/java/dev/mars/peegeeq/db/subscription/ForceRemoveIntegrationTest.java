@@ -20,6 +20,7 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.api.subscription.ForceRemoveResult;
 import dev.mars.peegeeq.api.subscription.SubscriptionState;
+import dev.mars.peegeeq.api.subscription.SubscriptionStore;
 import dev.mars.peegeeq.db.BaseIntegrationTest;
 import dev.mars.peegeeq.db.cleanup.DeadConsumerGroupCleanup;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
@@ -115,7 +116,7 @@ class ForceRemoveIntegrationTest extends BaseIntegrationTest {
         String topic = "force-rm-topic-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "force-rm-group-" + UUID.randomUUID().toString().substring(0, 8);
 
-        subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.builder().build())
+        subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.builder().build())
                 .compose(v -> subscriptionManager.forceRemoveConsumerGroup(topic, groupName))
                 .compose(result -> {
                     ctx.verify(() -> {
@@ -144,7 +145,7 @@ class ForceRemoveIntegrationTest extends BaseIntegrationTest {
         String topic = "force-rm-dead-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "force-rm-dead-g-" + UUID.randomUUID().toString().substring(0, 8);
 
-        subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.builder().build())
+        subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.builder().build())
                 // Manually mark as DEAD first
                 .compose(v -> updateStatusDirectly(topic, groupName, SubscriptionStatus.DEAD))
                 .compose(v -> subscriptionManager.forceRemoveConsumerGroup(topic, groupName))
@@ -188,7 +189,7 @@ class ForceRemoveIntegrationTest extends BaseIntegrationTest {
         String topic = "force-rm-cancel-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "force-rm-cancel-g-" + UUID.randomUUID().toString().substring(0, 8);
 
-        subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.builder().build())
+        subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.builder().build())
                 .compose(v -> subscriptionManager.cancel(topic, groupName))
                 .compose(v -> subscriptionManager.forceRemoveConsumerGroup(topic, groupName))
                 .onComplete(ctx.failing(err -> ctx.verify(() -> {
@@ -207,7 +208,7 @@ class ForceRemoveIntegrationTest extends BaseIntegrationTest {
         String topic = "force-rm-idempotent-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "force-rm-idemp-g-" + UUID.randomUUID().toString().substring(0, 8);
 
-        subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.builder().build())
+        subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.builder().build())
                 .compose(v -> subscriptionManager.forceRemoveConsumerGroup(topic, groupName))
                 .compose(result -> {
                     ctx.verify(() -> assertEquals("ACTIVE", result.previousStatus()));

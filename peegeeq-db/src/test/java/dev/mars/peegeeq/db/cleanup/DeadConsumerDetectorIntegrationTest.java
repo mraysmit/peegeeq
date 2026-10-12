@@ -7,6 +7,7 @@ import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.subscription.SubscriptionStore;
 import dev.mars.peegeeq.db.subscription.SubscriptionManager;
 import dev.mars.peegeeq.db.subscription.TopicConfig;
 import dev.mars.peegeeq.db.subscription.TopicConfigService;
@@ -130,7 +131,7 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                             .heartbeatTimeoutSeconds(60)
                             .deadAfterMisses(1)
                             .build();
-                    return subscriptionManager.subscribe(topic, groupName, options);
+                    return subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, options);
                 })
                 .compose(v -> {
                     // Manually set last_heartbeat_at to 2 minutes ago (exceeds 60s timeout)
@@ -185,7 +186,7 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                             .heartbeatTimeoutSeconds(60)
                             .deadAfterMisses(1)
                             .build();
-                    return subscriptionManager.subscribe(topic, groupName, options);
+                    return subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, options);
                 })
                 .compose(v -> {
                     // Update heartbeat to now (within timeout)
@@ -240,7 +241,7 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                             .heartbeatTimeoutSeconds(60)
                             .deadAfterMisses(1)
                             .build();
-                    return subscriptionManager.subscribe(topic1, group1, options);
+                    return subscriptionManager.subscribe(topic1, group1, SubscriptionStore.OUTBOX, options);
                 })
                 .compose(v -> {
                     SubscriptionOptions options = SubscriptionOptions.builder()
@@ -248,7 +249,7 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                             .heartbeatTimeoutSeconds(60)
                             .deadAfterMisses(1)
                             .build();
-                    return subscriptionManager.subscribe(topic2, group2, options);
+                    return subscriptionManager.subscribe(topic2, group2, SubscriptionStore.OUTBOX, options);
                 })
                 .compose(v -> {
                     // Set both heartbeats to 2 minutes ago
@@ -310,7 +311,7 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                             .heartbeatTimeoutSeconds(60)
                             .deadAfterMisses(1)
                             .build();
-                    return subscriptionManager.subscribe(topic, group1, options);
+                    return subscriptionManager.subscribe(topic, group1, SubscriptionStore.OUTBOX, options);
                 })
                 .compose(v -> {
                     SubscriptionOptions options = SubscriptionOptions.builder()
@@ -318,7 +319,7 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                             .heartbeatTimeoutSeconds(60)
                             .deadAfterMisses(1)
                             .build();
-                    return subscriptionManager.subscribe(topic, group2, options);
+                    return subscriptionManager.subscribe(topic, group2, SubscriptionStore.OUTBOX, options);
                 })
                 .compose(v -> {
                     // Set group1 heartbeat to 2 minutes ago

@@ -7,6 +7,7 @@ import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.subscription.SubscriptionStore;
 import dev.mars.peegeeq.db.subscription.BackfillService;
 import dev.mars.peegeeq.db.subscription.BackfillService.BackfillProgress;
 import dev.mars.peegeeq.db.subscription.BackfillService.BackfillResult;
@@ -112,9 +113,9 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                         .semantics(TopicSemantics.PUB_SUB)
                         .messageRetentionHours(24)
                         .build())
-                .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults()))
+                .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()))
                 .compose(v -> insertMessages(topic, messageCount))
-                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning()))
                 .compose(v -> backfillService.startBackfill(topic, groupName, 100, 0))
                 .compose(result -> {
                     testContext.verify(() -> {
@@ -157,9 +158,9 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                         .semantics(TopicSemantics.PUB_SUB)
                         .messageRetentionHours(24)
                         .build())
-                .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults()))
+                .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()))
                 .compose(v -> insertMessages(topic, messageCount))
-                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning()))
                 .compose(v -> backfillService.startBackfill(topic, groupName, 10, 0))
                 .onSuccess(result -> testContext.verify(() -> {
                     assertEquals(BackfillResult.Status.COMPLETED, result.status());
@@ -184,9 +185,9 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                         .semantics(TopicSemantics.PUB_SUB)
                         .messageRetentionHours(24)
                         .build())
-                .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults()))
+                .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()))
                 .compose(v -> insertMessages(topic, 20))
-                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning()))
                 .compose(v -> backfillService.startBackfill(topic, groupName, 5, 10))
                 .onSuccess(result -> testContext.verify(() -> {
                     assertEquals(BackfillResult.Status.COMPLETED, result.status());
@@ -211,9 +212,9 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                         .semantics(TopicSemantics.PUB_SUB)
                         .messageRetentionHours(24)
                         .build())
-                .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults()))
+                .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()))
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", 1)).mapEmpty())
-                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning()))
                 .compose(v -> backfillService.startBackfill(topic, groupName))
                 .compose(firstResult -> backfillService.startBackfill(topic, groupName))
                 .onSuccess(result -> testContext.verify(() -> {
@@ -238,7 +239,7 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                         .semantics(TopicSemantics.PUB_SUB)
                         .messageRetentionHours(24)
                         .build())
-                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning()))
                 .compose(v -> backfillService.startBackfill(topic, groupName))
                 .onSuccess(result -> testContext.verify(() -> {
                     assertEquals(BackfillResult.Status.COMPLETED, result.status());
@@ -262,9 +263,9 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                         .semantics(TopicSemantics.PUB_SUB)
                         .messageRetentionHours(24)
                         .build())
-                .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults()))
+                .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()))
                 .compose(v -> insertMessages(topic, 10))
-                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning()))
                 .compose(v -> connectionManager.withTransaction("peegeeq-main", connection -> {
                     String sql = """
                         UPDATE outbox_topic_subscriptions
@@ -300,7 +301,7 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                         .semantics(TopicSemantics.PUB_SUB)
                         .messageRetentionHours(24)
                         .build())
-                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning()))
                 .compose(v -> subscriptionManager.pause(topic, groupName))
                 .compose(v -> backfillService.startBackfill(topic, groupName))
                 .onFailure(err -> testContext.verify(() -> {
@@ -342,9 +343,9 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                         .semantics(TopicSemantics.PUB_SUB)
                         .messageRetentionHours(24)
                         .build())
-                .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults()))
+                .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()))
                 .compose(v -> insertMessages(topic, 15))
-                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning()))
                 .compose(v -> backfillService.getBackfillProgress(topic, groupName))
                 .compose(beforeOpt -> {
                     BackfillProgress before = beforeOpt.orElseThrow();
@@ -381,12 +382,12 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                         .semantics(TopicSemantics.PUB_SUB)
                         .messageRetentionHours(24)
                         .build())
-                .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults()))
+                .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()))
                 .compose(v -> insertMessages(topic, totalMessages))
                 .compose(v -> markOldestMessagesCompleted(topic, completedMessages))
-                .compose(v -> subscriptionManager.subscribe(topic, pendingOnlyGroup,
+                .compose(v -> subscriptionManager.subscribe(topic, pendingOnlyGroup, SubscriptionStore.OUTBOX,
                         SubscriptionOptions.fromBeginning(BackfillScope.PENDING_ONLY)))
-                .compose(v -> subscriptionManager.subscribe(topic, allRetainedGroup,
+                .compose(v -> subscriptionManager.subscribe(topic, allRetainedGroup, SubscriptionStore.OUTBOX,
                         SubscriptionOptions.fromBeginning(BackfillScope.ALL_RETAINED)))
                 .compose(v -> backfillService.startBackfill(topic, pendingOnlyGroup, 100, 0, BackfillScope.PENDING_ONLY))
                 .compose(pendingOnlyResult -> {
@@ -443,9 +444,9 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                         .messageRetentionHours(24)
                         .build())
                 // FROM_NOW: same pattern as the failing performance test
-                .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults()))
+                .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()))
                 .compose(v -> insertMessagesBulk(topic, messageCount))
-                .compose(v -> subscriptionManager.subscribe(topic, backfillGroup, SubscriptionOptions.fromBeginning()))
+                .compose(v -> subscriptionManager.subscribe(topic, backfillGroup, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning()))
                 .compose(v -> backfillService.startBackfill(topic, backfillGroup, batchSize, 0, BackfillScope.PENDING_ONLY))
                 .compose(result -> {
                     testContext.verify(() -> {

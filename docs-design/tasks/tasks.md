@@ -1337,8 +1337,8 @@ and the run logs are in `logs/`; neither is in the repository. No probe remains 
     The open-ended reading record that stood here was replaced on 2026-10-11, at the owner's
     instruction, by the ordered task list in "Finding 20 implementation tasks" below. The
     evidence it held is carried by the consolidated design review in
-    `docs-design/consumer-groups/PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md`, section "Delivery
-    Outcome Redesign".
+    `docs-design/consumer-groups/PEEGEEQ_DELIVERY_OUTCOME_REDESIGN_PROPOSAL.md`. That file is
+    a proposal. The owner had it moved out of the implemented-contract document on 2026-10-12.
 
 The per-row tables, with the trigger and the evidence line for all 318 calls, were produced in
 the review session and are not in the repository.
@@ -1366,7 +1366,7 @@ Set by the owner on 2026-10-11. The tasks are ordered.
    Put permanent rejection, transient unavailability, processing failure, success, and retry exhaustion in a module visible to outbox, database, and native implementations. Remove module-private exception semantics from the cross-module boundary.
 
 7. **Enforce topic mode at startup.**
-   Every consumer-group start path must read the stored topic mode. Missing configuration or lookup failure must fail startup. No path may silently switch to shared-status delivery.
+   Every consumer-group start path must read the stored topic semantics. A lookup failure must fail startup. A topic with no configuration row is a `QUEUE` topic (OD-1, ruled 2026-10-12; the first wording said missing configuration fails startup). No path may silently switch to shared-status delivery.
 
 8. **Fix member dispatch before persistence changes.**
    Evaluate each member filter once per delivery. Treat capacity as admission or backpressure, not a handler failure. Add failing tests for the double-filter completion defect and capacity-triggered dead-letter defect first.
@@ -1390,6 +1390,1118 @@ Set by the owner on 2026-10-11. The tasks are ordered.
     Run the affected modules. Push the branch. Run Jenkins from `beginning`. Close failover Task 8 item 5 only after `peegeeq-db` passes. Close finding 20 only after all three delivery models pass their contract tests.
 
 The immediate task is **1–4 as one design phase**. Stop after the design document and phased test plan are ready for review. No production code should change in that phase.
+
+#### Finding 20 required order
+
+The owner reviewed the proposal three times on 2026-10-12 and set the lists below. The
+order from the first review is superseded. The task definitions above still apply.
+
+Design task list from the second review. Done in the fourth revision of the proposal.
+
+1. Correct the completion, reading, execution, and changed-file statements.
+2. Apply OD-1 through OD-16.
+3. Define the queue, log, and per-group dead-letter replay contracts.
+4. Correct the migration order. Move cleanup-field and watermark deletion after their
+   replacements.
+5. Remove the automatic unroutable expiry fields and rule.
+6. Reissue the data model and migration matrix for one final review.
+7. Stop.
+
+Final design task list from the third review. The fourth revision was not approved: five
+contract conflicts remained.
+
+1. Add `STOPPED` and revise the lifecycle table.
+2. Restrict keyed replay and correct the other-group guarantee.
+3. Add migration fencing and the plain-consumer semantics rule.
+4. Move backfill and tracking-table retirement to phase 4.
+5. Define the operator dead-letter transaction.
+6. Correct the shared-versus-group dead-letter wording.
+7. Reissue only those sections and stop.
+
+Implementation, after approval, one verified phase at a time.
+
+1. Dead-group and graceful-stop safety.
+2. Canonical schema provisioning.
+3. Offset correctness and replay.
+4. Reference-counting retirement and controlled migration.
+5. Outcome API.
+6. Queue exclusions.
+7. `PUB_SUB` outcomes.
+8. Cleanup, release, and final schema deletion.
+
+The owner also ruled: do not expand the reading set again; no further reading is required;
+no production work starts before the correction pass is approved.
+
+Fourth review, 2026-10-12. The owner approved corrections 1 to 6, ruled on OD-22, and
+required one migration correction. The ruling: apply these to the proposal and this
+register, treat design task 7 as complete, and proceed to phase 1. No further design
+ruling is required.
+
+Status, 2026-10-12, sixth revision of the proposal.
+
+- **Design phase: complete.** The owner approved the design in the fourth review. The
+  sixth revision of
+  `docs-design/consumer-groups/PEEGEEQ_DELIVERY_OUTCOME_REDESIGN_PROPOSAL.md` applies the
+  OD-22 ruling and the migration correction.
+  - `stopGracefully()` is group-wide and sets `STOPPED`. `STOPPED` refuses claims,
+    fetches, and heartbeats, and a running instance that meets it stops. `close()` and
+    `stop()` are instance-local and change no status.
+  - A claim or a fetch on a topic whose semantics changed fails with an explicit
+    semantics-mismatch error. The consumer logs it and stops.
+- **Task 1 is not complete under its read-in-full condition.** 211 test files were read as
+  a filtered print that left out Javadoc and log statements below ERROR and cut long
+  lines. Other files are read in part. The proposal's Reading Record states what was read
+  and how. The reading set is not expanded again.
+- **Findings are static.** None was reproduced at run time before implementation began.
+  Phase 1 reproduced one (R-8).
+- **Phase 1, dead-group and graceful-stop safety: increment 1a of five is done.
+  Increment 1b is not approved.** The owner reviewed 1b on 2026-10-12, found eight
+  blocking defects, ruled on four questions, and set nine corrections. Correction 1 is
+  made. Its last part, the subscription store, follows a second ruling of 2026-10-12 and
+  awaits review. Corrections 2 to 9 are not started. See "Finding 20 phase 1" below.
+
+#### Finding 20 decisions
+
+The IDs in the text (for example X-4, P-6, T10-8, MIG-1) are defined in the proposal.
+
+Ruled by the owner on 2026-10-12. OD-1 to OD-16 were ruled in the second review, OD-17 to
+OD-21 in the third, and OD-22 in the fourth. Each of those rulings is applied in the
+sixth revision of the proposal. OD-23 was ruled in the review of phase 1, increment 1a.
+The proposal states it. Increment 1b implemented it.
+
+| ID | Question | Ruling |
+|---|---|---|
+| OD-1 | Does a consumer group on a topic with no `outbox_topics` row start on the queue path, or refuse to start? | Approve. No topic row means `QUEUE`. A query failure fails startup. |
+| OD-2 | What must happen to a stored `PUB_SUB` plus `REFERENCE_COUNTING` row, and to a stored `QUEUE` plus `OFFSET_WATERMARK` row, before `completion_tracking_mode` is removed? | Approve. Stop the migration and name every inconsistent topic. Require explicit operator resolution. |
+| OD-3 | A new `outbox_group_exclusions` table and drop `outbox_consumer_groups`, or keep that table and add status `REJECTED`? | Approve. Create the exclusion table. Drop the old tracking table only after every reader, writer, trigger, and test dependency is removed. |
+| OD-4 | Remove backfill? | Modify. Remove backfill only after the replacement replay operations are implemented and tested, not merely designed. Amended in the third review: "My earlier OD-4 condition was too broad. Queue replay and per-group dead-letter replay do not replace backfill. Log replay does." After phase 3 implements log replay, phase 4 removes `BackfillService` and its public surface, the six backfill columns, and `outbox_consumer_groups` with its creation trigger, after its remaining dependencies are removed. |
+| OD-5 | Does this release permit a source-incompatible and binary-incompatible change to `peegeeq-api`? | Approve breaking API changes for this redesign. Record them as breaking changes. Delete `RejectedMessageException` when its replacement is complete. |
+| OD-6 | Release per partition key, with `PAUSED` groups holding retention, and remove `outbox_topic_watermarks`? | Approve per-partition-key release. `PAUSED` subscriptions hold retention and are exempt from dead detection. Drop topic watermarks only after the replacement release path passes. |
+| OD-7 | On a `PUB_SUB` topic a rejection writes no per-message row. Accept that? | Approve no per-message rejection row for `PUB_SUB`. Design and implement all three replay operations before removing backfill. The second sentence is replaced by the amended OD-4. |
+| OD-8 | The unroutable rule for a queue message that every known group has excluded: which setting, and which clock? | Reject. Do not dead-letter based on an incomplete consumer registry. Keep excluded messages pending until explicit replay or operator action. |
+| OD-9 | When is reference counting retired? | Amend. Retirement remains step 7, but counters, cleanup fields, and topic watermarks stay until their replacements are implemented in the cleanup phase. |
+| OD-10 | Run the dead-group red tests early and make a narrow fix? | Approve. Add each red test and its narrow production correction in the same phase. Do not leave committed phases red. |
+| OD-11 | Are P-13 to P-15 fixed before retirement? | Approve. Fix P-13 through P-15 before moving all `PUB_SUB` topics to offsets. |
+| OD-12 | What does `stopGracefully` do to the subscription of a group started with options? | Reject the recommendation. Graceful stop sets the subscription to `PAUSED`, performs no cleanup, and preserves bounds and offsets. Restart reactivates it. `cancel` remains explicit and terminal. The status was changed to `STOPPED` by OD-18. |
+| OD-13 | May `createTopic` or `updateTopic` change the semantics of an existing topic? | Modify. Normal create/update APIs cannot change established semantics. Provide a separate administrative migration operation that verifies both message stores, subscriptions, offsets, and assignments. The third review added: the operation must lock the message, subscription, and assignment tables in a fixed order before checking and changing semantics, with a lock timeout; every continuing consumer must also enforce semantics after the change. The fourth review added: a continuing consumer must not silently receive zero rows after its topic changes semantics; an empty result must mean that no eligible message exists; the queue claim and the offset fetch must fail with an explicit semantics-mismatch error, and the consumer must log the error and stop. |
+| OD-14 | Do the hand-written test schemas move to a provisioning path? | Approve. Move the hand-written schemas to the canonical Flyway test path. |
+| OD-15 | May the native queue API serve a `PUB_SUB` topic? Raised by the owner. | The native queue API is `QUEUE`-only. It must reject `PUB_SUB` until a separate native pub/sub producer and store contract exists. The producer currently writes `queue_messages`, while the offset path reads `outbox`. |
+| OD-16 | May a heartbeat revive a `DEAD` subscription? Raised by the owner. | `DEAD` must not become `ACTIVE` from a heartbeat. Reactivation requires an explicit start or replay decision. |
+| OD-17 | Do `stop()` and `close()` leave the subscription status unchanged? | Modify. `stop()` stays status-neutral. A planned `close()` uses the graceful-stop contract and preserves retention. Withdrawn in the fourth review: "My earlier OD-17 ruling was wrong. It conflated an instance close with a group lifecycle transition." `close()` and `stop()` are instance-local and leave the subscription status unchanged. |
+| OD-18 | Is it accepted that a start reactivates a subscription that an operator paused? | Reject. Add `STOPPED`; an operator `PAUSED` state survives restart. |
+| OD-19 | Is an explicit operator dead-letter of one queue message added? | Approve, with the atomic contract: accept the store, topic, and message ID; lock the message; refuse a message currently `PROCESSING` or `LOCKED`; insert a global dead-letter row; set an outbox row to `DEAD_LETTER` with `processed_at`, or delete the native row; perform the change atomically; test a concurrent claim. |
+| OD-20 | Does `message_retention_hours` also delete `DEAD_LETTER` rows of a queue topic? | Approve. `message_retention_hours` deletes terminal outbox `DEAD_LETTER` rows while retaining their DLQ records. |
+| OD-21 | Reprocessing a per-group dead letter replays the partition key from that message. Accepted? | Approve repeated delivery of later messages to the replayed group. Remove the unconditional claim that no other group can receive reopened rows. |
+| OD-22 | Five cells of the lifecycle table that the `STOPPED` ruling left open. | Stop or close on `PAUSED`: accept, it stays `PAUSED`. `pause` on `STOPPED`: accept, it becomes `PAUSED`. `resume` on `STOPPED`: accept, it fails. Heartbeat, claim, and fetch on `STOPPED`: reject, they must fail. `close()` follows graceful stop: reject, `close()` leaves the shared subscription status unchanged. The contract: `stopGracefully()` is group-wide and sets `STOPPED`. `STOPPED` refuses claims, fetches, and heartbeats; a running instance that encounters it stops. `start()` changes `STOPPED` to `ACTIVE`. `close()` and `stop()` are instance-local and leave the subscription status unchanged. A planned whole-group outage must call `stopGracefully()` or `pause`. If all instances only close, the unchanged `ACTIVE` row eventually becomes `DEAD`. |
+| OD-23 | What does an update of subscription options do to an existing start bound? Raised in phase 1, increment 1a. | Approve the recommendation with this complete contract. The stored bound is authoritative. The first subscription creates the bound. A later `subscribe` or start never changes it. A start uses the stored bound on both outbox and native paths; this resolves N-11. Replay is the only operation that can move an existing bound. The REST endpoint may create a missing subscription. For an existing subscription, the REST endpoint updates only explicitly supplied heartbeat settings. A REST update never changes lifecycle status. An omitted `startPosition` means no requested bound change. An explicitly supplied equivalent bound is accepted. A different bound returns HTTP 409. `FROM_NOW` on an existing subscription returns 409 because it does not identify the stored numeric bound. The response returns the persisted options, not the submitted object. Do not implement this by calling `subscribe` from the update path. Add a distinct settings-update operation. |
+
+Notes on three rulings. OD-9 names the earlier step numbers; in the eight implementation
+phases retirement is phase 4 and the cleanup phase is phase 8. For OD-12 the rejected
+recommendation was to leave the subscription row unchanged at a graceful stop. For OD-18 the
+rejected recommendation was to accept that a restart ends an operator's pause. For OD-22
+the two rejected choices were that `STOPPED` allows a heartbeat, a claim, and a fetch, and
+that `close()` follows the graceful-stop row.
+
+Approved by the owner in the third review.
+
+- `DeadConsumerGroupCleanup` is deleted with its callers in phase 1.
+- Member dispatch stays in phase 5.
+- Native queue outcomes stay in phase 6.
+- A normal restart does not overwrite the stored start bound.
+- The write validator counts `ACTIVE`, `PAUSED`, and `STOPPED`.
+
+No decision of the design review awaits a ruling. The owner ruled on 2026-10-12 that no
+further design ruling is required. Phase 1 raised one question after that ruling, and the
+owner ruled on it in the review of increment 1a (OD-23): "No further ruling on the bound
+contract is required."
+
+The owner's review of increment 1b raised one more question: a subscription created
+through REST for a native queue stored an `outbox` message id, and a generic subscription
+creation had no way to learn the message store. The owner ruled on it on 2026-10-12. The
+caller of `subscribe` names a typed `SubscriptionStore`, with no default. A queue factory
+declares its store, and REST derives the store from the queue factory. No discriminator
+is stored. A queue with subscriptions keeps its implementation type. `queueName` is the
+topic of a REST consumer group. The ruling and the record of the correction are in
+"Finding 20 phase 1", "Owner ruling on defect 1".
+
+Two matters found in that correction have no ruling. Adding a queue name that exists
+fails at the `CREATE TRIGGER` of the queue template, so a queue deleted through REST
+cannot be created again. And six choices made inside the store ruling are listed in the
+record for the owner.
+
+#### Finding 20 phase 1
+
+Dead-group and graceful-stop safety. The tests and the correction are in the proposal,
+"Phase 1". This section records what was run. A statement here comes from a log named
+beside it. A log of increment 1a is `logs/f20-p1a-<name>-20261012.log`. A log of
+increment 1b is `logs/f20-p1b-<name>-20261012.log`. A log of the corrections after the
+review of 1b is `logs/f20-p1b2-<name>-20261012.log`. A log of the subscription store
+part of correction 1 is `logs/f20-p1b3-<name>-20261012.log`. The tables give `<name>`.
+
+State, 2026-10-12. Increment 1a is done. The owner reviewed it, and the three corrections
+the review required are made and verified by targeted runs. Increment 1b is implemented
+and is not approved. The owner's review of it set nine corrections. Correction 1 is made.
+The owner approved its first part and ruled on its last part, the subscription store.
+That part is implemented and awaits review. Corrections 2 to 9 are not started.
+Increments 1c to 1e are not started. Phase 1 is not complete. One whole-module run was
+made, of `peegeeq-migrations`, in increment 1a. No Jenkins build was made.
+
+Increments. Each leaves the tree green.
+
+| Increment | Content | State |
+|---|---|---|
+| 1a | Status value `STOPPED`. `SubscriptionService.stopGroup`. `stopGracefully` stores `STOPPED` and runs no cleanup. A start makes a stopped subscription `ACTIVE`. | Done |
+| 1b | The lifecycle table in the SQL of `SubscriptionManager` (L-1, L-2, L-8, L-10). The start bound and the REST settings update (OD-23: L-4, N-11, and the delivery part of R-7). The four REST handler corrections that the owner's review of 1a lists. | Not approved. Nine corrections. The first is made, and its last part awaits review. |
+| 1c | Detection reads `ACTIVE` only. The watermark and the write validator count `ACTIVE`, `STOPPED`, and `PAUSED` (L-3, L-6, T10-10, R-7 on an offset topic). | Not started |
+| 1d | `DeadConsumerGroupCleanup` loses its callers and is deleted (R-1, R-3). | Not started |
+| 1e | The in-process subscription heartbeat. An instance stops on `STOPPED`, `DEAD`, or `CANCELLED` (R-2, L-5, L-7, L-9, R-9). | Not started |
+
+Increment 1a, what changed.
+
+- `SubscriptionState` (`peegeeq-api`) and `SubscriptionStatus` (`peegeeq-db`) gain
+  `STOPPED` as the fifth value.
+- `SubscriptionService.stopGroup(topic, groupName)` is new. `SubscriptionManager`
+  implements it: an `ACTIVE` subscription becomes `STOPPED`; every other status is left
+  unchanged; no row fails with "Subscription not found". It runs no cleanup and changes no
+  start bound.
+- `OutboxConsumerGroup.stopGracefully` and `PgNativeConsumerGroup.stopGracefully` call
+  `stopGroup`, not `cancel`. When the status update fails, the outbox group now stops and
+  returns the failure, as the native group did (N-10).
+- The check constraint accepts `STOPPED` in its three definitions: migration
+  `V021__Add_Stopped_Subscription_Status.sql`, template
+  `08b-consumer-table-subscriptions.sql`, and the hand-written test schema in
+  `SharedPostgresTestExtension`.
+- Two exhaustive mappings gain the value: `SubscriptionManager.toSubscriptionState`, and
+  `ManagementApiHandler.mapSubscriptionState`, which reports `"stopped"`.
+- The Javadoc of `ConsumerGroup.stopGracefully` states the new contract.
+- Tests. New: `SubscriptionStopGroupIntegrationTest` (`peegeeq-db`),
+  `StoppedSubscriptionStatusIntegrationTest` (`peegeeq-rest`). Changed:
+  `OutboxConsumerGroupGracefulShutdownTest` (its reflection helper is removed; two tests
+  are new, two are replaced, and one is extended), native `ConsumerGroupSubscriptionIntegrationTest`,
+  `SubscriptionStateTest`, `SubscriptionStatusTest`, and `PartitionedOrderingDemoTest`
+  (test 2d no longer sets the status by SQL; the five places that discarded a failed
+  `stopGracefully` now return it).
+
+Proposal tests covered by increment 1a.
+
+- R-8: covered and green.
+- N-10: settled.
+- R-7: in part. Covered: the status is `STOPPED` after a graceful stop, `stopGroup` keeps
+  the stored bound, and a start makes the subscription `ACTIVE`. Not covered: the delivery
+  of a message sent while the group was stopped, and the offset topic with a sweep. The
+  first is increment 1b (OD-23); the second is increment 1c.
+- L-4 was not implemented in increment 1a. Increment 1b implements it (OD-23).
+
+Runs that failed first, each for the stated reason, and the run that passed after the
+correction.
+
+| Scope | Before the correction | Log | After | Log |
+|---|---|---|---|---|
+| `SubscriptionStateTest` (`peegeeq-api`, core) | 4 run, 4 errors: `STOPPED cannot be resolved` | `red1-api-enum` | 4 run, 0 failures | `green5-api-enum` |
+| Rebuild `-pl :peegeeq-db -am` with the enum value only | Compile error: `SubscriptionManager.java:[934,15]`, switch not exhaustive | `rebuild1-db` | Build success | `rebuild2-db` |
+| `SubscriptionStopGroupIntegrationTest`, before `stopGroup` existed | 10 run, 4 failures, 6 errors: "Stop group not supported"; null arguments accepted | `red2-db-stopgroup` | | |
+| The same class, `stopGroup` implemented, schema unchanged | 10 run, 3 errors: check constraint `outbox_topic_subscriptions_subscription_status_check`, hand-written schema | `red3-db-constraint` | 10 run, 0 failures, 0 errors | `green1-db-stopgroup` |
+| `OutboxConsumerGroupGracefulShutdownTest`, before the group change | 9 run, 3 failures, 1 error: `CANCELLED` stored (2); the failed update reported as success (1); the pending message `COMPLETED` (1) | `red6-outbox-graceful` | | |
+| The same class, group changed, no `V021` | 9 run, 3 errors: the same check constraint, Flyway schema | `red7-outbox-flyway-constraint` | 9 run, 0 failures, 0 errors | `green2-outbox-graceful` |
+| Native `ConsumerGroupSubscriptionIntegrationTest`, before the group change | 5 run, 1 failure: `CANCELLED` stored | `red8-native-sub` | 5 run, 0 failures, 0 errors | `green3-native-sub` |
+| Rebuild `-pl :peegeeq-rest -am` before the mapping case | Compile error: `ManagementApiHandler.java:[892,15]`, switch not exhaustive | `rebuild12-rest` | Build success | `rebuild13-rest` |
+| `StoppedSubscriptionStatusIntegrationTest`, template unchanged | 1 run, 1 error: the same check constraint, template schema | `red9-rest-template` | 1 run, 0 failures, 0 errors | `green4-rest-stopped` |
+
+Reproduced at run time: R-8. Before the correction a graceful stop of the only group of a
+`QUEUE` topic marked a message `COMPLETED` that the group had never received. The log
+`red6-outbox-graceful` holds the two cleanup lines: "Decremented required_consumer_groups
+on 1 message(s)" and "Auto-completed 1 message(s)".
+
+Existing tests run after the change. All passed.
+
+| Scope | Result | Log |
+|---|---|---|
+| `SubscriptionStatusTest` (`peegeeq-db`, core) | 8 run, 0 failures | `green6-db-enum` |
+| `peegeeq-migrations`, integration profile, whole module | 5 classes, 53 run, 0 failures | `green7-migrations-module` |
+| `OutboxOffsetWatermarkOrderingTest` | 3 run, 0 failures | `green8-outbox-ow-ordering` |
+| `OutboxConsumerGroupCoreTest` | 64 run in 7 nested classes, 0 failures | `green9-outbox-group-core` |
+| `OutboxOffsetWatermarkWiringTest` | 1 run, 0 failures | `green10-outbox-ow-wiring` |
+| `OutboxOffsetWatermarkSchemaIsolationTest` | 1 run, 0 failures | `green11-outbox-ow-schema-isolation` |
+| Native `ConsumerGroupSubscriptionTest` | 19 run in 2 nested classes, 0 failures | `green12-native-sub-test` |
+| Native `PgNativeConsumerGroupLifecycleTest` (core) | 65 run in 10 nested classes, 0 failures | `green13b-native-lifecycle-core` |
+| `PartitionedOrderingDemoTest` | 4 run, 0 failures | `green17-examples-partitioned-ordering` |
+| `EventSourcingCQRSDemoTest` | 3 run, 0 failures | `green15-examples-es-cqrs` |
+| `NativeVsOutboxComparisonTest` | 5 run, 0 failures | `green16-examples-native-vs-outbox` |
+
+Runs on the final tree, after the last code edit: `SubscriptionStopGroupIntegrationTest`
+10 run, 0 failures (`final1-db-stopgroup`); `OutboxConsumerGroupGracefulShutdownTest` 9
+run, 0 failures (`final2-outbox-graceful`); native
+`ConsumerGroupSubscriptionIntegrationTest` 5 run, 0 failures (`final3-native-sub`).
+
+Wrong judgments and deviations in increment 1a.
+
+- The first two versions of the R-8 test were wrong (`red4-outbox-graceful`,
+  `red5-outbox-graceful`). I inserted the pending message before the subscription and
+  judged that any pending message of the topic reaches the cleanup. The cleanup changes
+  only messages created at or after the group subscribed, so that test passed before the
+  correction. The second version had an SQL error in the test's own insert.
+- `PgNativeConsumerGroupLifecycleTest` ran 0 tests under the integration profile
+  (`green13-native-lifecycle`). The class is tagged core. It was run again under the
+  default profile.
+- One rebuild (`rebuild2-db`) had a `Select-String` filter after `Tee-Object`. The saved
+  log is complete. The form was not used again.
+- The rebuild of `peegeeq-migrations` rewrote the tracked file
+  `peegeeq-migrations/dependency-reduced-pom.xml` (8 lines removed by the shade plugin). I
+  restored it with `git checkout`. Every build of that module changes it again.
+
+Owner review of increment 1a, 2026-10-12.
+
+The owner found that increment 1a implements the scoped lifecycle behaviour correctly and
+that it was not complete. The review ruled on the open question, required three
+corrections before 1a is done, and listed four corrections for increment 1b. The three
+are made.
+
+The ruling is OD-23 in "Finding 20 decisions". The question was what an update of
+subscription options does to an existing start bound. The approved rule "a start never
+overwrites a stored start bound" (proposal, lifecycle rule 3; L-4) was not implemented in
+1a, because `ConsumerGroupHandler.updateSubscriptionOptions`
+(`POST /api/v1/consumer-groups/:setupId/:queueName/:groupName/subscription`) calls
+`subscribe` on an existing row and depends on the overwrite. The proposal did not name
+that call. That was a wrong judgment in the design review: I searched for writers of the
+bound by SQL text and found the one statement, and I did not follow every caller of
+`subscribe`.
+
+Correction 1. A test of the step from V020 to V021 on a schema that holds rows.
+`StoppedSubscriptionStatusMigrationTest` is new (`peegeeq-migrations`, integration). Each
+of its three tests migrates a schema of its own to V020, writes rows, and migrates to
+V021.
+
+- The `ACTIVE`, `PAUSED`, `CANCELLED`, and `DEAD` rows are kept, each with its status.
+- `STOPPED` is rejected before the migration. After it, a row can be inserted with
+  `STOPPED` and an existing row can be set to `STOPPED`.
+- An unknown status is rejected after the migration, and the rejected insert leaves no
+  row.
+
+A rejection counts only when it is a check violation (SQLSTATE 23514) on
+`outbox_topic_subscriptions_subscription_status_check`. The test was written after `V021`
+existed. Each behaviour was therefore shown red by a temporary change to `V021`. The file
+was restored after each; its checksum equals the one recorded before the changes.
+
+| Temporary change to `V021` | Result | Log |
+|---|---|---|
+| The file moved out of the tree | 3 run, 3 errors: "No migration with a target version 021 could be found" | `red10-migration-v021-absent` |
+| It drops the constraint and adds none | 3 run, 1 failure: the unknown-status test, "Status 'UNKNOWN' must be rejected by outbox_topic_subscriptions_subscription_status_check" | `red11-migration-probe-no-constraint` |
+| It deletes the rows before it changes the constraint | 3 run, 3 failures: each test read an empty table where it expected rows | `red12-migration-probe-deletes-rows` |
+| None | 3 run, 0 failures | `green18-migration-v020-to-v021` |
+
+Correction 2. The four known places that discarded a failed `stopGracefully()`.
+
+- `EventSourcingCQRSDemoTest`, in `runCqrsScenario` and in `runMultiAccountScenario`. The
+  last step now returns `eventGroup.stopGracefully()`. That alone did not make a failed
+  stop fail the test. Two strict checkpoints completed the test when the last command and
+  the last event were counted, before the final assertions and the stop ran. The
+  checkpoints are removed, so the `completeNow` at the end of the chain is the only
+  completion. A command-handler exception and a failed event send now fail the test;
+  before, each logged WARN and flagged a checkpoint.
+- `NativeQueueFeatureTest.testNativeConsumerGroups`. The stop was called after the test
+  had completed, and its result was dropped. The test now starts the group, sends, polls
+  the group statistics on a 100 ms timer with a 10 s limit, asserts two active consumers,
+  and returns the stop in the same chain.
+- `ConsumerGroupLoadBalancingDemoTest.tearDown`. A failed stop or close of the group
+  logged WARN, and the teardown passed. The teardown now runs the stop, the close, and
+  the manager close in that order, runs each step whatever the result of the step before
+  it, and fails with the first failure. It uses `CleanupResultSupport.merge`, the helper
+  of that module.
+
+The tests were corrected after the code they test. The red was therefore reconstructed:
+`stopGracefully` of `OutboxConsumerGroup` and of `PgNativeConsumerGroup` was changed
+temporarily to fail after the stop, `peegeeq-examples` was rebuilt with its upstream
+modules, and the three classes were run. Both production files were then restored; their
+checksums equal the ones recorded before the change.
+
+| Class | With the temporary failure | Log | On the restored tree | Log |
+|---|---|---|---|---|
+| `EventSourcingCQRSDemoTest` | 3 run, 2 errors: `testCQRS` and `testCQRS_multipleAccounts_perAccountOrdering`, "MUTATION PROBE: stopGracefully failed" | `red13-examples-es-cqrs-mutation` | 3 run, 0 failures | `green19-examples-es-cqrs` |
+| `NativeQueueFeatureTest` | 6 run, 1 error: `testNativeConsumerGroups`, the same message | `red14-examples-native-feature-mutation` | 6 run, 0 failures | `green20-examples-native-feature` |
+| `ConsumerGroupLoadBalancingDemoTest` | 4 run, 2 errors: `testRoundRobinLoadBalancing` and `testStickySessionLoadBalancing`, the same message. The other two tests create no group. | `red15-examples-load-balancing-mutation` | 4 run, 0 failures | `green21-examples-load-balancing` |
+
+Rebuilds, each with build success: `rebuild17-migrations`, `rebuild18-examples-mutation`,
+`rebuild19-examples-restored`. The rebuild of `peegeeq-migrations` rewrote
+`dependency-reduced-pom.xml` again, and I restored it again.
+
+Correction 3. The proposal's phase 1 text on dependency failure modes named "the status
+update at a graceful stop or a close". "or a close" is removed. `close()` is
+status-neutral and makes no status update.
+
+Wrong judgment in correction 2. In increment 1a I recorded that `EventSourcingCQRSDemoTest`
+discarded a failed stop, and I judged that returning the stop's `Future` would correct it.
+The run `green15-examples-es-cqrs` had already shown the teardown closing the manager
+before the scenario's last step. The checkpoints, not the discarded result, decided when
+the test completed. I found that only when I read the whole scenario for the correction.
+
+Required by the owner's review when increment 1b changes the REST handler.
+
+- Chain the subscription creation at `ConsumerGroupHandler` 148. Its `Future` is not
+  observed.
+- Stop converting a database failure to `null` at `ConsumerGroupHandler` 785.
+- Remove the tests that treat HTTP 500 as success, `peegeeq-rest`
+  `ConsumerGroupSubscriptionIntegrationTest` 358.
+- Parse the presence of each update field separately. The builder inserts defaults for
+  omitted fields.
+
+Increment 1b, 2026-10-12.
+
+It implements the lifecycle table in the SQL of `SubscriptionManager`, the start-bound
+contract of OD-23, the REST settings update, and the four REST corrections above. It
+changes no table, no column, and no constraint.
+
+Data model. No field is added.
+
+| Stored field | Source of truth | Written by |
+|---|---|---|
+| `start_from_message_id`, `start_from_timestamp` | Yes. The start bound. | The `subscribe` that creates the row. No later `subscribe`, start, or settings update writes them. |
+| `subscription_status` | Yes. | The lifecycle calls. The settings update does not write it. |
+| `heartbeat_interval_seconds`, `heartbeat_timeout_seconds` | Yes. | Every `subscribe` that the status accepts, from its options. The settings update, for the fields that the request names. |
+| `last_heartbeat_at`, `consecutive_misses` | Yes. | The heartbeat, `subscribe`, and detection. The settings update does not write them. |
+
+Derived, not stored: the start position name in a REST response. It is computed from the
+stored bound. A stored message id of 1 is reported as `FROM_BEGINNING`, whichever option
+created it. `FROM_NOW` on an empty topic stores 1, so it is reported as `FROM_BEGINNING`,
+and the settings update accepts `FROM_BEGINNING` for it.
+
+Deleted with the requirement that replaced it: the bound overwrite on a repeated
+`subscribe`; the heartbeat's revival of a `DEAD` subscription, the re-backfill it
+started, and `resetBackfillStatus`; `ConsumerGroupHandler.getSubscriptionOptionsInternal`.
+
+Contracts.
+
+- `subscribe`, and a start with options. No row: creates the row `ACTIVE` with the bound
+  of the options. `ACTIVE`, `STOPPED`, `DEAD`: `ACTIVE`, bound kept, miss count cleared.
+  `PAUSED`: stays `PAUSED`, bound kept. `CANCELLED`: fails, row unchanged.
+- `pause`: from `ACTIVE`, `STOPPED`, `PAUSED`. `DEAD` and `CANCELLED` fail.
+- `resume`: from `ACTIVE`, `PAUSED`, `DEAD`. `STOPPED` and `CANCELLED` fail.
+- Heartbeat. `ACTIVE`: sets the time and clears the miss count. `PAUSED`: sets the time.
+  `STOPPED`, `DEAD`, `CANCELLED`: fails and names the status. It revives nothing (OD-16).
+- `cancel`: every status becomes `CANCELLED`.
+- A refused call fails with `SubscriptionStateException`, which carries the refusing
+  status. A call on no row fails with `IllegalStateException`, "Subscription not found".
+  Each call is one SQL statement with the allowed statuses in its `WHERE` clause.
+- `SubscriptionService.updateSubscriptionSettings(topic, groupName, update)` is new. In
+  one transaction it locks the row, compares a named bound with the stored bound, checks
+  the heartbeat pair against the stored values, and updates the named heartbeat settings
+  only. A bound that differs fails with `SubscriptionBoundConflictException`. `FROM_NOW`
+  always differs. It returns the row as stored after the call.
+- REST `POST /api/v1/consumer-groups/:setupId/:queueName/:groupName/subscription`. No
+  row: the request creates the subscription. A row: the settings update. 200 returns the
+  stored options. 400: an invalid value, a malformed `startFromTimestamp`, or no body.
+  404: no group. 409: a bound conflict or a refusing status. 503: a database failure.
+- The lifecycle endpoints of `SubscriptionHandler` and `ManagementApiHandler` return 409
+  for `SubscriptionStateException`, by its type. The queue pause calls `pause` only for
+  subscriptions that are not `DEAD` or `CANCELLED`. The queue resume calls `resume` only
+  for `PAUSED` ones. Each returns the count of the calls it made.
+
+What changed.
+
+- `peegeeq-api`. New: `SubscriptionStateException`, `SubscriptionBoundConflictException`,
+  the record `SubscriptionSettingsUpdate`, `SubscriptionService.updateSubscriptionSettings`,
+  and `SubscriptionOptions.toBuilder()`. The Javadoc of `subscribe`, `pause`, `resume`,
+  and `updateHeartbeat` states the contract.
+- `peegeeq-db`, `SubscriptionManager`. The upsert of `subscribe` writes no bound on
+  conflict, keeps `PAUSED`, and refuses `CANCELLED`. `pause`, `resume`, `cancel`,
+  force-remove, and the heartbeat carry their allowed statuses in SQL.
+  `updateSubscriptionSettings` is new.
+- `peegeeq-native`, `PgNativeConsumerGroup.start(SubscriptionOptions)`. It resolves
+  `FROM_NOW` against `queue_messages` and passes the result as an explicit message id
+  when the subscription is created. After `subscribe` it reads the stored bound and
+  starts from it. A failed read, or no row after `subscribe`, fails the start and leaves
+  the group in `NEW`.
+- `peegeeq-outbox`. No production change in 1b.
+- `peegeeq-rest`. `ConsumerGroupHandler`: the update is the contract above, and
+  `parseSubscriptionSettingsUpdate` reads the presence of each field. `SubscriptionHandler`
+  and `ManagementApiHandler`: 409 by type, and the queue pause and resume as above.
+
+The four REST corrections that the owner's review required.
+
+| Required | Done | Red before the correction |
+|---|---|---|
+| Chain the subscription creation at `ConsumerGroupHandler` 148. | The group is created and registered only after `subscribe` succeeds. A refused `subscribe` returns 409 and leaves no group. | `testCreateConsumerGroupFailsWhenSubscriptionIsCancelled` (`red4-rest-cg-subscription`) |
+| Stop converting a database failure to `null` at `ConsumerGroupHandler` 785. | The method is deleted. No source tree called it. `SubscriptionHandler.createSubscription` made the same conversion after its `subscribe`, and that is removed. | No test. See "Not done in increment 1b". |
+| Remove the tests that treat HTTP 500 as success, `ConsumerGroupSubscriptionIntegrationTest` 358. | The class is rewritten to the OD-23 contract. No test of it accepts 500. It has no `@Order`. | |
+| Parse the presence of each update field separately. | `parseSubscriptionSettingsUpdate`. An omitted field is null and changes nothing. | `testUpdateChangesOnlyNamedHeartbeatSetting` and `testUpdateWithTimeoutNotGreaterThanStoredIntervalReturns400` (`red4-rest-cg-subscription`) |
+
+Runs that failed first, each for the stated reason, and the last run of the class after
+the correction.
+
+| Scope | Before the correction | Log | Last run | Log |
+|---|---|---|---|---|
+| `SubscriptionSettingsUpdateTest` (`peegeeq-api`, core) | Compile error: the types did not exist | `red1-api-settings-update` | 9 run, 0 failures | `final19-api-settings-update` |
+| `SubscriptionOptionsValidationTest` (`peegeeq-api`, core) | 28 run, 2 errors: `toBuilder()` is undefined | `red9-api-tobuilder` | 28 run in 6 nested classes, 0 failures | `green15-api-tobuilder` |
+| `SubscriptionLifecycleTransitionIntegrationTest` (`peegeeq-db`) | 26 run, 13 failures: 8 refusals, 4 tests of the kept bound and the kept pause, and the L-8 sequence | `red2-db-lifecycle` | 26 run, 0 failures | `final21-db-lifecycle` |
+| `SubscriptionSettingsUpdateIntegrationTest` (`peegeeq-db`) | Temporary change to `updateSubscriptionSettings`: 18 run, 11 failures | `red3-db-settings-update-mutation` | 18 run, 0 failures | `final22-db-settings-update` |
+| REST `ConsumerGroupSubscriptionIntegrationTest`, original handlers | 13 run, 5 failures | `red4-rest-cg-subscription` | | |
+| The same class, `testUpdateKeepsLifecycleStatus` | 1 run, 1 failure: expected `STOPPED`, was `ACTIVE` | `red5-rest-update-keeps-status` | | |
+| The same class, two input-error tests added | 15 run, 2 failures: 503 for no body and for a malformed timestamp | `red13-rest-update-input-errors` | 15 run, 0 failures | `final33-rest-cg-subscription` |
+| `SubscriptionLifecycleRestIntegrationTest` (`peegeeq-rest`) | 4 run, 4 failures | `red6-rest-lifecycle` | 4 run, 0 failures | `final27-rest-lifecycle` |
+| Native `ConsumerGroupSubscriptionIntegrationTest`, restart test | 6 run, 1 failure: the message sent while the group was stopped was not delivered | `red8-native-restart-bound` | | |
+| The same class, two failure-mode tests added, original `PgNativeConsumerGroup` | 8 run, 3 failures: the two new tests and the restart test | `red11-native-bound-read-failure-modes` | | |
+| The same class, temporary change: the missing-row check removed | 8 run, 1 failure: `NullPointerException`, expected `IllegalStateException` | `red12-native-nullcheck-mutation` | 8 run, 0 failures | `final29-native-sub-integration` |
+| `OutboxConsumerGroupGracefulShutdownTest`, restart test, temporary change: the bound overwrite put back | 1 run, 1 failure: the restart stored bound 2 | `red10-outbox-restart-delivery-mutation` | 10 run, 0 failures | `green20-outbox-graceful` |
+
+`SubscriptionStateExceptionTest` (`peegeeq-api`, core) has no red run. Its two tests were
+moved out of `SubscriptionSettingsUpdateTest` after they passed. 2 run, 0 failures
+(`final20-api-state-exception`).
+
+Each temporary change was restored, and the checksum of the restored file equals the one
+recorded before the change. `red7-native-restart-bound` is invalid: it ran without the
+rebuild, on classes that the IDE had compiled.
+
+Reproduced at run time: N-11. Before the correction a native group started with
+`FROM_NOW`, stopped gracefully, and started again did not receive a message sent while
+it was stopped. The consumer log of `red8-native-restart-bound` shows
+`minimumMessageId: 1` at the first start and `2` at the second.
+
+Proposal tests covered by increment 1b.
+
+- L-1 and L-10: covered at the service and at the REST endpoints.
+- L-2: the heartbeat and `resume`. The start is covered at `subscribe`
+  (`subscribeMakesDeadSubscriptionActiveAndClearsMisses`). No test starts a group on a
+  `DEAD` subscription.
+- L-4: covered at the service, and at REST for the update.
+- L-8: covered at the service (`operatorPauseSurvivesGroupStopAndStart`: pause, stop,
+  subscribe, resume). No test runs the sequence with a running group.
+- R-7, the delivery of a message sent while the group was stopped: covered on a `QUEUE`
+  topic for the outbox group and for the native group. The offset topic with a sweep is
+  increment 1c.
+- OD-23, the REST update: U-1 to U-5 in the proposal.
+
+Existing tests changed because the contract changed.
+
+- `SubscriptionManagerEdgeCaseTest`. Three tests asserted the overwrite. They assert the
+  kept bound and are renamed: `testResubscribeFromBeginningKeepsFromNowBound`,
+  `testResubscribeFromMessageIdKeepsFromBeginningBound`,
+  `testRepeatedResubscribeKeepsFirstBound`. 10 run, 0 failures (`green6-db-edge-case`).
+- `StartPositionDatabaseStateTest`. `testResubscribeKeepsStartPositionInDatabase` replaces
+  the test of the overwrite. 6 run, 0 failures (`green7-db-start-position`).
+- `SubscriptionManagerIntegrationTest`. The two tests of the heartbeat revival and their
+  helper are removed. 10 run, 0 failures (`green5-db-sub-manager-it`).
+- `FlappingProtectionIntegrationTest`. `testHeartbeatAutoResurrectionResetsMissCount` is
+  removed. 11 run, 0 failures (`green8-db-flapping`).
+- `ResurrectionReBackfillIntegrationTest` is deleted. It tested the heartbeat revival.
+- Native `ConsumerGroupSubscriptionTest`. Its tests start one group name on one topic
+  with different start options. With a kept bound they depended on their order: 19 run,
+  4 failures (`green18-native-sub-test`). The setup now deletes the topic's subscription
+  rows. 19 run in 2 nested classes, 0 failures (`final23-native-sub-test`).
+- `OutboxConsumerGroupSubscriptionTest`. The same cause and the same correction. 18 run,
+  1 failure (`green21-outbox-sub-test`), then 18 run in 2 nested classes, 0 failures
+  (`final25-outbox-sub-test`).
+- REST `SubscriptionOptionsCoreTest.testUpdateSubscriptionOptions_FromNow` expected the
+  submitted `FROM_NOW` in the response: 10 run, 1 failure
+  (`final9-rest-sub-options-core`). It expects the stored `FROM_BEGINNING`. 10 run, 0
+  failures (`final32-rest-sub-options-core`).
+- `RestClientConsumerGroupsContractSmokeTest` is rewritten to the contract: create with
+  message id 42, a heartbeat-only update, and a conflicting bound that returns 409. 1
+  run, 0 failures under `-Psmoke-tests` (`final31-smoke-rest-client-cg`).
+- REST `StoppedSubscriptionStatusIntegrationTest`, of increment 1a, uses
+  `PostgreSQLTestConstants.createStandardContainer()`. 1 run, 0 failures
+  (`final28-rest-stopped-status`).
+
+Existing tests run after the change, unchanged. All passed.
+
+| Scope | Result | Log |
+|---|---|---|
+| `SubscriptionManagerCoreTest` (`peegeeq-db`, integration profile) | 15 run, 0 failures | `green9b-db-sub-manager-core` |
+| `SubscriptionStopGroupIntegrationTest` | 10 run, 0 failures | `final2-db-stopgroup` |
+| `DeadConsumerDetectorComprehensiveTest` | 10 run, 0 failures | `final3-db-detector-comprehensive` |
+| `ForceRemoveIntegrationTest` | 5 run, 0 failures | `final4-db-force-remove` |
+| `CancelCleanupIntegrationTest` | 4 run, 0 failures | `final5-db-cancel-cleanup` |
+| `BackfillServiceIntegrationTest` | 11 run, 0 failures | `final6-db-backfill-it` |
+| `DeadConsumerDetectorIntegrationTest` | 4 run, 0 failures | `final7-db-detector-it` |
+| `DeadConsumerDetectionJobIntegrationTest` | 10 run, 0 failures | `final8-db-detection-job` |
+| Native `PgNativeConsumerGroupLifecycleTest` (core) | 65 run in 10 nested classes, 0 failures | `green17-native-lifecycle-core` |
+| REST `ManagementApiIntegrationTest` | 28 run, 0 failures | `final11-rest-management-api` |
+| REST `SubscriptionCreateAndBackfillIntegrationTest` | 17 run, 0 failures | `final12-rest-sub-create-backfill` |
+| REST `SubscriptionLifecycleIntegrationTest` | 7 run, 0 failures | `green12-rest-sub-lifecycle-it` |
+| REST `QueuePauseResumeStatusIntegrationTest` | 4 run, 0 failures | `green14-rest-queue-pause-resume` |
+| REST `SubscriptionPersistenceAcrossRestartIntegrationTest` | 5 run, 0 failures | `final34-rest-sub-persistence` |
+| REST `ManagementApiHandlerErrorTest` (core) | 14 run, 0 failures | `final35-rest-management-error` |
+| REST `ConsumerGroupHandlerTest` (core) | 8 run, 0 failures. Its tests log documentation and call no handler. | `final36-rest-cg-handler` |
+| REST `QueuePauseResumeIT` | 1 run, 0 failures | `final37-rest-queue-pause-resume-it` |
+| REST `QueuePauseResumeManualTest` | 1 run, 0 failures | `final38-rest-queue-pause-resume-manual` |
+| REST `QueueManagementE2ETest` | 11 run, 0 failures | `final39-rest-queue-management-e2e` |
+| REST `QueueManagementAdvancedE2ETest` | 8 run, 0 failures | `final40-rest-queue-management-advanced` |
+| `SubscriptionLifecycleSmokeTest` (`peegeeq-integration-tests`, smoke) | 6 run, 0 failures | `final41-smoke-subscription-lifecycle` |
+| `QueueManagementSmokeTest` (smoke) | 5 run, 0 failures | `final42-smoke-queue-management` |
+| `DeadConsumerDetectionDemoTest` (`peegeeq-examples`) | 3 run, 0 failures | `final15-examples-dead-consumer-demo` |
+| `LateJoiningConsumerDemoTest` | 3 run, 0 failures | `final16-examples-late-joining` |
+| `PartitionedOrderingDemoTest` | 4 run, 0 failures | `final17-examples-partitioned-ordering` |
+| `EventSourcingCQRSDemoTest` | 3 run, 0 failures | `final18-examples-es-cqrs` |
+| `OnSuccessExceptionSwallowingGuardTest` (`peegeeq-test-support`, core) | 8 run, 0 failures | `guard3-onsuccess-swallowing` |
+| `VertxAsyncForbiddenPatternsGuardTest` (core) | 1 run, 0 failures | `guard4-forbidden-patterns` |
+
+No test class in the table was edited after its run. The rows with a `green` log, and
+`final2` to `final18`, ran before the last production edit. That edit is in
+`ConsumerGroupHandler.updateSubscriptionOptions` and `parseSubscriptionSettingsUpdate`
+only. Every test class that calls that endpoint ran after it:
+`ConsumerGroupSubscriptionIntegrationTest`, `SubscriptionOptionsCoreTest`,
+`SubscriptionPersistenceAcrossRestartIntegrationTest`, and
+`RestClientConsumerGroupsContractSmokeTest`.
+
+Rebuilds `rebuild1` to `rebuild23`: build success in each. Three hold a temporary
+change by design (`rebuild3-db-mutation`, `rebuild10-outbox-mutation`,
+`rebuild18-native-nullcheck-mutation`). `rebuild5-rest-old-handlers` and
+`rebuild17-native-original-class` hold production classes of before 1b, for the red
+runs. `rebuild22-all-upstream` built `peegeeq-integration-tests` and its ten upstream
+modules on the final production tree. `peegeeq-examples` was last built in
+`rebuild15-examples`.
+
+Wrong judgments and deviations in increment 1b.
+
+- The settings update of `SubscriptionManager` was implemented before its test class was
+  run red. I judged that a test written beside the code needed no red run. The first
+  version of the tests could not tell a kept value from a default, because the stored
+  heartbeat settings were the defaults. The tests now store 45 and 200, and the red was
+  reconstructed by a temporary change (`red3-db-settings-update-mutation`).
+- The REST handlers were edited before their tests. I restored the original handlers,
+  ran the tests red (`red4`, `red5`, `red6`), and applied the edit again.
+  `testUpdateKeepsLifecycleStatus` first used `PAUSED` and passed on the original
+  handler, because `subscribe` keeps `PAUSED`. It uses `STOPPED`.
+- I judged increment 1b complete when its classes were green. Three defects were found
+  only when this record was written.
+  - The failure modes of the read that the native start gained were not listed before
+    the code. Two tests were added after it (`red11`, `red12`).
+  - The update endpoint returned 503 for a request with no body and for a malformed
+    `startFromTimestamp`, in code written in this increment (`red13`). Corrected.
+  - My note said that narration logging was removed from REST
+    `ConsumerGroupSubscriptionIntegrationTest`. 25 such lines remained in its test
+    methods. They are removed (`final33`). Its setup and teardown are unchanged.
+- The validation against the testing standard found, in tests I had written in this
+  increment: narration logging, `@Order` with no need, unused parameters, setup deletes
+  outside a transaction, hand-built containers, and one test that asserted nothing of
+  value. All are corrected, and the classes were run again (`final19` to `final28`).
+- `RestClientConsumerGroupsContractSmokeTest` was rewritten after the handler change. It
+  has no red run.
+- One command had `| Out-Null; Select-String` after `Tee-Object`
+  (`green2-db-lifecycle`). The saved log is complete.
+- One message held two Maven commands. The logs show that they ran one after the other.
+- `rebuild6-rest-new-handlers` used `-pl :peegeeq-rest` with no `-am`. The upstream
+  modules had been installed by the rebuild before it.
+- `SubscriptionManagerCoreTest` ran 0 tests under the default profile
+  (`green9-db-sub-manager-core`). It inherits the integration tag. It was run again
+  under the integration profile.
+
+Found in increment 1b. None is changed.
+
+- The unexpected-ERROR gate does not see `ConsumerGroupHandler` in the REST tests.
+  `peegeeq-rest/src/test/resources/logback-test.xml` 25 to 30 gives the loggers of
+  `ConsumerGroupHandler` and `EventStoreHandler` the level `ERROR` and
+  `additivity="false"`. The gate's appender is on the root logger. Run: the class passes
+  with two ERROR lines of `ConsumerGroupHandler` in its log
+  (`final30-rest-cg-subscription`, lines 233 and 422). The cause is read, not shown by a
+  probe. The same setting hides every WARN line of the two handlers.
+- `ConsumerGroupHandler.updateSubscriptionOptions` logs ERROR for an invalid request
+  that returns 400 (693; before 1b, 639). An invalid request is not a failure of the
+  system.
+- Tests that accept HTTP 500 or 503 as success, outside the class the owner named:
+  `EventStoreIntegrationTest` 1941 to 2105, which includes a pause, a resume, and a
+  heartbeat on a group that does not exist; `CrossLayerPropagationIntegrationTest` 476;
+  `DeadLetterRequeueIntegrationTest` 203 and 284. Read.
+- `ConsumerGroupHandler.deleteSubscriptionOptions` returns 204 when `cancel` fails (811
+  to 815). `deleteConsumerGroup` logs WARN and answers "Consumer group deleted
+  successfully" when the close of the group fails (524 to 536). Read.
+- `ManagementApiHandler` 1498, 1563, and 1618 choose 409 or 503 by the text "invalid" in
+  the message. `SubscriptionHandler.isSubscriptionNotFoundError` (902) decides 404 by
+  message text. Read.
+- `subscribe` with `FROM_BEGINNING` on an existing subscription keeps the stored bound
+  and still starts the automatic backfill. The backfill is selected by the options, not
+  by the stored bound (`SubscriptionManager` 195 to 196). Read, not run.
+- A native group whose subscription was created by `SubscriptionService.subscribe` or by
+  the REST endpoint with `FROM_NOW` has a bound computed from `outbox` ids. Only the
+  native start resolves `FROM_NOW` against `queue_messages`. Read, not run.
+- The management UI client does not call the changed endpoint.
+  `PeeGeeQClient.updateSubscriptionOptions` sends `PUT` to the subscription URL with
+  `/options` (`src/api/PeeGeeQClient.ts` 543 to 554). `PeeGeeQRestServer` defines no
+  route that ends in `/options` (497 to 516). Read, not run.
+- REST `ConsumerGroupSubscriptionIntegrationTest`, setup and teardown, existing code: a
+  hand-built container, a blocking `awaitCompletion`, narration logging, and a teardown
+  that ignores a failed setup delete. `SubscriptionOptionsCoreTest` uses `@Order`.
+
+Not done in increment 1b.
+
+- No test makes the database fail under the REST update endpoint, so its 503 path and
+  the two removed `null` conversions have no test. The REST tests have no way to make
+  the subscription service of an existing consumer group fail. `ControllableSetupService
+  .withSubscriptionServiceForSetup` exists and no test uses it; a test also needs a
+  hand-written `QueueFactory` and `ConsumerGroup`, which no REST test has. That is a new
+  test fixture and needs a decision.
+- No whole-module run, no `-Pall-tests` run, and no Jenkins build was made. Jenkins
+  builds the remote branch, and these changes are not committed.
+- Not run: every test class not named in this section. In `peegeeq-rest` that includes
+  `EventStoreIntegrationTest` and `DeadConsumerAlertingIntegrationTest`. No test of
+  `peegeeq-benchmarking`, `peegeeq-examples-spring`, or the management UI was run.
+- `peegeeq-examples` was not rebuilt after `rebuild15-examples`. The later production
+  edit is in `ConsumerGroupHandler` only.
+
+Owner review of increment 1b, 2026-10-12.
+
+Increment 1b is not approved. The review found eight blocking defects, ruled on four
+questions, and set nine corrections. The owner: "No further owner ruling is required for
+these corrections."
+
+Blocking defects found by the review.
+
+1. Native `FROM_NOW` is wrong through REST. Generic subscription creation computes the
+   bound from `outbox`. Native delivery reads `queue_messages`. N-11 is incomplete.
+2. A `subscribe` that names `FROM_BEGINNING` on an existing subscription keeps the stored
+   bound and still starts the automatic backfill from the submitted options.
+3. The native start resolves `FROM_NOW` before it reads the existing subscription. An
+   existing stored bound depends on a `queue_messages` query that is not needed.
+4. The transition SQL reads the old status without a lock before the guarded update. A
+   concurrent transition can make the reported refusing status stale.
+5. `SubscriptionSettingsUpdate` accepts contradictory fields, for example
+   `FROM_BEGINNING` with a message id.
+6. `ConsumerGroupHandler` turns failures into success: a failed group close, a failed
+   subscription cancel (HTTP 204), and statistics exceptions logged at DEBUG.
+7. The REST evidence is not trustworthy. The handler logger bypasses the
+   unexpected-ERROR gate.
+8. The management UI calls an endpoint that the server does not define.
+
+Rulings of the review.
+
+| Question | Ruling |
+|---|---|
+| The cleanup helper for tests | Approved. It runs every cleanup exactly once. It preserves an operation failure. It returns a cleanup failure when the operation succeeded. It adds cleanup failures as suppressed exceptions when both fail. It continues later cleanup after an earlier cleanup failure. It treats a thrown exception or a null cleanup future as a cleanup failure. Both standards documents are corrected. Production use of `eventually` is not banned. The unsafe test-cleanup forms are guarded after their call sites are migrated. |
+| The REST fixture for dependency failures | Approved. `ControllableSetupService` with hand-written `QueueFactory` and `ConsumerGroup` implementations, and no mocking framework. Tests: initial lookup failure, update failure, create failure, reread failure, and a null reread. |
+| The detached handler loggers | Removed. An HTTP 400 input error logs at WARN or below. An expected dependency failure stays ERROR and uses `@ExpectedErrorLog`. |
+| The three test classes that accept HTTP 500 or 503 as success | Corrected. Each class is run separately after the correction. |
+
+The review also approved the queue pause and resume of increment 1b: the pause applies to
+eligible nonterminal subscriptions, and the resume applies to `PAUSED` only.
+
+The nine corrections.
+
+| # | Correction | State |
+|---|---|---|
+| 1 | Correct the two bound defects and add red tests. | Defects 2 and 3 are corrected and approved. Defect 1 is corrected under the owner's store ruling and awaits review: see "Correction 1, the subscription store" below. |
+| 2 | Lock the lifecycle row before reading and changing its status. Add a concurrent-transition test. | Not started. `subscribe` locks the row since correction 1. |
+| 3 | Reject contradictory start-bound fields. | Not started |
+| 4 | Add the REST dependency-failure fixture and tests. | Not started |
+| 5 | Install the cleanup helper, migrate the 1b tests, correct the standards, then add the guard. | Not started |
+| 6 | Restore the REST error gate and remove the pass-on-500/503 assertions. | Not started |
+| 7 | Fix the known error swallowing and the message-text status classification in the touched handlers. | Not started |
+| 8 | Align the UI client with the approved REST endpoint and test the request contract. | Not started |
+| 9 | Rebuild each affected reactor slice, run the targeted classes, inspect every per-class count, and rerun the guards. | Not started |
+
+Correction 1, 2026-10-12.
+
+Data model. No table, column, or stored field changes. The stored start bound stays the
+only source of truth for where a group starts. Two decisions that read the submitted
+options now read the stored row.
+
+What changed.
+
+- `SubscriptionManager.subscribe`. In one transaction it locks the subscription row and
+  reads its status first.
+  - A row exists: the start position of the options is not resolved, and no message
+    table is read. A `CANCELLED` row fails the call from the locked status. Any other
+    row is updated as before: `ACTIVE`, or `PAUSED` kept; the heartbeat settings of the
+    options; the miss count cleared.
+  - No row: the start bound is resolved and the row is inserted. When another
+    transaction inserted the row first, that row is locked and updated, and its bound is
+    kept.
+- The automatic backfill. It starts only when the options name `FROM_BEGINNING` and the
+  stored bound is the beginning: message id 1 and no timestamp. Before, it started
+  whenever the options named `FROM_BEGINNING`. A subscription whose stored bound is the
+  beginning keeps the behaviour it had.
+- `PgNativeConsumerGroup.start(SubscriptionOptions)`. It reads the subscription first.
+  When a subscription exists it does not read `queue_messages`. When none exists and the
+  options name `FROM_NOW`, it reads the highest message id of the topic in
+  `queue_messages` and creates the subscription with the next id. It then reads the
+  stored bound and starts from it. `withNativeStartBound` is deleted.
+
+Dependency failure modes, each with a test.
+
+| Call | Failure mode | Test |
+|---|---|---|
+| Native: the read before the subscribe | The Future fails | `startFailsBeforeTheSubscribeWhenTheSubscriptionCannotBeRead`: the start fails, the group is `NEW`, and no subscription is created |
+| Native: the `queue_messages` read | It fails when the start creates the subscription | `startThatCreatesTheSubscriptionFailsWhenTheQueuePositionCannotBeRead` |
+| Native: the `queue_messages` read | It is not made when a subscription exists | `startOnExistingSubscriptionDoesNotReadQueueMessages` |
+| Native: `subscribe` | The subscription is `CANCELLED` | `startFailsOnACancelledSubscription` |
+| Native: the read after the subscribe | The Future fails. The read finds no row. | `startFailsWhenTheStoredBoundCannotBeRead`, `startFailsWhenTheSubscriptionIsMissingAfterSubscribe` |
+| Db: the insert | Another transaction inserted the row first | `subscribeKeepsTheBoundOfAConcurrentCreator` |
+| Db: every statement | No pool for the service | `lifecycleCallsReturnDatabaseFailure` (increment 1b) |
+
+Not covered by a test: a failure of the `outbox` read that resolves `FROM_NOW` when
+`subscribe` creates the row. No test makes that one statement fail.
+
+Runs that failed first, each for the stated reason, and the run after the correction.
+
+| Scope | Before the correction | Log | After | Log |
+|---|---|---|---|---|
+| `SubscriptionManagerIntegrationTest` (`peegeeq-db`) | 12 run, 1 failure: `testSubscribeFromBeginningStartsNoBackfillWhenTheStoredBoundIsLater`, backfill status expected `NONE`, was `COMPLETED` | `red1-db-backfill-stored-bound` | 12 run, 0 failures | `green1-db-sub-manager-it` |
+| `SubscriptionStartBoundResolutionIntegrationTest` (`peegeeq-db`, new) | 2 run, 1 failure: a `subscribe` with `FROM_NOW` on an existing subscription waited for a lock on `outbox` | `red2-db-bound-resolution` | 2 run, 0 failures | `green2-db-bound-resolution` |
+| The same class, a third test added, temporary change: the conflicting insert fails | 3 run, 1 error: "MUTATION PROBE: conflicting insert" | `red5-db-conflict-mutation` | 3 run, 0 failures | `green6-db-bound-resolution` |
+| Native `ConsumerGroupSubscriptionIntegrationTest` | 12 run, 3 failures and 1 error | `red3-native-start-order` | 12 run, 0 failures | `green3-native-sub-integration` |
+
+The four native tests that failed first: the start on an existing subscription read
+`queue_messages`; the start created the subscription before its first read; and the two
+tests of the read after the subscribe, whose helper now scripts the second read, which
+the old start never made.
+
+Four new tests passed before the correction and after it. They state behaviour that is
+kept: `testSubscribeFromBeginningStartsBackfillWhenTheStoredBoundIsTheBeginning`,
+`concurrentFirstSubscribesStoreOneStartBound`,
+`startThatCreatesTheSubscriptionFailsWhenTheQueuePositionCannotBeRead`, and
+`startFailsOnACancelledSubscription`.
+
+The lock test has a schema of its own, `peegeeq_start_bound_test`, built by
+`PeeGeeQTestSchemaInitializer`. It holds an `ACCESS EXCLUSIVE` lock on `outbox`, and
+that lock must not block the tests that share the module schema. The temporary change of
+`red5` was restored, and the checksum of `SubscriptionManager` equals the one recorded
+before it.
+
+Existing tests run after the correction. All passed, except the one named below.
+
+| Scope | Result | Log |
+|---|---|---|
+| `SubscriptionLifecycleTransitionIntegrationTest` (`peegeeq-db`) | 26 run, 0 failures | `reg1-db-lifecycle` |
+| `SubscriptionManagerEdgeCaseTest` | 10 run, 0 failures | `reg2-db-edge-case` |
+| `StartPositionDatabaseStateTest` | 6 run, 0 failures | `reg3-db-start-position` |
+| `SubscriptionSettingsUpdateIntegrationTest` | 18 run, 0 failures | `reg4-db-settings-update` |
+| `SubscriptionManagerCoreTest` (integration profile) | 15 run, 0 failures | `reg5-db-sub-manager-core` |
+| `BackfillServiceIntegrationTest` | 11 run, 0 failures | `reg6-db-backfill-it` |
+| Native `ConsumerGroupSubscriptionTest` | 19 run in 2 nested classes, 0 failures | `reg7-native-sub-test` |
+| Native `PgNativeConsumerGroupLifecycleTest` (core) | 65 run in 10 nested classes, 0 failures | `reg8-native-lifecycle-core` |
+| `OutboxConsumerGroupGracefulShutdownTest` | 10 run, 0 failures | `reg9-outbox-graceful` |
+| `OutboxConsumerGroupSubscriptionTest` | 18 run in 2 nested classes, 0 failures | `reg10-outbox-sub-test` |
+| REST `SubscriptionCreateAndBackfillIntegrationTest` | 17 run, 0 failures | `reg11-rest-sub-create-backfill` |
+| REST `ConsumerGroupSubscriptionIntegrationTest` | 15 run, 0 failures | `reg12-rest-cg-subscription` |
+| REST `SubscriptionLifecycleRestIntegrationTest` | 4 run, 0 failures | `reg13-rest-lifecycle` |
+| REST `ManagementApiIntegrationTest` | 28 run, 0 failures | `reg14-rest-management-api` |
+| `RestClientConsumerGroupsContractSmokeTest` (smoke) | 1 run, 0 failures | `reg15-smoke-rest-client-cg` |
+| `SubscriptionLifecycleSmokeTest` (smoke) | 6 run, 0 failures | `reg16-smoke-subscription-lifecycle` |
+| `LateJoiningConsumerDemoTest` (`peegeeq-examples`) | 3 run, 2 failures | `reg17-examples-late-joining` |
+| `PartitionedOrderingDemoTest` | 4 run, 0 failures | `reg18-examples-partitioned-ordering` |
+| `OnSuccessExceptionSwallowingGuardTest` (core) | 8 run, 0 failures | `guard1-onsuccess-swallowing` |
+| `VertxAsyncForbiddenPatternsGuardTest` (core) | 1 run, 0 failures | `guard2-forbidden-patterns` |
+
+Rebuilds, each with build success: `rebuild1-native-red-tests` (the new tests on the
+unchanged production code), `rebuild2-native-c1`, `rebuild3-downstream-c1` (13 modules:
+`peegeeq-integration-tests`, `peegeeq-examples`, and their upstream modules),
+`rebuild4-examples`, `rebuild5-db-conflict-mutation` (the temporary change), and
+`rebuild6-db-restored`. `reg1` to `reg16` ran on `rebuild3`. The only source change
+after it is in `LateJoiningConsumerDemoTest` and in the test class of `red5`.
+
+Found in correction 1: `LateJoiningConsumerDemoTest` fails on its second run.
+
+- 3 run, 2 failures (`reg17-examples-late-joining`). The `FROM_NOW` group received 15
+  messages, expected 5. The `FROM_TIMESTAMP` group received 20, expected 10.
+- Cause, read from the database. The examples module keeps one PostgreSQL container
+  between runs (`SharedTestContainers`, `withReuse(true)`). The container was created
+  at 14:56. The test used fixed topic names. The subscription of `orders.events` and
+  `email-service` was created by the run of increment 1b at 17:09 with bound 238. Since
+  increment 1b a later `subscribe` keeps that bound, so the run at 19:29 received every
+  message from id 238.
+- It is a defect of increment 1b, not of correction 1. The run of increment 1b
+  (`f20-p1b-final16-examples-late-joining`) was the first run of the class on that
+  container.
+- Correction: each test of the class uses a topic that is unique to the run, as
+  `PartitionedOrderingDemoTest` does. Two runs on the same container, each 3 run, 0
+  failures: `green4-examples-late-joining-run1`, `green5-examples-late-joining-run2`.
+- Sweep. Three example classes create subscriptions on the kept container.
+  `PartitionedOrderingDemoTest` uses unique topics. `DeadConsumerDetectionDemoTest` uses
+  fixed topics and passed on its second run: 3 run, 0 failures
+  (`red4-examples-dead-consumer-second-run`; the log name is wrong, the run is green).
+  `peegeeq-examples-spring` keeps a container and creates no subscription. The
+  container of `peegeeq-db` is not kept between runs: `docker ps` showed one container,
+  the examples one.
+
+Wrong judgments in increment 1b, found in correction 1.
+
+- I judged one green run of `LateJoiningConsumerDemoTest` sufficient. I knew that the
+  examples database is kept between runs. I did not run the class a second time.
+- The dependency failure modes of the native start were tested after the code in
+  increment 1b, and the test helper returned the same result for every read. It could
+  not tell the read before the subscribe from the read after it. The helper now scripts
+  each read.
+
+Owner ruling on defect 1, 2026-10-12: the subscription store.
+
+Defect 1 of the review. `start_from_message_id` is an id of one of two tables: `outbox`
+or `queue_messages`. Nothing stored says which. Before this correction every creation
+through the subscription service or through REST resolved `FROM_NOW` against `outbox`,
+also for a native queue. I proposed four mechanisms and recommended a message store in
+`SubscriptionOptions`. The owner rejected that: "Storage identity does not belong in
+`SubscriptionOptions`. It is not a delivery option, and a caller-supplied default can
+silently select the wrong table." The ruling:
+
+- A typed `SubscriptionStore` with `OUTBOX` and `NATIVE`.
+- The store is mandatory when a subscription is created. There is no `OUTBOX` default.
+- `QueueFactory` has a typed method that returns its subscription store. The owning
+  factory or consumer group supplies the value.
+- REST derives the store from the queue's factory. REST clients do not submit it.
+- `SubscriptionManager` resolves `FROM_NOW` against the selected table inside the
+  subscription-creation transaction. An existing subscription performs no position query.
+- The native group's separate `FROM_NOW` resolver is deleted.
+- No discriminator column is stored. The queue configuration is the source of truth. The
+  store is derived.
+- A change of a queue's implementation type is refused while the queue has subscriptions.
+- A direct `SubscriptionService` caller names the store. A compile break is preferred to
+  a silent `outbox` default.
+- `queueName` is the intended topic. `ConsumerGroupHandler` uses it for the subscription
+  and for the group.
+
+Correction 1, the subscription store, 2026-10-12.
+
+Data model. No table and no column changes. The store of a subscription is not stored. It
+is derived from the queue: `peegeeq_object_registry.kind` stays the stored source of truth
+for the implementation type of a queue, and the queue factory built from it declares the
+store. `SubscriptionStore` is an input of the creating call only.
+
+What changed.
+
+- `peegeeq-api`. New enum `SubscriptionStore`. `SubscriptionService.subscribe(topic,
+  group, store)` and `subscribe(topic, group, store, options)` replace the two overloads
+  that had no store. `QueueFactory.getSubscriptionStore()` is new. New
+  `QueueImplementationChangeException`. `SubscriptionOptions.toBuilder()` and its two
+  tests are removed: the native resolver was its only caller.
+- `peegeeq-db`. `SubscriptionManager` rejects a null store. It resolves `FROM_NOW` with
+  `SELECT COALESCE(MAX(id), 0)` on `outbox` or on `queue_messages`, by store, on the
+  connection of the creating transaction. `PeeGeeQDatabaseSetupService.addQueue` reads
+  the registered kind and the subscription count of the queue name before it applies the
+  queue template. It fails with `QueueImplementationChangeException` when the kind
+  differs and the count is above zero.
+- `peegeeq-native`. `PgNativeQueueFactory` returns `NATIVE`. `PgNativeConsumerGroup`
+  subscribes with `NATIVE` and then reads the stored bound. `optionsForNewSubscription`,
+  `nextQueueMessageId`, and the read before the subscribe are deleted.
+- `peegeeq-outbox`. `OutboxFactory` returns `OUTBOX`. `OutboxConsumerGroup` subscribes
+  with `OUTBOX`.
+- `peegeeq-rest`. New `QueueSubscriptionStore`. It takes the store from the queue
+  factory. `ManagementApiHandler.createConsumerGroup`,
+  `SubscriptionHandler.createSubscription`, and the two creating paths of
+  `ConsumerGroupHandler` use it. `ConsumerGroupHandler` uses `queueName` as the topic in
+  its four subscription methods. `ManagementApiHandler.createQueue` and
+  `DatabaseSetupHandler.addQueue` answer HTTP 409 for
+  `QueueImplementationChangeException`.
+
+Decisions I made inside the ruling. Each is open to the owner.
+
+- `getSubscriptionStore()` is a default method that throws
+  `UnsupportedOperationException`. It is not abstract. An implementation that declares no
+  store has none, and the five hand-written factories in tests are unchanged.
+- A queue whose factory declares no store answers HTTP 501 and logs at ERROR.
+- `POST /api/v1/setups/:setupId/subscriptions/:topic` answers HTTP 404 when the topic is
+  not a queue of the setup. Before, it created a subscription on any topic name. This
+  changes the contract of that endpoint.
+- The refusal counts every subscription row of the queue name, also a `CANCELLED` row.
+  The ruling says "while it has subscriptions".
+- `PgNativeConsumerGroup.start(options)` without a database service fails for
+  `FROM_NOW`. The resolver it used is deleted. `PgNativeQueueFactory` always passes a
+  database service.
+- A queue that has subscriptions, and a request that names another type that is not
+  registered: the request now fails with the refusal, before the queue template. Before,
+  it failed after the template with `IllegalArgumentException`.
+
+Found by a run.
+
+- Adding a queue name that exists fails. The queue template ends with
+  `CREATE TRIGGER "trigger_<queue>_notify"`, and that statement has no `OR REPLACE`. The
+  run `red1-rest-store` shows HTTP 503 and SQLSTATE 42710 for the second
+  `POST /api/v1/management/queues` of a name: with a subscription, without one, and
+  after a REST delete of the queue. So before this correction a change of the
+  implementation type through `addQueue` failed at the DDL in every case, and a queue
+  deleted through REST cannot be created again. After this correction a queue with
+  subscriptions answers HTTP 409 before any DDL. A queue without subscriptions passes
+  the check and still fails at the trigger. The template is not changed: that needs a
+  ruling.
+- The Vert.x access log reports every 5xx response at ERROR. A REST test that expects
+  HTTP 501 declares that line with `@ExpectedErrorLog`, as the existing error tests do.
+
+Not covered by this correction.
+
+- Subscription rows that `ConsumerGroupHandler` stored under `setupId-queueName` before
+  this change. The handler now reads and writes `queueName`. No migration moves the old
+  rows, so a group that REST configured before the change reads as not configured, and
+  its old row stays in the table. Read, not run. I did not flag this when I reported the
+  correction. It needs a ruling: migrate, delete, or leave.
+- A subscription that a direct caller created on a topic that is not a registered queue.
+  Nothing stored names its store. `addQueue` on that name cannot see a mismatch.
+- A subscription created between the refusal check and the registry write of `addQueue`.
+  The check and the subscribe lock no common row.
+- The automatic backfill of `subscribe` reads `outbox` for every store. Not changed.
+
+The eight required tests.
+
+| # | Required | Tests | First red |
+|---|---|---|---|
+| 1 | Native `FROM_NOW` through each REST creation path uses `queue_messages`, with different ids in the two tables | REST `managementApi...`, `subscriptionApi...`, `consumerGroupApi...`, `subscriptionSettingsApiUsesQueueMessagesForANativeQueue` | `red1-rest-store` |
+| 2 | Outbox `FROM_NOW` uses `outbox` | The four REST `...UsesOutboxForAnOutboxQueue`; db `subscribeFromNowResolvesAgainstOutboxForTheOutboxStore` | Two REST tests in `red1-rest-store`. The other two and the db test passed before the correction: the default was `outbox`. Mutation M1 fails them. |
+| 3 | An existing subscription performs no position query, for either store | db `subscribeOnExistingSubscriptionReadsNoMessageTableForTheOutboxStore` and `...ForTheNativeStore`. A transaction holds `ACCESS EXCLUSIVE` on both tables. | Mutation M1 |
+| 4 | A failed outbox position query fails the creation and creates no row | db `subscribeFailsAndCreatesNoRowWhenTheOutboxPositionQueryFails`. The table is locked, and `pg_cancel_backend` cancels the waiting query: SQLSTATE 57014. | Mutation M1 |
+| 5 | A failed native position query fails the creation and creates no row | db `subscribeFailsAndCreatesNoRowWhenTheQueueMessagesPositionQueryFails` | `red2-db-store-stepA` |
+| 6 | An unknown queue implementation fails and does not default to `outbox` | The four REST `...RefusesAQueueWithoutASubscriptionStore` (a hand-written factory, HTTP 501, no row); REST `subscriptionApiRefusesATopicThatIsNotAQueue` (HTTP 404, no row); db `subscribeWithoutAStoreIsRejectedAndCreatesNoRow`; api `QueueFactorySubscriptionStoreTest` | `red1-rest-store`, `red2-db-store-stepA`, mutation M2 |
+| 7 | `ConsumerGroupHandler` uses the same topic for the subscription and the group | REST `consumerGroupApiUsesTheSameTopicForTheSubscriptionAndTheGroup`, `subscriptionSettingsApiActsOnTheSubscriptionUnderTheQueueName`. Each bound test also asserts one row, under the queue name. | `red1-rest-store` |
+| 8 | A change of the queue implementation with a subscription is refused | REST `implementationChangeIsRefusedWhileTheQueueHasASubscription` (both add-queue routes), `recreationWithAnotherImplementationIsRefusedWhileTheQueueHasASubscription`; db `QueueImplementationChangeRuleCoreTest` | `red1-rest-store`: HTTP 503 from the DDL, not a refusal. Mutation M1 for the rule. |
+
+Red and green by class. The green run is on the final tree.
+
+| Module | Class | Red | Green |
+|---|---|---|---|
+| rest | `SubscriptionStoreRestIntegrationTest` (new) | `red1-rest-store`: 18 run, 16 failed, on the code before the correction. `red5-rest-store-mutation-m1`: 17 run, 8 failed. | `final6-rest-store`: 17 run, 0 failed |
+| db | `SubscriptionStartBoundResolutionIntegrationTest` | `red2-db-store-stepA`: 9 run, 3 failed, with the store accepted and not used. `red3-db-store-mutation-m1`: 9 run, 6 failed. | `final7-db-store`: 9 run, 0 failed |
+| db | `QueueImplementationChangeRuleCoreTest` (new) | `red4-db-change-rule-mutation-m1`: 3 run, 1 failed | `final8-db-change-rule`: 3 run, 0 failed |
+| api | `QueueFactorySubscriptionStoreTest` (new) | `red8-api-default-store-mutation-m2`: 1 run, 1 failed | `final14-api-default-store`: 1 run, 0 failed |
+| native | `ConsumerGroupSubscriptionIntegrationTest` | `red6-native-sub-it-mutation-m1`: 12 run, 1 failed | `final9-native-sub-it`: 12 run, 0 failed |
+| native | `PgNativeConsumerGroupLifecycleTest` | `red9-native-lifecycle-core-mutation-m2`: 66 run, 1 failed | `final10-native-lifecycle-core`: 66 run, 0 failed |
+| native | `PgNativeQueueFactoryIntegrationTest` | `red10-native-factory-it-mutation-m2`: 6 run, 1 failed | `final11-native-factory-it`: 6 run, 0 failed |
+| outbox | `OutboxConsumerGroupSubscriptionTest` | `red7-outbox-sub-mutation-m1`: 19 run, 2 failed | `final12-outbox-sub`: 19 run, 0 failed |
+| outbox | `OutboxFactoryIntegrationTest` | `red11-outbox-factory-it-mutation-m2`: 45 run, 1 failed | `final13-outbox-factory-it`: 45 run, 0 failed |
+
+The first red run of the REST class held 18 tests. One was removed after it: the
+re-creation of a deleted queue without a subscription. It fails at the trigger of the
+queue template, and it cannot pass without a template change.
+
+Mutation probes. Each was a temporary edit of production code. The six files were
+restored, and their sha256 values match the values saved before the edit.
+
+- M1, in `peegeeq-db`: the two tables swapped in the store-to-table mapping; the start
+  position resolved before the row lock; the subscription count ignored in the refusal
+  rule.
+- M2: the `QueueFactory` default returns `OUTBOX`; the native factory returns `OUTBOX`;
+  the outbox factory returns `NATIVE`; a native start without a database service accepts
+  `FROM_NOW`.
+
+Rebuilds. Each ended `BUILD SUCCESS`: `rebuild0-rest` (9 modules), `rebuild1-db-stepA`
+(4), `rebuild2-all-stepB` (14), `rebuild3-db-mutation-m1` (4), `rebuild4-all-final` (14),
+`rebuild5-mutation-m2` (6), `rebuild6-all-final` (14), `rebuild7-all-final` (14). The
+final tree is the tree of `rebuild7-all-final`.
+
+Regression runs on the final tree. One class per command.
+
+| Module | Class | Log | Run, failed |
+|---|---|---|---|
+| db | `SubscriptionManagerIntegrationTest` | `reg12-db-manager-it` | 12, 0 |
+| db | `SubscriptionLifecycleTransitionIntegrationTest` | `reg13-db-lifecycle` | 26, 0 |
+| db | `SubscriptionManagerEdgeCaseTest` | `reg14-db-edge-case` | 10, 0 |
+| db | `StartPositionDatabaseStateTest` | `reg15-db-start-position` | 6, 0 |
+| db | `SubscriptionSettingsUpdateIntegrationTest` | `reg16-db-settings-update` | 18, 0 |
+| db | `SubscriptionManagerCoreTest` | `reg17-db-manager-core` | 15, 0 |
+| db | `BackfillServiceIntegrationTest` | `reg18-db-backfill-it` | 11, 0 |
+| db | `SubscriptionStopGroupIntegrationTest` | `reg19-db-stop-group` | 10, 0 |
+| native | `ConsumerGroupSubscriptionTest` | `reg20-native-cg-subscription` | 19, 0 |
+| outbox | `OutboxConsumerGroupGracefulShutdownTest` | `reg21-outbox-graceful` | 10, 0 |
+| rest | `ConsumerGroupSubscriptionIntegrationTest` | `reg1-rest-cg-subscription` | 15, 0 |
+| rest | `SubscriptionPersistenceAcrossRestartIntegrationTest` | `reg2-rest-persistence` | 5, 0 |
+| rest | `SubscriptionCreateAndBackfillIntegrationTest` | `reg3-rest-create-backfill` | 17, 0 |
+| rest | `SubscriptionLifecycleRestIntegrationTest` | `reg4-rest-lifecycle-rest` | 4, 0 |
+| rest | `SubscriptionLifecycleIntegrationTest` | `reg5-rest-lifecycle` | 7, 0 |
+| rest | `ManagementApiIntegrationTest` | `reg6-rest-management-api` | 28, 0 |
+| rest | `SubscriptionOptionsCoreTest` | `reg7-rest-options-core` | 10, 0 |
+| rest | `DeadConsumerAlertingIntegrationTest` | `reg8-rest-dead-consumer-alerting` | 7, 0 |
+| rest | `StoppedSubscriptionStatusIntegrationTest` | `reg9-rest-stopped-status` | 1, 0 |
+| integration-tests | `RestClientConsumerGroupsContractSmokeTest` | `reg10-smoke-rest-client-cg` | 1, 0 |
+| integration-tests | `SubscriptionLifecycleSmokeTest` | `reg11-smoke-subscription-lifecycle` | 6, 0 |
+| examples | `LateJoiningConsumerDemoTest` | `reg22-examples-late-joining` | 3, 0 |
+| examples | `DeadConsumerDetectionDemoTest` | `reg23-examples-dead-consumer` | 3, 0 |
+| test-support | `OnSuccessExceptionSwallowingGuardTest` | `guard1-onsuccess` | 8, 0 |
+| test-support | `VertxAsyncForbiddenPatternsGuardTest` | `guard2-forbidden-patterns` | 1, 0 |
+
+Call sites of `subscribe`. A script inserted `SubscriptionStore.OUTBOX` as the third
+argument at 218 call sites in 32 test files: 22 files of `peegeeq-db` (184 calls), 7 of
+`peegeeq-benchmarking` (24), 2 of `peegeeq-examples` (8), 1 of `peegeeq-rest` (2). I did
+not read these 32 files in full. The compiler accepted them. Two REST tests changed
+their topic from `setupId-queueName` to the queue name:
+`ConsumerGroupSubscriptionIntegrationTest` and
+`SubscriptionPersistenceAcrossRestartIntegrationTest`.
+`SubscriptionLifecycleIntegrationTest` takes the store from the queue factory.
+
+Wrong judgments and deviations in this part.
+
+- Five tests were written after the code they test: `QueueImplementationChangeRuleCoreTest`,
+  `QueueFactorySubscriptionStoreTest`, the two factory store tests, and
+  `withoutDatabaseService_fromNowFails`. Each was then seen red under a mutation probe.
+- The first run after the implementation, `green2-rest-store`, failed four of 17 tests.
+  The HTTP 501 tests did not declare the ERROR line of the access log. I had not read how
+  the existing REST error tests declare a 5xx response before I wrote them.
+- I read the queue template before I wrote the REST tests and saw that its trigger
+  statement has no `OR REPLACE`. I still wrote a test that needs a second creation of a
+  queue name to succeed. The red run showed that it cannot, and I removed the test.
+
+Seen and not changed. Each is an existing violation of the standards.
+
+- `PgNativeQueueFactoryIntegrationTest` has an empty catch block around `browser.close()`.
+- `ManagementApiHandler.deleteQueue` discards the Future of `queueFactory.close()`.
+- The class Javadoc of the native `ConsumerGroupSubscriptionIntegrationTest` cites
+  production line numbers.
+- The new and the changed native tests close their group in `.eventually(...)`.
+  Correction 5 moves them to the cleanup helper.
+
+Not checked in this part.
+
+- The seven changed classes of `peegeeq-benchmarking` were compiled and not run. They
+  are performance tests. A run of them is a Jenkins build, and Jenkins builds the pushed
+  branch only. Nothing is pushed.
+- No whole-module run, no `-Pall-tests` run, and no Jenkins build was made.
+- Not run: every test class that the tables of this part do not name.
+
+Not done in the first part of correction 1.
+
+- The new native tests close their group in `.eventually(...)`, as the tests beside
+  them do. Correction 5 moves them to the cleanup helper.
+- No whole-module run, no `-Pall-tests` run, and no Jenkins build was made.
+- Not run: every test class not named in the tables of this correction.
+
+Found in phase 1, and not in the proposal before.
+
+- N-11 (now in the proposal): a native group computed its start position from the
+  options at every start and did not read the stored bound. Reproduced and corrected in
+  increment 1b (`f20-p1b-red8-native-restart-bound`). OD-23 rules that a start uses the
+  stored bound on both paths.
+- A schema provisioned from the templates before this change keeps the old constraint.
+  The template statement is `CREATE TABLE IF NOT EXISTS`, and no template alters an
+  existing table. Such a schema rejects `STOPPED` until phase 2 gives it a migration path.
+  Read, not reproduced.
+- `EventSourcingCQRSDemoTest` discarded a failed `stopGracefully` in two places, and
+  `NativeQueueFeatureTest` and `ConsumerGroupLoadBalancingDemoTest` in one place each.
+  Corrected after the owner's review: correction 2 above.
+- `Future.eventually` discards a failure of the cleanup it runs. Run on Vert.x 5.0.4, the
+  version the project uses (`logs/f20-p1a-probe-eventually-20261012.log`). When the first
+  `Future` succeeds and the supplied `Future` fails, the result succeeds with the first
+  value. When the supplier throws, the result succeeds with a null value. When the first
+  `Future` fails, the result fails with the first failure. A test that stops or closes a
+  resource in `.eventually(...)` therefore passes when that stop or close fails.
+  - 19 test lines pass `stopGracefully` to `eventually`: native `ConsumerGroupTest` (4),
+    `PartitionedConsumerSafetyIntegrationTest` (4, and one more through its `closeGroups`
+    helper), `PartitionedNativeConsumerIntegrationTest` (7), outbox
+    `OutboxOffsetWatermarkOrderingTest` (3), and `OutboxOffsetWatermarkWiringTest` (1).
+    Four tests that I wrote in phase 1 close their native group the same way
+    (`ConsumerGroupSubscriptionIntegrationTest` 266, 309, 347, and 378), as the four
+    tests beside them do.
+  - 388 lines of the source trees contain `.eventually(`: 71 in production code and 317
+    in tests. Which of them run a cleanup whose failure must be reported was not
+    classified.
+  - The coding principles state two things. Line 202: "The supplier's outcome does not
+    change the outer Future's outcome". Line 208, in the example below it: "a failure in
+    either step fails the test". The run shows that the second is false for the
+    `eventually` step. The testing standard names `.eventually(() -> resource.close())` as
+    the correct cleanup (lines 461 to 473, and Rule 7), and the project instructions
+    require that a failed close fails the test. The two cannot both hold.
+  - Not changed: no call site and neither standards document. The owner's correction
+    list named the four places above. Changing the 19 lines by method name would leave
+    the same defect in every other cleanup, and the standard that prescribes it. This
+    needs a ruling.
+  - Proposed correction, as a task of its own: one helper in `peegeeq-test-support` that
+    runs every cleanup step and fails with the first failure, in the shape of
+    `CleanupResultSupport.merge` of `peegeeq-examples`; the test cleanup sites moved to
+    it; the two standards documents corrected; and a guard test beside
+    `VertxAsyncForbiddenPatternsGuardTest`.
+
+Not done in increment 1a.
+
+- The management UI types do not list the new status: `src/api/types.ts` 110 and
+  `src/pages/ConsumerGroups.tsx` 58. How the UI shows `"stopped"` was not run.
+- The subscription health summary has no count for `STOPPED`
+  (`SubscriptionManager.getSubscriptionHealthSummary`,
+  `DeadConsumerDetector.getSubscriptionSummary`). That is increment 1c.
+- The watermark, the write validator, and the insert trigger of `V010` still count `ACTIVE`
+  only. A
+  stopped group does not hold retention until increment 1c.
+- The dead-group cleanup still runs from `cancel`, force-remove, and the detection job
+  until increment 1d.
 
 ## Completed Work
 

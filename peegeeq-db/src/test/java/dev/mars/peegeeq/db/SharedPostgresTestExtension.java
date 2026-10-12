@@ -269,7 +269,7 @@ public class SharedPostgresTestExtension implements BeforeAllCallback {
                         id BIGSERIAL PRIMARY KEY,
                         topic VARCHAR(255) NOT NULL,
                         group_name VARCHAR(255) NOT NULL,
-                        subscription_status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' CHECK (subscription_status IN ('ACTIVE', 'PAUSED', 'CANCELLED', 'DEAD')),
+                        subscription_status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' CHECK (subscription_status IN ('ACTIVE', 'PAUSED', 'CANCELLED', 'DEAD', 'STOPPED')),
                         subscribed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
                         last_active_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
                         start_from_message_id BIGINT,

@@ -5,6 +5,7 @@ import dev.mars.peegeeq.api.messaging.StartPosition;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
 import dev.mars.peegeeq.api.subscription.SubscriptionState;
+import dev.mars.peegeeq.api.subscription.SubscriptionStore;
 import dev.mars.peegeeq.db.BaseIntegrationTest;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
@@ -107,7 +108,7 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
             .build();
         
         topicConfigService.createTopic(topicConfig)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
             .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNotNull(subscription);
@@ -135,7 +136,7 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
             .build();
 
         topicConfigService.createTopic(topicConfig)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, options))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
             .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNotNull(subscription);
@@ -159,7 +160,7 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
             .build();
 
         topicConfigService.createTopic(topicConfig)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, options))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
             .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNotNull(subscription);
@@ -185,7 +186,7 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
             .build();
 
         topicConfigService.createTopic(topicConfig)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, options))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
             .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNotNull(subscription);
@@ -211,7 +212,7 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
             .build();
 
         topicConfigService.createTopic(topicConfig)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, options))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
             .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNotNull(subscription);
@@ -235,7 +236,7 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
             .build();
 
         topicConfigService.createTopic(topicConfig)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX))
             .compose(v -> subscriptionManager.pause(topic, groupName))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
             .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
@@ -256,7 +257,7 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
             .build();
 
         topicConfigService.createTopic(topicConfig)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX))
             .compose(v -> subscriptionManager.pause(topic, groupName))
             .compose(v -> subscriptionManager.resume(topic, groupName))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
@@ -278,7 +279,7 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
             .build();
 
         topicConfigService.createTopic(topicConfig)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX))
             .compose(v -> subscriptionManager.cancel(topic, groupName))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
             .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
@@ -300,7 +301,7 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
             .build();
 
         topicConfigService.createTopic(topicConfig)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX))
             .compose(v -> subscriptionManager.cancel(topic, groupName))
             .compose(v -> subscriptionManager.resume(topic, groupName)
                 .<SubscriptionInfo>transform(ar -> {
@@ -328,7 +329,7 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
 
         AtomicReference<Instant> initialHeartbeatRef = new AtomicReference<>();
         topicConfigService.createTopic(topicConfig)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
             .compose(before -> {
                 initialHeartbeatRef.set(before.lastHeartbeatAt());
@@ -354,9 +355,9 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
             .build();
 
         topicConfigService.createTopic(topicConfig)
-            .compose(v -> subscriptionManager.subscribe(topic, "group-1"))
-            .compose(v -> subscriptionManager.subscribe(topic, "group-2"))
-            .compose(v -> subscriptionManager.subscribe(topic, "group-3"))
+            .compose(v -> subscriptionManager.subscribe(topic, "group-1", SubscriptionStore.OUTBOX))
+            .compose(v -> subscriptionManager.subscribe(topic, "group-2", SubscriptionStore.OUTBOX))
+            .compose(v -> subscriptionManager.subscribe(topic, "group-3", SubscriptionStore.OUTBOX))
             .compose(v -> subscriptionManager.listSubscriptions(topic))
             .onComplete(testContext.succeeding(subscriptions -> testContext.verify(() -> {
                 assertNotNull(subscriptions);
@@ -381,19 +382,19 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
 
     @Test
     void testSubscribeRequiresNonNullTopic(VertxTestContext testContext) {
-        assertThrows(NullPointerException.class, () -> subscriptionManager.subscribe(null, "group-name"));
+        assertThrows(NullPointerException.class, () -> subscriptionManager.subscribe(null, "group-name", SubscriptionStore.OUTBOX));
         testContext.completeNow();
     }
 
     @Test
     void testSubscribeRequiresNonNullGroupName(VertxTestContext testContext) {
-        assertThrows(NullPointerException.class, () -> subscriptionManager.subscribe("topic", null));
+        assertThrows(NullPointerException.class, () -> subscriptionManager.subscribe("topic", null, SubscriptionStore.OUTBOX));
         testContext.completeNow();
     }
 
     @Test
     void testSubscribeRequiresNonNullOptions(VertxTestContext testContext) {
-        assertThrows(NullPointerException.class, () -> subscriptionManager.subscribe("topic", "group", null));
+        assertThrows(NullPointerException.class, () -> subscriptionManager.subscribe("topic", "group", SubscriptionStore.OUTBOX, null));
         testContext.completeNow();
     }
 }

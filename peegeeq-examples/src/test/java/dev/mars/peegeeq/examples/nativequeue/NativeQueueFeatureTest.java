@@ -33,6 +33,7 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
@@ -213,20 +214,19 @@ class NativeQueueFeatureTest {
     }
     
     @Test
-    void testNativeConsumerGroups(VertxTestContext testContext) throws Exception {
+    void testNativeConsumerGroups(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Test native consumer group functionality
         ConsumerGroup<String> consumerGroup = nativeFactory.createConsumerGroup(
             "native-test-group", "group-test-topic", String.class);
         MessageProducer<String> producer = nativeFactory.createProducer("group-test-topic", String.class);
 
-        var checkpoint = testContext.checkpoint(5);
+        int messageCount = 5;
         AtomicInteger processedCount = new AtomicInteger();
 
         // Add consumer group members
         consumerGroup.addConsumer("member-1", message -> {
             try {
                 processedCount.incrementAndGet();
-                checkpoint.flag();
                 logger.info("Member-1 processed: {}", message.getPayload());
                 return Future.succeededFuture();
             } catch (Throwable t) {
@@ -238,7 +238,6 @@ class NativeQueueFeatureTest {
         consumerGroup.addConsumer("member-2", message -> {
             try {
                 processedCount.incrementAndGet();
-                checkpoint.flag();
                 logger.info("Member-2 processed: {}", message.getPayload());
                 return Future.succeededFuture();
             } catch (Throwable t) {
@@ -247,34 +246,53 @@ class NativeQueueFeatureTest {
             }
         });
 
-        // Start the consumer group and wait for LISTEN registration before sending
+        // Start the consumer group and wait for LISTEN registration before sending.
+        // The stats are checked while the group is active, and the group is stopped inside
+        // the chain, so a failed stop fails the test.
         consumerGroup.start()
-            .onFailure(testContext::failNow)
-            .onSuccess(v -> {
+            .compose(v -> {
                 // Send multiple messages only AFTER LISTEN is registered
                 List<Future<Void>> groupSends = new ArrayList<>();
-                for (int i = 0; i < 5; i++) {
+                for (int i = 0; i < messageCount; i++) {
                     groupSends.add(producer.send("Group message " + i));
                 }
-                Future.all(groupSends).onFailure(testContext::failNow);
-            });
+                return Future.all(groupSends);
+            })
+            .compose(v -> pollGroupStats(vertx, consumerGroup, messageCount, System.currentTimeMillis() + 10_000))
+            .compose(stats -> {
+                assertEquals(2, stats.getActiveConsumerCount());
+                return consumerGroup.stopGracefully();
+            })
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
 
-        // Wait for all messages to be processed
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "All messages should be processed");
-        assertEquals(5, processedCount.get());
+        // Wait for all messages to be processed and the group to be stopped
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS),
+            "All messages should be processed and the group stopped");
+        assertEquals(messageCount, processedCount.get());
 
-        // Verify consumer group stats
-        ConsumerGroupStats stats = consumerGroup.getStats();
-        assertNotNull(stats);
-        assertEquals(2, stats.getActiveConsumerCount());
-        assertTrue(stats.getTotalMessagesProcessed() >= 5);
-
-        consumerGroup.stopGracefully().onFailure(e -> logger.warn("consumerGroup stop failed", e));
         producer.close();
 
         logger.info("Native consumer groups test passed");
     }
-    
+
+    /**
+     * Polls the group statistics until the group has processed the expected number of
+     * messages. Fails on the deadline.
+     */
+    private Future<ConsumerGroupStats> pollGroupStats(Vertx vertx, ConsumerGroup<String> consumerGroup,
+                                                      int expectedProcessed, long deadline) {
+        ConsumerGroupStats stats = consumerGroup.getStats();
+        if (stats != null && stats.getTotalMessagesProcessed() >= expectedProcessed) {
+            return Future.succeededFuture(stats);
+        }
+        if (System.currentTimeMillis() >= deadline) {
+            return Future.failedFuture(new AssertionError(
+                "Consumer group did not process " + expectedProcessed + " messages before the deadline"));
+        }
+        return vertx.timer(100).compose(t -> pollGroupStats(vertx, consumerGroup, expectedProcessed, deadline));
+    }
+
     @Test
     void testNativeMessageConcurrency(VertxTestContext testContext) throws Exception {
         // Test that native queue handles concurrent message processing correctly

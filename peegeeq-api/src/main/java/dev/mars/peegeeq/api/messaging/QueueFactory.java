@@ -99,6 +99,23 @@ public interface QueueFactory {
     String getImplementationType();
 
     /**
+     * Returns the subscription store of the queues of this factory: the message table that the
+     * message ids of a consumer group subscription belong to.
+     *
+     * <p>A caller that creates a subscription for a queue of this factory passes this value to
+     * {@link dev.mars.peegeeq.api.subscription.SubscriptionService}. There is no default store.
+     * An implementation that does not declare its store cannot have subscriptions, and this
+     * method throws.</p>
+     *
+     * @return The subscription store of this implementation
+     * @throws UnsupportedOperationException if this implementation declares no subscription store
+     */
+    default dev.mars.peegeeq.api.subscription.SubscriptionStore getSubscriptionStore() {
+        throw new UnsupportedOperationException(
+                "Subscription store not declared by this queue implementation: " + getImplementationType());
+    }
+
+    /**
      * Checks if the factory is healthy and ready to create queues.
      *
      * @return a Future that completes with {@code true} if healthy, {@code false} otherwise

@@ -1197,6 +1197,13 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
             return Future.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
         }
 
+        // The implementation type that this call gives the queue: the requested type, otherwise the
+        // best available type. It is read before anything is changed.
+        String requestedType = queueConfig.getImplementationType();
+        Optional<String> newKind = requestedType != null && !requestedType.isEmpty()
+                ? Optional.of(requestedType)
+                : manager.getQueueFactoryProvider().getBestAvailableType();
+
         // Create queue table using reactive SQL template with stored database config
         PgConnectOptions connectOptions = new PgConnectOptions()
                 .setHost(dbConfig.getHost())
@@ -1215,7 +1222,9 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
             Map<String, String> params = Map.of(
                     "queueName", queueConfig.getQueueName(),
                     "schema", dbConfig.getSchema());
-            return templateProcessor.applyTemplate(connection, "queue", params);
+            // The refusal comes first, so a refused change leaves the queue as it was.
+            return refuseImplementationChangeWithSubscriptions(connection, dbConfig.getSchema(), queueName, newKind)
+                    .compose(v -> templateProcessor.applyTemplate(connection, "queue", params));
         })
                 .eventually(() -> tempPool.close())
                 .compose(result -> {
@@ -1256,6 +1265,57 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                                 return (Void) null;
                             });
                 });
+    }
+
+    /**
+     * Fails when the queue is registered with another implementation type and consumer groups
+     * are subscribed to it.
+     *
+     * <p>The start bound of a subscription is a message id in the message table of the queue
+     * implementation. Nothing stored with the subscription names that table: it is derived from
+     * the implementation type of the queue. A change of the implementation type would make
+     * every stored bound of the queue name a message in another table.</p>
+     *
+     * @param newKind the implementation type that the call gives the queue, or empty when the
+     *                call names none and no implementation is registered
+     */
+    private Future<Void> refuseImplementationChangeWithSubscriptions(SqlConnection connection, String schema,
+                                                                     String queueName, Optional<String> newKind) {
+        if (newKind.isEmpty()) {
+            return Future.succeededFuture();
+        }
+        String sql = "SELECT r.kind, (SELECT COUNT(*) FROM " + schema + ".outbox_topic_subscriptions s "
+                + "WHERE s.topic = r.object_name) AS subscription_count "
+                + "FROM " + schema + ".peegeeq_object_registry r WHERE r.object_name = $1";
+        return connection.preparedQuery(sql)
+                .execute(Tuple.of(queueName))
+                .onFailure(err -> logger.error("Failed to read the registered implementation type of queue '{}': {}",
+                        queueName, err.getMessage(), err))
+                .compose(rows -> {
+                    if (rows.size() == 0) {
+                        // The queue is not registered. There is no implementation type to change.
+                        return Future.<Void>succeededFuture();
+                    }
+                    Row row = rows.iterator().next();
+                    String registeredKind = row.getString("kind");
+                    long subscriptionCount = row.getLong("subscription_count");
+                    if (!isRefusedImplementationChange(registeredKind, newKind.get(), subscriptionCount)) {
+                        return Future.<Void>succeededFuture();
+                    }
+                    String message = "Cannot change the implementation type of queue '" + queueName + "' from '"
+                            + registeredKind + "' to '" + newKind.get() + "': the queue has "
+                            + subscriptionCount + " subscription(s)";
+                    logger.warn("{}", message);
+                    return Future.<Void>failedFuture(new QueueImplementationChangeException(message));
+                });
+    }
+
+    /**
+     * A queue that has subscriptions keeps its implementation type. A queue without
+     * subscriptions, and a call that names the registered type, are not refused.
+     */
+    static boolean isRefusedImplementationChange(String registeredKind, String newKind, long subscriptionCount) {
+        return subscriptionCount > 0 && !registeredKind.equals(newKind);
     }
 
     @Override

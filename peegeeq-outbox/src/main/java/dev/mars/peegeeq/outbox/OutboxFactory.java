@@ -347,6 +347,11 @@ public class OutboxFactory implements QueueFactory {
     }
 
     @Override
+    public dev.mars.peegeeq.api.subscription.SubscriptionStore getSubscriptionStore() {
+        return dev.mars.peegeeq.api.subscription.SubscriptionStore.OUTBOX;
+    }
+
+    @Override
     public io.vertx.core.Future<Boolean> isHealthy() {
         if (closed.get()) {
             return io.vertx.core.Future.succeededFuture(false);

@@ -6,6 +6,7 @@ import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.subscription.SubscriptionStore;
 import dev.mars.peegeeq.db.subscription.SubscriptionManager;
 import dev.mars.peegeeq.db.subscription.TopicConfig;
 import dev.mars.peegeeq.db.subscription.TopicConfigService;
@@ -119,7 +120,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                 .build();
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
         topicConfigService.createTopic(topicConfig)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, subscriptionOptions))
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message1")))
                 .compose(messageId -> {
                     // Mark as completed
@@ -159,9 +160,9 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                 .build();
 
         topicConfigService.createTopic(topicConfig)
-                .compose(v -> subscriptionManager.subscribe(topic, group1, subscriptionOptions))
-                .compose(v -> subscriptionManager.subscribe(topic, group2, subscriptionOptions))
-                .compose(v -> subscriptionManager.subscribe(topic, group3, subscriptionOptions))
+                .compose(v -> subscriptionManager.subscribe(topic, group1, SubscriptionStore.OUTBOX, subscriptionOptions))
+                .compose(v -> subscriptionManager.subscribe(topic, group2, SubscriptionStore.OUTBOX, subscriptionOptions))
+                .compose(v -> subscriptionManager.subscribe(topic, group3, SubscriptionStore.OUTBOX, subscriptionOptions))
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message1")))
                 .compose(messageId -> {
                     // Mark group1 as completed
@@ -215,7 +216,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
 
         topicConfigService.createTopic(topicConfig)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, subscriptionOptions))
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message1")))
                 .compose(messageId -> {
                     // Mark as completed twice
@@ -250,8 +251,8 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
 
         topicConfigService.createTopic(topicConfig)
-                .compose(v -> subscriptionManager.subscribe(topic, group1, subscriptionOptions))
-                .compose(v -> subscriptionManager.subscribe(topic, group2, subscriptionOptions))
+                .compose(v -> subscriptionManager.subscribe(topic, group1, SubscriptionStore.OUTBOX, subscriptionOptions))
+                .compose(v -> subscriptionManager.subscribe(topic, group2, SubscriptionStore.OUTBOX, subscriptionOptions))
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message1")))
                 .compose(messageId -> tracker.markCompleted(messageId, group1, topic)
                         .compose(v -> tracker.markCompleted(messageId, group1, topic))
@@ -284,7 +285,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
 
         topicConfigService.createTopic(topicConfig)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, subscriptionOptions))
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message1")))
                 .compose(messageId -> {
                     // Mark as failed
@@ -327,7 +328,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
 
         topicConfigService.createTopic(topicConfig)
-            .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, subscriptionOptions))
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message1")))
                 .compose(messageId -> tracker.markCompleted(messageId, groupName, topic)
                         .compose(v -> tracker.markFailed(messageId, groupName, topic, "late error"))
@@ -367,7 +368,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
 
         topicConfigService.createTopic(topicConfig)
-                .compose(v -> subscriptionManager.subscribe(topic, validGroup, subscriptionOptions))
+                .compose(v -> subscriptionManager.subscribe(topic, validGroup, SubscriptionStore.OUTBOX, subscriptionOptions))
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message1")))
                 .compose(messageId -> tracker.markCompleted(messageId, invalidGroup, topic)
                         .compose(v -> Future.failedFuture(new AssertionError("Expected markCompleted to reject unknown group")))
@@ -402,8 +403,8 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
 
         topicConfigService.createTopic(topicConfig)
-                .compose(v -> subscriptionManager.subscribe(topic, group1, subscriptionOptions))
-                .compose(v -> subscriptionManager.subscribe(topic, group2, subscriptionOptions))
+                .compose(v -> subscriptionManager.subscribe(topic, group1, SubscriptionStore.OUTBOX, subscriptionOptions))
+                .compose(v -> subscriptionManager.subscribe(topic, group2, SubscriptionStore.OUTBOX, subscriptionOptions))
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message1")))
                 .compose(messageId -> tracker.markCompleted(messageId, group1, topic)
                         .compose(v -> tracker.markFailed(messageId, group1, topic, "late group1 failure"))
@@ -446,7 +447,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
 
         topicConfigService.createTopic(topicConfig)
-                .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, subscriptionOptions))
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "recovery")))
                 .compose(messageId ->
                     tracker.markFailed(messageId, groupName, topic, "transient error")
@@ -491,7 +492,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
 
         topicConfigService.createTopic(topicConfig)
-                .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, subscriptionOptions))
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "retry")))
                 .compose(messageId ->
                     tracker.markFailed(messageId, groupName, topic, "error 1")
@@ -539,7 +540,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
 
         topicConfigService.createTopic(topicConfig)
-                .compose(v -> subscriptionManager.subscribe(topic, validGroup, subscriptionOptions))
+                .compose(v -> subscriptionManager.subscribe(topic, validGroup, SubscriptionStore.OUTBOX, subscriptionOptions))
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message1")))
                 .compose(messageId -> tracker.markFailed(messageId, invalidGroup, topic, "should reject")
                         .compose(v -> Future.failedFuture(new AssertionError("Expected markFailed to reject unknown group")))
@@ -572,7 +573,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
 
         topicConfigService.createTopic(topicConfig)
-                .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, subscriptionOptions))
                 .compose(v -> pauseSubscription(topic, groupName))
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message1")))
                 .compose(messageId -> tracker.markCompleted(messageId, groupName, topic)
@@ -607,7 +608,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
         long nonExistentMessageId = 999999999L;
 
         topicConfigService.createTopic(topicConfig)
-                .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, subscriptionOptions))
                 .compose(v -> tracker.markCompleted(nonExistentMessageId, groupName, topic)
                         .compose(v2 -> Future.<Void>failedFuture(new AssertionError("Expected markCompleted to reject non-existent message")))
                         .transform(ar -> {

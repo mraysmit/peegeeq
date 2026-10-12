@@ -5,9 +5,13 @@ import dev.mars.peegeeq.api.messaging.StartPosition;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.api.subscription.ForceRemoveResult;
 import dev.mars.peegeeq.api.subscription.PartitionAssignmentInfo;
+import dev.mars.peegeeq.api.subscription.SubscriptionBoundConflictException;
 import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
 import dev.mars.peegeeq.api.subscription.SubscriptionService;
+import dev.mars.peegeeq.api.subscription.SubscriptionSettingsUpdate;
 import dev.mars.peegeeq.api.subscription.SubscriptionState;
+import dev.mars.peegeeq.api.subscription.SubscriptionStateException;
+import dev.mars.peegeeq.api.subscription.SubscriptionStore;
 import dev.mars.peegeeq.db.consumer.OutboxMessage;
 import dev.mars.peegeeq.db.consumer.PartitionAssignment;
 import dev.mars.peegeeq.api.tracing.TraceCtx;
@@ -19,6 +23,7 @@ import io.vertx.core.Future;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.sqlclient.Row;
+import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.SqlConnection;
 import io.vertx.sqlclient.Tuple;
 import org.slf4j.Logger;
@@ -27,9 +32,11 @@ import org.slf4j.LoggerFactory;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -54,7 +61,18 @@ import java.util.stream.Collectors;
 public class SubscriptionManager implements SubscriptionService {
     
     private static final Logger logger = LoggerFactory.getLogger(SubscriptionManager.class);
-    
+
+    // The statuses from which each lifecycle call is accepted. A call from any other
+    // status fails and leaves the row unchanged.
+    private static final Set<SubscriptionStatus> PAUSE_FROM =
+        Set.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.STOPPED, SubscriptionStatus.PAUSED);
+    private static final Set<SubscriptionStatus> RESUME_FROM =
+        Set.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.PAUSED, SubscriptionStatus.DEAD);
+    private static final Set<SubscriptionStatus> MARK_DEAD_FROM =
+        Set.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.STOPPED, SubscriptionStatus.PAUSED,
+               SubscriptionStatus.DEAD);
+    private static final Set<SubscriptionStatus> CANCEL_FROM = Set.of(SubscriptionStatus.values());
+
     private final PgConnectionManager connectionManager;
     private final String serviceId;
     private BackfillService backfillService; // optional enables auto-backfill on FROM_BEGINNING subscribe
@@ -90,8 +108,9 @@ public class SubscriptionManager implements SubscriptionService {
      * Sets the BackfillService for automatic backfill on FROM_BEGINNING subscriptions.
      *
      * <p>When set, subscribing with {@link StartPosition#FROM_BEGINNING} will automatically
-     * trigger a backfill of existing messages to the new consumer group. If the backfill
-     * fails, the subscription is still created the backfill can be retried manually.</p>
+     * trigger a backfill of existing messages to the consumer group, provided that the stored
+     * start bound of the subscription is the beginning. If the backfill fails, the subscription
+     * is still created the backfill can be retried manually.</p>
      *
      * @param backfillService The backfill service, or null to disable auto-backfill
      */
@@ -136,43 +155,66 @@ public class SubscriptionManager implements SubscriptionService {
      *
      * @param topic The topic name
      * @param groupName The consumer group name
+     * @param store The message table that the message ids of the subscription belong to
      * @return Future that completes when subscription is created
      */
     @Override
-    public Future<Void> subscribe(String topic, String groupName) {
-        return subscribe(topic, groupName, SubscriptionOptions.defaults());
+    public Future<Void> subscribe(String topic, String groupName, SubscriptionStore store) {
+        return subscribe(topic, groupName, store, SubscriptionOptions.defaults());
     }
 
     /**
      * Subscribes a consumer group to a topic with custom options.
      *
-     * <p>This method creates a new subscription record in the outbox_topic_subscriptions table.
-     * If a subscription already exists, it will be reactivated if it was PAUSED or DEAD.</p>
+     * <p>When the group has no subscription on the topic, this method creates a record in the
+     * outbox_topic_subscriptions table. The new subscription is ACTIVE and its start bound comes
+     * from the options. FROM_NOW is resolved against the message table of the store, in the
+     * transaction that creates the record.</p>
+     *
+     * <p>When a subscription exists, its stored start bound is kept. The start position of the
+     * options is not resolved and no message table is read. An ACTIVE, STOPPED, or DEAD
+     * subscription becomes ACTIVE. A PAUSED subscription stays PAUSED. A CANCELLED subscription
+     * is unchanged and the returned Future fails with {@link SubscriptionStateException}.</p>
+     *
+     * <p>When a BackfillService is configured and the options name FROM_BEGINNING, the automatic
+     * backfill starts only if the stored start bound is the beginning.</p>
      *
      * @param topic The topic name
      * @param groupName The consumer group name
+     * @param store The message table that the message ids of the subscription belong to
      * @param options Subscription configuration options
-     * @return Future that completes when subscription is created
+     * @return Future that completes when subscription is created or made active
      */
     @Override
-    public Future<Void> subscribe(String topic, String groupName, SubscriptionOptions options) {
+    public Future<Void> subscribe(String topic, String groupName, SubscriptionStore store, SubscriptionOptions options) {
         Objects.requireNonNull(topic, "topic cannot be null");
         Objects.requireNonNull(groupName, "groupName cannot be null");
+        Objects.requireNonNull(store, "store cannot be null");
         Objects.requireNonNull(options, "options cannot be null");
-        
+
         TraceCtx trace = TraceCtx.createNew();
         try (var scope = TraceContextUtil.mdcScope(trace)) {
-            logger.info("Subscribing consumer group '{}' to topic '{}' with options: {}", 
-                       groupName, topic, options);
+            logger.info("Subscribing consumer group '{}' to topic '{}' with store {} and options: {}",
+                       groupName, topic, store, options);
         }
-        
-        Future<Void> subscribeFuture = connectionManager.withTransaction(serviceId, connection ->
-            subscribeInternal(trace, topic, groupName, options, connection)
+
+        Future<Subscription> subscribeFuture = connectionManager.withTransaction(serviceId, connection ->
+            subscribeInternal(trace, topic, groupName, store, options, connection)
         );
 
         // Auto-trigger backfill for FROM_BEGINNING subscriptions when BackfillService is configured
         if (backfillService != null && options.getStartPosition() == StartPosition.FROM_BEGINNING) {
-            return subscribeFuture.compose(v -> {
+            return subscribeFuture.compose(stored -> {
+                // The stored start bound is authoritative. An existing subscription that starts
+                // later keeps its bound, and the messages before it are not given to the group.
+                if (!isBeginning(stored.getStartFromMessageId(), stored.getStartFromTimestamp())) {
+                    try (var scope = TraceContextUtil.mdcScope(trace)) {
+                        logger.info("Automatic backfill not started: the stored start bound is not the beginning: "
+                                       + "topic='{}', group='{}', start_from_message_id={}, start_from_timestamp={}",
+                                   topic, groupName, stored.getStartFromMessageId(), stored.getStartFromTimestamp());
+                    }
+                    return Future.<Void>succeededFuture();
+                }
                 try (var scope = TraceContextUtil.mdcScope(trace)) {
                     logger.info("Auto-triggering backfill for FROM_BEGINNING subscription: topic='{}', group='{}'",
                                topic, groupName);
@@ -195,61 +237,126 @@ public class SubscriptionManager implements SubscriptionService {
             });
         }
 
-        return subscribeFuture;
+        return subscribeFuture.mapEmpty();
     }
-    
+
+    /** A start bound: a message id, or a timestamp. */
+    private record StartBound(Long messageId, Instant timestamp) {
+    }
+
     /**
      * Internal implementation of subscribe using provided connection.
+     *
+     * <p>The row is locked before anything else. An existing subscription keeps its stored start
+     * bound, so the start position of the options is resolved only when no row exists. The
+     * message table of the store is read only then.</p>
+     *
+     * @return Future containing the subscription as stored after the call
      */
-    private Future<Void> subscribeInternal(TraceCtx trace, String topic, String groupName,
-                                           SubscriptionOptions options, SqlConnection connection) {
+    private Future<Subscription> subscribeInternal(TraceCtx trace, String topic, String groupName,
+                                                   SubscriptionStore store, SubscriptionOptions options,
+                                                   SqlConnection connection) {
+        return lockSubscriptionStatus(connection, topic, groupName)
+            .compose(lockedStatus -> {
+                if (lockedStatus != null) {
+                    return reactivateSubscription(trace, topic, groupName, options, connection, lockedStatus);
+                }
+                return resolveStartBound(topic, groupName, store, options, connection)
+                    .compose(bound -> insertSubscription(trace, topic, groupName, options, connection, bound))
+                    .compose(created -> {
+                        if (created != null) {
+                            return Future.succeededFuture(created);
+                        }
+                        // Another transaction created the subscription first. Its start bound is kept.
+                        return lockSubscriptionStatus(connection, topic, groupName)
+                            .compose(existingStatus -> reactivateSubscription(
+                                trace, topic, groupName, options, connection, existingStatus));
+                    });
+            });
+    }
 
-        // Handle different start positions
+    /**
+     * Locks the subscription row and reads its status.
+     *
+     * @return Future containing the status, or null when the group has no subscription on the topic
+     */
+    private Future<String> lockSubscriptionStatus(SqlConnection connection, String topic, String groupName) {
+        String sql = """
+            SELECT subscription_status
+            FROM outbox_topic_subscriptions
+            WHERE topic = $1 AND group_name = $2
+            FOR UPDATE
+            """;
+
+        return connection.preparedQuery(sql)
+            .execute(Tuple.of(topic, groupName))
+            .map(rows -> rows.size() == 0 ? null : rows.iterator().next().getString("subscription_status"));
+    }
+
+    /**
+     * Returns the message table that the message ids of the store belong to.
+     */
+    private static String messageTable(SubscriptionStore store) {
+        return switch (store) {
+            case OUTBOX -> "outbox";
+            case NATIVE -> "queue_messages";
+        };
+    }
+
+    /**
+     * Resolves the start bound that a new subscription stores. FROM_NOW is resolved against the
+     * message table of the store, on the connection of the transaction that creates the
+     * subscription.
+     */
+    private Future<StartBound> resolveStartBound(String topic, String groupName, SubscriptionStore store,
+                                                 SubscriptionOptions options, SqlConnection connection) {
         switch (options.getStartPosition()) {
             case FROM_NOW:
                 // Get current max message ID and start from next message
                 if (options.getStartFromMessageId() == null) {
-                    String maxIdSql = "SELECT COALESCE(MAX(id), 0) AS max_id FROM outbox WHERE topic = $1";
+                    String maxIdSql = "SELECT COALESCE(MAX(id), 0) AS max_id FROM " + messageTable(store)
+                        + " WHERE topic = $1";
                     return connection.preparedQuery(maxIdSql)
                         .execute(Tuple.of(topic))
-                        .compose(rows -> {
+                        .map(rows -> {
                             Long maxId = rows.iterator().next().getLong("max_id");
                             Long startFromMessageId = maxId + 1; // Start from next message
-                            logger.debug("FROM_NOW: Setting start_from_message_id={} for topic='{}', group='{}'",
-                                startFromMessageId, topic, groupName);
-                            return insertSubscription(trace, topic, groupName, options, connection, startFromMessageId, null);
+                            logger.debug("FROM_NOW: Setting start_from_message_id={} from {} for topic='{}', group='{}'",
+                                startFromMessageId, messageTable(store), topic, groupName);
+                            return new StartBound(startFromMessageId, null);
                         });
                 } else {
-                    return insertSubscription(trace, topic, groupName, options, connection,
-                        options.getStartFromMessageId(), null);
+                    return Future.succeededFuture(new StartBound(options.getStartFromMessageId(), null));
                 }
-                
+
             case FROM_BEGINNING:
                 // Start from message ID 1
                 logger.debug("FROM_BEGINNING: Setting start_from_message_id=1 for topic='{}', group='{}'",
                     topic, groupName);
-                return insertSubscription(trace, topic, groupName, options, connection, 1L, null);
-                
+                return Future.succeededFuture(new StartBound(1L, null));
+
             case FROM_MESSAGE_ID:
                 // Use the provided message ID
-                return insertSubscription(trace, topic, groupName, options, connection,
-                    options.getStartFromMessageId(), null);
-                    
+                return Future.succeededFuture(new StartBound(options.getStartFromMessageId(), null));
+
             case FROM_TIMESTAMP:
                 // Use the provided timestamp
-                return insertSubscription(trace, topic, groupName, options, connection,
-                    null, options.getStartFromTimestamp());
-                    
+                return Future.succeededFuture(new StartBound(null, options.getStartFromTimestamp()));
+
             default:
                 return Future.failedFuture("Unknown start position: " + options.getStartPosition());
         }
     }
 
     /**
-     * Inserts the subscription record into the database.
+     * Inserts the subscription record with its start bound.
+     *
+     * @return Future containing the created subscription, or null when another transaction
+     *         created the subscription first
      */
-    private Future<Void> insertSubscription(TraceCtx trace, String topic, String groupName, SubscriptionOptions options,
-                                            SqlConnection connection, Long startFromMessageId, Instant startFromTimestamp) {
+    private Future<Subscription> insertSubscription(TraceCtx trace, String topic, String groupName,
+                                                    SubscriptionOptions options, SqlConnection connection,
+                                                    StartBound startBound) {
         String sql = """
             INSERT INTO outbox_topic_subscriptions (
                 topic, group_name, subscription_status,
@@ -258,36 +365,26 @@ public class SubscriptionManager implements SubscriptionService {
                 subscribed_at, last_active_at, last_heartbeat_at,
                 consecutive_misses, dead_after_misses
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, $11)
-            ON CONFLICT (topic, group_name) DO UPDATE SET
-                subscription_status = CASE
-                    WHEN outbox_topic_subscriptions.subscription_status = 'CANCELLED'
-                    THEN outbox_topic_subscriptions.subscription_status
-                    ELSE 'ACTIVE'
-                END,
-                start_from_message_id = EXCLUDED.start_from_message_id,
-                start_from_timestamp = EXCLUDED.start_from_timestamp,
-                last_active_at = EXCLUDED.last_active_at,
-                last_heartbeat_at = EXCLUDED.last_heartbeat_at,
-                heartbeat_interval_seconds = EXCLUDED.heartbeat_interval_seconds,
-                heartbeat_timeout_seconds = EXCLUDED.heartbeat_timeout_seconds,
-                dead_after_misses = EXCLUDED.dead_after_misses,
-                -- Intentional reset: stale miss history must not survive resubscription.
-                -- Write cost is driven by heartbeat cadence, not this counter.
-                consecutive_misses = 0
+            ON CONFLICT (topic, group_name) DO NOTHING
+            RETURNING id, topic, group_name, subscription_status, subscribed_at, last_active_at,
+                   start_from_message_id, start_from_timestamp,
+                   heartbeat_interval_seconds, heartbeat_timeout_seconds, last_heartbeat_at,
+                   backfill_status, backfill_checkpoint_id, backfill_processed_messages,
+                   backfill_total_messages, backfill_started_at, backfill_completed_at
             """;
 
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
 
         // Convert Instant to OffsetDateTime for database storage
-        OffsetDateTime startFromTimestampOdt = startFromTimestamp != null
-            ? startFromTimestamp.atOffset(ZoneOffset.UTC)
+        OffsetDateTime startFromTimestampOdt = startBound.timestamp() != null
+            ? startBound.timestamp().atOffset(ZoneOffset.UTC)
             : null;
 
         Tuple params = Tuple.of(
             topic,
             groupName,
             SubscriptionStatus.ACTIVE.name(),
-            startFromMessageId,
+            startBound.messageId(),
             startFromTimestampOdt,
             options.getHeartbeatIntervalSeconds(),
             options.getHeartbeatTimeoutSeconds(),
@@ -299,26 +396,107 @@ public class SubscriptionManager implements SubscriptionService {
 
         return connection.preparedQuery(sql)
             .execute(params)
-            .onSuccess(result -> {
-                try (var scope = TraceContextUtil.mdcScope(trace)) {
-                    logger.info("Successfully subscribed consumer group '{}' to topic '{}' with start_from_message_id={}",
-                               groupName, topic, startFromMessageId);
+            .onFailure(error -> logSubscribeFailure(trace, topic, groupName, error))
+            .map(result -> {
+                if (result.size() == 0) {
+                    return null;
                 }
-            })
-            .onFailure(error -> {
-                try (var scope = TraceContextUtil.mdcScope(trace)) {
-                    logger.error("Failed to subscribe consumer group '{}' to topic '{}': {}",
-                                groupName, topic, error.getMessage(), error);
-                }
-            })
-            .mapEmpty();
+                Subscription created = mapRowToSubscription(result.iterator().next());
+                logSubscribed(trace, created);
+                return created;
+            });
     }
-    
+
     /**
-     * Pauses an active subscription.
-     * 
-     * <p>Paused subscriptions will not receive new messages until resumed.
-     * Existing messages remain in the queue.</p>
+     * Makes an existing subscription active. The row is already locked.
+     *
+     * <p>The stored start bound is kept. A PAUSED subscription stays PAUSED. A CANCELLED
+     * subscription is left unchanged and fails the call.</p>
+     *
+     * @return Future containing the subscription as stored after the call
+     */
+    private Future<Subscription> reactivateSubscription(TraceCtx trace, String topic, String groupName,
+                                                        SubscriptionOptions options, SqlConnection connection,
+                                                        String lockedStatus) {
+        if (lockedStatus == null) {
+            return Future.failedFuture(new IllegalStateException(String.format(
+                "Subscription not found after a conflicting insert: topic='%s', group='%s'", topic, groupName)));
+        }
+
+        // CANCELLED is terminal.
+        if (SubscriptionStatus.CANCELLED.name().equals(lockedStatus)) {
+            String msg = String.format(
+                "Cannot subscribe: the subscription is CANCELLED: topic='%s', group='%s'",
+                topic, groupName);
+            try (var scope = TraceContextUtil.mdcScope(trace)) {
+                logger.warn("{}", msg);
+            }
+            return Future.failedFuture(new SubscriptionStateException(msg, SubscriptionState.CANCELLED));
+        }
+
+        String sql = """
+            UPDATE outbox_topic_subscriptions
+            SET subscription_status = CASE
+                    WHEN subscription_status = 'PAUSED' THEN subscription_status
+                    ELSE 'ACTIVE'
+                END,
+                last_active_at = $3,
+                last_heartbeat_at = $3,
+                heartbeat_interval_seconds = $4,
+                heartbeat_timeout_seconds = $5,
+                dead_after_misses = $6,
+                -- Intentional reset: stale miss history must not survive resubscription.
+                -- Write cost is driven by heartbeat cadence, not this counter.
+                consecutive_misses = 0
+            WHERE topic = $1 AND group_name = $2
+            RETURNING id, topic, group_name, subscription_status, subscribed_at, last_active_at,
+                   start_from_message_id, start_from_timestamp,
+                   heartbeat_interval_seconds, heartbeat_timeout_seconds, last_heartbeat_at,
+                   backfill_status, backfill_checkpoint_id, backfill_processed_messages,
+                   backfill_total_messages, backfill_started_at, backfill_completed_at
+            """;
+
+        Tuple params = Tuple.of(
+            topic,
+            groupName,
+            OffsetDateTime.now(ZoneOffset.UTC),
+            options.getHeartbeatIntervalSeconds(),
+            options.getHeartbeatTimeoutSeconds(),
+            options.getDeadAfterMisses()
+        );
+
+        return connection.preparedQuery(sql)
+            .execute(params)
+            .onFailure(error -> logSubscribeFailure(trace, topic, groupName, error))
+            .map(result -> {
+                Subscription stored = mapRowToSubscription(result.iterator().next());
+                logSubscribed(trace, stored);
+                return stored;
+            });
+    }
+
+    private void logSubscribeFailure(TraceCtx trace, String topic, String groupName, Throwable error) {
+        try (var scope = TraceContextUtil.mdcScope(trace)) {
+            logger.error("Failed to subscribe consumer group '{}' to topic '{}': {}",
+                        groupName, topic, error.getMessage(), error);
+        }
+    }
+
+    private void logSubscribed(TraceCtx trace, Subscription subscription) {
+        try (var scope = TraceContextUtil.mdcScope(trace)) {
+            logger.info("Successfully subscribed consumer group '{}' to topic '{}' "
+                           + "(status={}, start_from_message_id={}, start_from_timestamp={})",
+                       subscription.getGroupName(), subscription.getTopic(), subscription.getStatus(),
+                       subscription.getStartFromMessageId(), subscription.getStartFromTimestamp());
+        }
+    }
+
+    /**
+     * Pauses a subscription.
+     *
+     * <p>An ACTIVE, STOPPED, or PAUSED subscription becomes PAUSED. A DEAD or CANCELLED
+     * subscription is unchanged and the returned Future fails with
+     * {@link SubscriptionStateException}. Existing messages remain in the queue.</p>
      *
      * @param topic The topic name
      * @param groupName The consumer group name
@@ -334,13 +512,15 @@ public class SubscriptionManager implements SubscriptionService {
             logger.info("Pausing subscription for consumer group '{}' on topic '{}'", groupName, topic);
         }
 
-        return updateStatus(trace, topic, groupName, SubscriptionStatus.PAUSED);
+        return updateStatus(trace, topic, groupName, SubscriptionStatus.PAUSED, PAUSE_FROM, "pause");
     }
 
     /**
-     * Resumes a paused subscription.
+     * Resumes a subscription.
      *
-     * <p>Resumed subscriptions will start receiving new messages again.</p>
+     * <p>An ACTIVE, PAUSED, or DEAD subscription becomes ACTIVE. A STOPPED or CANCELLED
+     * subscription is unchanged and the returned Future fails with
+     * {@link SubscriptionStateException}.</p>
      *
      * @param topic The topic name
      * @param groupName The consumer group name
@@ -356,7 +536,218 @@ public class SubscriptionManager implements SubscriptionService {
             logger.info("Resuming subscription for consumer group '{}' on topic '{}'", groupName, topic);
         }
 
-        return updateStatus(trace, topic, groupName, SubscriptionStatus.ACTIVE);
+        return updateStatus(trace, topic, groupName, SubscriptionStatus.ACTIVE, RESUME_FROM, "resume");
+    }
+
+    /**
+     * Stops a subscription for a planned outage of the whole consumer group.
+     *
+     * <p>An ACTIVE subscription becomes STOPPED. A subscription in any other status is
+     * left unchanged. The start position and the committed offsets are kept. No cleanup
+     * runs. A later subscribe makes a STOPPED subscription ACTIVE again.</p>
+     *
+     * @param topic The topic name
+     * @param groupName The consumer group name
+     * @return Future that completes when the status is stored; it fails when the
+     *         group has no subscription on the topic
+     */
+    @Override
+    public Future<Void> stopGroup(String topic, String groupName) {
+        Objects.requireNonNull(topic, "topic cannot be null");
+        Objects.requireNonNull(groupName, "groupName cannot be null");
+
+        TraceCtx trace = TraceCtx.createNew();
+        try (var scope = TraceContextUtil.mdcScope(trace)) {
+            logger.info("Stopping subscription for consumer group '{}' on topic '{}'", groupName, topic);
+        }
+
+        return connectionManager.withTransaction(serviceId, connection -> {
+            String sql = """
+                WITH old AS (
+                    SELECT subscription_status
+                    FROM outbox_topic_subscriptions
+                    WHERE topic = $2 AND group_name = $3
+                ),
+                updated AS (
+                UPDATE outbox_topic_subscriptions
+                SET subscription_status = CASE
+                        WHEN subscription_status = 'ACTIVE' THEN 'STOPPED'
+                        ELSE subscription_status
+                    END,
+                    last_active_at = CASE
+                        WHEN subscription_status = 'ACTIVE' THEN $1
+                        ELSE last_active_at
+                    END
+                WHERE topic = $2 AND group_name = $3
+                RETURNING subscription_status AS new_status
+                )
+                SELECT updated.new_status, old.subscription_status AS old_status
+                FROM updated, old
+                """;
+
+            Tuple params = Tuple.of(OffsetDateTime.now(ZoneOffset.UTC), topic, groupName);
+
+            return connection.preparedQuery(sql)
+                .execute(params)
+                .compose(result -> {
+                    if (result.rowCount() == 0) {
+                        String msg = String.format("Subscription not found: topic='%s', group='%s'",
+                                                  topic, groupName);
+                        try (var scope = TraceContextUtil.mdcScope(trace)) {
+                            logger.debug(msg);
+                        }
+                        return Future.failedFuture(new IllegalStateException(msg));
+                    }
+
+                    Row row = result.iterator().next();
+                    try (var scope = TraceContextUtil.mdcScope(trace)) {
+                        logger.info("Stopped subscription for group '{}' on topic '{}' (oldStatus={}, newStatus={})",
+                                   groupName, topic, row.getString("old_status"), row.getString("new_status"));
+                    }
+                    return Future.succeededFuture();
+                });
+        });
+    }
+
+    /**
+     * Updates the settings of an existing subscription.
+     *
+     * <p>Only the heartbeat settings that the update supplies are changed. The lifecycle status
+     * and the stored start bound are never changed. When the update names a start position, the
+     * call succeeds only if that position is the stored start bound; otherwise it fails with
+     * {@link SubscriptionBoundConflictException} and changes nothing.</p>
+     *
+     * @param topic The topic name
+     * @param groupName The consumer group name
+     * @param update The settings to change and the start bound the caller names, if any
+     * @return Future containing the subscription as stored after the update; it fails when the
+     *         group has no subscription on the topic
+     */
+    @Override
+    public Future<SubscriptionInfo> updateSubscriptionSettings(String topic, String groupName,
+                                                               SubscriptionSettingsUpdate update) {
+        Objects.requireNonNull(topic, "topic cannot be null");
+        Objects.requireNonNull(groupName, "groupName cannot be null");
+        Objects.requireNonNull(update, "update cannot be null");
+
+        TraceCtx trace = TraceCtx.createNew();
+        try (var scope = TraceContextUtil.mdcScope(trace)) {
+            logger.info("Updating subscription settings for consumer group '{}' on topic '{}': {}",
+                       groupName, topic, update);
+        }
+
+        return connectionManager.withTransaction(serviceId, connection -> {
+            // The row is locked so that the checks and the update see the same stored settings.
+            String selectSql = """
+                SELECT id, topic, group_name, subscription_status, subscribed_at, last_active_at,
+                       start_from_message_id, start_from_timestamp,
+                       heartbeat_interval_seconds, heartbeat_timeout_seconds, last_heartbeat_at,
+                       backfill_status, backfill_checkpoint_id, backfill_processed_messages,
+                       backfill_total_messages, backfill_started_at, backfill_completed_at
+                FROM outbox_topic_subscriptions
+                WHERE topic = $1 AND group_name = $2
+                FOR UPDATE
+                """;
+
+            return connection.preparedQuery(selectSql)
+                .execute(Tuple.of(topic, groupName))
+                .compose(rows -> {
+                    if (rows.size() == 0) {
+                        String msg = String.format("Subscription not found: topic='%s', group='%s'",
+                                                  topic, groupName);
+                        try (var scope = TraceContextUtil.mdcScope(trace)) {
+                            logger.debug(msg);
+                        }
+                        return Future.failedFuture(new IllegalStateException(msg));
+                    }
+
+                    Subscription stored = mapRowToSubscription(rows.iterator().next());
+                    return validateSettingsUpdate(stored, update)
+                        .onFailure(refusal -> {
+                            try (var scope = TraceContextUtil.mdcScope(trace)) {
+                                logger.warn("Subscription settings update refused for group '{}' on topic '{}': {}",
+                                           groupName, topic, refusal.getMessage());
+                            }
+                        })
+                        .compose(v -> {
+                            String updateSql = """
+                                UPDATE outbox_topic_subscriptions
+                                SET heartbeat_interval_seconds = COALESCE($3, heartbeat_interval_seconds),
+                                    heartbeat_timeout_seconds = COALESCE($4, heartbeat_timeout_seconds)
+                                WHERE topic = $1 AND group_name = $2
+                                RETURNING id, topic, group_name, subscription_status, subscribed_at, last_active_at,
+                                       start_from_message_id, start_from_timestamp,
+                                       heartbeat_interval_seconds, heartbeat_timeout_seconds, last_heartbeat_at,
+                                       backfill_status, backfill_checkpoint_id, backfill_processed_messages,
+                                       backfill_total_messages, backfill_started_at, backfill_completed_at
+                                """;
+
+                            Tuple params = Tuple.of(topic, groupName,
+                                update.heartbeatIntervalSeconds(), update.heartbeatTimeoutSeconds());
+
+                            return connection.preparedQuery(updateSql)
+                                .execute(params)
+                                .map(updated -> toSubscriptionInfo(mapRowToSubscription(updated.iterator().next())));
+                        });
+                });
+        });
+    }
+
+    /**
+     * Checks a settings update against the stored subscription. The returned Future fails when
+     * the update names a start bound that is not the stored bound, or when the heartbeat timeout
+     * would not exceed the heartbeat interval.
+     */
+    private Future<Void> validateSettingsUpdate(Subscription stored, SubscriptionSettingsUpdate update) {
+        if (update.namesBound() && !namesStoredBound(stored, update)) {
+            return Future.failedFuture(new SubscriptionBoundConflictException(String.format(
+                "The start position %s does not name the stored start bound "
+                    + "(start_from_message_id=%s, start_from_timestamp=%s): topic='%s', group='%s'. "
+                    + "A settings update cannot move the start bound.",
+                update.startPosition(), stored.getStartFromMessageId(), stored.getStartFromTimestamp(),
+                stored.getTopic(), stored.getGroupName())));
+        }
+
+        boolean heartbeatSupplied =
+            update.heartbeatIntervalSeconds() != null || update.heartbeatTimeoutSeconds() != null;
+        int interval = update.heartbeatIntervalSeconds() != null
+            ? update.heartbeatIntervalSeconds()
+            : stored.getHeartbeatIntervalSeconds();
+        int timeout = update.heartbeatTimeoutSeconds() != null
+            ? update.heartbeatTimeoutSeconds()
+            : stored.getHeartbeatTimeoutSeconds();
+        if (heartbeatSupplied && timeout <= interval) {
+            return Future.failedFuture(new IllegalArgumentException(
+                "heartbeatTimeoutSeconds must be greater than heartbeatIntervalSeconds"));
+        }
+
+        return Future.succeededFuture();
+    }
+
+    /**
+     * Returns true when the start position named by the update is the stored start bound.
+     */
+    private static boolean namesStoredBound(Subscription stored, SubscriptionSettingsUpdate update) {
+        Long storedMessageId = stored.getStartFromMessageId();
+        Instant storedTimestamp = stored.getStartFromTimestamp();
+        return switch (update.startPosition()) {
+            // FROM_NOW is resolved to a message id when the subscription is created.
+            // It does not identify the stored bound.
+            case FROM_NOW -> false;
+            case FROM_BEGINNING -> isBeginning(storedMessageId, storedTimestamp);
+            case FROM_MESSAGE_ID -> storedTimestamp == null && update.startFromMessageId().equals(storedMessageId);
+            // PostgreSQL stores microseconds.
+            case FROM_TIMESTAMP -> storedMessageId == null && storedTimestamp != null
+                && update.startFromTimestamp().truncatedTo(ChronoUnit.MICROS)
+                    .equals(storedTimestamp.truncatedTo(ChronoUnit.MICROS));
+        };
+    }
+
+    /**
+     * Returns true when the start bound is the beginning of the topic: message id 1.
+     */
+    private static boolean isBeginning(Long startFromMessageId, Instant startFromTimestamp) {
+        return startFromTimestamp == null && Long.valueOf(1L).equals(startFromMessageId);
     }
 
     /**
@@ -384,7 +775,7 @@ public class SubscriptionManager implements SubscriptionService {
             logger.info("Cancelling subscription for consumer group '{}' on topic '{}'", groupName, topic);
         }
 
-        return updateStatus(trace, topic, groupName, SubscriptionStatus.CANCELLED)
+        return updateStatus(trace, topic, groupName, SubscriptionStatus.CANCELLED, CANCEL_FROM, "cancel")
                 .compose(v -> {
                     if (deadConsumerGroupCleanup == null) {
                         try (var scope = TraceContextUtil.mdcScope(trace)) {
@@ -467,7 +858,8 @@ public class SubscriptionManager implements SubscriptionService {
                     if (info.state() == SubscriptionState.DEAD) {
                         markDeadFuture = Future.succeededFuture();
                     } else {
-                        markDeadFuture = updateStatus(trace, topic, groupName, SubscriptionStatus.DEAD);
+                        markDeadFuture = updateStatus(trace, topic, groupName, SubscriptionStatus.DEAD,
+                                MARK_DEAD_FROM, "mark dead");
                     }
 
                     // Step 3: Run cleanup, then Step 4: Mark CANCELLED
@@ -482,7 +874,8 @@ public class SubscriptionManager implements SubscriptionService {
                                             cleanupResult.orphanRowsRemoved(),
                                             cleanupResult.messagesAutoCompleted());
                                 }
-                                return updateStatus(trace, topic, groupName, SubscriptionStatus.CANCELLED)
+                                return updateStatus(trace, topic, groupName, SubscriptionStatus.CANCELLED,
+                                                CANCEL_FROM, "cancel")
                                         .map(v -> new ForceRemoveResult(
                                                 topic, groupName, previousStatus,
                                                 cleanupResult.messagesDecremented(),
@@ -498,9 +891,11 @@ public class SubscriptionManager implements SubscriptionService {
      * <p>Consumer groups must call this method periodically to prevent being marked as DEAD.
      * The heartbeat interval and timeout are configured in SubscriptionOptions.</p>
      *
-     * <p>If the subscription is currently DEAD, sending a heartbeat will automatically
-     * resurrect it by transitioning the status back to ACTIVE. This allows consumers
-     * that recover from transient failures to rejoin without needing to re-subscribe.</p>
+     * <p>A heartbeat changes no status. On an ACTIVE subscription it sets the heartbeat time
+     * and clears the miss count. On a PAUSED subscription it sets the heartbeat time. On a
+     * STOPPED, DEAD, or CANCELLED subscription the row is unchanged and the returned Future
+     * fails with {@link SubscriptionStateException}, which names the status. A heartbeat does
+     * not make a DEAD subscription ACTIVE: that takes an explicit resume or start.</p>
      *
      * @param topic The topic name
      * @param groupName The consumer group name
@@ -516,9 +911,7 @@ public class SubscriptionManager implements SubscriptionService {
             logger.debug("Updating heartbeat for consumer group '{}' on topic '{}'", groupName, topic);
         }
 
-        BackfillService configuredBackfillService = backfillService;
         return connectionManager.withTransaction(serviceId, connection -> {
-            // Use CTE to capture pre-update status for resurrection logging
             String sql = """
                 WITH old AS (
                     SELECT subscription_status
@@ -529,90 +922,28 @@ public class SubscriptionManager implements SubscriptionService {
                     UPDATE outbox_topic_subscriptions
                     SET last_heartbeat_at = $1,
                         last_active_at = $1,
-                        -- Intentional reset: a real heartbeat clears stale miss history.
-                        -- Moderate heartbeat cadence (30-60s) matters more than this counter.
-                        consecutive_misses = 0,
-                        subscription_status = CASE
-                            WHEN subscription_status = 'DEAD' THEN 'ACTIVE'
-                            ELSE subscription_status
+                        -- Intentional reset: a real heartbeat of an ACTIVE group clears stale
+                        -- miss history. Moderate heartbeat cadence (30-60s) matters more than
+                        -- this counter.
+                        consecutive_misses = CASE
+                            WHEN subscription_status = 'ACTIVE' THEN 0
+                            ELSE consecutive_misses
                         END
                     WHERE topic = $2 AND group_name = $3
-                    RETURNING subscription_status
+                      AND subscription_status IN ('ACTIVE', 'PAUSED')
+                    RETURNING subscription_status AS new_status
                 )
-                SELECT updated.subscription_status AS new_status,
-                       old.subscription_status AS old_status
-                FROM updated, old
+                SELECT old.subscription_status AS old_status, updated.new_status
+                FROM old LEFT JOIN updated ON TRUE
                 """;
 
             Tuple params = Tuple.of(OffsetDateTime.now(ZoneOffset.UTC), topic, groupName);
 
             return connection.preparedQuery(sql)
                 .execute(params)
-                .compose(result -> {
-                    if (result.rowCount() == 0) {
-                        try (var scope = TraceContextUtil.mdcScope(trace)) {
-                            logger.debug("Subscription not found for heartbeat: topic='{}', group='{}'", topic, groupName);
-                        }
-                        return Future.failedFuture(new IllegalStateException(
-                            "Subscription not found: topic='" + topic + "', group='" + groupName + "'"));
-                    }
-                    Row row = result.iterator().next();
-                    String oldStatus = row.getString("old_status");
-                    String newStatus = row.getString("new_status");
-                    boolean resurrected = "DEAD".equals(oldStatus) && "ACTIVE".equals(newStatus);
-                    if (resurrected) {
-                        try (var scope = TraceContextUtil.mdcScope(trace)) {
-                            logger.info("Consumer group '{}' on topic '{}' resurrected: DEAD  ACTIVE via heartbeat",
-                                       groupName, topic);
-                        }
-                    }
-                    // Reset the backfill state in the heartbeat transaction. Starting a second
-                    // transaction before this one commits would wait on its own row lock.
-                    if (resurrected && configuredBackfillService != null) {
-                        try (var scope = TraceContextUtil.mdcScope(trace)) {
-                            logger.info("Triggering re-backfill after resurrection: topic='{}', group='{}'",
-                                       topic, groupName);
-                        }
-                        return resetBackfillStatus(connection, topic, groupName).map(true);
-                    }
-                    return Future.succeededFuture(false);
-                });
-        }).compose(triggerBackfill -> {
-            if (!triggerBackfill) {
-                return Future.succeededFuture();
-            }
-            return configuredBackfillService.startBackfill(topic, groupName, BackfillScope.PENDING_ONLY)
-                .map(backfillResult -> {
-                    try (var scope = TraceContextUtil.mdcScope(trace)) {
-                        logger.info("Resurrection re-backfill completed: topic='{}', group='{}', status={}, processed={}",
-                                   topic, groupName, backfillResult.status(), backfillResult.processedMessages());
-                    }
-                    return (Void) null;
-                })
-                .onFailure(error -> {
-                    try (var scope = TraceContextUtil.mdcScope(trace)) {
-                        logger.warn("Resurrection re-backfill failed for topic='{}', group='{}': {}",
-                                   topic, groupName, error.getMessage());
-                    }
-                });
+                .compose(result -> settleTransition(trace, result, topic, groupName, "send a heartbeat for"))
+                .mapEmpty();
         });
-    }
-
-    /**
-     * Resets the backfill status for a subscription so that a new backfill can be triggered.
-     * Used during resurrection to allow re-backfill of messages cleaned up during the DEAD period.
-     */
-    private Future<Void> resetBackfillStatus(SqlConnection connection, String topic, String groupName) {
-        String sql = """
-            UPDATE outbox_topic_subscriptions
-            SET backfill_status = NULL,
-                backfill_checkpoint_id = NULL,
-                backfill_processed_messages = 0
-            WHERE topic = $1 AND group_name = $2
-            """;
-        return connection.preparedQuery(sql)
-            .execute(Tuple.of(topic, groupName))
-            .mapEmpty();
     }
 
     /**
@@ -807,7 +1138,13 @@ public class SubscriptionManager implements SubscriptionService {
 
     // Helper methods
 
-    private Future<Void> updateStatus(TraceCtx trace, String topic, String groupName, SubscriptionStatus newStatus) {
+    /**
+     * Sets the status when the current status is one of {@code allowedFrom}. From any other
+     * status the row is unchanged and the returned Future fails with
+     * {@link SubscriptionStateException}.
+     */
+    private Future<Void> updateStatus(TraceCtx trace, String topic, String groupName, SubscriptionStatus newStatus,
+                                      Set<SubscriptionStatus> allowedFrom, String callName) {
         return connectionManager.withTransaction(serviceId, connection -> {
             String sql = """
                 WITH old AS (
@@ -817,58 +1154,67 @@ public class SubscriptionManager implements SubscriptionService {
                 ),
                 updated AS (
                 UPDATE outbox_topic_subscriptions
-                SET subscription_status = CASE
-                        WHEN subscription_status = 'CANCELLED' AND $1 = 'ACTIVE' THEN subscription_status
-                        ELSE $1
-                    END,
-                    last_active_at = CASE
-                        WHEN subscription_status = 'CANCELLED' AND $1 = 'ACTIVE' THEN last_active_at
-                        ELSE $2
-                    END
+                SET subscription_status = $1,
+                    last_active_at = $2
                 WHERE topic = $3 AND group_name = $4
+                  AND subscription_status = ANY($5::text[])
                 RETURNING subscription_status AS new_status
                 )
-                SELECT updated.new_status, old.subscription_status AS old_status
-                FROM updated, old
+                SELECT old.subscription_status AS old_status, updated.new_status
+                FROM old LEFT JOIN updated ON TRUE
                 """;
-            
-            Tuple params = Tuple.of(newStatus.name(), OffsetDateTime.now(ZoneOffset.UTC), topic, groupName);
-            
+
+            String[] allowedNames = allowedFrom.stream().map(SubscriptionStatus::name).toArray(String[]::new);
+            Tuple params = Tuple.of(newStatus.name(), OffsetDateTime.now(ZoneOffset.UTC), topic, groupName,
+                                    allowedNames);
+
             return connection.preparedQuery(sql)
                 .execute(params)
-                .compose(result -> {
-                    if (result.rowCount() == 0) {
-                        String msg = String.format("Subscription not found: topic='%s', group='%s'",
-                                                  topic, groupName);
-                        try (var scope = TraceContextUtil.mdcScope(trace)) {
-                            logger.debug(msg);
-                        }
-                        return Future.failedFuture(new IllegalStateException(msg));
-                    }
-
-                    Row row = result.iterator().next();
-                    String oldStatus = row.getString("old_status");
-                    String newStatusInDb = row.getString("new_status");
-
-                    if (newStatus == SubscriptionStatus.ACTIVE && "CANCELLED".equals(oldStatus)) {
-                        String msg = String.format(
-                            "Cannot resume cancelled subscription: topic='%s', group='%s'",
-                            topic, groupName);
-                        try (var scope = TraceContextUtil.mdcScope(trace)) {
-                            logger.warn("{}", msg);
-                        }
-                        return Future.failedFuture(new IllegalStateException(msg));
-                    }
-
+                .compose(result -> settleTransition(trace, result, topic, groupName, callName))
+                .map(row -> {
                     try (var scope = TraceContextUtil.mdcScope(trace)) {
                         logger.info("Updated subscription status to {} for group '{}' on topic '{}' (oldStatus={}, newStatus={})",
-                                   newStatus, groupName, topic, oldStatus, newStatusInDb);
+                                   newStatus, groupName, topic, row.getString("old_status"), row.getString("new_status"));
                     }
-                    return Future.succeededFuture();
+                    return (Void) null;
                 });
         });
     }
-    
+
+    /**
+     * Reads the result of a guarded status statement.
+     *
+     * <p>No row: the group has no subscription on the topic. A row without a new status: the
+     * current status refused the call and the subscription is unchanged.</p>
+     *
+     * @return Future containing the row with {@code old_status} and {@code new_status}
+     */
+    private Future<Row> settleTransition(TraceCtx trace, RowSet<Row> result, String topic, String groupName,
+                                         String callName) {
+        if (result.size() == 0) {
+            String msg = String.format("Subscription not found: topic='%s', group='%s'",
+                                      topic, groupName);
+            try (var scope = TraceContextUtil.mdcScope(trace)) {
+                logger.debug(msg);
+            }
+            return Future.failedFuture(new IllegalStateException(msg));
+        }
+
+        Row row = result.iterator().next();
+        String oldStatus = row.getString("old_status");
+        if (row.getString("new_status") == null) {
+            String msg = String.format("Cannot %s a %s subscription: topic='%s', group='%s'",
+                                      callName, oldStatus, topic, groupName);
+            try (var scope = TraceContextUtil.mdcScope(trace)) {
+                logger.warn("{}", msg);
+            }
+            return Future.failedFuture(new SubscriptionStateException(
+                msg, toSubscriptionState(SubscriptionStatus.valueOf(oldStatus))));
+        }
+
+        return Future.succeededFuture(row);
+    }
+
     private Subscription mapRowToSubscription(Row row) {
         // Convert OffsetDateTime from database to Instant
         OffsetDateTime subscribedAt = row.get(OffsetDateTime.class, row.getColumnIndex("subscribed_at"));
@@ -936,6 +1282,7 @@ public class SubscriptionManager implements SubscriptionService {
             case PAUSED -> SubscriptionState.PAUSED;
             case CANCELLED -> SubscriptionState.CANCELLED;
             case DEAD -> SubscriptionState.DEAD;
+            case STOPPED -> SubscriptionState.STOPPED;
         };
     }
 
