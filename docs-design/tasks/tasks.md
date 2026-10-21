@@ -99,17 +99,19 @@ an unimplemented proposal exists or replace explicitly planned load, chaos, or f
 
 ## Current Execution Order
 
-As of 2026-10-12 two tasks are ACTIVE. Task 8 is paused: its last source change is
-`23869e0f` (2026-10-09), and no commit since then touches `peegeeq-pg-failover`.
-Task 9 (delivery-outcome redesign, Finding 20) is in implementation: phase 1 increments 1a and
-1b are committed in `092cf23f`, 1b is not approved, and 1c to 1e are not started.
+As of 2026-10-21 two tasks are ACTIVE. Task 8 resumed on 2026-10-21 in the working tree
+(not committed). Task 9 (delivery-outcome redesign, Finding 20) is in implementation: phase 1
+increments 1a and 1b are committed in `092cf23f`, 1b is not approved, and 1c to 1e are not
+started.
 Task 8: phase 7a architecture selection is complete.
 Phase 7b.1 is complete. Phase 7b.2 has the coordinator port, the Consul adapter, node-local
-state, supervisor-owned start and lease-loss shutdown, and local admission implemented and
-tested in `peegeeq-pg-failover`.
-Next in phase 7b.2 is the timer that calls `renew` on the HA interval, using
-Docker/Testcontainers.
-Optional watchdog integration, bootstrap, takeover, and production qualification remain open.
+state, supervisor-owned start and lease-loss shutdown, local admission, the renewal loop
+with queued ownership operations (OD-4), and the optional watchdog modes (OD-5) implemented in
+`peegeeq-pg-failover`. The watchdog is tested only where no device exists; the real-device run
+on a Linux host is open.
+Next in phase 7b.2 is verified operator-initiated bootstrap. No production caller starts the
+renewal loop yet.
+Takeover and production qualification remain open.
 Machine-reset testing and additional host/VM access are not prerequisites for this next scope.
 Tasks 1, 2, 3, 4, 6, and 7 are COMPLETE.
 Task 5 is REJECTED. The document status ACTIVE means this register is the live register.
@@ -570,7 +572,7 @@ has the successful remote Jenkins publication evidence recorded above.
 ### 8. Connection management and HAProxy failover
 
 **Priority:** Not assigned
-**Status:** ACTIVE — phase 7b.1 complete; phase 7b.2 partial, 2026-10-09
+**Status:** ACTIVE — phase 7b.1 complete; phase 7b.2 partial (renewal loop and watchdog modes done 2026-10-21)
 **Objective:** implement the design in
 `docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md` (design
 revision 2026-10-08). HAProxy routes by sidecar writer eligibility, which combines current
@@ -579,8 +581,8 @@ and synchronous coverage. Manual profile B
 precedes automatic profile A. Failover depends on a coordinator port, not on Consul: Consul is
 the first adapter and Qraft a planned second (P-38). The port `PgLeaseCoordinator` and the
 adapter `ConsulLeaseCoordinator` are implemented in `peegeeq-pg-failover`. Node supervision is
-implemented there for guarded start, lease-loss shutdown, and local admission. The renewal
-loop, promotion, and takeover are not implemented in that module.
+implemented there for guarded start, lease-loss shutdown, local admission, and the renewal
+loop. Promotion and takeover are not implemented in that module.
 G-7 qualification proceeds alongside
 the common supervisor implementation. `peegeeq-service-manager` handles federation and is outside this task. No profile
 requires the Patroni product. The Patroni control approach is selected: per-node supervisor,
@@ -673,8 +675,14 @@ Phases:
    shutdown, and local admission are implemented and tested, including the failure modes of the
    admission gate. Every failed, refused, or late operation in the module logs at ERROR, and each
    test that causes one declares it.
-   Remaining, in order: the timer that calls `renew` on the HA interval; optional watchdog
-   integration; verified operator-initiated bootstrap. Preserve conservative ownership deadlines and late-reply
+   **7b.2 update, 2026-10-21:** `PgRenewalLoop` calls `renew` on the loop interval. The owner
+   decided OD-4: `PgPrimaryElector` queues `renew`, `update`, and `release` instead of refusing
+   one while another is in flight. Plan §9.12 has the record.
+   **7b.2 update, 2026-10-21:** the optional watchdog modes are implemented. The owner decided
+   OD-5: a plain-Java device adapter that reads the timeout from sysfs, and real-device tests
+   deferred to a Linux host. Plan §9.13 has the record.
+   Remaining, in order: verified operator-initiated bootstrap; the real-device watchdog run on a
+   Linux host. Preserve conservative ownership deadlines and late-reply
    rejection. Complete G-7 qualification alongside these scopes. The next scope uses
    Docker/Testcontainers; machine-reset infrastructure is not a prerequisite.
    **OPEN — 7b.3:** manual
@@ -829,13 +837,63 @@ Task 8 status review, 2026-10-21 at `092cf23f`:
 - Not checked: the five guard classes, other modules, Jenkins, and every item under "Known
   gaps" above.
 
+Phase 7b.2 renewal loop verification, 2026-10-21 (working tree, not committed):
+
+- Red: `PgPrimaryElectorQueueingIntegrationTest` failed **3** of **4** against the refusing
+  elector (`logs/peegeeq-pg-failover-elector-queue-red-20261021.log`).
+  `PgRenewalLoopIntegrationTest` failed compilation before the loop existed
+  (`logs/peegeeq-pg-failover-renewal-loop-red-20261021.log`). With rescheduling removed from the
+  loop, its two timing tests failed
+  (`logs/peegeeq-pg-failover-renewal-loop-mutation-red-20261021.log`).
+- Rebuild: `mvn clean install -DskipTests -pl :peegeeq-pg-failover -am` passed.
+  Output: `logs/rebuild-peegeeq-pg-failover-loop3-20261021.log`.
+- `-Pintegration-tests`: `ConsulLeaseCoordinatorIntegrationTest` **61**,
+  `PgFailoverMonitorIntegrationTest` **20**, `PgCtlProcessControlIntegrationTest` **10**,
+  `PgHbaAdmissionGateIntegrationTest` **6**, `PgPrimaryElectorQueueingIntegrationTest` **4**,
+  `PgRenewalLoopIntegrationTest` **13**. Total **114**, zero failures/errors/skips.
+  Output: `logs/peegeeq-pg-failover-integration-loop-20261021.log`.
+- Default/core: `LocalCommandRunnerTest` **6**, `PgLocalStateStoreTest` **29**,
+  `PgNodeConfigTest` **17**. Total **52**. Output: `logs/peegeeq-pg-failover-core-loop-20261021.log`.
+- Guards in `peegeeq-test-support` (61 tests, including the five guard classes, 14): zero
+  failures. Output: `logs/peegeeq-test-support-core-guards-loop2-20261021.log`.
+- After the mutation was reverted (same SHA-256) and rebuilt, `PgRenewalLoopIntegrationTest`
+  passed **13** of **13** (`logs/peegeeq-pg-failover-renewal-loop-restored-20261021.log`).
+- Known gaps: no production caller starts the loop; the mid-run timer-scheduling failure path
+  and a queued renewal that misses its freshness deadline have no test; the elector's
+  null-result check is unreachable on the renew, update, and release paths. No other module
+  and no Jenkins build was run.
+
+Phase 7b.2 watchdog mode verification, 2026-10-21 (working tree, not committed):
+
+- Red: the module's tests failed compilation before the port and adapter existed
+  (`logs/peegeeq-pg-failover-watchdog-red-20261021.log`). With `required` handled like
+  `automatic`, the `required` test failed
+  (`logs/peegeeq-pg-failover-watchdog-mutation-red-20261021.log`); the source was restored to the
+  same SHA-256.
+- Rebuild: `mvn clean install -DskipTests -pl :peegeeq-pg-failover -am` passed.
+  Output: `logs/rebuild-peegeeq-pg-failover-watchdog-final-20261021.log`.
+- `-Pintegration-tests`: `ConsulLeaseCoordinatorIntegrationTest` **61**,
+  `PgFailoverMonitorIntegrationTest` **23**, `PgCtlProcessControlIntegrationTest` **10**,
+  `PgHbaAdmissionGateIntegrationTest` **6**, `PgPrimaryElectorQueueingIntegrationTest` **4**,
+  `PgRenewalLoopIntegrationTest` **13**. Total **117**, zero failures/errors/skips.
+  Output: `logs/peegeeq-pg-failover-integration-watchdog-20261021.log`.
+- Default/core: `LocalCommandRunnerTest` **6**, `PgDeviceWatchdogTest` **7**,
+  `PgLocalStateStoreTest` **29**, `PgNodeConfigTest` **17**. Total **59**.
+  Output: `logs/peegeeq-pg-failover-core-watchdog-20261021.log`.
+- Guards in `peegeeq-test-support` (61 tests, including the five guard classes, 14): zero
+  failures. Output: `logs/peegeeq-test-support-core-guards-watchdog-20261021.log`.
+- Known gaps: no test arms a watchdog, so keepalive, disarm, the safe-timeout check, and the
+  unconfirmed-stop path are unverified until the Linux-host run; the mode is applied at
+  primary start only; `nowayout` kernels are not detected; no configuration loader reads the
+  watchdog keys.
+
 Test counts are recorded here only from a run made during the task.
 The final phase 7b.1 per-class summaries, and the phase 7b.2 summaries dated 2026-10-08, were
 reread during the 2026-10-08 reconciliation and no runtime test was rerun then. On 2026-10-08
 the four design documents were aligned with the optional-watchdog decision and the coordinator
 port (P-38). That was a documentation change with no test run. The `peegeeq-pg-failover` counts
 dated 2026-10-09 come from runs made on that day. Known gaps remain owner review of OD-1 to
-OD-3, the renewal loop, bootstrap, takeover/re-join,
+OD-3, a production caller of the renewal loop, bootstrap, takeover/re-join,
 TLS/restore, independent exclusion under supervisor/VM pause, the cause of the intermediate
 HTTP 403 of 2026-10-08, and recovery timing.
 

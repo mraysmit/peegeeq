@@ -369,7 +369,7 @@ Design rules for this configuration:
 | `peegeeq.pg.failover.primary-stop-timeout-ms` | `5000` | Local stop/escalation budget; never extend beyond the exclusion deadline |
 | `peegeeq.pg.failover.watchdog.mode` | `automatic` | `automatic`, `off`, or `required`; see the mode table below |
 | `peegeeq.pg.failover.watchdog.device` | `/dev/watchdog` | Linux watchdog interface, used unless the mode is `off` |
-| `peegeeq.pg.failover.watchdog.safety-margin` | `-1` | With an active watchdog, use half the lease TTL as the watchdog timeout |
+| `peegeeq.pg.failover.watchdog.safety-margin` | `-1` | The watchdog timeout must not exceed half the lease TTL. The deployment sets the device timeout (for example the `softdog` `soft_margin` parameter). The supervisor reads the actual timeout from the device's sysfs `timeout` file before arming and accepts it only when it is at most half the lease TTL, longer than one loop-and-retry cycle, and longer than the stop budget |
 | `peegeeq.pg.nodes.<id>.host`, `.port` | configured | Direct observation/replication identity; application traffic uses the stable endpoint |
 
 The lease keys are coordinator-neutral. An adapter maps the lease TTL to its own mechanism and
