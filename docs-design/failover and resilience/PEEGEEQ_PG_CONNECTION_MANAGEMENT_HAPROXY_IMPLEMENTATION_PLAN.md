@@ -617,6 +617,37 @@ choice is confined to `PgHbaAdmissionGate`, behind the `PgAdmissionGate` port.
 - The gate is not the takeover fence. Writer exclusion is the local stop.
 - Not decided: the content of the two files for a deployment, and how they are provisioned.
 
+**OD-4 decided by the owner, 2026-10-21: ownership operations queue.** Before this decision
+`PgPrimaryElector` refused `renew`, `update`, and `release` while another of them was in flight.
+With a renewal timer, a tick during an update was refused, and `PgFailoverMonitor.renew()`
+demoted the writer on that refusal; an update during a renewal was refused as well. The owner
+chose queueing over a separate busy signal and over pausing the timer around updates.
+
+- `renew`, `update`, and `release` run one at a time in arrival order. A waiting operation is
+  checked against the ownership state when it starts, not when it arrives.
+- The request deadline and the freshness deadline of a waiting renewal are measured from the
+  start of its request. A reply after either deadline is still rejected.
+- An operation queued behind one that failed meets the retired state and is refused.
+- Acquisitions keep their refusal rule: they are the first operation of an instance.
+
+**OD-5 decided by the owner, 2026-10-21: watchdog device mechanism and its verification.**
+Linux sets a watchdog timeout with an `ioctl`, which plain Java cannot call. The owner chose a
+plain-Java adapter over Java FFM `ioctl` calls and over a port without a device adapter, and chose
+to defer real-device tests to a Linux host.
+
+- `PgDeviceWatchdog` opens the device to arm it, writes one byte other than `V` per keepalive,
+  and writes `V` before closing to disarm it (magic close). It never sets the timeout. The
+  deployment sets it.
+- Before opening the device the adapter reads the actual timeout from the device's sysfs
+  `timeout` file. A device whose timeout cannot be read is never armed.
+- The monitor accepts the timeout only when it is at most half the lease TTL, longer than one
+  loop-and-retry cycle, and longer than the stop budget. Otherwise it disarms the watchdog and
+  treats it as unavailable.
+- Device activation, keepalive, magic close, `nowayout` behaviour, and the timeout check
+  against a real device run later on a Linux host with `softdog soft_noboot=1`. The development
+  machine's Docker kernel (WSL2 6.18) builds softdog as a module that is not loaded, and has no
+  `/dev/watchdog` (`logs/probe-docker-watchdog-20261021.log`).
+
 ## 6. TDD method
 
 Every phase that changes Java follows these steps in order.
@@ -693,7 +724,7 @@ on zero executed tests or swallowed teardown failure.
 | 6 | Completed earlier document alignment. The optional-watchdog correction superseded its mandatory wording. The companion designs were aligned on 2026-10-08 (§9.10). No Java or Maven change in this reconciliation. |
 | 7a | Architecture selection complete. One local supervisor, node-owned Consul lease, optional watchdog modes, local admission, persistent node storage, and configurable redundant endpoints. Same protocol on Linux hosts/VMs, Docker hosts, and Kubernetes. G-1 to G-7 remain qualification gates. |
 | 7b.1 | Complete: production-manager owned commit-policy enforcement and bounded failure observation. Recorded evidence in §8.1. Broad caller migration remains phase 11. |
-| 7b.2 | Partial: the coordinator port, the Consul adapter, acquisition after release, guarded release, the watchdog timing correction, local persistent contracts, supervisor-owned start and lease-loss shutdown, and local admission are implemented and tested (§8.1, §9.11). Remaining in 7b.2: the timer that calls `renew` on the HA interval, optional watchdog modes, and authenticated bootstrap. Complete G-7 incrementally. Machine-reset qualification is not an implementation prerequisite. |
+| 7b.2 | Partial: the coordinator port, the Consul adapter, acquisition after release, guarded release, the watchdog timing correction, local persistent contracts, supervisor-owned start and lease-loss shutdown, local admission, and the renewal loop with queued ownership operations are implemented and tested (§8.1, §9.11, §9.12). Optional watchdog modes are implemented with no-device tests (§9.13). Remaining in 7b.2: authenticated bootstrap and the real-device watchdog run on a Linux host. Complete G-7 incrementally. Machine-reset qualification is not an implementation prerequisite. |
 | 7b.3 | Implement manual B takeover through local supervision. Test planned stop-before-release and unplanned safe-expiry takeover without failed-host acknowledgement. Prove old-writer exclusion, stale-effect rejection, policy cutover, repeated failover, two-node unavailability, and rewind/rebuild/re-join with production-manager data assertions. |
 | 8a | Enable autonomous initiation on the verified common A/B boundary. No second provider, authority, or generation barrier. Test concurrent standby contenders, invalid requests, lease loss during effects, and local activation/revocation races. |
 | 8b | Complete per-node automatic ownership and bootstrap reconciliation. Prove quorum loss, namespace/restore handling, invalid records, and distinction between sidecar/observer failure and writer-supervisor death. |
@@ -741,7 +772,9 @@ executions. The runs dated 2026-10-09 were executed for this revision. None is a
 | 7b.2 local admission (OD-1) | Implemented 2026-10-08, compiled and tested 2026-10-09 | `PgAdmissionGate` port; `PgHbaAdmissionGate` adapter (§5.3). `PgFailoverMonitor` has `prepareWriter`, `activateWriter`, and `revokeWriter`; `PgPrimaryElector` has `holds`. Standby start and primary start close the gate first. Preparation requires fresh ownership and a confirmed policy. Activation requires fresh ownership of `SERVING` intent and the matching prepared grant; if the gate does not open, admission is revoked and the call fails. Revocation closes the grant and the gate and leaves PostgreSQL running. Commit `ea045d7f` contained this code before it had been compiled. `PgHbaAdmissionGateIntegrationTest` (6 tests) covers the gate's failure modes: an active file that does not hold the installed rules, a `pg_ctl status` exit code other than 0 or 3, a reload with invalid rules on open and on close, an exhausted or non-positive budget, and `open` while PostgreSQL is stopped. A close with invalid rules fails and PostgreSQL keeps the rules that admit applications, so the caller must stop the writer. Each test was confirmed by removing the behaviour from the gate (§9.11). |
 | 7b.2 failure logging | Corrected and tested, 2026-10-09 | The module had twelve WARN statements, and eleven of them reported failed, refused, or forced operations. The test-support gate fails a test on an undeclared ERROR and does not see WARN, so no test had to declare them. Those eleven now log at ERROR or, for a requested demotion or revocation, at INFO. `pg_ctl stop` returning a non-zero exit code stays at WARN because the following status check decides. `PgLocalStateStore` reports a storage or decoding fault as "Node-local storage failed", apart from a refusal by one of its rules. Failures that were returned to the caller without any log are now reported too: `PgFailoverMonitor` logs every failed operation at its boundary, and `PgPrimaryElector` logs every refused operation and every late reply. 75 test methods declare the errors they cause with 82 `@ExpectedErrorLog` declarations (§9.11). |
 | Sidecar | Role-only | `PgPrimaryCheckVerticle` answers `/primary` from `pg_is_in_recovery()` alone. The sidecar source has no commit since `ff5c17da`. It has no coordinator read, grant check, node identity check, coverage check, `/writer` route, authentication, or request deadline. |
-| 7b.2 renewal loop, watchdog integration, and bootstrap | Not implemented | The timer that calls `renew` on the HA interval, watchdog device integration, stopped-before-release, and authenticated bootstrap remain to implement. `createInitialIntent` is a low-level conditional operation, not provisioning verification. |
+| 7b.2 renewal loop (OD-4) | Implemented and tested, 2026-10-21 | `PgRenewalLoop` calls `PgFailoverMonitor.renew()` on the loop interval, never with a renewal in flight, and starts renewals at least one interval apart. Start requires fresh ownership and is allowed once. A failed renewal ends the loop after the monitor has demoted the writer; `completion()` fails with that failure. `stop()` cancels the next renewal, waits for one in flight, and changes neither ownership nor the writer. A timer that cannot be scheduled fails `start()`; mid-run it demotes the writer and ends the loop. `PgPrimaryElector` queues `renew`, `update`, and `release` (OD-4, §5.3). Nothing in the module starts the loop yet; the caller must start it directly after acquisition. |
+| 7b.2 optional watchdog modes (OD-5) | Implemented 2026-10-21; no-device paths tested | `PgWatchdog` port; `PgDeviceWatchdog` adapter (§5.3). `PgFailoverMonitor` applies the mode before a primary start: `off` never uses the watchdog; `automatic` arms it or reports at ERROR and continues; `required` refuses the start when it cannot be armed with a safe timeout. An armed watchdog is fed only after a successful renewal; a failed keepalive demotes the writer. A confirmed stop disarms it; an unconfirmed stop leaves it armed and unfed. The armed state is in memory only. Nothing has run against a real device. Promotion does not exist yet, so the mode is applied at primary start only. |
+| 7b.2 bootstrap | Not implemented | Stopped-before-release and authenticated bootstrap remain to implement. `createInitialIntent` is a low-level conditional operation, not provisioning verification. |
 | 7b.3 manual takeover and re-join | Not implemented by the new module | Requires supervised transitions, old-writer exclusion, policy cutover, repeated failover, and routed production-manager assertions. |
 | G-7 full coordinator qualification | Open | Snapshot/restore, TLS, stopped-before-release, and expiry versus independent old-writer exclusion remain unverified. Component success does not close G-7. |
 
@@ -938,8 +971,13 @@ modes received tests, and each test was confirmed by removing the behaviour from
 (§9.11). One guard has no test: the gate and `PgCtlProcessControl` each reject a command runner
 that returns no result, and the real runner never returns none. Item 5 is otherwise complete.
 
-After item 5, complete optional watchdog integration and authenticated first-start bootstrap in
-separate verified scopes within 7b.2. Bootstrap must verify provisioning, withdrawn intent,
+6. **Renewal loop.** Complete, 2026-10-21 (§8.1, §9.12). OD-4 in §5.3 records the queueing
+   decision it required.
+
+7. **Optional watchdog modes.** Implemented 2026-10-21 (§8.1, §9.13). OD-5 in §5.3 records the
+   device mechanism. The real-device run on a Linux host is open.
+
+Next, complete authenticated first-start bootstrap in a separate verified scope within 7b.2. Bootstrap must verify provisioning, withdrawn intent,
 guarded startup, and confirmed first policy. Manual takeover remains 7b.3; autonomous initiation
 remains phase 8.
 
@@ -1348,4 +1386,138 @@ Known gaps after 2026-10-09:
   production loggers, which hides their ERROR events from the unexpected-ERROR gate; a run
   confirmed it in each of the seven modules. The results are in the task register under
   "Failure log level classification".
+
+### 9.12 Renewal Loop and Queued Ownership Operations, 2026-10-21
+
+**Design finding.** Before writing the loop, a read of `PgPrimaryElector` showed that `renew`,
+`update`, and `release` refused each other while one was in flight, and that
+`PgFailoverMonitor.renew()` demotes the writer on any renewal failure. A timer would have demoted
+a healthy writer whenever a tick met an update. The owner decided OD-4 (§5.3).
+
+**Queueing, TDD.** `PgPrimaryElectorQueueingIntegrationTest` (4 tests, real Consul) was written
+first. Against the refusing elector, 3 of 4 failed, each on the refusal of the overlapping
+operation: `logs/peegeeq-pg-failover-elector-queue-red-20261021.log`. The fourth test, an
+operation queued behind a failed one is refused, passed against both versions, because both
+refuse it. After the change the class passed 4 of 4:
+`logs/peegeeq-pg-failover-elector-queue-green-20261021.log`.
+
+**Renewal loop, TDD.** `PgRenewalLoopIntegrationTest` (13 tests, real Consul, a real PostgreSQL
+that only the supervisor starts, real node-local storage) first failed compilation:
+`logs/peegeeq-pg-failover-renewal-loop-red-20261021.log`. The first run after implementation
+passed 12 of 13. The failing test had declared the wrong expected log: a coordinator that
+returns a null Future fails inside the elector's `.map` with a `NullPointerException`, logged as
+"Coordinator request rejected", before the elector's null-result check runs. The declaration was
+corrected; the production code was not changed. A second run failed with
+`NoClassDefFoundError: PgSupervisedContainer` from stale test classes. After a clean rebuild the
+class passed 13 of 13: `logs/peegeeq-pg-failover-renewal-loop-run3-20261021.log`.
+
+The tests cover: ownership stays fresh beyond one ownership budget; renewals start at least one
+interval apart; a lost lease, a coordinator that throws, one that returns a null Future, and one
+that never replies each end the loop, demote the writer, and fail `completion()`; `stop()`
+cancels later renewals, waits for the renewal in flight, and leaves the writer running; a
+renewal due during an update waits and does not demote; start without ownership, a second
+start, and a start after stop are refused; a timer that cannot be scheduled fails `start()`.
+`ObservedLeaseCoordinator` wraps the real Consul adapter in these tests. It records renewal
+start times and lets a test hold or replace the renewal or update call.
+
+**Mutation check.** With rescheduling removed from `PgRenewalLoop`, the two timing tests failed:
+"Ownership lapsed although the loop was running" and "Fewer than 4 renewals started":
+`logs/peegeeq-pg-failover-renewal-loop-mutation-red-20261021.log`. The class teardown also
+failed in that run, because Vert.x was closed under the teardown of a failed test (§9.11). The
+source was restored to the same SHA-256, rebuilt, and the class passed 13 of 13:
+`logs/peegeeq-pg-failover-renewal-loop-restored-20261021.log`.
+
+**Guard.** `OnSuccessExceptionSwallowingGuardTest` first failed on a `WebClient.close()` inside
+`.onSuccess` in the new teardown (Tier 2). The close moved into `.eventually(...)`. The guards
+then passed: `logs/peegeeq-test-support-core-guards-loop2-20261021.log`.
+
+**Module runs after the last source change.** Rebuild:
+`logs/rebuild-peegeeq-pg-failover-loop3-20261021.log`. Every class reports zero failures, errors,
+and skips.
+
+| Profile | Class | Tests run | Saved log under `logs/` |
+|---|---|---:|---|
+| `integration-tests` | `ConsulLeaseCoordinatorIntegrationTest` | 61 | `peegeeq-pg-failover-integration-loop-20261021.log` |
+| `integration-tests` | `PgFailoverMonitorIntegrationTest` | 20 | `peegeeq-pg-failover-integration-loop-20261021.log` |
+| `integration-tests` | `PgCtlProcessControlIntegrationTest` | 10 | `peegeeq-pg-failover-integration-loop-20261021.log` |
+| `integration-tests` | `PgHbaAdmissionGateIntegrationTest` | 6 | `peegeeq-pg-failover-integration-loop-20261021.log` |
+| `integration-tests` | `PgPrimaryElectorQueueingIntegrationTest` | 4 | `peegeeq-pg-failover-integration-loop-20261021.log` |
+| `integration-tests` | `PgRenewalLoopIntegrationTest` | 13 | `peegeeq-pg-failover-integration-loop-20261021.log` |
+| default/core | `LocalCommandRunnerTest` | 6 | `peegeeq-pg-failover-core-loop-20261021.log` |
+| default/core | `PgLocalStateStoreTest` | 29 | `peegeeq-pg-failover-core-loop-20261021.log` |
+| default/core | `PgNodeConfigTest` | 17 | `peegeeq-pg-failover-core-loop-20261021.log` |
+| default/core guards | five guard classes | 14 | `peegeeq-test-support-core-guards-loop2-20261021.log` |
+
+The mutation run and the restored run followed this table. The restored run repeats the
+`PgRenewalLoopIntegrationTest` count.
+
+Known gaps after 2026-10-21:
+
+- No production caller constructs or starts `PgRenewalLoop`. The supervisor entry point that
+  acquires the lease, starts the loop, and then starts PostgreSQL does not exist.
+- The mid-run path where a timer cannot be scheduled has no test. It demotes the writer and ends
+  the loop. The start-time path has a test.
+- No test shows a waiting renewal that misses its freshness deadline. By reading, the late reply
+  is rejected and the monitor demotes; this was not run.
+- The elector's null-result check in `bounded` is not reached by a coordinator that returns a
+  null Future, because each caller calls `.map` on the result first. The failure is still
+  reported and still demotes. The check is dead code on these paths.
+- The `PgFailoverMonitorIntegrationTest` cases still never run the loop; the loop has its own class.
+
+### 9.13 Optional Watchdog Modes, 2026-10-21
+
+**Probe.** A privileged Alpine container on the development machine reported kernel
+`6.18.54.1-microsoft-standard-WSL2`, `CONFIG_WATCHDOG=y`, `CONFIG_SOFT_WATCHDOG=m`, no loaded
+watchdog module, and no `/dev/watchdog` (`logs/probe-docker-watchdog-20261021.log`). No module
+was loaded and no device was opened. The owner decided OD-5 (§5.3).
+
+**TDD.** `PgDeviceWatchdogTest` (7 core tests, real directory, no device) and three mode tests in
+`PgFailoverMonitorIntegrationTest` were written first. The module's tests failed compilation
+(`logs/peegeeq-pg-failover-watchdog-red-20261021.log`). After the implementation both classes
+passed on their first run: 7 of 7 and 23 of 23
+(`logs/peegeeq-pg-failover-watchdog-core-run1-20261021.log`,
+`logs/peegeeq-pg-failover-monitor-watchdog-run1-20261021.log`).
+
+The adapter tests cover: an absent device, an unreadable timeout, a malformed timeout rejected
+before the device is opened, a timeout that is not positive, keepalive while not active, a failed
+activation that leaves the watchdog inactive, and disarm while not active. The mode tests cover:
+`off` starts and renews a writer with no device and no ERROR; `automatic` with no device starts
+a writable primary and reports the absence once; `required` with no device refuses the start,
+leaves PostgreSQL stopped, records no start receipt, and keeps ownership.
+
+**Mutation check.** With `required` handled like `automatic`, the `required` test failed: "A
+writer started in required mode without a watchdog"
+(`logs/peegeeq-pg-failover-watchdog-mutation-red-20261021.log`). The same run reported the
+teardown interruption after a failed test (§9.11). The source was restored to the same SHA-256.
+
+**Module runs after the last source change.** Rebuild:
+`logs/rebuild-peegeeq-pg-failover-watchdog-final-20261021.log`. Every class reports zero
+failures, errors, and skips.
+
+| Profile | Class | Tests run | Saved log under `logs/` |
+|---|---|---:|---|
+| `integration-tests` | `ConsulLeaseCoordinatorIntegrationTest` | 61 | `peegeeq-pg-failover-integration-watchdog-20261021.log` |
+| `integration-tests` | `PgFailoverMonitorIntegrationTest` | 23 | `peegeeq-pg-failover-integration-watchdog-20261021.log` |
+| `integration-tests` | `PgCtlProcessControlIntegrationTest` | 10 | `peegeeq-pg-failover-integration-watchdog-20261021.log` |
+| `integration-tests` | `PgHbaAdmissionGateIntegrationTest` | 6 | `peegeeq-pg-failover-integration-watchdog-20261021.log` |
+| `integration-tests` | `PgPrimaryElectorQueueingIntegrationTest` | 4 | `peegeeq-pg-failover-integration-watchdog-20261021.log` |
+| `integration-tests` | `PgRenewalLoopIntegrationTest` | 13 | `peegeeq-pg-failover-integration-watchdog-20261021.log` |
+| default/core | `LocalCommandRunnerTest` | 6 | `peegeeq-pg-failover-core-watchdog-20261021.log` |
+| default/core | `PgDeviceWatchdogTest` | 7 | `peegeeq-pg-failover-core-watchdog-20261021.log` |
+| default/core | `PgLocalStateStoreTest` | 29 | `peegeeq-pg-failover-core-watchdog-20261021.log` |
+| default/core | `PgNodeConfigTest` | 17 | `peegeeq-pg-failover-core-watchdog-20261021.log` |
+| default/core guards | five guard classes | 14 | `peegeeq-test-support-core-guards-watchdog-20261021.log` |
+
+Known gaps after 2026-10-21:
+
+- No test arms a watchdog. Every path that needs an armed watchdog is unverified: a second
+  activation, keepalive after renewal, demotion on a failed keepalive, disarm after a confirmed
+  stop, an armed and unfed watchdog after an unconfirmed stop, the safe-timeout check with a real
+  timeout, and disarm after an unsafe timeout. They run on a Linux host with a watchdog driver.
+- The mode is applied at primary start only. Promotion is 7b.3.
+- `automatic` reports an unavailable watchdog at every primary start. It does not retry later.
+- A kernel built with `nowayout` ignores magic close. The adapter cannot detect that; a disarm
+  then succeeds while the device stays armed.
+- No configuration loader reads the `peegeeq.pg.failover.watchdog.*` keys. The device and
+  timeout paths are constructor arguments.
 

@@ -16,6 +16,9 @@ import java.util.concurrent.TimeUnit;
  * deadline, retirement, and late-reply rejection. Control ownership alone does not authorise
  * PostgreSQL writes.
  *
+ * <p>Renewal, update, and release run one at a time in arrival order, so a renewal timer and the
+ * supervisor's own updates do not refuse each other.
+ *
  * <p>Every operation that fails, is refused, or completes too late is logged once at ERROR and
  * returned to the caller as a failed Future.
  */
@@ -32,6 +35,7 @@ public final class PgPrimaryElector {
     private boolean busy;
     private PgControlRecord held;
     private long freshUntil;
+    private Future<?> tail = Future.succeededFuture();
 
     public PgPrimaryElector(PgNodeConfig config, PgLeaseCoordinator coordinator) {
         this.config = Objects.requireNonNull(config, "config");
@@ -123,7 +127,15 @@ public final class PgPrimaryElector {
             });
     }
 
+    /**
+     * Extends the lease. An operation already in flight finishes first. The request deadline and
+     * the freshness deadline are measured from the start of this request, not from its arrival.
+     */
     public Future<PgControlRecord> renew() {
+        return queued(this::renewNow);
+    }
+
+    private Future<PgControlRecord> renewNow() {
         final long current;
         final PgControlRecord expected;
         synchronized (this) {
@@ -142,7 +154,12 @@ public final class PgPrimaryElector {
         }));
     }
 
+    /** Replaces the intent. An operation already in flight finishes first; the update is then checked against the record held at that time. */
     public Future<PgControlRecord> update(PgControlRecord expected, JsonObject intent) {
+        return queued(() -> updateNow(expected, intent));
+    }
+
+    private Future<PgControlRecord> updateNow(PgControlRecord expected, JsonObject intent) {
         final long current;
         final long deadline;
         synchronized (this) {
@@ -179,6 +196,10 @@ public final class PgPrimaryElector {
      * instance is retired whatever the outcome; an uncertain outcome requires a fresh observation.
      */
     public Future<PgControlRecord> release(PgControlRecord expected) {
+        return queued(() -> releaseNow(expected));
+    }
+
+    private Future<PgControlRecord> releaseNow(PgControlRecord expected) {
         final long current;
         synchronized (this) {
             if (closed || retired || busy || held == null || expected == null || !held.equals(expected)) {
@@ -231,6 +252,25 @@ public final class PgPrimaryElector {
             closed = true;
         }
         return coordinator.close();
+    }
+
+    /**
+     * Runs ownership operations one at a time in arrival order. A failure of an earlier operation
+     * does not fail a later one; the later one meets the retired state and is refused.
+     */
+    private <T> Future<T> queued(Operation<T> operation) {
+        synchronized (this) {
+            Future<T> next = tail.transform(previous -> {
+                try {
+                    return operation.execute();
+                } catch (RuntimeException failure) {
+                    logger.error("Lease operation rejected", failure);
+                    return Future.<T>failedFuture(failure);
+                }
+            });
+            tail = next;
+            return next;
+        }
     }
 
     private Future<PgControlRecord> cycle(long current, long started,

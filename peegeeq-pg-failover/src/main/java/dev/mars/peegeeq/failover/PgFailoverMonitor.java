@@ -4,6 +4,7 @@ import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -27,16 +28,21 @@ public final class PgFailoverMonitor {
     private final PgLocalStateStore store;
     private final PgProcessControl process;
     private final PgAdmissionGate gate;
+    private final PgWatchdog watchdog;
     private volatile PgControlRecord lastHeld;
+    // Derived at run time: whether this monitor armed the watchdog and has not disarmed it.
+    private volatile boolean armed;
     private Future<?> tail = Future.succeededFuture();
 
+    /** @param watchdog used only when the configured watchdog mode is not {@code OFF} */
     public PgFailoverMonitor(PgNodeConfig config, PgPrimaryElector elector, PgLocalStateStore store,
-                             PgProcessControl process, PgAdmissionGate gate) {
+                             PgProcessControl process, PgAdmissionGate gate, PgWatchdog watchdog) {
         this.config = Objects.requireNonNull(config, "config");
         this.elector = Objects.requireNonNull(elector, "elector");
         this.store = Objects.requireNonNull(store, "store");
         this.process = Objects.requireNonNull(process, "process");
         this.gate = Objects.requireNonNull(gate, "gate");
+        this.watchdog = Objects.requireNonNull(watchdog, "watchdog");
     }
 
     /** Starts PostgreSQL in recovery with admission closed. No lease is required. */
@@ -48,9 +54,10 @@ public final class PgFailoverMonitor {
 
     /**
      * Starts PostgreSQL writable under this node's fresh lease, with admission closed. Refused
-     * without fresh ownership of exactly this record, under quarantine, or when the gate cannot
-     * be closed first. If the start fails, or ownership is lost while it runs, the node is
-     * demoted and the call fails.
+     * without fresh ownership of exactly this record, under quarantine, when the gate cannot be
+     * closed first, or in {@code REQUIRED} watchdog mode when the watchdog cannot be armed with a
+     * safe timeout. In {@code AUTOMATIC} mode that condition is reported and the start continues.
+     * If the start fails, or ownership is lost while it runs, the node is demoted and the call fails.
      */
     public Future<Void> startPrimary(PgControlRecord held) {
         return serialized(() -> {
@@ -65,6 +72,7 @@ public final class PgFailoverMonitor {
                 }
                 return store.closeGrant();
             }).compose(ignored -> gate.close(config.stopTimeout()))
+                .compose(ignored -> applyWatchdogMode())
                 .compose(ignored -> store.begin(held.generation(), operation, START_PRIMARY, config.nodeId(),
                     new JsonObject()))
                 .compose(receipt -> {
@@ -159,25 +167,67 @@ public final class PgFailoverMonitor {
     }
 
     /**
-     * One ownership cycle. A failed renewal withdraws admission and stops the local writer, then
-     * fails with the renewal failure. A demotion failure is attached as suppressed.
+     * One ownership cycle. An armed watchdog is fed only after a successful renewal. A failed
+     * renewal or a failed keepalive withdraws admission and stops the local writer, then fails
+     * with that failure. A demotion failure is attached as suppressed.
      */
     public Future<PgControlRecord> renew() {
         return elector.renew().transform(renewal -> {
-            if (renewal.succeeded()) {
-                lastHeld = renewal.result();
-                return Future.succeededFuture(renewal.result());
-            }
-            PgControlRecord held = lastHeld;
-            return serialized(() -> {
-                logger.error("Demoting local PostgreSQL on node {}: {}", config.nodeId(), "Lease renewal failed",
-                    renewal.cause());
-                return demoteNow(held, "Lease renewal failed");
-            }).transform(demotion -> {
-                if (demotion.failed()) renewal.cause().addSuppressed(demotion.cause());
-                return Future.<PgControlRecord>failedFuture(renewal.cause());
-            });
+            if (renewal.failed()) return demoteAfter(renewal.cause(), "Lease renewal failed");
+            lastHeld = renewal.result();
+            if (!armed) return Future.succeededFuture(renewal.result());
+            return watchdog.keepalive().transform(fed -> fed.succeeded()
+                ? Future.succeededFuture(renewal.result())
+                : demoteAfter(fed.cause(), "Watchdog keepalive failed"));
         });
+    }
+
+    private Future<PgControlRecord> demoteAfter(Throwable cause, String reason) {
+        PgControlRecord held = lastHeld;
+        return serialized(() -> {
+            logger.error("Demoting local PostgreSQL on node {}: {}", config.nodeId(), reason, cause);
+            return demoteNow(held, reason);
+        }).transform(demotion -> {
+            if (demotion.failed()) cause.addSuppressed(demotion.cause());
+            return Future.<PgControlRecord>failedFuture(cause);
+        });
+    }
+
+    /**
+     * Applies the watchdog mode before a writer start. {@code OFF} does nothing. {@code REQUIRED}
+     * fails unless the watchdog is armed with a safe timeout. {@code AUTOMATIC} reports that
+     * condition and continues without a watchdog.
+     */
+    private Future<Void> applyWatchdogMode() {
+        if (config.watchdogMode() == PgWatchdogMode.OFF || armed) return Future.succeededFuture();
+        return watchdog.activate().compose(timeout -> {
+            armed = true;
+            if (safeWatchdogTimeout(timeout)) return Future.<Void>succeededFuture();
+            PgWatchdogException unsafe = new PgWatchdogException("Watchdog timeout " + timeout
+                + " is not within the ownership timing; it must not exceed " + config.watchdogTimeout());
+            // An unsafe watchdog is not used. If it cannot be disarmed it stays armed and unfed.
+            return watchdog.disarm().transform(disarmed -> {
+                if (disarmed.succeeded()) {
+                    armed = false;
+                } else {
+                    unsafe.addSuppressed(disarmed.cause());
+                }
+                return Future.<Void>failedFuture(unsafe);
+            });
+        }).transform(activation -> {
+            if (activation.succeeded()) return Future.<Void>succeededFuture();
+            if (config.watchdogMode() == PgWatchdogMode.REQUIRED) return Future.<Void>failedFuture(activation.cause());
+            logger.error("Watchdog unavailable on node {}; continuing without independent watchdog protection",
+                config.nodeId(), activation.cause());
+            return Future.succeededFuture();
+        });
+    }
+
+    /** The watchdog fires no later than half the lease TTL, and after one loop-and-retry cycle and the stop budget. */
+    private boolean safeWatchdogTimeout(Duration timeout) {
+        return timeout.compareTo(config.watchdogTimeout()) <= 0
+            && config.loopInterval().plus(config.requestTimeout()).compareTo(timeout) < 0
+            && config.stopTimeout().compareTo(timeout) < 0;
     }
 
     /**
@@ -212,10 +262,13 @@ public final class PgFailoverMonitor {
                     new JsonObject().put("reason", reason)), failures))
             .compose(ignored -> process.stop(config.stopTimeout()).transform(stopped -> {
                 if (stopped.succeeded()) {
-                    return held == null ? Future.<Void>succeededFuture()
+                    // The writer is confirmed stopped, so an armed watchdog is no longer needed.
+                    return (held == null ? Future.<Void>succeededFuture()
                         : attempt(store.record(held.generation(), operation, STOP_WRITER, config.nodeId(),
-                            PgActionResult.COMPLETED, state(PgProcessState.STOPPED)), failures);
+                            PgActionResult.COMPLETED, state(PgProcessState.STOPPED)), failures))
+                        .compose(recorded -> disarmAfterConfirmedStop(failures));
                 }
+                // An unconfirmed stop keeps an armed watchdog armed and unfed, so it excludes the writer.
                 logger.error("Local writer stop is unconfirmed on node {}", config.nodeId(), stopped.cause());
                 failures.add(stopped.cause());
                 return attempt(store.quarantine("Writer stop unconfirmed: " + reason), failures)
@@ -227,6 +280,11 @@ public final class PgFailoverMonitor {
             // unconfirmed stop it also ends application connections to the running server.
             .compose(ignored -> attempt(gate.close(config.stopTimeout()), failures))
             .compose(ignored -> combined(failures));
+    }
+
+    private Future<Void> disarmAfterConfirmedStop(List<Throwable> failures) {
+        if (!armed) return Future.succeededFuture();
+        return attempt(watchdog.disarm().onSuccess(disarmed -> armed = false), failures);
     }
 
     /** Runs a step to its end and collects its failure. The collected failures fail the caller. */
