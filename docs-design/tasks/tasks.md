@@ -6,6 +6,9 @@
 **Recorded from-beginning release baseline:** Jenkins build #36 at `e8d07e53`
 **Latest successful release gate:** Jenkins build #11 at `263309d8` plus the checksummed
 Task 6 release-gate overlay (`485c930dd264864cd9157fe3378e25e661c51b97afa2120d1cc5bde6c0b54f27`)
+**Git reconciliation:** 2026-10-21 at `092cf23f` — commit history since 2026-10-08 and the
+`peegeeq-pg-failover` sources were checked. No test was run and no Jenkins result was
+re-verified.
 **Partial reconciliation:** 2026-10-06 at `9e14170e` — structure, references, numbering, and the
 backlog were checked against the repository. Jenkins results and recorded test counts were not
 re-verified
@@ -96,7 +99,11 @@ an unimplemented proposal exists or replace explicitly planned load, chaos, or f
 
 ## Current Execution Order
 
-As of 2026-10-09 Task 8 is ACTIVE. Phase 7a architecture selection is complete.
+As of 2026-10-12 two tasks are ACTIVE. Task 8 is paused: its last source change is
+`23869e0f` (2026-10-09), and no commit since then touches `peegeeq-pg-failover`.
+Task 9 (delivery-outcome redesign, Finding 20) is in implementation: phase 1 increments 1a and
+1b are committed in `092cf23f`, 1b is not approved, and 1c to 1e are not started.
+Task 8: phase 7a architecture selection is complete.
 Phase 7b.1 is complete. Phase 7b.2 has the coordinator port, the Consul adapter, node-local
 state, supervisor-owned start and lease-loss shutdown, and local admission implemented and
 tested in `peegeeq-pg-failover`.
@@ -104,7 +111,7 @@ Next in phase 7b.2 is the timer that calls `renew` on the HA interval, using
 Docker/Testcontainers.
 Optional watchdog integration, bootstrap, takeover, and production qualification remain open.
 Machine-reset testing and additional host/VM access are not prerequisites for this next scope.
-No task is OPEN. Tasks 1, 2, 3, 4, 6, and 7 are COMPLETE.
+Tasks 1, 2, 3, 4, 6, and 7 are COMPLETE.
 Task 5 is REJECTED. The document status ACTIVE means this register is the live register.
 
 ### 1. Configuration property/runtime reconciliation
@@ -623,7 +630,7 @@ Phases:
    with 1 failure, the same assertion in `testFailbackAfterPrimaryRecovery`. The test is still
    red. Output: `logs/all-tests-20261009.log`. The whole-repository gate cannot pass until this
    phase is finished.
-   **Repaired in the working tree, 2026-10-11, not yet run on Jenkins.** Under P-14 the pooled
+   **Repaired and committed in `f391a7f0` (2026-10-11), not yet run on Jenkins.** Under P-14 the pooled
    convergence step was removed from `testFailbackAfterPrimaryRecovery`; the red evidence is
    kept in plan §4.2 and the repair in §4.3. Targeted run: `HaProxyConnectionFailoverTest`
    6 tests, 0 failures (`logs/peegeeq-db-haproxy-failover-phase5-repair-20261011.log`). The
@@ -794,6 +801,34 @@ Phase 7b.2 supervision and admission verification, 2026-10-09:
   and recovery timing are unverified. The guard for a command runner that returns no result
   has no test, because the real runner never returns none. Plan §9.11 lists the other gaps.
 
+Task 8 status review, 2026-10-21 at `092cf23f`:
+
+- Source: `peegeeq-pg-failover` has no change since `23869e0f` (2026-10-09). `renew()` exists in
+  `PgFailoverMonitor`; no source file schedules it (search for `setPeriodic` and `setTimer`
+  in `src/main`: no match). `PgWatchdogMode` and the timing rules exist; no watchdog device code
+  exists. `peegeeq-pg-sidecar/src` has no commit since `ff5c17da`.
+- Rebuild: `mvn clean install -DskipTests -pl :peegeeq-pg-failover -am` passed.
+  Output: `logs/rebuild-peegeeq-pg-failover-review-20261021.log`.
+- `peegeeq-pg-failover` default/core: `LocalCommandRunnerTest` **6**, `PgLocalStateStoreTest`
+  **29**, `PgNodeConfigTest` **17**. Total **52**, zero failures/errors/skips.
+  Output: `logs/peegeeq-pg-failover-core-review-20261021.log`.
+- `peegeeq-pg-failover` `-Pintegration-tests`: `ConsulLeaseCoordinatorIntegrationTest` **61**,
+  `PgFailoverMonitorIntegrationTest` **20**, `PgCtlProcessControlIntegrationTest` **10**,
+  `PgHbaAdmissionGateIntegrationTest` **6**. Total **97**, zero failures/errors/skips.
+  Output: `logs/peegeeq-pg-failover-integration-review-20261021.log`.
+- Phase 5: after `mvn clean install -DskipTests -pl :peegeeq-db -am` (passed), the scope
+  `-Pintegration-tests -pl :peegeeq-db -Dtest=HaProxyConnectionFailoverTest` ran **6** tests with
+  zero failures/errors/skips. The test is green in the working tree. The Jenkins gate from
+  `beginning` has not run it. Outputs: `logs/rebuild-peegeeq-db-review-20261021.log` and
+  `logs/peegeeq-db-haproxy-failover-review-20261021.log`.
+- Result: the register's phase 7b.2 status is correct. Counts equal the 2026-10-09 record
+  (52 and 97).
+- Gap found: the `Jenkinsfile` choice `ALL_TESTS_START_MODULE` does not list
+  `peegeeq-pg-failover`. The module is in the root `pom.xml` reactor, so a full run includes
+  it, but a resumed run cannot start at it.
+- Not checked: the five guard classes, other modules, Jenkins, and every item under "Known
+  gaps" above.
+
 Test counts are recorded here only from a run made during the task.
 The final phase 7b.1 per-class summaries, and the phase 7b.2 summaries dated 2026-10-08, were
 reread during the 2026-10-08 reconciliation and no runtime test was rerun then. On 2026-10-08
@@ -807,6 +842,49 @@ HTTP 403 of 2026-10-08, and recovery timing.
 Completion requires that every requirement is met, that every scenario has a passing
 real-container test with a recorded per-class count, that every finding is closed, and that the
 runbook has saved output for every scenario.
+
+### 9. Delivery-outcome redesign (Finding 20)
+
+**Priority:** High
+**Status:** ACTIVE — design approved 2026-10-12; phase 1 partial (increments 1a and 1b committed in `092cf23f`; 1b not approved)
+**Objective:** replace the incomplete `REFERENCE_COUNTING` fan-out and the module-private
+rejection semantics with one delivery-outcome contract across outbox, native, and database
+modules. A rejection, a transient failure, and a processing failure each have a defined,
+persisted result. No message is deleted, blocked without bound, or withheld without a log line.
+
+The design is `docs-design/consumer-groups/PEEGEEQ_DELIVERY_OUTCOME_REDESIGN_PROPOSAL.md`
+(sixth revision). The decisions OD-1 to OD-23, the implementation task list, the required order,
+and the phase 1 run record are under "Finding 20" in the backlog section below. They stay there.
+This task holds the status and the execution order.
+
+Phases, one at a time, each verified before the next starts:
+
+1. **PARTIAL — dead-group and graceful-stop safety.** Increments:
+   - 1a `STOPPED` status and `stopGroup`: done and reviewed.
+   - 1b lifecycle table, authoritative start bound (OD-23), REST settings update: implemented,
+     not approved. The owner set nine corrections. Correction 1 is made; its last part, the
+     subscription store, awaits review. Corrections 2 to 9 are not started.
+   - 1c detection reads `ACTIVE` only; watermark and write validator count `ACTIVE`, `STOPPED`,
+     `PAUSED`: not started.
+   - 1d `DeadConsumerGroupCleanup` deleted with its callers: not started.
+   - 1e in-process subscription heartbeat stops an instance on `STOPPED`, `DEAD`, `CANCELLED`:
+     not started.
+2. **OPEN.** Canonical schema provisioning: one definition for Flyway and runtime, with a
+   real-PostgreSQL schema-equivalence test.
+3. **OPEN.** Offset correctness and replay, including log replay.
+4. **OPEN.** Reference-counting retirement and controlled migration (OD-2, OD-4).
+5. **OPEN.** Outcome API and member dispatch.
+6. **OPEN.** Queue exclusions and native queue outcomes.
+7. **OPEN.** `PUB_SUB` outcomes.
+8. **OPEN.** Cleanup path, release, and final schema deletion.
+
+Release gates: affected modules pass, the branch is pushed, and a Jenkins build from `beginning`
+passes. Task 8 phase 5 closes only when `peegeeq-db` passes in that build. Task 9 closes only when
+outbox, native, and database delivery models all pass their contract tests.
+
+Evidence so far: one whole-module run (`peegeeq-migrations`, increment 1a) and targeted runs
+logged under `logs/f20-p1*`. No Jenkins build has run this work. The findings that motivate it
+were static until phase 1 reproduced R-8.
 
 ## Unscheduled Product and Coverage Backlog
 
