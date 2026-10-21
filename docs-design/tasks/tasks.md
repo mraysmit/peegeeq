@@ -108,9 +108,11 @@ Phase 7b.1 is complete. Phase 7b.2 has the coordinator port, the Consul adapter,
 state, supervisor-owned start and lease-loss shutdown, local admission, the renewal loop
 with queued ownership operations (OD-4), and the optional watchdog modes (OD-5) implemented in
 `peegeeq-pg-failover`. The watchdog is tested only where no device exists; the real-device run
-on a Linux host is open.
-Next in phase 7b.2 is verified operator-initiated bootstrap. No production caller starts the
-renewal loop yet.
+on a Linux host is open. First-start bootstrap scope A (OD-6 to OD-8) is implemented and
+tested: verified request file, refusal against local and coordinator history, withdrawn initial
+intent, guarded primary start with admission closed. The request is not operator-authenticated.
+Next in phase 7b.2 is bootstrap scope B: standbys, policy installation and confirmation, and
+writer activation. No production entry point calls bootstrap or starts the renewal loop yet.
 Takeover and production qualification remain open.
 Machine-reset testing and additional host/VM access are not prerequisites for this next scope.
 Tasks 1, 2, 3, 4, 6, and 7 are COMPLETE.
@@ -572,7 +574,7 @@ has the successful remote Jenkins publication evidence recorded above.
 ### 8. Connection management and HAProxy failover
 
 **Priority:** Not assigned
-**Status:** ACTIVE — phase 7b.1 complete; phase 7b.2 partial (renewal loop and watchdog modes done 2026-10-21)
+**Status:** ACTIVE — phase 7b.1 complete; phase 7b.2 partial (renewal loop, watchdog modes, and bootstrap scope A done 2026-10-21)
 **Objective:** implement the design in
 `docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md` (design
 revision 2026-10-08). HAProxy routes by sidecar writer eligibility, which combines current
@@ -681,8 +683,10 @@ Phases:
    **7b.2 update, 2026-10-21:** the optional watchdog modes are implemented. The owner decided
    OD-5: a plain-Java device adapter that reads the timeout from sysfs, and real-device tests
    deferred to a Linux host. Plan §9.13 has the record.
-   Remaining, in order: verified operator-initiated bootstrap; the real-device watchdog run on a
-   Linux host. Preserve conservative ownership deadlines and late-reply
+   **7b.2 update, 2026-10-21:** bootstrap scope A is implemented. The owner decided OD-6 (a
+   request file authenticated only by filesystem permissions), OD-7 (all-node evidence left
+   until later), and OD-8 (two scopes). Plan §9.14 has the record.
+   Remaining, in order: bootstrap scope B; the real-device watchdog run on a Linux host. Preserve conservative ownership deadlines and late-reply
    rejection. Complete G-7 qualification alongside these scopes. The next scope uses
    Docker/Testcontainers; machine-reset infrastructure is not a prerequisite.
    **OPEN — 7b.3:** manual
@@ -886,6 +890,30 @@ Phase 7b.2 watchdog mode verification, 2026-10-21 (working tree, not committed):
   unconfirmed-stop path are unverified until the Linux-host run; the mode is applied at
   primary start only; `nowayout` kernels are not detected; no configuration loader reads the
   watchdog keys.
+
+Phase 7b.2 bootstrap scope A verification, 2026-10-21 (working tree, not committed):
+
+- Red: the module's tests failed compilation before the classes existed
+  (`logs/peegeeq-pg-failover-bootstrap-red-20261021.log`). With the local-history check removed,
+  the stored-grant and quarantine tests failed
+  (`logs/peegeeq-pg-failover-bootstrap-mutation-red-20261021.log`); the source was restored to the
+  same SHA-256.
+- Rebuild: `mvn clean install -DskipTests -pl :peegeeq-pg-failover -am` passed.
+  Output: `logs/rebuild-peegeeq-pg-failover-bootstrap-final-20261021.log`.
+- `-Pintegration-tests`: `ConsulLeaseCoordinatorIntegrationTest` **61**,
+  `PgFailoverMonitorIntegrationTest` **23**, `PgBootstrapIntegrationTest` **7**,
+  `PgCtlProcessControlIntegrationTest` **10**, `PgHbaAdmissionGateIntegrationTest` **6**,
+  `PgPrimaryElectorQueueingIntegrationTest` **4**, `PgRenewalLoopIntegrationTest` **13**.
+  Total **124**, zero failures/errors/skips.
+  Output: `logs/peegeeq-pg-failover-integration-bootstrap-20261021.log`.
+- Default/core: `LocalCommandRunnerTest` **6**, `PgBootstrapRequestTest` **14**,
+  `PgDeviceWatchdogTest` **7**, `PgLocalStateStoreTest` **29**, `PgNodeConfigTest` **17**.
+  Total **73**. Output: `logs/peegeeq-pg-failover-core-bootstrap-20261021.log`.
+- Guards in `peegeeq-test-support` (61 tests, including the five guard classes, 14): zero
+  failures. Output: `logs/peegeeq-test-support-core-guards-bootstrap-20261021.log`.
+- Known gaps: no operator authentication (OD-6); other members not inspected (OD-7); local
+  receipts and the data directory not inspected for prior history; an interrupted bootstrap is
+  refused, not resumed; scope B not implemented; no production entry point.
 
 Test counts are recorded here only from a run made during the task.
 The final phase 7b.1 per-class summaries, and the phase 7b.2 summaries dated 2026-10-08, were

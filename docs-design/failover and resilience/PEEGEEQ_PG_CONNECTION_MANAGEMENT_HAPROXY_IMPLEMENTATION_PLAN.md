@@ -648,6 +648,23 @@ to defer real-device tests to a Linux host.
   machine's Docker kernel (WSL2 6.18) builds softdog as a module that is not loaded, and has no
   `/dev/watchdog` (`logs/probe-docker-watchdog-20261021.log`).
 
+**OD-6, OD-7, OD-8 decided by the owner, 2026-10-21: first-start bootstrap.** System design
+§5.11 does not define the form of provisioning evidence, how the initial writer learns the state
+of the other members, or where policy installation is built.
+
+- OD-6 Evidence: a request file, `bootstrap-request.json`, in the supervisor's state directory.
+  Filesystem permissions are its only authentication. It has exactly the fields `clusterId`,
+  `incarnation`, `memberNodeIds`, `initialWriterNodeId`, `operationId`, and
+  `requiredStandbyNodeIds`, and each must match the node's configuration. The owner chose this
+  over a signed request and over a caller-authenticated value. **This does not authenticate an
+  operator, which system design §5.11 step 1 requires.** The difference is a recorded gap.
+- OD-7 All-node evidence: left until later. The initial writer verifies its own node only.
+- OD-8 Scope: two scopes. Scope A: request verification, refusal against local and coordinator
+  history, the conditional initial intent, the renewal loop, the bootstrap receipt, and the
+  guarded primary start with admission closed. Scope B: standby provisioning, the replication
+  check and policy installer, revision-1 confirmation, and prepare/publish/activate, on a
+  primary-plus-two-standby fixture shared with 7b.3.
+
 ## 6. TDD method
 
 Every phase that changes Java follows these steps in order.
@@ -724,7 +741,7 @@ on zero executed tests or swallowed teardown failure.
 | 6 | Completed earlier document alignment. The optional-watchdog correction superseded its mandatory wording. The companion designs were aligned on 2026-10-08 (§9.10). No Java or Maven change in this reconciliation. |
 | 7a | Architecture selection complete. One local supervisor, node-owned Consul lease, optional watchdog modes, local admission, persistent node storage, and configurable redundant endpoints. Same protocol on Linux hosts/VMs, Docker hosts, and Kubernetes. G-1 to G-7 remain qualification gates. |
 | 7b.1 | Complete: production-manager owned commit-policy enforcement and bounded failure observation. Recorded evidence in §8.1. Broad caller migration remains phase 11. |
-| 7b.2 | Partial: the coordinator port, the Consul adapter, acquisition after release, guarded release, the watchdog timing correction, local persistent contracts, supervisor-owned start and lease-loss shutdown, local admission, and the renewal loop with queued ownership operations are implemented and tested (§8.1, §9.11, §9.12). Optional watchdog modes are implemented with no-device tests (§9.13). Remaining in 7b.2: authenticated bootstrap and the real-device watchdog run on a Linux host. Complete G-7 incrementally. Machine-reset qualification is not an implementation prerequisite. |
+| 7b.2 | Partial: the coordinator port, the Consul adapter, acquisition after release, guarded release, the watchdog timing correction, local persistent contracts, supervisor-owned start and lease-loss shutdown, local admission, and the renewal loop with queued ownership operations are implemented and tested (§8.1, §9.11, §9.12). Optional watchdog modes are implemented with no-device tests (§9.13). Bootstrap scope A is implemented and tested (§9.14). Remaining in 7b.2: bootstrap scope B, and the real-device watchdog run on a Linux host. Complete G-7 incrementally. Machine-reset qualification is not an implementation prerequisite. |
 | 7b.3 | Implement manual B takeover through local supervision. Test planned stop-before-release and unplanned safe-expiry takeover without failed-host acknowledgement. Prove old-writer exclusion, stale-effect rejection, policy cutover, repeated failover, two-node unavailability, and rewind/rebuild/re-join with production-manager data assertions. |
 | 8a | Enable autonomous initiation on the verified common A/B boundary. No second provider, authority, or generation barrier. Test concurrent standby contenders, invalid requests, lease loss during effects, and local activation/revocation races. |
 | 8b | Complete per-node automatic ownership and bootstrap reconciliation. Prove quorum loss, namespace/restore handling, invalid records, and distinction between sidecar/observer failure and writer-supervisor death. |
@@ -774,7 +791,8 @@ executions. The runs dated 2026-10-09 were executed for this revision. None is a
 | Sidecar | Role-only | `PgPrimaryCheckVerticle` answers `/primary` from `pg_is_in_recovery()` alone. The sidecar source has no commit since `ff5c17da`. It has no coordinator read, grant check, node identity check, coverage check, `/writer` route, authentication, or request deadline. |
 | 7b.2 renewal loop (OD-4) | Implemented and tested, 2026-10-21 | `PgRenewalLoop` calls `PgFailoverMonitor.renew()` on the loop interval, never with a renewal in flight, and starts renewals at least one interval apart. Start requires fresh ownership and is allowed once. A failed renewal ends the loop after the monitor has demoted the writer; `completion()` fails with that failure. `stop()` cancels the next renewal, waits for one in flight, and changes neither ownership nor the writer. A timer that cannot be scheduled fails `start()`; mid-run it demotes the writer and ends the loop. `PgPrimaryElector` queues `renew`, `update`, and `release` (OD-4, §5.3). Nothing in the module starts the loop yet; the caller must start it directly after acquisition. |
 | 7b.2 optional watchdog modes (OD-5) | Implemented 2026-10-21; no-device paths tested | `PgWatchdog` port; `PgDeviceWatchdog` adapter (§5.3). `PgFailoverMonitor` applies the mode before a primary start: `off` never uses the watchdog; `automatic` arms it or reports at ERROR and continues; `required` refuses the start when it cannot be armed with a safe timeout. An armed watchdog is fed only after a successful renewal; a failed keepalive demotes the writer. A confirmed stop disarms it; an unconfirmed stop leaves it armed and unfed. The armed state is in memory only. Nothing has run against a real device. Promotion does not exist yet, so the mode is applied at primary start only. |
-| 7b.2 bootstrap | Not implemented | Stopped-before-release and authenticated bootstrap remain to implement. `createInitialIntent` is a low-level conditional operation, not provisioning verification. |
+| 7b.2 bootstrap scope A (OD-6 to OD-8) | Implemented and tested, 2026-10-21 | `PgBootstrapRequest` reads and verifies the request file. `PgBootstrap.start` refuses a quarantined node, a node with any stored grant, and an existing control record; a record of the same operation is reported as an interrupted bootstrap. It then creates the withdrawn initial intent with pending policy revision 1, starts the renewal loop, records the `bootstrap` receipt with the request as parameters, and starts PostgreSQL through the monitor with admission closed. A failed start stops the loop. The receipt has no result; completion is derived in scope B. A rerun is refused, not resumed. The request is not operator-authenticated (OD-6) and other members are not inspected (OD-7). |
+| 7b.2 bootstrap scope B | Not implemented | Standby provisioning, replication check, policy installer, revision-1 confirmation, prepare/publish/activate, and the production-manager write. Stopped-before-release remains open. |
 | 7b.3 manual takeover and re-join | Not implemented by the new module | Requires supervised transitions, old-writer exclusion, policy cutover, repeated failover, and routed production-manager assertions. |
 | G-7 full coordinator qualification | Open | Snapshot/restore, TLS, stopped-before-release, and expiry versus independent old-writer exclusion remain unverified. Component success does not close G-7. |
 
@@ -977,7 +995,9 @@ that returns no result, and the real runner never returns none. Item 5 is otherw
 7. **Optional watchdog modes.** Implemented 2026-10-21 (§8.1, §9.13). OD-5 in §5.3 records the
    device mechanism. The real-device run on a Linux host is open.
 
-Next, complete authenticated first-start bootstrap in a separate verified scope within 7b.2. Bootstrap must verify provisioning, withdrawn intent,
+8. **First-start bootstrap, scope A.** Complete, 2026-10-21 (§8.1, §9.14). OD-6 to OD-8 in §5.3.
+
+Next, bootstrap scope B within 7b.2, on a primary-plus-two-standby fixture. Bootstrap must verify provisioning, withdrawn intent,
 guarded startup, and confirmed first policy. Manual takeover remains 7b.3; autonomous initiation
 remains phase 8.
 
@@ -1520,4 +1540,71 @@ Known gaps after 2026-10-21:
   then succeeds while the device stays armed.
 - No configuration loader reads the `peegeeq.pg.failover.watchdog.*` keys. The device and
   timeout paths are constructor arguments.
+
+### 9.14 First-Start Bootstrap, Scope A, 2026-10-21
+
+**Order of steps.** A receipt needs a generation, and a generation exists only after the
+initial acquisition. The `bootstrap` receipt is therefore written directly after acquisition and
+before the start effect. Before acquisition the request file is the only evidence; a run that
+stops there leaves nothing, and a rerun repeats it.
+
+**TDD.** `PgBootstrapRequestTest` (14 core tests, real directory) and `PgBootstrapIntegrationTest`
+(7 tests, real Consul, a real PostgreSQL that only the supervisor starts, real node-local
+storage) were written first. The module's tests failed compilation
+(`logs/peegeeq-pg-failover-bootstrap-red-20261021.log`). After the implementation both classes
+passed on their first run: 14 of 14 and 7 of 7
+(`logs/peegeeq-pg-failover-bootstrap-core-run1-20261021.log`,
+`logs/peegeeq-pg-failover-bootstrap-integration-run1-20261021.log`).
+
+The request tests cover a valid request and its derived intent, membership in another order, and
+rejection of a missing file, a file that is not JSON, an unknown field, a missing field, another
+cluster, another incarnation, another membership, another initial writer, a standby list naming
+the writer, naming a non-member, or repeating a member, and an operation that is not a UUID. The
+integration tests cover: a valid request starts a writable primary that rejects application
+connections, under withdrawn intent with pending revision 1, no confirmed policy, and no
+previous writer, with a `PENDING` bootstrap receipt holding the request, a `COMPLETED`
+start-primary receipt, and a running loop; without a request file no record is created and
+nothing starts; an existing record of another operation refuses bootstrap and is not changed; a
+rerun after an interrupted bootstrap is refused as interrupted and starts nothing; a stored grant
+refuses bootstrap; quarantine refuses bootstrap; a failed start demotes, stops the loop, and
+leaves the record and the `PENDING` receipt.
+
+**Mutation check.** With the local-history check removed, a node with a stored grant
+bootstrapped and its test failed: "Bootstrap ran on a node with a stored writer grant". The
+quarantine test also failed, because the monitor's own quarantine check refused the start with a
+`PgLocalStateException` instead of a bootstrap refusal
+(`logs/peegeeq-pg-failover-bootstrap-mutation-red-20261021.log`). The source was restored to the
+same SHA-256.
+
+**Module runs after the last source change.** Rebuild:
+`logs/rebuild-peegeeq-pg-failover-bootstrap-final-20261021.log`. Every class reports zero
+failures, errors, and skips.
+
+| Profile | Class | Tests run | Saved log under `logs/` |
+|---|---|---:|---|
+| `integration-tests` | `ConsulLeaseCoordinatorIntegrationTest` | 61 | `peegeeq-pg-failover-integration-bootstrap-20261021.log` |
+| `integration-tests` | `PgFailoverMonitorIntegrationTest` | 23 | `peegeeq-pg-failover-integration-bootstrap-20261021.log` |
+| `integration-tests` | `PgBootstrapIntegrationTest` | 7 | `peegeeq-pg-failover-integration-bootstrap-20261021.log` |
+| `integration-tests` | `PgCtlProcessControlIntegrationTest` | 10 | `peegeeq-pg-failover-integration-bootstrap-20261021.log` |
+| `integration-tests` | `PgHbaAdmissionGateIntegrationTest` | 6 | `peegeeq-pg-failover-integration-bootstrap-20261021.log` |
+| `integration-tests` | `PgPrimaryElectorQueueingIntegrationTest` | 4 | `peegeeq-pg-failover-integration-bootstrap-20261021.log` |
+| `integration-tests` | `PgRenewalLoopIntegrationTest` | 13 | `peegeeq-pg-failover-integration-bootstrap-20261021.log` |
+| default/core | `LocalCommandRunnerTest` | 6 | `peegeeq-pg-failover-core-bootstrap-20261021.log` |
+| default/core | `PgBootstrapRequestTest` | 14 | `peegeeq-pg-failover-core-bootstrap-20261021.log` |
+| default/core | `PgDeviceWatchdogTest` | 7 | `peegeeq-pg-failover-core-bootstrap-20261021.log` |
+| default/core | `PgLocalStateStoreTest` | 29 | `peegeeq-pg-failover-core-bootstrap-20261021.log` |
+| default/core | `PgNodeConfigTest` | 17 | `peegeeq-pg-failover-core-bootstrap-20261021.log` |
+| default/core guards | five guard classes | 14 | `peegeeq-test-support-core-guards-bootstrap-20261021.log` |
+
+Known gaps after 2026-10-21:
+
+- The request is not operator-authenticated (OD-6). Anyone who can write the state directory can
+  request bootstrap.
+- Other members are not inspected (OD-7).
+- Existing local receipts are not inspected: the store has no listing operation. The data
+  directory is not checked for prior writes; a stored grant or quarantine is the only local
+  history checked.
+- An interrupted bootstrap is refused, not resumed. Resuming needs the takeover path (7b.3).
+- Scope B is not implemented, so bootstrap never confirms a policy or admits applications.
+- No production entry point calls `PgBootstrap`.
 
