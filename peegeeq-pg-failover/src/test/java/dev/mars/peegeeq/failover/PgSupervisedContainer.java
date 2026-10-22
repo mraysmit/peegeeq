@@ -3,6 +3,8 @@ package dev.mars.peegeeq.failover;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import io.vertx.core.Future;
 import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.Network;
+import org.testcontainers.containers.wait.strategy.Wait;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -18,6 +20,18 @@ public final class PgSupervisedContainer implements AutoCloseable {
     private static final Duration COMMAND_TIMEOUT = Duration.ofSeconds(30);
     private final GenericContainer<?> container = new GenericContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
         .withCreateContainerCmdModifier(command -> command.withEntrypoint("tail", "-f", "/dev/null"));
+
+    public PgSupervisedContainer() {
+    }
+
+    /**
+     * A node on a shared network, reachable from the other nodes under its node identity. The
+     * container is ready before PostgreSQL runs, because only the supervisor starts it.
+     */
+    public PgSupervisedContainer(Network network, String alias) {
+        container.withNetwork(network).withNetworkAliases(alias)
+            .waitingFor(Wait.forSuccessfulCommand("test -d /var/lib/postgresql"));
+    }
 
     public void start() {
         container.start();

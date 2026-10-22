@@ -1,10 +1,12 @@
 # PeeGeeQ Connection Management and HAProxy Failover — Implementation Plan
 
-**Document revision**: 2026-10-09, local admission record, rerun of the `peegeeq-pg-failover`
-tests, Consul fixture readiness correction, and failure-logging correction (§9.11).
+**Document revision**: 2026-10-22, bootstrap scope B decisions OD-9 to OD-12 (§5.3) and
+increment B1 (§9.15). Revision 2026-10-21: renewal loop (§9.12), optional watchdog modes
+(§9.13), and first-start bootstrap scope A (§9.14). Earlier revision 2026-10-09: local admission record,
+Consul fixture readiness correction, and failure-logging correction (§9.11).
 Sections 2 to 4 retain dated baseline evidence. Current implementation evidence is in §8.1.
-The `peegeeq-pg-failover` tests and the guard tests were rerun on 2026-10-09, and the
-whole-repository `-Pall-tests` run was executed once (§8.1). It is red on the open phase 5 test.
+The whole-repository `-Pall-tests` run of 2026-10-09 was red on the phase 5 test (§8.1). That
+test was repaired on 2026-10-11 (§4.3). No Jenkins build from `beginning` has run it since.
 The next implementation scope is in §8.2.
 **Created**: 2026-10-07 at commit `ff5c17da`
 **Controls**: Task 8 of the [consolidated task register](../tasks/tasks.md). Status and execution
@@ -127,8 +129,8 @@ Out of scope:
 - An implicit exactly-once guarantee for external side effects or consumer delivery.
 - Treating a local Docker adapter as qualification of production watchdog enforcement.
 
-This revision updates this implementation plan and Task 8 from source and saved logs.
-It does not change Java, Maven, runtime configuration, Compose files, or production state.
+Each revision updates this implementation plan and Task 8 from source and saved logs. Section 9
+records what each revision read, changed, and ran.
 
 Full production write recovery uses three PostgreSQL nodes with synchronous acknowledgement
 coverage. A two-node pair preserves safety but cannot resume required synchronous writes
@@ -469,7 +471,7 @@ No selection of one hosting platform is required to finish this design phase.
 | Cluster/incarnation/membership/node identities | Authoritative configuration | Fixed namespace and one supervisor per node. Replica system identifier is not node identity. |
 | Writer lease and intent | Authoritative coordinator metadata/value | Owned and renewed by writer's supervisor; same protocol in A/B. |
 | Local receipts, quarantine, grants | Authoritative persistent node storage | No central store. On restart load grants closed and reconcile local effects. |
-| Lease TTL, loop/retry/stop budgets, watchdog device/mode | Authoritative configuration | Separate local-demotion timing from optional watchdog timing. Planned modes and their safety limits are below. Current code coupling is recorded in §8.1. |
+| Lease TTL, loop/retry/stop budgets, watchdog device/mode | Authoritative configuration | Separate local-demotion timing from optional watchdog timing. The modes and their safety limits are below. Their implementation is recorded in §8.1. |
 | Lease freshness, watchdog health, roles, WAL, eligibility | Derived observations | No persisted lease expiry or watchdog-ready permission. |
 | SQL/LISTEN/status/local control endpoints | Authoritative configuration; mapped test addresses derived from fixtures | Redundant stable routing; separate credentials; no platform API in takeover. |
 
@@ -486,7 +488,7 @@ workflow. It does not require a watchdog device or another Linux host/VM.
 
 Optional watchdog support follows Patroni's modes:
 
-| Mode | Planned contract |
+| Mode | Contract |
 |---|---|
 | `automatic` (default) | Use the watchdog when available. Report absence or activation failure. Continue through verified lease and local-demotion checks without claiming independent watchdog protection. |
 | `off` | Do not open or activate a watchdog. Retain lease-loss shutdown, guarded startup, and admission checks. |
@@ -494,7 +496,8 @@ Optional watchdog support follows Patroni's modes:
 
 Mode and device configuration are authoritative. Watchdog activation and health are derived.
 No persisted watchdog-ready flag grants permission after restart. Device errors remain visible.
-These modes are planned; they are not implemented by the current Consul protocol slice.
+The modes are implemented in `PgFailoverMonitor` with the `PgDeviceWatchdog` adapter (OD-5,
+§8.1). No test has armed a real device.
 See [Patroni's watchdog documentation](https://patroni.readthedocs.io/en/latest/watchdog.html)
 and [the pinned v4.1.5 mode implementation](https://github.com/patroni/patroni/blob/v4.1.5/patroni/watchdog/base.py).
 
@@ -523,9 +526,9 @@ must not be copied. Assert real authenticated replication rows and fresh flush/r
 qualify the production manager's commit boundary. Weaker policy, missing peers, rollback, and
 lost replies must have observable assertions. This fixture does not qualify writer admission.
 
-7b.2 has implemented the Consul protocol slice. Next implement the common local-supervision
-and admission boundary with operator initiation, then verify authenticated bootstrap in a
-separate fresh fixture. Optional watchdog modes have separate contracts. 7b.3 verifies
+7b.2 has implemented the coordinator port, the Consul adapter, local supervision and admission,
+the renewal loop, the optional watchdog modes, and bootstrap scope A (§8.1). Bootstrap scope B
+uses a separate fresh fixture of one primary and two standbys (OD-8). 7b.3 verifies
 manual takeover through the full admitted route. Persist local node storage across restarts.
 Destroying a test container is teardown, not restart-inhibition proof.
 
@@ -555,7 +558,8 @@ gates. Phase 7a closes architecture selection only; it does not qualify producti
 
 A full read of all five documents on 2026-10-08 found three points the design requires and
 does not specify. Each is the owner's decision. The search covered every document in this
-folder.
+folder. Later scopes found five more, OD-4 to OD-8. All eight are decided below: OD-1 to OD-3
+by the implementer, not reviewed by the owner; OD-4 to OD-8 by the owner.
 
 | ID | What the design says | What is not specified | Blocks |
 |---|---|---|---|
@@ -665,6 +669,31 @@ of the other members, or where policy installation is built.
   check and policy installer, revision-1 confirmation, and prepare/publish/activate, on a
   primary-plus-two-standby fixture shared with 7b.3.
 
+**OD-9 to OD-12 decided by the owner, 2026-10-22: bootstrap scope B.** System design §5.8 and
+§5.11 require a guarded policy installation, provisioned standbys, and replication identity
+bound to authenticated configured nodes. They do not name the mechanisms.
+
+- OD-9 Policy installation: `ALTER SYSTEM SET synchronous_standby_names` through the local
+  socket, then `pg_ctl reload`. The reload is confirmed when `pg_conf_load_time()` changes. The
+  setting in effect must then equal the generated value, and every required standby must report
+  quorum synchronous state. The setting persists in `postgresql.auto.conf`. The owner chose this
+  over a managed include file.
+- OD-10 Standby data: the deployment provisions each standby's data directory by base backup with
+  `standby.signal` before bootstrap. Scope B starts and validates standbys; it takes no base
+  backup. A supervisor base-backup action stays with rebuild and re-join (7b.3).
+- OD-11 Peer identity: each standby authenticates with its own replication role. A peer is bound
+  to its node when `pg_stat_replication.usename` is that node's role and `application_name` equals
+  the node identity. The implementer chose, and the owner can reverse, that the role name equals
+  the node identity, so the mapping is derived from membership and not stored.
+- OD-12 Production-manager write: included in scope B. `peegeeq-db` becomes a test-scope
+  dependency of `peegeeq-pg-failover`. The write goes directly to the writer node, not through
+  HAProxy, because the sidecar is still role-only.
+
+Defaults applied without a separate decision, because each follows an existing pattern or
+decision: SQL runs through `psql` on the local socket through `LocalCommandRunner`, as in
+`PgHbaAdmissionGate`; the writer observes standbys only through its own `pg_stat_replication`,
+as OD-7 leaves all-node evidence until later; each standby is started by its own supervisor.
+
 ## 6. TDD method
 
 Every phase that changes Java follows these steps in order.
@@ -741,7 +770,7 @@ on zero executed tests or swallowed teardown failure.
 | 6 | Completed earlier document alignment. The optional-watchdog correction superseded its mandatory wording. The companion designs were aligned on 2026-10-08 (§9.10). No Java or Maven change in this reconciliation. |
 | 7a | Architecture selection complete. One local supervisor, node-owned Consul lease, optional watchdog modes, local admission, persistent node storage, and configurable redundant endpoints. Same protocol on Linux hosts/VMs, Docker hosts, and Kubernetes. G-1 to G-7 remain qualification gates. |
 | 7b.1 | Complete: production-manager owned commit-policy enforcement and bounded failure observation. Recorded evidence in §8.1. Broad caller migration remains phase 11. |
-| 7b.2 | Partial: the coordinator port, the Consul adapter, acquisition after release, guarded release, the watchdog timing correction, local persistent contracts, supervisor-owned start and lease-loss shutdown, local admission, and the renewal loop with queued ownership operations are implemented and tested (§8.1, §9.11, §9.12). Optional watchdog modes are implemented with no-device tests (§9.13). Bootstrap scope A is implemented and tested (§9.14). Remaining in 7b.2: bootstrap scope B, and the real-device watchdog run on a Linux host. Complete G-7 incrementally. Machine-reset qualification is not an implementation prerequisite. |
+| 7b.2 | Partial: the coordinator port, the Consul adapter, acquisition after release, guarded release, the watchdog timing correction, local persistent contracts, supervisor-owned start and lease-loss shutdown, local admission, and the renewal loop with queued ownership operations are implemented and tested (§8.1, §9.11, §9.12). Optional watchdog modes are implemented with no-device tests (§9.13). Bootstrap scope A is implemented and tested (§9.14). Scope B increment B1, the durability boundary, is implemented and tested (§9.15). Remaining in 7b.2: scope B increment B2, and the real-device watchdog run on a Linux host. Complete G-7 incrementally. Machine-reset qualification is not an implementation prerequisite. |
 | 7b.3 | Implement manual B takeover through local supervision. Test planned stop-before-release and unplanned safe-expiry takeover without failed-host acknowledgement. Prove old-writer exclusion, stale-effect rejection, policy cutover, repeated failover, two-node unavailability, and rewind/rebuild/re-join with production-manager data assertions. |
 | 8a | Enable autonomous initiation on the verified common A/B boundary. No second provider, authority, or generation barrier. Test concurrent standby contenders, invalid requests, lease loss during effects, and local activation/revocation races. |
 | 8b | Complete per-node automatic ownership and bootstrap reconciliation. Prove quorum loss, namespace/restore handling, invalid records, and distinction between sidecar/observer failure and writer-supervisor death. |
@@ -770,29 +799,31 @@ old-writer exclusion. Optional watchdog mode alone is not exclusion evidence.
 This reconciliation records completed implementation slices. It does not close any new
 runtime or production qualification obligation. Task 8 carries the same status and next scope.
 
-### 8.1 Current Implementation and Recorded Evidence, 2026-10-08 and 2026-10-09
+### 8.1 Current Implementation and Recorded Evidence, 2026-10-08 to 2026-10-22
 
-Source inventory and saved logs were checked for the 2026-10-08 reconciliation. The working tree
-contains the implementation below. The runs dated 2026-10-08 are recorded runs, not new test
-executions. The runs dated 2026-10-09 were executed for this revision. None is a release gate.
+Source inventory and saved logs were checked for the 2026-10-08 reconciliation. The runs dated
+2026-10-08 are recorded runs, not new test executions. The runs dated 2026-10-09 were executed
+for that day's revision. The rows dated 2026-10-21 and 2026-10-22 have their runs in §9.12 to
+§9.15. None is a release gate.
 
 | Slice | State | Artifact and limit |
 |---|---|---|
 | 7a architecture | Complete | Dedicated local-supervisor architecture. The mandatory-watchdog decision is superseded by §5.2.1. No deployment qualification follows from this status. |
 | 7b.1 managed commit boundary | Complete | `PgConnectionManager` owns begin/commit/rollback and observed close, restores transaction-local `synchronous_commit=on`, checks caller-completed transactions, and reports uncertain commits through `PgCommitOutcomeUnknownException`. The fixture uses HAProxy, a primary, and two physical synchronous standbys. Direct-pool callers and post-promotion durability remain unqualified. |
-| 7b.2 coordinator port (P-38, S59) | Implemented and component-tested, 2026-10-08 | `PgLeaseCoordinator` is the port with seven operations. `PgControlRecord` carries `controlName`, `generation`, `revision`, `leaseHolder`, and `intent`. `PgPrimaryElector(PgNodeConfig, PgLeaseCoordinator)` holds intent validation, the freshness deadline, retirement, late-reply rejection, and the single in-flight operation; it makes no product call. `ConsulLeaseCoordinator` in package `dev.mars.peegeeq.failover.consul` holds every Consul HTTP call and the Consul TTL range check. A search of `peegeeq-pg-failover/src` outside `consul/` for `/v1/`, `X-Consul`, `session`, `LockIndex`, `ModifyIndex`, and `consul` returns no match. |
+| 7b.2 coordinator port (P-38, S59) | Implemented and component-tested, 2026-10-08 | `PgLeaseCoordinator` is the port with seven operations. `PgControlRecord` carries `controlName`, `generation`, `revision`, `leaseHolder`, and `intent`. `PgPrimaryElector(PgNodeConfig, PgLeaseCoordinator)` holds intent validation, the freshness deadline, retirement, late-reply rejection, and one ownership operation at a time (queued since OD-4); it makes no product call. `ConsulLeaseCoordinator` in package `dev.mars.peegeeq.failover.consul` holds every Consul HTTP call and the Consul TTL range check. A search of `peegeeq-pg-failover/src` outside `consul/` for `/v1/`, `X-Consul`, `session`, `LockIndex`, `ModifyIndex`, and `consul` returns no match. |
 | 7b.2 acquisition after release, and guarded release | Implemented and component-tested, 2026-10-08 | Acquisition after release is one Consul transaction: `check-index`, `lock` with a new session, `get`. Release is one transaction: `check-session`, `check-index`, `unlock` with the value resent, `get`. The elector requires withdrawn intent that names this node, names the released writer as previous writer, and carries both policies unchanged. Release retires the elector whatever the outcome. Release does not require local freshness; the coordinator's conditions guard it. |
 | 7b.2 policy validation | Corrected, 2026-10-08 | The earlier elector rejected any policy that named the writer. A takeover intent must carry the former writer's policy, which names the new writer. The rule is now: a policy this node introduces never names the writer; a policy carried unchanged from the prior record may; a `SERVING` confirmed policy never names the writer. |
-| 7b.2 timing and watchdog configuration | Corrected and tested, 2026-10-08 | `PgWatchdogMode` is `AUTOMATIC`, `OFF`, or `REQUIRED`. `PgNodeConfig` applies the lease rule in every mode: `loop + 2 × retry <= TTL` and `loop + retry + stop < TTL`. Only `REQUIRED` rejects a configuration without watchdog slack (`loop + retry < TTL/2` and `stop < TTL/2`). `ownershipBudget()` is derived: `TTL − stop` in `OFF` or when watchdog timing is not usable; otherwise the smaller of that and `TTL − TTL/2`. The elector's freshness deadline uses it. No watchdog device code exists. |
-| 7b.2 local persistent contracts | Implemented and tested, 2026-10-08 | `PgLocalStateStore` with `PgWriterGrant` (mode, generation, operation, policy revision, node, state), `PgQuarantine`, and `PgActionReceipt` (generation, operation, action, target node, immutable parameters, result, effect). A grant loaded at open is closed durably before the store is returned. Quarantine blocks preparation and activation and survives restart. A receipt begun twice with equal parameters is one receipt; changed parameters are rejected; a final result is never replaced. `PgLocalStateStoreTest` runs 29 tests against a real directory: `logs/phase7b2-local-state-core-20261008.log`; guards 14: `logs/phase7b2-local-state-guards-20261008.log`. No caller uses the store yet. |
-| 7b.2 supervisor-owned start and local shutdown | Implemented and tested, 2026-10-08 | `PgProcessControl` port; `PgCtlProcessControl` adapter; `LocalCommandRunner`. `PgFailoverMonitor` has `startStandby`, `startPrimary(held)`, `renew`, and `demote`. Primary start is refused without fresh ownership or under quarantine, runs with admission closed, and records a `start-primary` receipt. A failed renewal retires ownership, closes the grant, stops PostgreSQL within the stop budget, and records a `stop-writer` receipt. An unconfirmed stop fails the demotion, quarantines the node, and records the receipt as `UNKNOWN`. Local effects run one at a time; renewal does not queue behind them. Tests use a real PostgreSQL whose container entry point does not start it, a real Consul server, and a real state directory. Not implemented: the loop timer that calls `renew` on the HA interval, and promotion. |
+| 7b.2 timing and watchdog configuration | Corrected and tested, 2026-10-08 | `PgWatchdogMode` is `AUTOMATIC`, `OFF`, or `REQUIRED`. `PgNodeConfig` applies the lease rule in every mode: `loop + 2 × retry <= TTL` and `loop + retry + stop < TTL`. Only `REQUIRED` rejects a configuration without watchdog slack (`loop + retry < TTL/2` and `stop < TTL/2`). `ownershipBudget()` is derived: `TTL − stop` in `OFF` or when watchdog timing is not usable; otherwise the smaller of that and `TTL − TTL/2`. The elector's freshness deadline uses it. The watchdog device adapter was added on 2026-10-21 (watchdog modes row). |
+| 7b.2 local persistent contracts | Implemented and tested, 2026-10-08 | `PgLocalStateStore` with `PgWriterGrant` (mode, generation, operation, policy revision, node, state), `PgQuarantine`, and `PgActionReceipt` (generation, operation, action, target node, immutable parameters, result, effect). A grant loaded at open is closed durably before the store is returned. Quarantine blocks preparation and activation and survives restart. A receipt begun twice with equal parameters is one receipt; changed parameters are rejected; a final result is never replaced. `PgLocalStateStoreTest` runs 29 tests against a real directory: `logs/phase7b2-local-state-core-20261008.log`; guards 14: `logs/phase7b2-local-state-guards-20261008.log`. `PgFailoverMonitor` and `PgBootstrap` use the store. |
+| 7b.2 supervisor-owned start and local shutdown | Implemented and tested, 2026-10-08 | `PgProcessControl` port; `PgCtlProcessControl` adapter; `LocalCommandRunner`. `PgFailoverMonitor` has `startStandby`, `startPrimary(held)`, `renew`, and `demote`. Primary start is refused without fresh ownership or under quarantine, runs with admission closed, and records a `start-primary` receipt. A failed renewal retires ownership, closes the grant, stops PostgreSQL within the stop budget, and records a `stop-writer` receipt. An unconfirmed stop fails the demotion, quarantines the node, and records the receipt as `UNKNOWN`. Local effects run one at a time; renewal does not queue behind them. Tests use a real PostgreSQL whose container entry point does not start it, a real Consul server, and a real state directory. The loop timer that calls `renew` was added on 2026-10-21 (renewal loop row). Not implemented: promotion. |
 | 7b.2 local admission (OD-1) | Implemented 2026-10-08, compiled and tested 2026-10-09 | `PgAdmissionGate` port; `PgHbaAdmissionGate` adapter (§5.3). `PgFailoverMonitor` has `prepareWriter`, `activateWriter`, and `revokeWriter`; `PgPrimaryElector` has `holds`. Standby start and primary start close the gate first. Preparation requires fresh ownership and a confirmed policy. Activation requires fresh ownership of `SERVING` intent and the matching prepared grant; if the gate does not open, admission is revoked and the call fails. Revocation closes the grant and the gate and leaves PostgreSQL running. Commit `ea045d7f` contained this code before it had been compiled. `PgHbaAdmissionGateIntegrationTest` (6 tests) covers the gate's failure modes: an active file that does not hold the installed rules, a `pg_ctl status` exit code other than 0 or 3, a reload with invalid rules on open and on close, an exhausted or non-positive budget, and `open` while PostgreSQL is stopped. A close with invalid rules fails and PostgreSQL keeps the rules that admit applications, so the caller must stop the writer. Each test was confirmed by removing the behaviour from the gate (§9.11). |
 | 7b.2 failure logging | Corrected and tested, 2026-10-09 | The module had twelve WARN statements, and eleven of them reported failed, refused, or forced operations. The test-support gate fails a test on an undeclared ERROR and does not see WARN, so no test had to declare them. Those eleven now log at ERROR or, for a requested demotion or revocation, at INFO. `pg_ctl stop` returning a non-zero exit code stays at WARN because the following status check decides. `PgLocalStateStore` reports a storage or decoding fault as "Node-local storage failed", apart from a refusal by one of its rules. Failures that were returned to the caller without any log are now reported too: `PgFailoverMonitor` logs every failed operation at its boundary, and `PgPrimaryElector` logs every refused operation and every late reply. 75 test methods declare the errors they cause with 82 `@ExpectedErrorLog` declarations (§9.11). |
 | Sidecar | Role-only | `PgPrimaryCheckVerticle` answers `/primary` from `pg_is_in_recovery()` alone. The sidecar source has no commit since `ff5c17da`. It has no coordinator read, grant check, node identity check, coverage check, `/writer` route, authentication, or request deadline. |
-| 7b.2 renewal loop (OD-4) | Implemented and tested, 2026-10-21 | `PgRenewalLoop` calls `PgFailoverMonitor.renew()` on the loop interval, never with a renewal in flight, and starts renewals at least one interval apart. Start requires fresh ownership and is allowed once. A failed renewal ends the loop after the monitor has demoted the writer; `completion()` fails with that failure. `stop()` cancels the next renewal, waits for one in flight, and changes neither ownership nor the writer. A timer that cannot be scheduled fails `start()`; mid-run it demotes the writer and ends the loop. `PgPrimaryElector` queues `renew`, `update`, and `release` (OD-4, §5.3). Nothing in the module starts the loop yet; the caller must start it directly after acquisition. |
+| 7b.2 renewal loop (OD-4) | Implemented and tested, 2026-10-21 | `PgRenewalLoop` calls `PgFailoverMonitor.renew()` on the loop interval, never with a renewal in flight, and starts renewals at least one interval apart. Start requires fresh ownership and is allowed once. A failed renewal ends the loop after the monitor has demoted the writer; `completion()` fails with that failure. `stop()` cancels the next renewal, waits for one in flight, and changes neither ownership nor the writer. A timer that cannot be scheduled fails `start()`; mid-run it demotes the writer and ends the loop. `PgPrimaryElector` queues `renew`, `update`, and `release` (OD-4, §5.3). `PgBootstrap` starts the loop directly after the initial acquisition. No production entry point constructs the loop or `PgBootstrap`. |
 | 7b.2 optional watchdog modes (OD-5) | Implemented 2026-10-21; no-device paths tested | `PgWatchdog` port; `PgDeviceWatchdog` adapter (§5.3). `PgFailoverMonitor` applies the mode before a primary start: `off` never uses the watchdog; `automatic` arms it or reports at ERROR and continues; `required` refuses the start when it cannot be armed with a safe timeout. An armed watchdog is fed only after a successful renewal; a failed keepalive demotes the writer. A confirmed stop disarms it; an unconfirmed stop leaves it armed and unfed. The armed state is in memory only. Nothing has run against a real device. Promotion does not exist yet, so the mode is applied at primary start only. |
 | 7b.2 bootstrap scope A (OD-6 to OD-8) | Implemented and tested, 2026-10-21 | `PgBootstrapRequest` reads and verifies the request file. `PgBootstrap.start` refuses a quarantined node, a node with any stored grant, and an existing control record; a record of the same operation is reported as an interrupted bootstrap. It then creates the withdrawn initial intent with pending policy revision 1, starts the renewal loop, records the `bootstrap` receipt with the request as parameters, and starts PostgreSQL through the monitor with admission closed. A failed start stops the loop. The receipt has no result; completion is derived in scope B. A rerun is refused, not resumed. The request is not operator-authenticated (OD-6) and other members are not inspected (OD-7). |
-| 7b.2 bootstrap scope B | Not implemented | Standby provisioning, replication check, policy installer, revision-1 confirmation, prepare/publish/activate, and the production-manager write. Stopped-before-release remains open. |
+| 7b.2 bootstrap scope B, increment B1 (OD-9 to OD-11) | Implemented and tested, 2026-10-22 | `PgDurabilityControl` port; `PgSqlDurabilityControl` adapter. It reads the writer's WAL flush boundary (refused in recovery), lists replication peers, and installs a policy by OD-9. `PgDurabilityPolicy` is the typed form of the control record's policy: it generates the quoted setting and holds the coverage rule (OD-11). `PgLsn` and `PgReplicationPeer` are derived observations. No command argument contains a double quote: the installed value is an escape string. Nothing calls the port yet. |
+| 7b.2 bootstrap scope B, increment B2 | Not implemented | Guarded installation under a receipt in `PgFailoverMonitor`, coverage validation, revision-1 confirmation, prepare/publish/activate in `PgBootstrap`, and the production-manager write (OD-12). Stopped-before-release remains open. |
 | 7b.3 manual takeover and re-join | Not implemented by the new module | Requires supervised transitions, old-writer exclusion, policy cutover, repeated failover, and routed production-manager assertions. |
 | G-7 full coordinator qualification | Open | Snapshot/restore, TLS, stopped-before-release, and expiry versus independent old-writer exclusion remain unverified. Component success does not close G-7. |
 
@@ -997,9 +1028,15 @@ that returns no result, and the real runner never returns none. Item 5 is otherw
 
 8. **First-start bootstrap, scope A.** Complete, 2026-10-21 (§8.1, §9.14). OD-6 to OD-8 in §5.3.
 
-Next, bootstrap scope B within 7b.2, on a primary-plus-two-standby fixture. Bootstrap must verify provisioning, withdrawn intent,
-guarded startup, and confirmed first policy. Manual takeover remains 7b.3; autonomous initiation
-remains phase 8.
+9. **First-start bootstrap, scope B, increment B1: the durability boundary.** Complete,
+   2026-10-22 (§8.1, §9.15). OD-9 to OD-12 in §5.3.
+
+Next, bootstrap scope B increment B2 within 7b.2, on the same fixture. Scope A covers
+request verification, withdrawn intent, and the guarded primary start. Scope B adds system
+design §5.11 steps 3 to 5: guarded standby start and validation, the fresh WAL boundary check,
+policy installation, confirmation of revision 1, prepare/publish/activate, and a
+production-manager write under the required commit policy. Manual takeover remains 7b.3;
+autonomous initiation remains phase 8.
 
 Known gaps remain production qualification of independent exclusion during supervisor death
 or whole-VM pause, full G-7 security/restore, routed failover/re-join, the sidecar's eligibility
@@ -1607,4 +1644,110 @@ Known gaps after 2026-10-21:
 - An interrupted bootstrap is refused, not resumed. Resuming needs the takeover path (7b.3).
 - Scope B is not implemented, so bootstrap never confirms a policy or admits applications.
 - No production entry point calls `PgBootstrap`.
+
+### 9.15 First-Start Bootstrap, Scope B Increment B1: the Durability Boundary, 2026-10-22
+
+**Decisions.** The owner decided OD-9 to OD-12 (§5.3). Scope B is split into two increments:
+B1 is the durability port, its adapter, and the policy and coverage rule; B2 is the bootstrap
+completion that uses them.
+
+**Data model.** Nothing new is stored. `PgDurabilityPolicy` is the typed form of the control
+record's `durabilityPolicy` and `pendingDurabilityPolicy`, which stay the source of truth. The
+generated `synchronous_standby_names`, the acknowledgement count, WAL positions (`PgLsn`), and
+peer observations (`PgReplicationPeer`) are derived on each check.
+
+**Fixture.** `PgReplicationFixture` runs the writer and two standbys in three containers on one
+network. Each provisioning does what OD-10 assigns to the deployment: `initdb` on the writer,
+one start with application admission closed to create one replication role per standby, a base
+backup per standby under its own role with `standby.signal`, then a stop.
+`PgSupervisedContainer` gained a constructor that places a node on a network under its node
+identity.
+
+**Finding: a double quote in a command argument.** The first run failed in provisioning with
+`syntax error at or near "-"`: the role name `"pg-node-2"` reached `psql` without its quotes. On
+Windows, the Java process launcher does not escape a double quote inside an argument, so the child
+process loses it. The supervisor's own `ALTER SYSTEM` statement had the same exposure. The
+adapter now sends the value as an escape string (`E'ANY 2 (\x22pg-node-2\x22, ...)'`), and the
+fixture creates roles with `format('%I')` in a `DO` block. No command argument in the module
+contains a double quote. `LocalCommandRunner` is unchanged; on Linux the argument list passes
+unchanged.
+
+**Finding: an unquoted hyphenated name is rejected at server start.** The first override test
+started the writer with `-c synchronous_standby_names=pg-node-2`. PostgreSQL refused to start,
+because an unquoted standby name cannot contain a hyphen. The test now overrides with
+`elsewhere`. This is the reason the design requires quoted names (§5.8).
+
+**TDD.** `PgLsnTest` (3 core tests), `PgDurabilityPolicyTest` (12 core tests), and
+`PgSqlDurabilityControlIntegrationTest` (10 tests, three real PostgreSQL nodes that only the test
+starts) were written first. The module's tests failed compilation
+(`logs/peegeeq-pg-failover-bootstrap-b1-red-20261022.log`). The core classes passed on their
+first run (`logs/peegeeq-pg-failover-bootstrap-b1-core-run1-20261022.log`). The integration class
+failed in provisioning on runs 1 and 2 for the two findings above
+(`logs/peegeeq-pg-failover-bootstrap-b1-integration-run1-20261022.log`, `-run2-`) and passed 10
+of 10 on run 3 (`-run3-`).
+
+The policy tests cover the generated quoted value; rejection of an empty, repeated,
+case-colliding, or invalid standby set and of revision 0; the control record form and its
+rejection of other fields; and the coverage rule: every standby streaming under its own role at
+the boundary passes; a missing standby, two connections for one standby, a standby name under
+another role, a name that differs only in case, a standby role under another name, a standby that
+is not streaming, and a standby behind the boundary in flush or replay each fail. The adapter
+tests cover: the flush boundary equals the writer's flush position and advances with a write; a
+server in recovery has no flush boundary; each standby replicates under its own role and reaches
+the boundary; installation puts the quoted setting in effect, both peers report `quorum`, and the
+value is persisted in `postgresql.auto.conf`; a missing required peer fails the installation
+within its budget; a server-start option that overrides the setting is reported as a mismatch; a
+stopped server fails the installation; a command that cannot run fails and is logged; output that
+is not an observation is rejected; an exhausted budget fails before any command runs.
+
+**Mutation check.** With the setting comparison and the quorum wait removed from the adapter, the
+missing-peer test failed ("A policy was confirmed without a required peer") and the override test
+failed ("The asynchronous result was expected to have failed")
+(`logs/peegeeq-pg-failover-bootstrap-b1-mutation-red-20261022.log`, `-red-2-`). The first mutation
+run did not reach the override check: the previous failure's teardown was interrupted (§9.11) and
+left the writer running, so the next provisioning could not start. The override test was then run
+alone. The source was restored to the same SHA-256.
+
+**Module runs after the last source change.** Rebuild:
+`logs/rebuild-peegeeq-pg-failover-bootstrap-b1-final-20261022.log`. Every class reports zero
+failures, errors, and skips.
+
+| Profile | Class | Tests run | Saved log under `logs/` |
+|---|---|---:|---|
+| `integration-tests` | `ConsulLeaseCoordinatorIntegrationTest` | 61 | `peegeeq-pg-failover-integration-bootstrap-b1-20261022.log` |
+| `integration-tests` | `PgFailoverMonitorIntegrationTest` | 23 | `peegeeq-pg-failover-integration-bootstrap-b1-20261022.log` |
+| `integration-tests` | `PgBootstrapIntegrationTest` | 7 | `peegeeq-pg-failover-integration-bootstrap-b1-20261022.log` |
+| `integration-tests` | `PgCtlProcessControlIntegrationTest` | 10 | `peegeeq-pg-failover-integration-bootstrap-b1-20261022.log` |
+| `integration-tests` | `PgHbaAdmissionGateIntegrationTest` | 6 | `peegeeq-pg-failover-integration-bootstrap-b1-20261022.log` |
+| `integration-tests` | `PgPrimaryElectorQueueingIntegrationTest` | 4 | `peegeeq-pg-failover-integration-bootstrap-b1-20261022.log` |
+| `integration-tests` | `PgRenewalLoopIntegrationTest` | 13 | `peegeeq-pg-failover-integration-bootstrap-b1-20261022.log` |
+| `integration-tests` | `PgSqlDurabilityControlIntegrationTest` | 10 | `peegeeq-pg-failover-integration-bootstrap-b1-20261022.log` |
+| default/core | `LocalCommandRunnerTest` | 6 | `peegeeq-pg-failover-core-bootstrap-b1-20261022.log` |
+| default/core | `PgBootstrapRequestTest` | 14 | `peegeeq-pg-failover-core-bootstrap-b1-20261022.log` |
+| default/core | `PgDeviceWatchdogTest` | 7 | `peegeeq-pg-failover-core-bootstrap-b1-20261022.log` |
+| default/core | `PgDurabilityPolicyTest` | 12 | `peegeeq-pg-failover-core-bootstrap-b1-20261022.log` |
+| default/core | `PgLocalStateStoreTest` | 29 | `peegeeq-pg-failover-core-bootstrap-b1-20261022.log` |
+| default/core | `PgLsnTest` | 3 | `peegeeq-pg-failover-core-bootstrap-b1-20261022.log` |
+| default/core | `PgNodeConfigTest` | 17 | `peegeeq-pg-failover-core-bootstrap-b1-20261022.log` |
+| default/core guards | five guard classes | 14 | `peegeeq-test-support-core-guards-bootstrap-b1-20261022.log` |
+
+Integration total 134; core total 88. The guard run executed 61 tests in `peegeeq-test-support`,
+14 of them in the five guard classes.
+
+Known gaps after 2026-10-22:
+
+- Nothing calls `PgDurabilityControl`. Installation has no receipt and is not serialized with
+  other local effects until B2 puts it in `PgFailoverMonitor`.
+- A failed installation leaves the installed value in `postgresql.auto.conf` and in effect. With
+  a required peer missing, later commits wait; admission must stay closed, as in the gate's gap
+  after a failed reload (§9.11).
+- The coverage rule checks role and application name. It does not check the client address
+  against the node's configured host, and it does not compare standby timeline or node-local
+  `peegeeq.node_id`; the writer observes standbys only through `pg_stat_replication` (OD-7).
+- Reading `pg_stat_replication` positions requires a superuser or `pg_monitor` role on the local
+  socket. The fixture uses the superuser. The least-privilege supervisor role is not defined.
+- The adapter's check for a runner that returns no result has no test, because the real runner
+  never returns none (as for the gate).
+- A failed test in a class that uses `PgReplicationFixture` can leave servers running and fail the
+  later tests of the class (§9.11, interrupted teardown).
 
