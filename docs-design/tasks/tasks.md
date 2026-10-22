@@ -99,8 +99,9 @@ an unimplemented proposal exists or replace explicitly planned load, chaos, or f
 
 ## Current Execution Order
 
-As of 2026-10-21 two tasks are ACTIVE. Task 8 resumed on 2026-10-21 in the working tree
-(not committed). Task 9 (delivery-outcome redesign, Finding 20) is in implementation: phase 1
+As of 2026-10-21 two tasks are ACTIVE. Task 8 resumed on 2026-10-21. That day's work is
+committed in `7054ca04` (renewal loop and watchdog modes) and `d5c69cb2` (bootstrap scope A).
+Task 9 (delivery-outcome redesign, Finding 20) is in implementation: phase 1
 increments 1a and 1b are committed in `092cf23f`, 1b is not approved, and 1c to 1e are not
 started.
 Task 8: phase 7a architecture selection is complete.
@@ -111,8 +112,11 @@ with queued ownership operations (OD-4), and the optional watchdog modes (OD-5) 
 on a Linux host is open. First-start bootstrap scope A (OD-6 to OD-8) is implemented and
 tested: verified request file, refusal against local and coordinator history, withdrawn initial
 intent, guarded primary start with admission closed. The request is not operator-authenticated.
-Next in phase 7b.2 is bootstrap scope B: standbys, policy installation and confirmation, and
-writer activation. No production entry point calls bootstrap or starts the renewal loop yet.
+Bootstrap scope B increment B1 (OD-9 to OD-12, 2026-10-22, working tree, not committed) is
+implemented and tested: the durability port and its SQL adapter, and the quoted policy and
+role-bound coverage rule. Next in phase 7b.2 is scope B increment B2: guarded installation
+under a receipt, revision-1 confirmation, writer activation, and the production-manager write.
+No production entry point calls bootstrap or starts the renewal loop yet.
 Takeover and production qualification remain open.
 Machine-reset testing and additional host/VM access are not prerequisites for this next scope.
 Tasks 1, 2, 3, 4, 6, and 7 are COMPLETE.
@@ -574,7 +578,7 @@ has the successful remote Jenkins publication evidence recorded above.
 ### 8. Connection management and HAProxy failover
 
 **Priority:** Not assigned
-**Status:** ACTIVE — phase 7b.1 complete; phase 7b.2 partial (renewal loop, watchdog modes, and bootstrap scope A done 2026-10-21)
+**Status:** ACTIVE — phase 7b.1 complete; phase 7b.2 partial (renewal loop, watchdog modes, and bootstrap scope A done 2026-10-21; scope B increment B1 done 2026-10-22)
 **Objective:** implement the design in
 `docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md` (design
 revision 2026-10-08). HAProxy routes by sidecar writer eligibility, which combines current
@@ -583,12 +587,13 @@ and synchronous coverage. Manual profile B
 precedes automatic profile A. Failover depends on a coordinator port, not on Consul: Consul is
 the first adapter and Qraft a planned second (P-38). The port `PgLeaseCoordinator` and the
 adapter `ConsulLeaseCoordinator` are implemented in `peegeeq-pg-failover`. Node supervision is
-implemented there for guarded start, lease-loss shutdown, local admission, and the renewal
-loop. Promotion and takeover are not implemented in that module.
+implemented there for guarded start, lease-loss shutdown, local admission, the renewal loop,
+the optional watchdog modes, and bootstrap scope A. Promotion and takeover are not implemented
+in that module.
 G-7 qualification proceeds alongside
 the common supervisor implementation. `peegeeq-service-manager` handles federation and is outside this task. No profile
 requires the Patroni product. The Patroni control approach is selected: per-node supervisor,
-local lease-loss shutdown, and optional independent watchdog protection. Planned watchdog
+local lease-loss shutdown, and optional independent watchdog protection. The watchdog
 modes are `automatic` (default), `off`, and `required`. Only `required` refuses writer
 start/promotion because the watchdog is unavailable. This correction superseded mandatory
 watchdog wording in the companion designs, which were aligned on 2026-10-08. Optional support
@@ -598,8 +603,9 @@ Java changes follow strict TDD with real-component failure tests.
 The implementation plan is
 `docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY_IMPLEMENTATION_PLAN.md`.
 It holds dated implementation findings and runs, adopted contracts P-0 to P-38, deployment
-gates G-1 to G-7, acceptance obligations S1 to S59, and three design decisions for phase
-7b.2 (OD-1 to OD-3). The implementer decided each one. The owner has not reviewed them.
+gates G-1 to G-7, acceptance obligations S1 to S59, and twelve design decisions for phase
+7b.2 (OD-1 to OD-12). The implementer decided OD-1 to OD-3, and the owner has not reviewed
+them. The owner decided OD-4 to OD-12.
 Status and execution order are controlled
 here. Design contracts do not establish runtime coverage.
 
@@ -686,7 +692,11 @@ Phases:
    **7b.2 update, 2026-10-21:** bootstrap scope A is implemented. The owner decided OD-6 (a
    request file authenticated only by filesystem permissions), OD-7 (all-node evidence left
    until later), and OD-8 (two scopes). Plan §9.14 has the record.
-   Remaining, in order: bootstrap scope B; the real-device watchdog run on a Linux host. Preserve conservative ownership deadlines and late-reply
+   **7b.2 update, 2026-10-22:** bootstrap scope B increment B1, the durability boundary, is
+   implemented. The owner decided OD-9 (`ALTER SYSTEM` and reload), OD-10 (the deployment
+   provisions standby data), OD-11 (one replication role per standby), and OD-12 (the
+   production-manager write is in scope B). Plan §9.15 has the record.
+   Remaining, in order: bootstrap scope B increment B2; the real-device watchdog run on a Linux host. Preserve conservative ownership deadlines and late-reply
    rejection. Complete G-7 qualification alongside these scopes. The next scope uses
    Docker/Testcontainers; machine-reset infrastructure is not a prerequisite.
    **OPEN — 7b.3:** manual
@@ -841,7 +851,7 @@ Task 8 status review, 2026-10-21 at `092cf23f`:
 - Not checked: the five guard classes, other modules, Jenkins, and every item under "Known
   gaps" above.
 
-Phase 7b.2 renewal loop verification, 2026-10-21 (working tree, not committed):
+Phase 7b.2 renewal loop verification, 2026-10-21 (committed in `7054ca04`):
 
 - Red: `PgPrimaryElectorQueueingIntegrationTest` failed **3** of **4** against the refusing
   elector (`logs/peegeeq-pg-failover-elector-queue-red-20261021.log`).
@@ -867,7 +877,7 @@ Phase 7b.2 renewal loop verification, 2026-10-21 (working tree, not committed):
   null-result check is unreachable on the renew, update, and release paths. No other module
   and no Jenkins build was run.
 
-Phase 7b.2 watchdog mode verification, 2026-10-21 (working tree, not committed):
+Phase 7b.2 watchdog mode verification, 2026-10-21 (committed in `7054ca04`):
 
 - Red: the module's tests failed compilation before the port and adapter existed
   (`logs/peegeeq-pg-failover-watchdog-red-20261021.log`). With `required` handled like
@@ -891,7 +901,7 @@ Phase 7b.2 watchdog mode verification, 2026-10-21 (working tree, not committed):
   primary start only; `nowayout` kernels are not detected; no configuration loader reads the
   watchdog keys.
 
-Phase 7b.2 bootstrap scope A verification, 2026-10-21 (working tree, not committed):
+Phase 7b.2 bootstrap scope A verification, 2026-10-21 (committed in `d5c69cb2`):
 
 - Red: the module's tests failed compilation before the classes existed
   (`logs/peegeeq-pg-failover-bootstrap-red-20261021.log`). With the local-history check removed,
@@ -915,13 +925,43 @@ Phase 7b.2 bootstrap scope A verification, 2026-10-21 (working tree, not committ
   receipts and the data directory not inspected for prior history; an interrupted bootstrap is
   refused, not resumed; scope B not implemented; no production entry point.
 
+Phase 7b.2 bootstrap scope B increment B1 verification, 2026-10-22 (working tree, not committed):
+
+- Red: the module's tests failed compilation before the classes existed
+  (`logs/peegeeq-pg-failover-bootstrap-b1-red-20261022.log`). With the setting comparison and the
+  quorum wait removed from the adapter, the missing-peer and override tests failed
+  (`logs/peegeeq-pg-failover-bootstrap-b1-mutation-red-20261022.log`, `-red-2-`); the source was
+  restored to the same SHA-256.
+- Findings: a double quote inside a command argument is lost on Windows, so no argument in the
+  module now contains one; an unquoted hyphenated standby name stops PostgreSQL at start. Plan
+  §9.15.
+- Rebuild: `mvn clean install -DskipTests -pl :peegeeq-pg-failover -am` passed.
+  Output: `logs/rebuild-peegeeq-pg-failover-bootstrap-b1-final-20261022.log`.
+- `-Pintegration-tests`: `ConsulLeaseCoordinatorIntegrationTest` **61**,
+  `PgFailoverMonitorIntegrationTest` **23**, `PgBootstrapIntegrationTest` **7**,
+  `PgCtlProcessControlIntegrationTest` **10**, `PgHbaAdmissionGateIntegrationTest` **6**,
+  `PgPrimaryElectorQueueingIntegrationTest` **4**, `PgRenewalLoopIntegrationTest` **13**,
+  `PgSqlDurabilityControlIntegrationTest` **10**. Total **134**, zero failures/errors/skips.
+  Output: `logs/peegeeq-pg-failover-integration-bootstrap-b1-20261022.log`.
+- Default/core: `LocalCommandRunnerTest` **6**, `PgBootstrapRequestTest` **14**,
+  `PgDeviceWatchdogTest` **7**, `PgDurabilityPolicyTest` **12**, `PgLocalStateStoreTest` **29**,
+  `PgLsnTest` **3**, `PgNodeConfigTest` **17**. Total **88**.
+  Output: `logs/peegeeq-pg-failover-core-bootstrap-b1-20261022.log`.
+- Guards in `peegeeq-test-support` (61 tests, including the five guard classes, 14): zero
+  failures. Output: `logs/peegeeq-test-support-core-guards-bootstrap-b1-20261022.log`.
+- Known gaps: nothing calls the port yet; a failed installation leaves its value in effect;
+  coverage does not check client address, timeline, or `peegeeq.node_id`; the least-privilege
+  supervisor role for `pg_stat_replication` is not defined; no test for a runner that returns no
+  result; a failed fixture test can cascade through the class (§9.11).
+
 Test counts are recorded here only from a run made during the task.
 The final phase 7b.1 per-class summaries, and the phase 7b.2 summaries dated 2026-10-08, were
 reread during the 2026-10-08 reconciliation and no runtime test was rerun then. On 2026-10-08
 the four design documents were aligned with the optional-watchdog decision and the coordinator
 port (P-38). That was a documentation change with no test run. The `peegeeq-pg-failover` counts
 dated 2026-10-09 come from runs made on that day. Known gaps remain owner review of OD-1 to
-OD-3, a production caller of the renewal loop, bootstrap, takeover/re-join,
+OD-3, a production entry point for the renewal loop and bootstrap, bootstrap scope B,
+takeover/re-join,
 TLS/restore, independent exclusion under supervisor/VM pause, the cause of the intermediate
 HTTP 403 of 2026-10-08, and recovery timing.
 
