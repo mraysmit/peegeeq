@@ -226,6 +226,84 @@ class PgSqlDurabilityControlIntegrationTest {
             })));
     }
 
+    @Test void bothRequiredStandbysAreConfirmedCoveredOnceTheyReachTheBoundary(VertxTestContext context) {
+        control(WRITER).confirmCovered(POLICY).onComplete(context.succeedingThenComplete());
+    }
+
+    @Test void aRequiredStandbyThatIsNotConnectedFailsCoverageWithinItsBudgetAndNamesTheStandby(
+            VertxTestContext context) {
+        var budget = Duration.ofSeconds(5);
+        var control = control(WRITER, NODES.node(WRITER).prefix(), "psql", budget);
+        var missing = STANDBYS.get(1);
+        control.flushBoundary().compose(boundary -> awaitCovered(control, boundary, deadline()))
+            .compose(covered -> NODES.node(missing).forceStop(runner, NODES.dataDirectory()))
+            .compose(ignored -> awaitDisconnected(control, missing, deadline()))
+            .compose(ignored -> {
+                long started = System.nanoTime();
+                return control.confirmCovered(POLICY).transform(coverage -> {
+                    assertTrue(coverage.failed(), "Coverage was confirmed without a required standby");
+                    assertInstanceOf(PgDurabilityException.class, coverage.cause());
+                    assertTrue(coverage.cause().getMessage().startsWith("Required standbys were not covered"),
+                        coverage.cause().getMessage());
+                    assertTrue(coverage.cause().getMessage().contains(missing + " is not connected"),
+                        coverage.cause().getMessage());
+                    assertTrue(System.nanoTime() - started < budget.plusSeconds(10).toNanos(),
+                        "Coverage overran its budget");
+                    return Future.<Void>succeededFuture();
+                });
+            }).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+    }
+
+    @Test void coverageOfAServerInRecoveryFailsBecauseItHasNoBoundary(VertxTestContext context) {
+        control(STANDBYS.get(0)).confirmCovered(POLICY).onComplete(context.failing(failure -> context.verify(() -> {
+            assertInstanceOf(PgDurabilityException.class, failure);
+            assertEquals("PostgreSQL is in recovery; it has no writer flush position", failure.getMessage());
+            context.completeNow();
+        })));
+    }
+
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.LocalCommandRunner",
+        message = "Command could not run: [/nonexistent/docker",
+        messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = IOException.class)
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgSqlDurabilityControl",
+        message = "Durability command failed: psql",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgProcessControlException.class)
+    void aCommandThatCannotRunFailsCoverageAndIsNotRetried(VertxTestContext context) {
+        long started = System.nanoTime();
+        control(WRITER, List.of("/nonexistent/docker"), "psql", COMMAND_TIMEOUT).confirmCovered(POLICY)
+            .onComplete(context.failing(failure -> context.verify(() -> {
+                assertInstanceOf(PgDurabilityException.class, failure);
+                assertInstanceOf(PgProcessControlException.class, failure.getCause());
+                assertTrue(System.nanoTime() - started < COMMAND_TIMEOUT.toNanos(),
+                    "A command failure was retried until the budget ended");
+                context.completeNow();
+            })));
+    }
+
+    @Test void coverageObservedFromOutputThatIsNotAnObservationIsRejected(VertxTestContext context) {
+        control(WRITER, NODES.node(WRITER).prefix(), "echo", COMMAND_TIMEOUT).confirmCovered(POLICY)
+            .onComplete(context.failing(failure -> context.verify(() -> {
+                assertInstanceOf(PgDurabilityException.class, failure);
+                assertTrue(failure.getMessage().startsWith("Malformed durability observation"), failure.getMessage());
+                context.completeNow();
+            })));
+    }
+
+    @Test void coverageWithoutTimeToRunFailsPromptly(VertxTestContext context) {
+        control(WRITER, NODES.node(WRITER).prefix(), "psql", Duration.ofMillis(1)).confirmCovered(POLICY)
+            .onComplete(context.failing(failure -> context.verify(() -> {
+                assertInstanceOf(PgDurabilityException.class, failure);
+                assertTrue(failure.getMessage().startsWith("Durability budget exhausted"), failure.getMessage());
+                context.completeNow();
+            })));
+    }
+
     private Future<List<PgReplicationPeer>> awaitCovered(PgDurabilityControl control, PgLsn boundary, long deadline) {
         return control.peers().compose(peers -> {
             try {

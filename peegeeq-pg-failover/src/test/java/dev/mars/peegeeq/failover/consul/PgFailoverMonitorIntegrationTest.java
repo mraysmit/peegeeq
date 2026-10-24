@@ -21,6 +21,8 @@ import dev.mars.peegeeq.failover.PgProcessControlException;
 import dev.mars.peegeeq.failover.PgProcessState;
 import dev.mars.peegeeq.failover.PgSupervisedContainer;
 import dev.mars.peegeeq.failover.PgDeviceWatchdog;
+import dev.mars.peegeeq.failover.PgDurabilityControl;
+import dev.mars.peegeeq.failover.PgSqlDurabilityControl;
 import dev.mars.peegeeq.failover.PgWatchdog;
 import dev.mars.peegeeq.failover.PgWatchdogException;
 import dev.mars.peegeeq.failover.PgWatchdogMode;
@@ -83,6 +85,7 @@ class PgFailoverMonitorIntegrationTest {
     private PgProcessControl process;
     private PgAdmissionGate gate;
     private PgWatchdog watchdog;
+    private PgDurabilityControl durability;
     private PgFailoverMonitor monitor;
     private PgPrimaryElector modeElector;
 
@@ -112,13 +115,15 @@ class PgFailoverMonitorIntegrationTest {
             }).compose(ignored -> {
                 process = control(PgSupervisedContainer.PG_CTL);
                 gate = gate(POSTGRES.openHba(dataDirectory), POSTGRES.closedHba(dataDirectory));
+                durability = new PgSqlDurabilityControl(vertx, runner, POSTGRES.prefix(), PgSupervisedContainer.PG_CTL,
+                    "psql", dataDirectory, Duration.ofSeconds(20));
                 // This host has no watchdog device. Neither path exists.
                 watchdog = new PgDeviceWatchdog(vertx, stateDirectory.resolve("no-watchdog"),
                     stateDirectory.resolve("no-watchdog-timeout"));
                 return PgLocalStateStore.open(vertx, stateDirectory, config.nodeId());
             }).onSuccess(opened -> context.verify(() -> {
                 store = opened;
-                monitor = new PgFailoverMonitor(config, elector, store, process, gate, watchdog);
+                monitor = new PgFailoverMonitor(config, elector, store, process, gate, watchdog, durability);
                 context.completeNow();
             })).onFailure(context::failNow);
     }
@@ -307,7 +312,7 @@ class PgFailoverMonitorIntegrationTest {
             .compose(store::activate)
             .compose(open -> {
                 // This supervisor's stop command cannot run. PostgreSQL keeps running.
-                var broken = new PgFailoverMonitor(config, elector, store, control("/nonexistent/pg_ctl"), gate, watchdog);
+                var broken = new PgFailoverMonitor(config, elector, store, control("/nonexistent/pg_ctl"), gate, watchdog, durability);
                 long started = System.nanoTime();
                 return broken.demote(held, "test demotion").transform(demotion -> {
                     assertTrue(demotion.failed(), "An unconfirmed stop was reported as success");
@@ -345,7 +350,7 @@ class PgFailoverMonitorIntegrationTest {
         throwableType = PgProcessControlException.class)
     void failedPrimaryStartDemotesTheNodeAndFails(VertxTestContext context) {
         // This supervisor's process commands cannot run. PostgreSQL never starts.
-        var broken = new PgFailoverMonitor(config, elector, store, control("/nonexistent/pg_ctl"), gate, watchdog);
+        var broken = new PgFailoverMonitor(config, elector, store, control("/nonexistent/pg_ctl"), gate, watchdog, durability);
         elector.createInitialIntent(initialIntent()).compose(broken::startPrimary).transform(start -> {
             assertTrue(start.failed(), "A failed primary start was reported as success");
             assertInstanceOf(PgProcessControlException.class, start.cause());
@@ -381,7 +386,7 @@ class PgFailoverMonitorIntegrationTest {
         var unreachable = new PgHbaAdmissionGate(vertx, runner, List.of(stateDirectory.resolve("absent").toString()),
             PgSupervisedContainer.PG_CTL, "psql", dataDirectory, POSTGRES.openHba(dataDirectory),
             POSTGRES.closedHba(dataDirectory), Duration.ofSeconds(20));
-        new PgFailoverMonitor(config, elector, store, process, unreachable, watchdog).startStandby().transform(start -> {
+        new PgFailoverMonitor(config, elector, store, process, unreachable, watchdog, durability).startStandby().transform(start -> {
             assertTrue(start.failed(), "PostgreSQL started without a closed admission gate");
             assertInstanceOf(PgProcessControlException.class, start.cause());
             return process.status();
@@ -546,7 +551,7 @@ class PgFailoverMonitorIntegrationTest {
         throwableType = PgProcessControlException.class)
     void missingClosedAdmissionFileRefusesPrimaryStart(VertxTestContext context) {
         var unguarded = new PgFailoverMonitor(config, elector, store, process,
-            gate(POSTGRES.openHba(dataDirectory), dataDirectory + "/absent.conf"), watchdog);
+            gate(POSTGRES.openHba(dataDirectory), dataDirectory + "/absent.conf"), watchdog, durability);
         elector.createInitialIntent(initialIntent()).compose(unguarded::startPrimary).transform(start -> {
             assertTrue(start.failed(), "PostgreSQL started without a closed admission gate");
             assertInstanceOf(PgProcessControlException.class, start.cause());
@@ -570,7 +575,7 @@ class PgFailoverMonitorIntegrationTest {
         throwableType = PgProcessControlException.class)
     void failedAdmissionOpenClosesTheGrantAndAdmitsNothing(VertxTestContext context) {
         var broken = new PgFailoverMonitor(config, elector, store, process,
-            gate(dataDirectory + "/absent.conf", POSTGRES.closedHba(dataDirectory)), watchdog);
+            gate(dataDirectory + "/absent.conf", POSTGRES.closedHba(dataDirectory)), watchdog, durability);
         elector.createInitialIntent(initialIntent()).compose(held -> broken.startPrimary(held)
             .compose(ignored -> elector.update(held, servingIntent(held))))
             .compose(serving -> broken.prepareWriter(serving, PgFailoverMode.MANUAL)
@@ -659,7 +664,7 @@ class PgFailoverMonitorIntegrationTest {
             config.stopTimeout(), mode);
         modeElector = new PgPrimaryElector(modeConfig,
             new ConsulLeaseCoordinator(vertx, modeConfig, endpoint(), "consul-1", TOKEN));
-        return new PgFailoverMonitor(modeConfig, modeElector, store, process, gate, watchdog);
+        return new PgFailoverMonitor(modeConfig, modeElector, store, process, gate, watchdog, durability);
     }
 
     private PgAdmissionGate gate(String openFile, String closedFile) {

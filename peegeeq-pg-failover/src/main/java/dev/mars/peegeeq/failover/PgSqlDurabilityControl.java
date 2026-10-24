@@ -55,7 +55,11 @@ public final class PgSqlDurabilityControl implements PgDurabilityControl {
 
     @Override
     public Future<PgLsn> flushBoundary() {
-        return sql(deadline(), WRITER).map(output -> {
+        return flushBoundary(deadline());
+    }
+
+    private Future<PgLsn> flushBoundary(long deadline) {
+        return sql(deadline, WRITER).map(output -> {
             JsonObject observed = observation(output, () -> new JsonObject(output));
             Object inRecovery = observed.getValue("inRecovery");
             if (!(inRecovery instanceof Boolean)) throw new PgDurabilityException("Malformed durability observation: " + output);
@@ -69,6 +73,13 @@ public final class PgSqlDurabilityControl implements PgDurabilityControl {
     @Override
     public Future<List<PgReplicationPeer>> peers() {
         return peers(deadline());
+    }
+
+    @Override
+    public Future<Void> confirmCovered(PgDurabilityPolicy policy) {
+        Objects.requireNonNull(policy, "policy");
+        long deadline = deadline();
+        return flushBoundary(deadline).compose(boundary -> awaitCovered(deadline, policy, boundary));
     }
 
     @Override
@@ -101,6 +112,30 @@ public final class PgSqlDurabilityControl implements PgDurabilityControl {
             }
             return List.copyOf(peers);
         }));
+    }
+
+    /**
+     * A standby catches up on its own, so coverage of the fixed boundary is observed until it holds.
+     * Only a coverage failure is observed again; a failed observation ends the wait. The wait ends
+     * with the last coverage failure when another observation would not fit in the budget.
+     */
+    private Future<Void> awaitCovered(long deadline, PgDurabilityPolicy policy, PgLsn boundary) {
+        long started = System.nanoTime();
+        return peers(deadline).compose(peers -> {
+            PgDurabilityException uncovered;
+            try {
+                policy.requireCoveredAt(boundary, peers);
+                return Future.<Void>succeededFuture();
+            } catch (PgDurabilityException failure) {
+                uncovered = failure;
+            }
+            long observation = System.nanoTime() - started;
+            if (deadline - System.nanoTime() < 2 * observation + TimeUnit.MILLISECONDS.toNanos(POLL_MILLIS)) {
+                return Future.<Void>failedFuture(new PgDurabilityException("Required standbys were not covered at "
+                    + boundary + " within the budget: " + uncovered.getMessage(), uncovered));
+            }
+            return vertx.timer(POLL_MILLIS).compose(ignored -> awaitCovered(deadline, policy, boundary));
+        });
     }
 
     /** A reload is asynchronous. It is confirmed when the configuration load time has changed. */

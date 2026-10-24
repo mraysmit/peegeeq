@@ -23,12 +23,14 @@ public final class PgFailoverMonitor {
     private static final Logger logger = LoggerFactory.getLogger(PgFailoverMonitor.class);
     static final String START_PRIMARY = "start-primary";
     static final String STOP_WRITER = "stop-writer";
+    static final String INSTALL_POLICY = "install-policy";
     private final PgNodeConfig config;
     private final PgPrimaryElector elector;
     private final PgLocalStateStore store;
     private final PgProcessControl process;
     private final PgAdmissionGate gate;
     private final PgWatchdog watchdog;
+    private final PgDurabilityControl durability;
     private volatile PgControlRecord lastHeld;
     // Derived at run time: whether this monitor armed the watchdog and has not disarmed it.
     private volatile boolean armed;
@@ -36,13 +38,15 @@ public final class PgFailoverMonitor {
 
     /** @param watchdog used only when the configured watchdog mode is not {@code OFF} */
     public PgFailoverMonitor(PgNodeConfig config, PgPrimaryElector elector, PgLocalStateStore store,
-                             PgProcessControl process, PgAdmissionGate gate, PgWatchdog watchdog) {
+                             PgProcessControl process, PgAdmissionGate gate, PgWatchdog watchdog,
+                             PgDurabilityControl durability) {
         this.config = Objects.requireNonNull(config, "config");
         this.elector = Objects.requireNonNull(elector, "elector");
         this.store = Objects.requireNonNull(store, "store");
         this.process = Objects.requireNonNull(process, "process");
         this.gate = Objects.requireNonNull(gate, "gate");
         this.watchdog = Objects.requireNonNull(watchdog, "watchdog");
+        this.durability = Objects.requireNonNull(durability, "durability");
     }
 
     /** Starts PostgreSQL in recovery with admission closed. No lease is required. */
@@ -94,6 +98,56 @@ public final class PgFailoverMonitor {
                             });
                     });
                 });
+        });
+    }
+
+    /**
+     * Installs the held record's pending durability policy on the local writer, which is running
+     * with application writes excluded. The policy is derived from the record, not supplied. It is
+     * refused without fresh ownership of {@code WITHDRAWN} intent that has a pending policy, and
+     * under quarantine. The grant and the gate are closed first. Every required standby must then
+     * cover a fresh flush boundary; a refusal before the receipt changes nothing. The installation
+     * runs under the {@value #INSTALL_POLICY} receipt, whose parameters are the policy. A failed
+     * installation records {@code UNKNOWN}, because the setting may be in effect, and admission
+     * stays closed. A receipt that exists with equal parameters is reused, so a rerun is safe.
+     * Ownership lost while the policy was installed fails the call after the effect is recorded.
+     * The control record is not changed here.
+     */
+    public Future<Void> installPendingPolicy(PgControlRecord held) {
+        return serialized(() -> {
+            Objects.requireNonNull(held, "held");
+            JsonObject intent = held.intent();
+            JsonObject pending = intent.getJsonObject("pendingDurabilityPolicy");
+            if (!elector.holds(held) || !"WITHDRAWN".equals(intent.getString("phase")) || pending == null) {
+                throw new PgLeaseProtocolException("Policy installation requires fresh ownership of withdrawn "
+                    + "intent that has a pending durability policy");
+            }
+            PgDurabilityPolicy policy = PgDurabilityPolicy.fromJson(pending);
+            String operation = intent.getString("operationId");
+            return store.quarantine().compose(quarantine -> {
+                if (quarantine.isPresent()) {
+                    throw new PgLocalStateException("Node is quarantined: " + quarantine.orElseThrow().reason());
+                }
+                return store.closeGrant();
+            }).compose(ignored -> gate.close(config.stopTimeout()))
+                .compose(ignored -> durability.confirmCovered(policy))
+                .compose(ignored -> store.begin(held.generation(), operation, INSTALL_POLICY, config.nodeId(),
+                    policy.toJson()))
+                .compose(receipt -> durability.install(policy).transform(installed -> {
+                    if (installed.failed()) {
+                        Throwable cause = installed.cause();
+                        return store.record(held.generation(), operation, INSTALL_POLICY, config.nodeId(),
+                            PgActionResult.UNKNOWN, new JsonObject()).transform(recorded -> {
+                                if (recorded.failed()) cause.addSuppressed(recorded.cause());
+                                return Future.<Void>failedFuture(cause);
+                            });
+                    }
+                    return store.record(held.generation(), operation, INSTALL_POLICY, config.nodeId(),
+                        PgActionResult.COMPLETED, new JsonObject()).compose(recorded -> elector.hasFreshOwnership()
+                            ? Future.<Void>succeededFuture()
+                            : Future.<Void>failedFuture(new PgLeaseProtocolException(
+                                "Ownership was lost while the policy was installed")));
+                }));
         });
     }
 

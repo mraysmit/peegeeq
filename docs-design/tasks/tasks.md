@@ -112,10 +112,12 @@ with queued ownership operations (OD-4), and the optional watchdog modes (OD-5) 
 on a Linux host is open. First-start bootstrap scope A (OD-6 to OD-8) is implemented and
 tested: verified request file, refusal against local and coordinator history, withdrawn initial
 intent, guarded primary start with admission closed. The request is not operator-authenticated.
-Bootstrap scope B increment B1 (OD-9 to OD-12, 2026-10-22, working tree, not committed) is
+Bootstrap scope B increment B1 (OD-9 to OD-12, 2026-10-22, committed in `5118e997`) is
 implemented and tested: the durability port and its SQL adapter, and the quoted policy and
-role-bound coverage rule. Next in phase 7b.2 is scope B increment B2: guarded installation
-under a receipt, revision-1 confirmation, writer activation, and the production-manager write.
+role-bound coverage rule. Scope B increment B2 step 1 (2026-10-24, working tree, not committed)
+is implemented and tested: coverage confirmation and guarded policy installation under a receipt
+in `PgFailoverMonitor`. Next in phase 7b.2 are the remaining B2 steps: revision-1 confirmation,
+prepare/publish/activate, and the production-manager write.
 No production entry point calls bootstrap or starts the renewal loop yet.
 Takeover and production qualification remain open.
 Machine-reset testing and additional host/VM access are not prerequisites for this next scope.
@@ -578,7 +580,7 @@ has the successful remote Jenkins publication evidence recorded above.
 ### 8. Connection management and HAProxy failover
 
 **Priority:** Not assigned
-**Status:** ACTIVE — phase 7b.1 complete; phase 7b.2 partial (renewal loop, watchdog modes, and bootstrap scope A done 2026-10-21; scope B increment B1 done 2026-10-22)
+**Status:** ACTIVE — phase 7b.1 complete; phase 7b.2 partial (renewal loop, watchdog modes, and bootstrap scope A done 2026-10-21; scope B increment B1 done 2026-10-22; scope B increment B2 step 1 done 2026-10-24)
 **Objective:** implement the design in
 `docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md` (design
 revision 2026-10-08). HAProxy routes by sidecar writer eligibility, which combines current
@@ -696,7 +698,12 @@ Phases:
    implemented. The owner decided OD-9 (`ALTER SYSTEM` and reload), OD-10 (the deployment
    provisions standby data), OD-11 (one replication role per standby), and OD-12 (the
    production-manager write is in scope B). Plan §9.15 has the record.
-   Remaining, in order: bootstrap scope B increment B2; the real-device watchdog run on a Linux host. Preserve conservative ownership deadlines and late-reply
+   **7b.2 update, 2026-10-24:** bootstrap scope B increment B2 step 1, guarded policy installation,
+   is implemented. `PgDurabilityControl.confirmCovered` confirms standby coverage of a fresh flush
+   boundary, and `PgFailoverMonitor.installPendingPolicy` installs the held record's pending policy
+   under an `install-policy` receipt with admission closed. Plan §9.16 has the record.
+   Remaining, in order: the remaining B2 steps (revision-1 confirmation, prepare/publish/activate,
+   and the production-manager write); the real-device watchdog run on a Linux host. Preserve conservative ownership deadlines and late-reply
    rejection. Complete G-7 qualification alongside these scopes. The next scope uses
    Docker/Testcontainers; machine-reset infrastructure is not a prerequisite.
    **OPEN — 7b.3:** manual
@@ -925,7 +932,7 @@ Phase 7b.2 bootstrap scope A verification, 2026-10-21 (committed in `d5c69cb2`):
   receipts and the data directory not inspected for prior history; an interrupted bootstrap is
   refused, not resumed; scope B not implemented; no production entry point.
 
-Phase 7b.2 bootstrap scope B increment B1 verification, 2026-10-22 (working tree, not committed):
+Phase 7b.2 bootstrap scope B increment B1 verification, 2026-10-22 (committed in `5118e997`):
 
 - Red: the module's tests failed compilation before the classes existed
   (`logs/peegeeq-pg-failover-bootstrap-b1-red-20261022.log`). With the setting comparison and the
@@ -953,6 +960,30 @@ Phase 7b.2 bootstrap scope B increment B1 verification, 2026-10-22 (working tree
   coverage does not check client address, timeline, or `peegeeq.node_id`; the least-privilege
   supervisor role for `pg_stat_replication` is not defined; no test for a runner that returns no
   result; a failed fixture test can cascade through the class (§9.11).
+
+Phase 7b.2 bootstrap scope B increment B2 step 1 verification, 2026-10-24 (working tree, not committed):
+
+- Red: the module's tests failed compilation before the members existed
+  (`logs/peegeeq-pg-failover-policy-install-red-20261024.log`). Five temporary changes were each
+  caught by the test named for them (four in the monitor, one in the adapter); the sources were
+  restored to the same SHA-256 (plan §9.16, `logs/peegeeq-pg-failover-policy-install-mutation-red-*`
+  and `logs/peegeeq-pg-failover-confirm-covered-mutation-red-20261024.log`).
+- Rebuild: `mvn clean install -DskipTests -pl :peegeeq-pg-failover -am` passed.
+  Output: `logs/rebuild-peegeeq-pg-failover-policy-install-final2-20261024.log`.
+- `-Pintegration-tests`: `ConsulLeaseCoordinatorIntegrationTest` **61**,
+  `PgFailoverMonitorIntegrationTest` **23**, `PgBootstrapIntegrationTest` **7**,
+  `PgCtlProcessControlIntegrationTest` **10**, `PgHbaAdmissionGateIntegrationTest` **6**,
+  `PgPolicyInstallationIntegrationTest` **12**, `PgPrimaryElectorQueueingIntegrationTest` **4**,
+  `PgRenewalLoopIntegrationTest` **13**, `PgSqlDurabilityControlIntegrationTest` **16**.
+  Total **152**, zero failures/errors/skips.
+  Output: `logs/peegeeq-pg-failover-integration-policy-install-20261024.log`.
+- Default/core: seven classes, total **88**, unchanged.
+  Output: `logs/peegeeq-pg-failover-core-policy-install-20261024.log`.
+- Guards in `peegeeq-test-support` (61 tests, including the five guard classes, 14): zero
+  failures. Output: `logs/peegeeq-test-support-core-guards-policy-install-20261024.log`.
+- Known gaps: nothing calls `installPendingPolicy`; a standby that catches up during the wait has no
+  test; a coverage failure that cannot resolve is retried until the budget ends; the control record
+  is not changed; no other module and no Jenkins build was run. Plan §9.16 lists the rest.
 
 Test counts are recorded here only from a run made during the task.
 The final phase 7b.1 per-class summaries, and the phase 7b.2 summaries dated 2026-10-08, were
