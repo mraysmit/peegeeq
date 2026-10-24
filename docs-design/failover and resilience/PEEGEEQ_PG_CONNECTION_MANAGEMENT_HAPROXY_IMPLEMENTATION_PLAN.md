@@ -823,7 +823,8 @@ for that day's revision. The rows dated 2026-10-21 and 2026-10-22 have their run
 | 7b.2 optional watchdog modes (OD-5) | Implemented 2026-10-21; no-device paths tested | `PgWatchdog` port; `PgDeviceWatchdog` adapter (§5.3). `PgFailoverMonitor` applies the mode before a primary start: `off` never uses the watchdog; `automatic` arms it or reports at ERROR and continues; `required` refuses the start when it cannot be armed with a safe timeout. An armed watchdog is fed only after a successful renewal; a failed keepalive demotes the writer. A confirmed stop disarms it; an unconfirmed stop leaves it armed and unfed. The armed state is in memory only. Nothing has run against a real device. Promotion does not exist yet, so the mode is applied at primary start only. |
 | 7b.2 bootstrap scope A (OD-6 to OD-8) | Implemented and tested, 2026-10-21 | `PgBootstrapRequest` reads and verifies the request file. `PgBootstrap.start` refuses a quarantined node, a node with any stored grant, and an existing control record; a record of the same operation is reported as an interrupted bootstrap. It then creates the withdrawn initial intent with pending policy revision 1, starts the renewal loop, records the `bootstrap` receipt with the request as parameters, and starts PostgreSQL through the monitor with admission closed. A failed start stops the loop. The receipt has no result; completion is derived in scope B. A rerun is refused, not resumed. The request is not operator-authenticated (OD-6) and other members are not inspected (OD-7). |
 | 7b.2 bootstrap scope B, increment B1 (OD-9 to OD-11) | Implemented and tested, 2026-10-22 | `PgDurabilityControl` port; `PgSqlDurabilityControl` adapter. It reads the writer's WAL flush boundary (refused in recovery), lists replication peers, and installs a policy by OD-9. `PgDurabilityPolicy` is the typed form of the control record's policy: it generates the quoted setting and holds the coverage rule (OD-11). `PgLsn` and `PgReplicationPeer` are derived observations. No command argument contains a double quote: the installed value is an escape string. Nothing calls the port yet. |
-| 7b.2 bootstrap scope B, increment B2 | Not implemented | Guarded installation under a receipt in `PgFailoverMonitor`, coverage validation, revision-1 confirmation, prepare/publish/activate in `PgBootstrap`, and the production-manager write (OD-12). Stopped-before-release remains open. |
+| 7b.2 bootstrap scope B, increment B2, step 1: guarded policy installation | Implemented and tested, 2026-10-24 | `PgDurabilityControl.confirmCovered` observes one fresh flush boundary and waits for every required standby to cover it within the adapter's budget. `PgFailoverMonitor.installPendingPolicy(held)` derives the policy from the held record's pending policy, closes the grant and the gate, confirms coverage, and installs under the `install-policy` receipt (`COMPLETED`, or `UNKNOWN` after a failed install). The control record is not changed. `PgFailoverMonitor` takes a `PgDurabilityControl`. See §9.16. |
+| 7b.2 bootstrap scope B, increment B2, remaining steps | Not implemented | Revision-1 confirmation (conditional replacement of the pending policy in the control record), prepare/publish/activate in `PgBootstrap`, and the production-manager write (OD-12). Stopped-before-release remains open. |
 | 7b.3 manual takeover and re-join | Not implemented by the new module | Requires supervised transitions, old-writer exclusion, policy cutover, repeated failover, and routed production-manager assertions. |
 | G-7 full coordinator qualification | Open | Snapshot/restore, TLS, stopped-before-release, and expiry versus independent old-writer exclusion remain unverified. Component success does not close G-7. |
 
@@ -1031,7 +1032,12 @@ that returns no result, and the real runner never returns none. Item 5 is otherw
 9. **First-start bootstrap, scope B, increment B1: the durability boundary.** Complete,
    2026-10-22 (§8.1, §9.15). OD-9 to OD-12 in §5.3.
 
-Next, bootstrap scope B increment B2 within 7b.2, on the same fixture. Scope A covers
+10. **First-start bootstrap, scope B, increment B2, step 1: guarded policy installation.**
+    Complete, 2026-10-24 (§8.1, §9.16).
+
+Next, the remaining steps of bootstrap scope B increment B2 within 7b.2, on the same fixture:
+revision-1 confirmation, prepare/publish/activate in `PgBootstrap`, and the production-manager
+write. The text below describes the whole of scope B. Scope A covers
 request verification, withdrawn intent, and the guarded primary start. Scope B adds system
 design §5.11 steps 3 to 5: guarded standby start and validation, the fresh WAL boundary check,
 policy installation, confirmation of revision 1, prepare/publish/activate, and a
@@ -1750,4 +1756,111 @@ Known gaps after 2026-10-22:
   never returns none (as for the gate).
 - A failed test in a class that uses `PgReplicationFixture` can leave servers running and fail the
   later tests of the class (§9.11, interrupted teardown).
+
+### 9.16 First-Start Bootstrap, Scope B Increment B2, Step 1: Guarded Policy Installation, 2026-10-24
+
+**Scope.** B2 is split into steps. This step installs the pending policy on the running writer
+under a receipt, with admission closed. Revision-1 confirmation, prepare/publish/activate, and the
+production-manager write are the remaining steps. No owner decision was needed. The implementer
+chose three defaults, which the owner can reverse: the coverage wait lives in the durability
+adapter and uses its budget; the installed policy is derived from the held record, not supplied;
+and a coverage failure is retried until the budget ends whatever its cause.
+
+**Data model.** Nothing new is stored. The policy to install is the held record's
+`pendingDurabilityPolicy`, which stays the source of truth. The node-local store gains one action
+name, `install-policy`: its parameters are the policy (revision and standby set), its result is
+`COMPLETED` or `UNKNOWN`, and its effect is empty. The flush boundary, peer observations, and the
+installed setting are derived on each call.
+
+**Contracts.**
+
+- `PgDurabilityControl.confirmCovered(policy)` observes one fresh writer flush boundary, then polls
+  the replication peers until `PgDurabilityPolicy.requireCoveredAt` passes. A failed command or a
+  malformed observation ends the wait at once. A coverage failure ends the wait only when another
+  observation would not fit in the budget; the failure then names the boundary and the last
+  uncovered reason.
+- `PgFailoverMonitor.installPendingPolicy(held)` runs one at a time with the other local effects.
+  It is refused without fresh ownership of exactly `held`, without `WITHDRAWN` intent, without a
+  pending policy, and under quarantine. It then closes the grant and the gate, confirms coverage,
+  begins the `install-policy` receipt, and installs. A refusal or a coverage failure before the
+  receipt changes nothing and records no receipt. A failed installation records `UNKNOWN` and
+  fails; admission stays closed. A successful installation records `COMPLETED`. Ownership lost
+  during the installation fails the call after `COMPLETED` is recorded. A receipt with equal
+  parameters is reused, so a rerun after `UNKNOWN` completes the same receipt and a rerun after
+  `COMPLETED` is idempotent. A receipt with other parameters refuses the installation.
+- The control record is not changed. `PgFailoverMonitor` takes a `PgDurabilityControl` as its
+  seventh constructor argument; the 11 existing call sites were updated.
+
+**Dependency failure modes, each with a test.**
+
+| Dependency | Failure mode | Test |
+|---|---|---|
+| Elector | not the held record, or ownership retired | `installationWithoutOwnershipIsRefusedAndRecordsNothing` |
+| Control record | intent not `WITHDRAWN`; no pending policy | `installationWhileTheIntentIsNotWithdrawnIsRefused`, `installationWithoutAPendingPolicyIsRefused` |
+| Node-local store | quarantine; receipt with other parameters | `aQuarantinedNodeCannotInstallAPolicy`, `aReceiptWithDifferentParametersRefusesTheInstallationAndInstallsNothing` |
+| Grant and gate | open before the call | `installationClosesAnOpenGrantAndAdmissionBeforeItChangesAnything` |
+| `confirmCovered` | a required standby never connects; the server is in recovery; the command cannot run; output is not an observation; no time remains | `aRequiredStandbyThatNeverConnectsFailsTheInstallationBeforeAnyReceiptOrSetting`; in `PgSqlDurabilityControlIntegrationTest`: `aRequiredStandbyThatIsNotConnectedFailsCoverageWithinItsBudgetAndNamesTheStandby`, `coverageOfAServerInRecoveryFailsBecauseItHasNoBoundary`, `aCommandThatCannotRunFailsCoverageAndIsNotRetried`, `coverageObservedFromOutputThatIsNotAnObservationIsRejected`, `coverageWithoutTimeToRunFailsPromptly` |
+| `install` | the setting in effect differs from the installed one | `aFailedInstallationRecordsAnUnknownReceiptAndLeavesAdmissionClosed` |
+| Receipt | `UNKNOWN` from an earlier run; `COMPLETED` from an earlier run | `aRerunAfterAnUnknownReceiptCompletesTheSameReceipt`, `installingTwiceIsIdempotent` |
+| Ownership | lost after the installation took effect | `ownershipLostWhileThePolicyIsInstalledFailsTheCallAndKeepsAdmissionClosed` |
+
+**TDD.** The tests were written first. The module's tests failed compilation on the missing
+members (`logs/peegeeq-pg-failover-policy-install-red-20261024.log`). After the implementation the
+new class passed 11 of 11 on its first run (`logs/peegeeq-pg-failover-policy-install-run1-20261024.log`).
+That run showed no test failed when the monitor skipped closing the grant and the gate, because
+every test starts with admission closed. The test `installationClosesAnOpenGrantAndAdmissionBeforeItChangesAnything`
+was added for it.
+
+**Mutation checks.** Each temporary change was restored and the checksum of the restored file
+equals the one recorded before the change. A combined run of the first four changes produced one
+valid failure; the other three tests then failed in provisioning because the first failure left
+servers running (§9.11), so each was run alone.
+
+| Temporary change | Result | Log under `logs/` |
+|---|---|---|
+| The final ownership check removed | `ownershipLost...` failed: "An installation succeeded after ownership was lost" | `peegeeq-pg-failover-policy-install-mutation-red-20261024.log` |
+| The grant and gate closure removed | the closure test failed: "The grant stayed open ==> expected: CLOSED but was: OPEN" | `peegeeq-pg-failover-policy-install-mutation-red-a-20261024.log` |
+| The coverage step removed from the monitor | `aRequiredStandbyThatNeverConnects...` failed: the failure came from the quorum wait after the install began, not from coverage | `peegeeq-pg-failover-policy-install-mutation-red-b-20261024.log` |
+| `UNKNOWN` replaced by `COMPLETED` after a failed install | `aFailedInstallation...` failed: "expected: UNKNOWN but was: COMPLETED" | `peegeeq-pg-failover-policy-install-mutation-red-c-20261024.log` |
+| The coverage check removed from the adapter | the missing-standby port test failed: "Coverage was confirmed without a required standby" | `peegeeq-pg-failover-confirm-covered-mutation-red-20261024.log` |
+
+**Runs after the last source change.** Rebuild:
+`logs/rebuild-peegeeq-pg-failover-policy-install-final2-20261024.log`. Every class reports zero
+failures, errors, and skips.
+
+| Profile | Class | Tests run | Saved log under `logs/` |
+|---|---|---:|---|
+| `integration-tests` | `ConsulLeaseCoordinatorIntegrationTest` | 61 | `peegeeq-pg-failover-integration-policy-install-20261024.log` |
+| `integration-tests` | `PgFailoverMonitorIntegrationTest` | 23 | same |
+| `integration-tests` | `PgBootstrapIntegrationTest` | 7 | same |
+| `integration-tests` | `PgCtlProcessControlIntegrationTest` | 10 | same |
+| `integration-tests` | `PgHbaAdmissionGateIntegrationTest` | 6 | same |
+| `integration-tests` | `PgPolicyInstallationIntegrationTest` | 12 | same |
+| `integration-tests` | `PgPrimaryElectorQueueingIntegrationTest` | 4 | same |
+| `integration-tests` | `PgRenewalLoopIntegrationTest` | 13 | same |
+| `integration-tests` | `PgSqlDurabilityControlIntegrationTest` | 16 | same |
+| default/core | seven classes | 88 | `peegeeq-pg-failover-core-policy-install-20261024.log` |
+| default/core guards | `peegeeq-test-support`, 61 tests including the five guard classes (14) | 61 | `peegeeq-test-support-core-guards-policy-install-20261024.log` |
+
+Integration total 152; core total 88.
+
+**Known gaps after 2026-10-24.**
+
+- Nothing calls `installPendingPolicy`. `PgBootstrap` does not install, confirm, prepare, publish, or
+  activate, and no production entry point exists.
+- A coverage failure that cannot resolve, such as a standby connected under the wrong role, is
+  retried until the budget ends instead of failing at once.
+- No test starts with a standby that is behind the boundary and catches up during the wait. The
+  tests cover a standby that is covered at the first observation and one that never connects.
+- Ownership loss is tested with a test decorator over the real durability control that retires the
+  elector after the install. It is not tested with a real lease expiry.
+- A failed installation leaves the installed setting in `postgresql.auto.conf` and in effect, as in
+  §9.15. Admission stays closed, and commits wait while a required peer is missing.
+- A storage fault of the node-local store while the receipt is begun or recorded has no test beyond
+  the rule-based refusal (a receipt with other parameters).
+- The IDE analysis reports a cognitive complexity of 21 (limit 15) for `installPendingPolicy`. It
+  reports 19 and 20 for `startPrimary` and `activateWriter`. None was refactored.
+- A failed test in `PgPolicyInstallationIntegrationTest` leaves servers running and fails the later
+  tests of the class (§9.11); the mutation runs showed it.
+- No other module and no Jenkins build was run.
 

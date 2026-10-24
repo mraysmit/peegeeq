@@ -97,7 +97,9 @@ class PgRenewalLoopIntegrationTest {
                 // Off mode. This host has no watchdog device; neither path exists.
                 var watchdog = new PgDeviceWatchdog(vertx, stateDirectory.resolve("no-watchdog"),
                     stateDirectory.resolve("no-watchdog-timeout"));
-                monitor = new PgFailoverMonitor(config, elector, store, process, gate, watchdog);
+                var durability = new PgSqlDurabilityControl(vertx, runner, POSTGRES.prefix(),
+                    PgSupervisedContainer.PG_CTL, "psql", dataDirectory, Duration.ofSeconds(20));
+                monitor = new PgFailoverMonitor(config, elector, store, process, gate, watchdog, durability);
                 loop = new PgRenewalLoop(vertx, config, elector, monitor);
                 context.completeNow();
             })).onFailure(context::failNow);
