@@ -116,7 +116,7 @@ Bootstrap scope B increment B1 (OD-9 to OD-12, 2026-10-22, committed in `5118e99
 implemented and tested: the durability port and its SQL adapter, and the quoted policy and
 role-bound coverage rule. Scope B increment B2 step 1 (2026-10-24, committed in `bb3eff7f`)
 is implemented and tested: coverage confirmation and guarded policy installation under a receipt
-in `PgFailoverMonitor`. B2 step 2 (2026-10-24, working tree, not committed) is implemented and
+in `PgFailoverMonitor`. B2 step 2 (2026-10-24, committed in `64a84289`) is implemented and
 tested: `PgBootstrap.serve` confirms revision 1, publishes `SERVING` intent, and activates the
 grant. Next in phase 7b.2 is the remaining B2 step: the production-manager write.
 No production entry point calls bootstrap or starts the renewal loop yet.
@@ -990,7 +990,7 @@ Phase 7b.2 bootstrap scope B increment B2 step 1 verification, 2026-10-24 (commi
   test; a coverage failure that cannot resolve is retried until the budget ends; the control record
   is not changed; no other module and no Jenkins build was run. Plan §9.16 lists the rest.
 
-Phase 7b.2 bootstrap scope B increment B2 step 2 verification, 2026-10-24 (working tree, not committed):
+Phase 7b.2 bootstrap scope B increment B2 step 2 verification, 2026-10-24 (committed in `64a84289`):
 
 - Red: the module's tests failed compilation before `serve` existed. Two temporary changes to
   `PgBootstrap` were each caught by the test named for them; the source was restored to the same
@@ -1009,11 +1009,35 @@ Phase 7b.2 bootstrap scope B increment B2 step 2 verification, 2026-10-24 (worki
   `PgPrimaryElectorQueueingIntegrationTest` **4**, `PgRenewalLoopIntegrationTest` **13**,
   `PgSqlDurabilityControlIntegrationTest` **16**. Total **158**, zero failures/errors/skips.
   Output: `logs/peegeeq-pg-failover-integration-bootstrap-serving-run2-20261024.log`.
+  Superseded by the check of 2026-10-24 below: the same classes now total 167.
 - Default/core: seven classes, total **88**, unchanged.
   Output: `logs/peegeeq-pg-failover-core-bootstrap-serving-20261024.log`.
 - Known gaps: nothing calls `serve`; a failed `serve` is not resumed or reverted; the write under the
   installed policy is a `psql` statement, not the production-manager write; no other module and no
   Jenkins build was run. Plan §9.17 lists the rest.
+
+Phase 7b.2 check of every gap listed for B2 steps 1 and 2, 2026-10-24 (committed in `76208e9c`,
+except the last edits of `PgPolicyInstallationIntegrationTest` and
+`PgSqlDurabilityControlIntegrationTest` and of the two documents, which are in the working tree):
+
+- Every gap was checked by a test, a measurement, or a search; plan §9.18 has each result. Closed
+  by a change and a test: a coverage failure that cannot resolve now fails at once
+  (`PgStandbyNotCoveredException`), a standby that connects during the wait is confirmed, ownership
+  expiry is tested in real time, storage faults of the node-local store are tested, a real Consul
+  freeze is tested, and rerun behaviour after a failed `serve` is tested. Six temporary changes
+  (two in the adapter, three in the monitor, one in the elector) were each caught by the test
+  named for them; the sources were restored to the same SHA-256.
+- `installPendingPolicy` was split; the IDE analysis no longer reports its complexity.
+- Searches: no module depends on `peegeeq-pg-failover`; only classes of the module call
+  `PgBootstrap`, `PgFailoverMonitor`, and `PgRenewalLoop`; the `Jenkinsfile` does not name the module.
+- `-Pintegration-tests`, whole module: ten classes, total **167**, zero failures/errors/skips.
+  Output: `logs/peegeeq-pg-failover-integration-checks-20261024.log`. Two classes were rerun after a
+  later test edit: `PgPolicyInstallationIntegrationTest` **14** and
+  `PgSqlDurabilityControlIntegrationTest` **18**, zero failures.
+- Default/core: seven classes, total **89**. Output: `logs/peegeeq-pg-failover-core-checks-20261024.log`.
+- Not closed: the guard for a runner that returns no result has no test (a stub would be needed);
+  the production-manager write (OD-12) is not implemented; no Jenkins build was run; provisioning
+  time is bounded by a 120-second limit, not asserted.
 
 Test counts are recorded here only from a run made during the task.
 The final phase 7b.1 per-class summaries, and the phase 7b.2 summaries dated 2026-10-08, were

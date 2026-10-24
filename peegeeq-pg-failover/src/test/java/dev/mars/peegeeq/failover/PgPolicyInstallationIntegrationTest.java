@@ -29,8 +29,6 @@ import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Supplier;
 import static dev.mars.peegeeq.failover.PgReplicationFixture.STANDBYS;
 import static dev.mars.peegeeq.failover.PgReplicationFixture.WRITER;
 import static org.junit.jupiter.api.Assertions.*;
@@ -366,11 +364,10 @@ class PgPolicyInstallationIntegrationTest {
         throwableType = FileSystemException.class)
     void aStorageFaultWhenTheResultIsRecordedFailsTheCallAfterTheEffectAndLeavesThePendingReceipt(
             VertxTestContext context) {
-        var broken = new AtomicReference<Path>();
-        var faulting = monitor(new FaultBeforeInstallDurabilityControl(durability(COMMAND_TIMEOUT),
-            () -> vertx.fileSystem().mkdirs(broken.get().toString())));
+        var fault = new BlockReceiptWriteBeforeInstallDurabilityControl(vertx, durability(COMMAND_TIMEOUT));
+        var faulting = monitor(fault);
         elector.createInitialIntent(intent()).compose(held -> {
-            broken.set(receiptTemporaryFile(held));
+            fault.blockReceiptFile(receiptTemporaryFile(held));
             return faulting.startPrimary(held).compose(ignored -> startStandbys())
                 .compose(ignored -> faulting.installPendingPolicy(held)).transform(installation -> {
                     assertTrue(installation.failed(), "The installation succeeded although its result could not be recorded");
@@ -465,9 +462,22 @@ class PgPolicyInstallationIntegrationTest {
         }
     }
 
-    /** Wraps the real durability control. A fault is introduced just before the installation runs. */
-    private record FaultBeforeInstallDurabilityControl(PgDurabilityControl real, Supplier<Future<Void>> fault)
-            implements PgDurabilityControl {
+    /**
+     * Wraps the real durability control. Just before the installation runs, it creates a directory where
+     * the node-local store must write its temporary receipt file, so the write that records the result fails.
+     */
+    private static final class BlockReceiptWriteBeforeInstallDurabilityControl implements PgDurabilityControl {
+        private final Vertx vertx;
+        private final PgDurabilityControl real;
+        private volatile Path blockedFile;
+
+        BlockReceiptWriteBeforeInstallDurabilityControl(Vertx vertx, PgDurabilityControl real) {
+            this.vertx = vertx;
+            this.real = real;
+        }
+
+        void blockReceiptFile(Path file) { blockedFile = file; }
+
         @Override public Future<PgLsn> flushBoundary() { return real.flushBoundary(); }
 
         @Override public Future<List<PgReplicationPeer>> peers() { return real.peers(); }
@@ -475,7 +485,7 @@ class PgPolicyInstallationIntegrationTest {
         @Override public Future<Void> confirmCovered(PgDurabilityPolicy policy) { return real.confirmCovered(policy); }
 
         @Override public Future<Void> install(PgDurabilityPolicy policy) {
-            return fault.get().compose(ignored -> real.install(policy));
+            return vertx.fileSystem().mkdirs(blockedFile.toString()).compose(ignored -> real.install(policy));
         }
     }
 

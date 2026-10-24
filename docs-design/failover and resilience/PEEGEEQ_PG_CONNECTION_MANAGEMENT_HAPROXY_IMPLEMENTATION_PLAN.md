@@ -1868,6 +1868,9 @@ Integration total 152; core total 88.
 - No other module and no Jenkins build was run.
 - Correction, 2026-10-24: the `@BeforeEach` of `PgSqlDurabilityControlIntegrationTest` and of this
   class ran under a 30-second limit that no test had set. See §9.17.
+- Superseded, 2026-10-24: §9.18 checks every gap of this list. Four gaps are closed (the coverage
+  failure that cannot resolve, the standby that connects during the wait, the real lease expiry,
+  and the storage faults). The rest are stated there with their evidence.
 
 ### 9.17 First-Start Bootstrap, Scope B Increment B2, Step 2: Confirmation, Publication, and Activation, 2026-10-24
 
@@ -1977,4 +1980,56 @@ Integration total 158; core total 88.
 - The two new test classes and the B1 class have no assertion on how long provisioning takes, so a
   slower host can still exceed the 120-second setup limit.
 - No other module and no Jenkins build was run.
+- Superseded, 2026-10-24: §9.18 checks every gap of this list and the list of §9.16.
+
+### 9.18 Check of the Gaps Listed in §9.16 and §9.17, 2026-10-24
+
+Every gap listed in §9.16 and §9.17 was checked by a test, a measurement, or a search of the
+repository. Nothing is left as "not checked" except the items stated under "Not closed" below.
+
+**Closed by a change and a test.**
+
+| Gap | Result | Evidence |
+|---|---|---|
+| A coverage failure that cannot resolve was retried until the budget ended | `PgStandbyNotCoveredException` (a subclass of `PgDurabilityException`) marks the conditions that change by waiting: not connected, several connections, not streaming, behind the boundary. An identity mismatch has the base type and ends the wait at once. The adapter retries only the subclass. | Core: `conditionsThatChangeByWaitingAreDistinguishedFromIdentityMismatches` (`PgDurabilityPolicyTest` 13). Real nodes: `aStandbyReplicatingUnderAnotherNameFailsCoverageAtOnceNotAtTheEndOfTheBudget`; a standby is made to replicate as `imposter` by `ALTER SYSTEM SET primary_conninfo`. Mutation: with the old catch the test failed "The mismatch was retried until the budget ended" (`logs/peegeeq-pg-failover-checks-m1-red-20261024.log`) |
+| No test of a standby that connects during the wait | `aStandbyThatConnectsDuringTheWaitIsConfirmedCovered`: a standby is stopped, coverage starts, and the standby starts during the wait. | Mutation: with a single observation the test failed with "pg-node-3 is not connected" (`logs/peegeeq-pg-failover-checks-m2-red-20261024.log`) |
+| Ownership loss was tested only with a decorator | Two tests wait for the real freshness deadline (ownership budget 22 seconds, no renewal): `ownershipThatExpiredInRealTimeBeforeServingRefusesItAndAdmitsNothing`, and `ownershipThatExpiresInRealTimeDuringTheInstallationStopsBeforeConfirmation`. | Mutation: without the ownership check the first test failed "expected PgLeaseProtocolException but was PgDurabilityException" (`logs/peegeeq-pg-failover-checks-m5b-red-20261024.log`) |
+| Storage faults of the node-local store had no test | `aStorageFaultWhenTheReceiptIsBegunFailsTheInstallationBeforeAnySetting` and `aStorageFaultWhenTheResultIsRecordedFailsTheCallAfterTheEffectAndLeavesThePendingReceipt`. The fault is a directory where the store must write its temporary receipt file, a real `FileSystemException` (`AccessDeniedException` on Windows). A failed record leaves the receipt `PENDING` and the setting in effect. | Mutations: skipping the begin, and skipping the `COMPLETED` record, each failed the tests (`logs/peegeeq-pg-failover-checks-m3-red-20261024.log`, `-m4-red-`) |
+| Coordinator failures were injected into the adapter | `aCoordinatorThatStopsAnsweringBeforePublicationLeavesAPreparedGrantUnopenedAndAdmissionClosed` freezes the Consul container (`docker pause`) when the publication is sent. The adapter meets a real `Timeout 2000 (ms) fired`. The record state after an unanswered publication is indeterminate (the frozen server may apply the request later), so the test asserts only the prepared grant and the closed admission. | `logs/peegeeq-pg-failover-checks-run1-20261024.log` line 866 |
+| A failed installation leaves the setting in effect and commits wait | The missing-peer test now asserts that `show synchronous_standby_names` still holds the installed value and that a `create table` commit does not complete within 5 seconds. | `logs/peegeeq-pg-failover-durability-final-20261024.log` (18 of 18) |
+| Rerun behaviour after a failed `serve` was not stated | `aRerunAfterACoverageFailureCompletesOnceTheMissingStandbyConnects`: a rerun completes. `aRerunAfterAFailedPublicationIsRefusedBecauseOwnershipWasRetired`: a rerun is refused, and the grant stays `PREPARED`. A rerun on a serving record is refused (§9.17). | Mutation: without retirement of ownership after a failed update the second test failed (`logs/peegeeq-pg-failover-checks-m7-red-20261024.log`) |
+| Cognitive complexity of `installPendingPolicy` was 21 | Split into `requireNoQuarantine`, `installAndRecord`, and `recordUnknownAndFail`. The IDE analysis no longer reports it. `startPrimary` (19) and the demotion method (20) were reported before this work and are not changed. | The 14 tests of `PgPolicyInstallationIntegrationTest` pass |
+| The real-expiry tests ran close to the 30-second test-body limit | Both carry `@io.vertx.junit5.Timeout(120 seconds)` (§9.17 explains the annotation). | A mutation made one fail as a timeout before the annotation was added |
+
+**Closed by measurement or search.**
+
+| Gap | Result |
+|---|---|
+| No assertion on provisioning time | Per-test totals (setup plus body) from the full run `logs/peegeeq-pg-failover-integration-checks-20261024.log`: the ordinary tests of the three-node classes take 15 to 25 seconds; the two real-expiry tests take 36.1 and 38.0 seconds; the slowest of the older classes are two Consul expiry tests at 20.1 and 20.2 seconds and one renewal-loop test at 18.4 seconds; each waits for an ownership budget or a lease on purpose. The setup limit is 120 seconds and the test-body default is 30 seconds. No test of `PgFailoverMonitorIntegrationTest`, `PgBootstrapIntegrationTest`, `PgCtlProcessControlIntegrationTest`, or `PgHbaAdmissionGateIntegrationTest` took more than 15 seconds (the report lists only tests above 15). |
+| Which modules depend on `peegeeq-pg-failover` | None. Only the root `pom.xml` names the module (search of every `pom.xml`). |
+| Which code calls `PgBootstrap`, `PgFailoverMonitor`, or `PgRenewalLoop` | Only classes of the module itself (search of every `src/main` tree by class name). No production entry point exists. |
+| The `Jenkinsfile` | It does not name `peegeeq-pg-failover` (search), so `ALL_TESTS_START_MODULE` cannot start a resumed run at it. A full run includes it through the root reactor. |
+| A failed test leaves servers running and fails later tests (§9.11) | The mechanism is register finding 13: vertx-junit5 5.0.4 does not await an asynchronous `@AfterEach` after a failed test, so the teardown is interrupted. The mutation runs of this step logged `Interrupted while waiting for command: pg_ctl stop` after each deliberate failure. The correction belongs to the cleanup helper of Task 9, correction 5. It is not changed here. |
+
+**Not closed.**
+
+- A runner that returns no result: the adapter, the gate, and the process control each guard against
+  it, and no test exists, because the real runner never returns none and a test needs a stub of the
+  runner, which the no-mocking rule excludes.
+- The production-manager write (OD-12) is the remaining B2 step, not a check.
+- No Jenkins build was run. Jenkins builds the pushed branch, and nothing is pushed.
+- Provisioning time is bounded by the 120-second limit, not asserted. A host slower than the
+  recorded one can still exceed it.
+- The red state of this batch: the tests were written first, but the production change was made
+  before a compile-red run was saved. The behaviour red is the mutation of the adapter to its earlier
+  behaviour (`-m1-red-`).
+
+**Runs after the last source change.** Every class reports zero failures, errors, and skips.
+
+| Profile | Scope | Tests run | Saved log under `logs/` |
+|---|---|---:|---|
+| `integration-tests` | the whole module, ten classes | 167 | `peegeeq-pg-failover-integration-checks-20261024.log` |
+| `integration-tests` | `PgPolicyInstallationIntegrationTest`, rerun after its fault helper changed | 14 | `peegeeq-pg-failover-policy-install-final-20261024.log` |
+| `integration-tests` | `PgSqlDurabilityControlIntegrationTest`, rerun after its missing-peer test changed | 18 | `peegeeq-pg-failover-durability-final-20261024.log` |
+| default/core | seven classes | 89 | `peegeeq-pg-failover-core-checks-20261024.log` |
 
