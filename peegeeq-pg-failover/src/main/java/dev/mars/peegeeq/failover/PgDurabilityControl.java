@@ -19,9 +19,9 @@ public interface PgDurabilityControl {
      * Observes one fresh writer flush boundary, then waits until every required standby of the
      * policy has exactly one replication connection under its own identity, streaming, with flush
      * and replay at or after that boundary. The caller keeps application writes excluded, so the
-     * boundary does not move. A command failure or a malformed observation fails at once. A
-     * standby that is not yet covered fails the call only when the budget ends, with the last
-     * uncovered reason.
+     * boundary does not move. A command failure, a malformed observation, or an identity mismatch
+     * fails at once. A standby that is not yet covered fails the call only when the budget ends,
+     * with a {@link PgStandbyNotCoveredException} that names the last uncovered reason.
      */
     Future<Void> confirmCovered(PgDurabilityPolicy policy);
 

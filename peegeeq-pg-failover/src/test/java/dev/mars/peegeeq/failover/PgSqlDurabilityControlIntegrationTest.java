@@ -257,6 +257,47 @@ class PgSqlDurabilityControlIntegrationTest {
             }).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
     }
 
+    @Test void aStandbyThatConnectsDuringTheWaitIsConfirmedCovered(VertxTestContext context) {
+        var control = control(WRITER);
+        var late = STANDBYS.get(1);
+        control.flushBoundary().compose(boundary -> awaitCovered(control, boundary, deadline()))
+            .compose(covered -> NODES.node(late).forceStop(runner, NODES.dataDirectory()))
+            .compose(stopped -> awaitDisconnected(control, late, deadline()))
+            // Coverage begins while the standby is down. The standby starts during the wait.
+            .compose(disconnected -> Future.all(control.confirmCovered(POLICY),
+                NODES.control(runner, late).startInRecovery()))
+            .onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+    }
+
+    @Test void aStandbyReplicatingUnderAnotherNameFailsCoverageAtOnceNotAtTheEndOfTheBudget(
+            VertxTestContext context) {
+        var budget = Duration.ofSeconds(20);
+        var control = control(WRITER, NODES.node(WRITER).prefix(), "psql", budget);
+        var impostor = STANDBYS.get(1);
+        var standby = NODES.node(impostor);
+        control.flushBoundary().compose(boundary -> awaitCovered(control, boundary, deadline()))
+            .compose(covered -> standby.sql(runner, "alter system set primary_conninfo = '"
+                + NODES.primaryConnectionInfo(impostor, "imposter") + "'"))
+            .compose(altered -> {
+                assertEquals(0, altered.exitCode(), altered.output());
+                return standby.sql(runner, "select pg_reload_conf()");
+            }).compose(reloaded -> awaitPeerNamed(control, "imposter", deadline()))
+            .compose(connected -> {
+                long started = System.nanoTime();
+                return control.confirmCovered(POLICY).transform(coverage -> {
+                    assertTrue(coverage.failed(), "A standby under another name was confirmed covered");
+                    assertInstanceOf(PgDurabilityException.class, coverage.cause());
+                    assertFalse(coverage.cause() instanceof PgStandbyNotCoveredException,
+                        "An identity mismatch was reported as a wait: " + coverage.cause());
+                    assertTrue(coverage.cause().getMessage().contains("Role " + impostor + " replicates as imposter"),
+                        coverage.cause().getMessage());
+                    assertTrue(System.nanoTime() - started < budget.dividedBy(4).toNanos(),
+                        "The mismatch was retried until the budget ended");
+                    return Future.<Void>succeededFuture();
+                });
+            }).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+    }
+
     @Test void coverageOfAServerInRecoveryFailsBecauseItHasNoBoundary(VertxTestContext context) {
         control(STANDBYS.get(0)).confirmCovered(POLICY).onComplete(context.failing(failure -> context.verify(() -> {
             assertInstanceOf(PgDurabilityException.class, failure);
@@ -318,6 +359,18 @@ class PgSqlDurabilityControlIntegrationTest {
                 }
                 return vertx.timer(100).compose(ignored -> awaitCovered(control, boundary, deadline));
             }
+        });
+    }
+
+    private Future<Void> awaitPeerNamed(PgDurabilityControl control, String applicationName, long deadline) {
+        return control.peers().compose(peers -> {
+            if (peers.stream().anyMatch(peer -> applicationName.equals(peer.applicationName()))) {
+                return Future.<Void>succeededFuture();
+            }
+            if (System.nanoTime() >= deadline) {
+                return Future.<Void>failedFuture(new AssertionError(applicationName + " never connected"));
+            }
+            return vertx.timer(100).compose(ignored -> awaitPeerNamed(control, applicationName, deadline));
         });
     }
 

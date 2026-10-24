@@ -116,17 +116,18 @@ public final class PgSqlDurabilityControl implements PgDurabilityControl {
 
     /**
      * A standby catches up on its own, so coverage of the fixed boundary is observed until it holds.
-     * Only a coverage failure is observed again; a failed observation ends the wait. The wait ends
-     * with the last coverage failure when another observation would not fit in the budget.
+     * Only a standby that is not covered yet is observed again. A failed observation and an identity
+     * mismatch end the wait at once, because waiting does not change them. The wait ends with the
+     * last coverage failure when another observation would not fit in the budget.
      */
     private Future<Void> awaitCovered(long deadline, PgDurabilityPolicy policy, PgLsn boundary) {
         long started = System.nanoTime();
         return peers(deadline).compose(peers -> {
-            PgDurabilityException uncovered;
+            PgStandbyNotCoveredException uncovered;
             try {
                 policy.requireCoveredAt(boundary, peers);
                 return Future.<Void>succeededFuture();
-            } catch (PgDurabilityException failure) {
+            } catch (PgStandbyNotCoveredException failure) {
                 uncovered = failure;
             }
             long observation = System.nanoTime() - started;

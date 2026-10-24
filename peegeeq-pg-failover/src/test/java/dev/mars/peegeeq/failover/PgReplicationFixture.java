@@ -85,9 +85,8 @@ public final class PgReplicationFixture implements AutoCloseable {
         for (String standby : STANDBYS) {
             PgSupervisedContainer node = node(standby);
             provisioned = provisioned
-                .compose(ignored -> checked(node.exec(runner, "pg_basebackup", "-d", "host=" + WRITER
-                    + " port=5432 user=" + standby + " password=" + password(standby)
-                    + " application_name=" + standby, "-D", directory, "-Fp", "-Xs", "-R"),
+                .compose(ignored -> checked(node.exec(runner, "pg_basebackup", "-d",
+                    primaryConnectionInfo(standby, standby), "-D", directory, "-Fp", "-Xs", "-R"),
                     "Base backup for " + standby))
                 .compose(ignored -> node.write(runner, node.closedHba(directory),
                     "local all all trust\\nhost all all all reject\\n"))
@@ -118,6 +117,16 @@ public final class PgReplicationFixture implements AutoCloseable {
             failures.stream().skip(1).forEach(first::addSuppressed);
             return Future.<Void>failedFuture(first);
         });
+    }
+
+    /**
+     * The connection string with which a standby reaches the writer under its own role. Its base
+     * backup uses it with the standby's identity as application name. A test passes another name to
+     * make the standby replicate under an identity that is not its own.
+     */
+    public String primaryConnectionInfo(String standby, String applicationName) {
+        return "host=" + WRITER + " port=5432 user=" + standby + " password=" + password(standby)
+            + " application_name=" + applicationName;
     }
 
     private static String password(String standby) {
