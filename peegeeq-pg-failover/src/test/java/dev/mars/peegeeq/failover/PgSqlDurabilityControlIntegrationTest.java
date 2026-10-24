@@ -17,6 +17,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.Isolated;
 import java.io.IOException;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import static dev.mars.peegeeq.failover.PgReplicationFixture.STANDBYS;
@@ -144,6 +145,18 @@ class PgSqlDurabilityControlIntegrationTest {
                         install.cause().getMessage());
                     assertTrue(System.nanoTime() - started < budget.plusSeconds(10).toNanos(),
                         "The install overran its budget");
+                    return Future.<Void>succeededFuture();
+                });
+            }).compose(ignored -> NODES.node(WRITER).sql(runner, "show synchronous_standby_names"))
+            .compose(effective -> {
+                assertEquals(POLICY.synchronousStandbyNames(), effective.output().strip(),
+                    "A failed installation leaves the installed setting in effect");
+                var commit = new ArrayList<>(NODES.node(WRITER).prefix());
+                commit.addAll(List.of("psql", "-X", "-tA", "-c", "create table commit_waits (id int)"));
+                return runner.run(commit, Duration.ofSeconds(5)).transform(blocked -> {
+                    assertTrue(blocked.failed(), "A commit completed although a required standby is missing");
+                    assertInstanceOf(PgProcessControlException.class, blocked.cause());
+                    assertTrue(blocked.cause().getMessage().startsWith("Command exceeded"), blocked.cause().getMessage());
                     return Future.<Void>succeededFuture();
                 });
             }).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
