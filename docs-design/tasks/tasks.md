@@ -114,10 +114,11 @@ tested: verified request file, refusal against local and coordinator history, wi
 intent, guarded primary start with admission closed. The request is not operator-authenticated.
 Bootstrap scope B increment B1 (OD-9 to OD-12, 2026-10-22, committed in `5118e997`) is
 implemented and tested: the durability port and its SQL adapter, and the quoted policy and
-role-bound coverage rule. Scope B increment B2 step 1 (2026-10-24, working tree, not committed)
+role-bound coverage rule. Scope B increment B2 step 1 (2026-10-24, committed in `bb3eff7f`)
 is implemented and tested: coverage confirmation and guarded policy installation under a receipt
-in `PgFailoverMonitor`. Next in phase 7b.2 are the remaining B2 steps: revision-1 confirmation,
-prepare/publish/activate, and the production-manager write.
+in `PgFailoverMonitor`. B2 step 2 (2026-10-24, working tree, not committed) is implemented and
+tested: `PgBootstrap.serve` confirms revision 1, publishes `SERVING` intent, and activates the
+grant. Next in phase 7b.2 is the remaining B2 step: the production-manager write.
 No production entry point calls bootstrap or starts the renewal loop yet.
 Takeover and production qualification remain open.
 Machine-reset testing and additional host/VM access are not prerequisites for this next scope.
@@ -580,7 +581,7 @@ has the successful remote Jenkins publication evidence recorded above.
 ### 8. Connection management and HAProxy failover
 
 **Priority:** Not assigned
-**Status:** ACTIVE — phase 7b.1 complete; phase 7b.2 partial (renewal loop, watchdog modes, and bootstrap scope A done 2026-10-21; scope B increment B1 done 2026-10-22; scope B increment B2 step 1 done 2026-10-24)
+**Status:** ACTIVE — phase 7b.1 complete; phase 7b.2 partial (renewal loop, watchdog modes, and bootstrap scope A done 2026-10-21; scope B increment B1 done 2026-10-22; scope B increment B2 steps 1 and 2 done 2026-10-24)
 **Objective:** implement the design in
 `docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md` (design
 revision 2026-10-08). HAProxy routes by sidecar writer eligibility, which combines current
@@ -702,8 +703,12 @@ Phases:
    is implemented. `PgDurabilityControl.confirmCovered` confirms standby coverage of a fresh flush
    boundary, and `PgFailoverMonitor.installPendingPolicy` installs the held record's pending policy
    under an `install-policy` receipt with admission closed. Plan §9.16 has the record.
-   Remaining, in order: the remaining B2 steps (revision-1 confirmation, prepare/publish/activate,
-   and the production-manager write); the real-device watchdog run on a Linux host. Preserve conservative ownership deadlines and late-reply
+   **7b.2 update, 2026-10-24:** B2 step 2 is implemented. `PgBootstrap.serve(held, mode)` installs
+   the pending policy, confirms revision 1, prepares the grant, publishes `SERVING` intent, and
+   activates the grant. Plan §9.17 has the record, including a finding about the Vert.x test-context
+   limit of the fixture classes.
+   Remaining, in order: the production-manager write (the last B2 step); the real-device watchdog
+   run on a Linux host. Preserve conservative ownership deadlines and late-reply
    rejection. Complete G-7 qualification alongside these scopes. The next scope uses
    Docker/Testcontainers; machine-reset infrastructure is not a prerequisite.
    **OPEN — 7b.3:** manual
@@ -961,7 +966,7 @@ Phase 7b.2 bootstrap scope B increment B1 verification, 2026-10-22 (committed in
   supervisor role for `pg_stat_replication` is not defined; no test for a runner that returns no
   result; a failed fixture test can cascade through the class (§9.11).
 
-Phase 7b.2 bootstrap scope B increment B2 step 1 verification, 2026-10-24 (working tree, not committed):
+Phase 7b.2 bootstrap scope B increment B2 step 1 verification, 2026-10-24 (committed in `bb3eff7f`):
 
 - Red: the module's tests failed compilation before the members existed
   (`logs/peegeeq-pg-failover-policy-install-red-20261024.log`). Five temporary changes were each
@@ -984,6 +989,31 @@ Phase 7b.2 bootstrap scope B increment B2 step 1 verification, 2026-10-24 (worki
 - Known gaps: nothing calls `installPendingPolicy`; a standby that catches up during the wait has no
   test; a coverage failure that cannot resolve is retried until the budget ends; the control record
   is not changed; no other module and no Jenkins build was run. Plan §9.16 lists the rest.
+
+Phase 7b.2 bootstrap scope B increment B2 step 2 verification, 2026-10-24 (working tree, not committed):
+
+- Red: the module's tests failed compilation before `serve` existed. Two temporary changes to
+  `PgBootstrap` were each caught by the test named for them; the source was restored to the same
+  SHA-256 (plan §9.17).
+- Finding: the first full integration run failed in `PgSqlDurabilityControlIntegrationTest`
+  (`logs/peegeeq-pg-failover-integration-bootstrap-serving-20261024.log`, 159 run, 14 failures,
+  1 error). The `@BeforeEach` of its first test exceeded the 30-second Vert.x context limit; the
+  extension reads `io.vertx.junit5.Timeout`, not JUnit's. The class alone failed the same way. The
+  `@BeforeEach` of three fixture classes now carries a 120-second limit.
+- Rebuild: `mvn clean install -DskipTests -pl :peegeeq-pg-failover -am` passed.
+  Output: `logs/rebuild-peegeeq-pg-failover-setup-timeout-20261024.log`.
+- `-Pintegration-tests`: `ConsulLeaseCoordinatorIntegrationTest` **61**,
+  `PgFailoverMonitorIntegrationTest` **23**, `PgBootstrapIntegrationTest` **7**,
+  `PgBootstrapServingIntegrationTest` **6**, `PgCtlProcessControlIntegrationTest` **10**,
+  `PgHbaAdmissionGateIntegrationTest` **6**, `PgPolicyInstallationIntegrationTest` **12**,
+  `PgPrimaryElectorQueueingIntegrationTest` **4**, `PgRenewalLoopIntegrationTest` **13**,
+  `PgSqlDurabilityControlIntegrationTest` **16**. Total **158**, zero failures/errors/skips.
+  Output: `logs/peegeeq-pg-failover-integration-bootstrap-serving-run2-20261024.log`.
+- Default/core: seven classes, total **88**, unchanged.
+  Output: `logs/peegeeq-pg-failover-core-bootstrap-serving-20261024.log`.
+- Known gaps: nothing calls `serve`; a failed `serve` is not resumed or reverted; the write under the
+  installed policy is a `psql` statement, not the production-manager write; no other module and no
+  Jenkins build was run. Plan §9.17 lists the rest.
 
 Test counts are recorded here only from a run made during the task.
 The final phase 7b.1 per-class summaries, and the phase 7b.2 summaries dated 2026-10-08, were

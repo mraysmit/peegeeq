@@ -46,6 +46,9 @@ class PgSqlDurabilityControlIntegrationTest {
         NODES.close();
     }
 
+    // Provisioning three nodes takes 20 to 35 seconds; the Vert.x context default is 30. The JUnit
+    // @Timeout on the class does not set it: the extension reads io.vertx.junit5.Timeout.
+    @io.vertx.junit5.Timeout(value = 120, timeUnit = TimeUnit.SECONDS)
     @BeforeEach void setUp(Vertx vertx, VertxTestContext context) {
         this.vertx = vertx;
         runner = new LocalCommandRunner(vertx);
