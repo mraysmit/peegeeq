@@ -124,31 +124,46 @@ public final class PgFailoverMonitor {
             }
             PgDurabilityPolicy policy = PgDurabilityPolicy.fromJson(pending);
             String operation = intent.getString("operationId");
-            return store.quarantine().compose(quarantine -> {
-                if (quarantine.isPresent()) {
-                    throw new PgLocalStateException("Node is quarantined: " + quarantine.orElseThrow().reason());
-                }
-                return store.closeGrant();
-            }).compose(ignored -> gate.close(config.stopTimeout()))
+            return requireNoQuarantine().compose(ignored -> store.closeGrant())
+                .compose(ignored -> gate.close(config.stopTimeout()))
                 .compose(ignored -> durability.confirmCovered(policy))
                 .compose(ignored -> store.begin(held.generation(), operation, INSTALL_POLICY, config.nodeId(),
                     policy.toJson()))
-                .compose(receipt -> durability.install(policy).transform(installed -> {
-                    if (installed.failed()) {
-                        Throwable cause = installed.cause();
-                        return store.record(held.generation(), operation, INSTALL_POLICY, config.nodeId(),
-                            PgActionResult.UNKNOWN, new JsonObject()).transform(recorded -> {
-                                if (recorded.failed()) cause.addSuppressed(recorded.cause());
-                                return Future.<Void>failedFuture(cause);
-                            });
-                    }
-                    return store.record(held.generation(), operation, INSTALL_POLICY, config.nodeId(),
-                        PgActionResult.COMPLETED, new JsonObject()).compose(recorded -> elector.hasFreshOwnership()
-                            ? Future.<Void>succeededFuture()
-                            : Future.<Void>failedFuture(new PgLeaseProtocolException(
-                                "Ownership was lost while the policy was installed")));
-                }));
+                .compose(receipt -> installAndRecord(held.generation(), operation, policy));
         });
+    }
+
+    private Future<Void> requireNoQuarantine() {
+        return store.quarantine().map(quarantine -> {
+            if (quarantine.isPresent()) {
+                throw new PgLocalStateException("Node is quarantined: " + quarantine.orElseThrow().reason());
+            }
+            return null;
+        });
+    }
+
+    /**
+     * Runs the installation and records its result in the receipt that was begun before it. A failed
+     * installation records {@code UNKNOWN} and fails with the installation's failure. A successful one
+     * records {@code COMPLETED}, then fails if ownership was lost while it ran.
+     */
+    private Future<Void> installAndRecord(long generation, String operation, PgDurabilityPolicy policy) {
+        return durability.install(policy).transform(installed -> {
+            if (installed.failed()) return recordUnknownAndFail(generation, operation, installed.cause());
+            return store.record(generation, operation, INSTALL_POLICY, config.nodeId(), PgActionResult.COMPLETED,
+                new JsonObject()).compose(recorded -> elector.hasFreshOwnership()
+                    ? Future.<Void>succeededFuture()
+                    : Future.<Void>failedFuture(new PgLeaseProtocolException(
+                        "Ownership was lost while the policy was installed")));
+        });
+    }
+
+    private Future<Void> recordUnknownAndFail(long generation, String operation, Throwable cause) {
+        return store.record(generation, operation, INSTALL_POLICY, config.nodeId(), PgActionResult.UNKNOWN,
+            new JsonObject()).transform(recorded -> {
+                if (recorded.failed()) cause.addSuppressed(recorded.cause());
+                return Future.<Void>failedFuture(cause);
+            });
     }
 
     /**

@@ -60,7 +60,10 @@ public record PgDurabilityPolicy(long revision, List<String> requiredStandbyNode
      * Fails unless every required standby has exactly one replication connection, authenticated
      * under the role named by its node identity, streaming, with flush and replay at or after the
      * boundary. A connection that uses a standby's name under another role, or a standby's role
-     * under another name, fails the check. Connections that name no required standby are ignored.
+     * under another name, fails the check with a {@link PgDurabilityException}. A standby that is
+     * not connected, has several connections, is not streaming, or is behind the boundary fails it
+     * with a {@link PgStandbyNotCoveredException}, which can change by waiting. Connections that
+     * name no required standby are ignored.
      */
     public void requireCoveredAt(PgLsn boundary, List<PgReplicationPeer> peers) {
         Objects.requireNonNull(boundary, "boundary");
@@ -80,20 +83,25 @@ public record PgDurabilityPolicy(long revision, List<String> requiredStandbyNode
         for (String standby : requiredStandbyNodeIds) {
             List<PgReplicationPeer> named = peers.stream()
                 .filter(peer -> standby.equals(peer.applicationName())).toList();
-            if (named.isEmpty()) throw new PgDurabilityException("Required standby " + standby + " is not connected");
+            if (named.isEmpty()) {
+                throw new PgStandbyNotCoveredException("Required standby " + standby + " is not connected");
+            }
             if (named.size() > 1) {
-                throw new PgDurabilityException("Required standby " + standby + " has " + named.size()
+                throw new PgStandbyNotCoveredException("Required standby " + standby + " has " + named.size()
                     + " replication connections");
             }
             PgReplicationPeer peer = named.get(0);
             if (!"streaming".equals(peer.state())) {
-                throw new PgDurabilityException("Required standby " + standby + " is not streaming: " + peer.state());
+                throw new PgStandbyNotCoveredException("Required standby " + standby + " is not streaming: "
+                    + peer.state());
             }
             if (peer.flushLsn() == null || !peer.flushLsn().reached(boundary)) {
-                throw new PgDurabilityException("Required standby " + standby + " has not flushed WAL to " + boundary);
+                throw new PgStandbyNotCoveredException("Required standby " + standby + " has not flushed WAL to "
+                    + boundary);
             }
             if (peer.replayLsn() == null || !peer.replayLsn().reached(boundary)) {
-                throw new PgDurabilityException("Required standby " + standby + " has not replayed WAL to " + boundary);
+                throw new PgStandbyNotCoveredException("Required standby " + standby + " has not replayed WAL to "
+                    + boundary);
             }
         }
     }

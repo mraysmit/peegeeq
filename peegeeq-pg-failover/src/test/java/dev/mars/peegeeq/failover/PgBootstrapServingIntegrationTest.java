@@ -64,6 +64,7 @@ class PgBootstrapServingIntegrationTest {
     private PgProcessControl process;
     private PgAdmissionGate gate;
     private PgWatchdog watchdog;
+    private volatile boolean consulPaused;
 
     @BeforeAll static void startContainers() {
         CONSUL.start();
@@ -104,7 +105,9 @@ class PgBootstrapServingIntegrationTest {
     }
 
     @AfterEach void tearDown(VertxTestContext context) {
-        NODES.forceStopAll(runner).eventually(() -> {
+        // A frozen coordinator must be resumed before anything else talks to it.
+        (consulPaused ? resumeConsul() : Future.<Void>succeededFuture())
+            .compose(ignored -> NODES.forceStopAll(runner)).eventually(() -> {
             Future<Void> closed = elector.close();
             for (PgPrimaryElector observer : observers) closed = closed.compose(ignored -> observer.close());
             return closed;
@@ -284,9 +287,227 @@ class PgBootstrapServingIntegrationTest {
                 }))).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
     }
 
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Local supervision operation failed on node pg-node-1",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgDurabilityException.class)
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgBootstrap",
+        message = "Bootstrap admission failed on node pg-node-1",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgDurabilityException.class)
+    void aRerunAfterACoverageFailureCompletesOnceTheMissingStandbyConnects(VertxTestContext context) {
+        var bounded = bootstrap(durability(Duration.ofSeconds(5)), gate);
+        elector.createInitialIntent(intent()).compose(held -> bounded.monitor.startPrimary(held)
+            .compose(ignored -> NODES.control(runner, STANDBYS.get(0)).startInRecovery())
+            .compose(ignored -> bounded.bootstrap.serve(held, PgFailoverMode.MANUAL)).transform(first -> {
+                assertTrue(first.failed(), "Admission opened without a required standby");
+                return NODES.control(runner, STANDBYS.get(1)).startInRecovery();
+            }).compose(ignored -> bounded.bootstrap.serve(held, PgFailoverMode.MANUAL)))
+            .compose(serving -> {
+                assertEquals("SERVING", serving.intent().getString("phase"));
+                return store.grant();
+            }).onSuccess(grant -> context.verify(() -> {
+                assertEquals(PgGrantState.OPEN, grant.orElseThrow().state());
+                context.completeNow();
+            })).onFailure(context::failNow);
+    }
+
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Local supervision operation rejected on node pg-node-1",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgBootstrap",
+        message = "Bootstrap admission failed on node pg-node-1",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class,
+        minOccurrences = 2, maxOccurrences = 2)
+    void aRerunAfterAFailedPublicationIsRefusedBecauseOwnershipWasRetired(VertxTestContext context) {
+        started(bootstrap(durability(COMMAND_TIMEOUT), gate)).compose(start -> {
+            coordinator.onUpdate((held, intent) -> "SERVING".equals(intent.getString("phase"))
+                ? Future.failedFuture(new PgLeaseProtocolException("injected update failure"))
+                : coordinator.realUpdate(held, intent));
+            return start.bootstrap.serve(start.held, PgFailoverMode.MANUAL).transform(first -> {
+                assertTrue(first.failed());
+                coordinator.clearHooks();
+                assertFalse(elector.hasFreshOwnership(), "A failed update must retire ownership");
+                return start.bootstrap.serve(start.held, PgFailoverMode.MANUAL);
+            }).transform(second -> {
+                assertTrue(second.failed(), "A serve ran without ownership");
+                assertInstanceOf(PgLeaseProtocolException.class, second.cause());
+                return store.grant();
+            });
+        }).onSuccess(grant -> context.verify(() -> {
+            assertEquals(PgGrantState.PREPARED, grant.orElseThrow().state(), "The rerun changed the prepared grant");
+            context.completeNow();
+        })).onFailure(context::failNow);
+    }
+
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgBootstrap",
+        message = "Bootstrap admission failed on node pg-node-1",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    void aCoordinatorThatStopsAnsweringBeforePublicationLeavesAPreparedGrantUnopenedAndAdmissionClosed(
+            VertxTestContext context) {
+        started(bootstrap(durability(COMMAND_TIMEOUT), gate)).compose(start -> {
+            // The real adapter meets a real fault: the Consul process is frozen when the publication is sent.
+            coordinator.onUpdate((held, intent) -> "SERVING".equals(intent.getString("phase"))
+                ? pauseConsul().compose(paused -> coordinator.realUpdate(held, intent))
+                : coordinator.realUpdate(held, intent));
+            return start.bootstrap.serve(start.held, PgFailoverMode.MANUAL).transform(serving -> {
+                coordinator.clearHooks();
+                assertTrue(serving.failed(), "Serving succeeded although the coordinator never answered the publication");
+                return resumeConsul();
+            }).compose(resumed -> store.grant()).compose(grant -> {
+                assertEquals(PgGrantState.PREPARED, grant.orElseThrow().state());
+                return NODES.node(WRITER).applicationSql(runner, "select 1");
+            });
+        }).onSuccess(application -> context.verify(() -> {
+            assertNotEquals(0, application.exitCode(), "Admission opened after an unanswered publication");
+            context.completeNow();
+        })).onFailure(context::failNow);
+    }
+
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Local supervision operation rejected on node pg-node-1",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgBootstrap",
+        message = "Bootstrap admission failed on node pg-node-1",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    // The test waits for a real freshness deadline of 22 seconds, so it needs more than the 30-second default.
+    @io.vertx.junit5.Timeout(value = 120, timeUnit = TimeUnit.SECONDS)
+    void ownershipThatExpiredInRealTimeBeforeServingRefusesItAndAdmitsNothing(VertxTestContext context) {
+        var expiring = expiringOwnership();
+        var parts = bootstrapOn(expiring.config, expiring.elector, durability(COMMAND_TIMEOUT), gate);
+        expiring.elector.createInitialIntent(intent()).compose(held -> parts.monitor.startPrimary(held)
+            .compose(ignored -> awaitStale(vertx, expiring.elector, System.nanoTime() + TimeUnit.SECONDS.toNanos(60)))
+            .compose(ignored -> parts.bootstrap.serve(held, PgFailoverMode.MANUAL)).transform(serving -> {
+                assertTrue(serving.failed(), "A serve ran on ownership past its freshness deadline");
+                assertInstanceOf(PgLeaseProtocolException.class, serving.cause());
+                return assertWithdrawnAndClosed(held, expiring.config);
+            })).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+    }
+
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Local supervision operation failed on node pg-node-1",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgBootstrap",
+        message = "Bootstrap admission failed on node pg-node-1",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    // The test waits for a real freshness deadline of 22 seconds, so it needs more than the 30-second default.
+    @io.vertx.junit5.Timeout(value = 120, timeUnit = TimeUnit.SECONDS)
+    void ownershipThatExpiresInRealTimeDuringTheInstallationStopsBeforeConfirmation(VertxTestContext context) {
+        var expiring = expiringOwnership();
+        var waiting = new ExpiryWaitingDurabilityControl(vertx, durability(COMMAND_TIMEOUT), expiring.elector);
+        var parts = bootstrapOn(expiring.config, expiring.elector, waiting, gate);
+        expiring.elector.createInitialIntent(intent()).compose(held -> parts.monitor.startPrimary(held)
+            .compose(ignored -> startStandbys())
+            .compose(ignored -> parts.bootstrap.serve(held, PgFailoverMode.MANUAL)).transform(serving -> {
+                assertTrue(serving.failed(), "Serving continued after ownership expired during the installation");
+                assertInstanceOf(PgLeaseProtocolException.class, serving.cause());
+                return store.receipt(held.generation(), operationId(held), PgFailoverMonitor.INSTALL_POLICY,
+                    config.nodeId());
+            }).compose(receipt -> {
+                assertEquals(PgActionResult.COMPLETED, receipt.orElseThrow().result(), "The installation took effect");
+                return observer(expiring.config).read();
+            }).compose(read -> {
+                JsonObject intent = read.orElseThrow().intent();
+                assertEquals("WITHDRAWN", intent.getString("phase"));
+                assertFalse(intent.containsKey("durabilityPolicy"), "A policy was confirmed without ownership");
+                return NODES.node(WRITER).applicationSql(runner, "select 1");
+            })).onSuccess(application -> context.verify(() -> {
+                assertNotEquals(0, application.exitCode(), "Admission opened after ownership expired");
+                context.completeNow();
+            })).onFailure(context::failNow);
+    }
+
+    /** Wraps the real durability control. After the installation took effect it waits until ownership is stale. */
+    private record ExpiryWaitingDurabilityControl(Vertx vertx, PgDurabilityControl real, PgPrimaryElector elector)
+            implements PgDurabilityControl {
+        @Override public Future<PgLsn> flushBoundary() { return real.flushBoundary(); }
+
+        @Override public Future<List<PgReplicationPeer>> peers() { return real.peers(); }
+
+        @Override public Future<Void> confirmCovered(PgDurabilityPolicy policy) { return real.confirmCovered(policy); }
+
+        @Override public Future<Void> install(PgDurabilityPolicy policy) {
+            return real.install(policy).compose(installed ->
+                awaitStale(vertx, elector, System.nanoTime() + TimeUnit.SECONDS.toNanos(60)));
+        }
+    }
+
+    private record Expiring(PgNodeConfig config, PgPrimaryElector elector) { }
+
+    /** A cluster incarnation whose ownership budget is 22 seconds, so its freshness deadline passes during a test. */
+    private Expiring expiringOwnership() {
+        var shortLease = new PgNodeConfig("serving-tests", "inc-" + UUID.randomUUID(), WRITER, MEMBERS,
+            Duration.ofSeconds(30), Duration.ofMillis(250), Duration.ofSeconds(2), Duration.ofSeconds(8),
+            PgWatchdogMode.OFF);
+        var shortElector = new PgPrimaryElector(shortLease,
+            new ConsulLeaseCoordinator(vertx, shortLease, endpoint(), "consul-1", TOKEN));
+        observers.add(shortElector);
+        return new Expiring(shortLease, shortElector);
+    }
+
+    /** Polls until the elector's freshness deadline has passed. Ownership is never renewed in these tests. */
+    private static Future<Void> awaitStale(Vertx vertx, PgPrimaryElector owner, long deadline) {
+        if (!owner.hasFreshOwnership()) return Future.succeededFuture();
+        if (System.nanoTime() >= deadline) {
+            return Future.failedFuture(new AssertionError("Ownership stayed fresh past the expected budget"));
+        }
+        return vertx.timer(200).compose(ignored -> awaitStale(vertx, owner, deadline));
+    }
+
+    private Future<Void> pauseConsul() {
+        return vertx.executeBlocking(() -> {
+            CONSUL.getDockerClient().pauseContainerCmd(CONSUL.getContainerId()).exec();
+            consulPaused = true;
+            return null;
+        });
+    }
+
+    private Future<Void> resumeConsul() {
+        return vertx.executeBlocking(() -> {
+            CONSUL.getDockerClient().unpauseContainerCmd(CONSUL.getContainerId()).exec();
+            consulPaused = false;
+            return null;
+        });
+    }
+
     /** Asserts the coordinator still holds withdrawn intent with the pending policy, and no grant is open. */
     private Future<Void> assertWithdrawnAndClosed(PgControlRecord held) {
-        return observer().read().compose(read -> {
+        return assertWithdrawnAndClosed(held, config);
+    }
+
+    private Future<Void> assertWithdrawnAndClosed(PgControlRecord held, PgNodeConfig recordConfig) {
+        return observer(recordConfig).read().compose(read -> {
             JsonObject intent = read.orElseThrow().intent();
             assertEquals("WITHDRAWN", intent.getString("phase"));
             assertEquals(held.intent().getJsonObject("pendingDurabilityPolicy"), intent.getJsonObject("pendingDurabilityPolicy"));
@@ -320,13 +541,23 @@ class PgBootstrapServingIntegrationTest {
     }
 
     private Parts bootstrap(PgDurabilityControl durability, PgAdmissionGate admission) {
-        var monitor = new PgFailoverMonitor(config, elector, store, process, admission, watchdog, durability);
-        var loop = new PgRenewalLoop(vertx, config, elector, monitor);
-        return new Parts(new PgBootstrap(vertx, config, elector, store, monitor, loop), monitor);
+        return bootstrapOn(config, elector, durability, admission);
+    }
+
+    private Parts bootstrapOn(PgNodeConfig nodeConfig, PgPrimaryElector owner, PgDurabilityControl durability,
+                              PgAdmissionGate admission) {
+        var monitor = new PgFailoverMonitor(nodeConfig, owner, store, process, admission, watchdog, durability);
+        var loop = new PgRenewalLoop(vertx, nodeConfig, owner, monitor);
+        return new Parts(new PgBootstrap(vertx, nodeConfig, owner, store, monitor, loop), monitor);
     }
 
     private PgPrimaryElector observer() {
-        var observer = new PgPrimaryElector(config, new ConsulLeaseCoordinator(vertx, config, endpoint(), "consul-1", TOKEN));
+        return observer(config);
+    }
+
+    private PgPrimaryElector observer(PgNodeConfig recordConfig) {
+        var observer = new PgPrimaryElector(recordConfig,
+            new ConsulLeaseCoordinator(vertx, recordConfig, endpoint(), "consul-1", TOKEN));
         observers.add(observer);
         return observer;
     }

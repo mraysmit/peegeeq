@@ -98,9 +98,34 @@ class PgDurabilityPolicyTest {
             "pg-node-3 has not flushed");
     }
 
-    private static void refused(List<PgReplicationPeer> peers, String reason) {
+    @Test void conditionsThatChangeByWaitingAreDistinguishedFromIdentityMismatches() {
+        var behind = PgLsn.parse("0/3000100");
+        var waiting = List.of(
+            List.of(peer("pg-node-2", "pg-node-2")),
+            List.of(peer("pg-node-2", "pg-node-2"), peer("pg-node-3", "pg-node-3"), peer("pg-node-3", "pg-node-3")),
+            List.of(peer("pg-node-2", "pg-node-2"),
+                new PgReplicationPeer("pg-node-3", "pg-node-3", "catchup", "quorum", BOUNDARY, BOUNDARY)),
+            List.of(peer("pg-node-2", "pg-node-2"),
+                new PgReplicationPeer("pg-node-3", "pg-node-3", "streaming", "quorum", behind, behind)));
+        for (List<PgReplicationPeer> peers : waiting) {
+            assertInstanceOf(PgStandbyNotCoveredException.class, refused(peers, "pg-node-3"),
+                "A condition that can change by waiting must be reported as not yet covered: " + peers);
+        }
+        var mismatched = List.of(
+            List.of(peer("pg-node-2", "pg-node-2"), peer("replicator", "pg-node-3")),
+            List.of(peer("pg-node-2", "pg-node-2"), peer("pg-node-3", "PG-NODE-3")),
+            List.of(peer("pg-node-2", "pg-node-2"), peer("pg-node-3", "pg-node-3"), peer("pg-node-2", "copy")));
+        for (List<PgReplicationPeer> peers : mismatched) {
+            var failure = refused(peers, "");
+            assertFalse(failure instanceof PgStandbyNotCoveredException,
+                "An identity mismatch does not resolve by waiting: " + peers);
+        }
+    }
+
+    private static PgDurabilityException refused(List<PgReplicationPeer> peers, String reason) {
         var failure = assertThrows(PgDurabilityException.class, () -> POLICY.requireCoveredAt(BOUNDARY, peers));
         assertTrue(failure.getMessage().contains(reason), failure.getMessage());
+        return failure;
     }
 
     private static List<PgReplicationPeer> covered() {

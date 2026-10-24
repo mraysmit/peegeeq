@@ -5,6 +5,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.core.file.FileSystemException;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
@@ -28,6 +29,8 @@ import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import static dev.mars.peegeeq.failover.PgReplicationFixture.STANDBYS;
 import static dev.mars.peegeeq.failover.PgReplicationFixture.WRITER;
 import static org.junit.jupiter.api.Assertions.*;
@@ -320,6 +323,74 @@ class PgPolicyInstallationIntegrationTest {
             })).onFailure(context::failNow);
     }
 
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgLocalStateStore",
+        message = "Node-local storage failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = FileSystemException.class)
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Local supervision operation failed on node pg-node-1",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = FileSystemException.class)
+    void aStorageFaultWhenTheReceiptIsBegunFailsTheInstallationBeforeAnySetting(VertxTestContext context) {
+        elector.createInitialIntent(intent()).compose(held -> monitor.startPrimary(held)
+            .compose(ignored -> startStandbys())
+            // A directory where the store must create its temporary receipt file: the write fails.
+            .compose(ignored -> vertx.fileSystem().mkdirs(receiptTemporaryFile(held).toString()))
+            .compose(ignored -> monitor.installPendingPolicy(held)).transform(installation -> {
+                assertTrue(installation.failed(), "The installation succeeded although its receipt could not be written");
+                assertInstanceOf(PgLocalStateException.class, installation.cause());
+                return NODES.node(WRITER).sql(runner, "show synchronous_standby_names");
+            }).compose(effective -> {
+                assertEquals("", effective.output().strip(), "A setting was installed without a receipt");
+                return store.receipt(held.generation(), operationId(held), PgFailoverMonitor.INSTALL_POLICY,
+                    config.nodeId());
+            })).onSuccess(receipt -> context.verify(() -> {
+                assertTrue(receipt.isEmpty());
+                context.completeNow();
+            })).onFailure(context::failNow);
+    }
+
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgLocalStateStore",
+        message = "Node-local storage failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = FileSystemException.class)
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Local supervision operation failed on node pg-node-1",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = FileSystemException.class)
+    void aStorageFaultWhenTheResultIsRecordedFailsTheCallAfterTheEffectAndLeavesThePendingReceipt(
+            VertxTestContext context) {
+        var broken = new AtomicReference<Path>();
+        var faulting = monitor(new FaultBeforeInstallDurabilityControl(durability(COMMAND_TIMEOUT),
+            () -> vertx.fileSystem().mkdirs(broken.get().toString())));
+        elector.createInitialIntent(intent()).compose(held -> {
+            broken.set(receiptTemporaryFile(held));
+            return faulting.startPrimary(held).compose(ignored -> startStandbys())
+                .compose(ignored -> faulting.installPendingPolicy(held)).transform(installation -> {
+                    assertTrue(installation.failed(), "The installation succeeded although its result could not be recorded");
+                    assertInstanceOf(PgLocalStateException.class, installation.cause());
+                    return NODES.node(WRITER).sql(runner, "show synchronous_standby_names");
+                }).compose(effective -> {
+                    assertEquals(INSTALLED, effective.output().strip(), "The installation took effect before the fault");
+                    return store.receipt(held.generation(), operationId(held), PgFailoverMonitor.INSTALL_POLICY,
+                        config.nodeId());
+                }).compose(receipt -> {
+                    assertEquals(PgActionResult.PENDING, receipt.orElseThrow().result(),
+                        "The result was not recorded, so the receipt still needs local observation");
+                    return NODES.node(WRITER).applicationSql(runner, "select 1");
+                });
+        }).onSuccess(application -> context.verify(() -> {
+            assertNotEquals(0, application.exitCode(), "A storage fault left admission open");
+            context.completeNow();
+        })).onFailure(context::failNow);
+    }
+
     @Test void aRerunAfterAnUnknownReceiptCompletesTheSameReceipt(VertxTestContext context) {
         elector.createInitialIntent(intent()).compose(held -> monitor.startPrimary(held)
             .compose(ignored -> startStandbys())
@@ -392,6 +463,26 @@ class PgPolicyInstallationIntegrationTest {
                 return installed;
             });
         }
+    }
+
+    /** Wraps the real durability control. A fault is introduced just before the installation runs. */
+    private record FaultBeforeInstallDurabilityControl(PgDurabilityControl real, Supplier<Future<Void>> fault)
+            implements PgDurabilityControl {
+        @Override public Future<PgLsn> flushBoundary() { return real.flushBoundary(); }
+
+        @Override public Future<List<PgReplicationPeer>> peers() { return real.peers(); }
+
+        @Override public Future<Void> confirmCovered(PgDurabilityPolicy policy) { return real.confirmCovered(policy); }
+
+        @Override public Future<Void> install(PgDurabilityPolicy policy) {
+            return fault.get().compose(ignored -> real.install(policy));
+        }
+    }
+
+    /** The temporary file the store writes before it atomically replaces the installation receipt. */
+    private Path receiptTemporaryFile(PgControlRecord held) {
+        return stateDirectory.resolve("receipts").resolve(held.generation() + "+" + operationId(held) + "+"
+            + PgFailoverMonitor.INSTALL_POLICY + "+" + config.nodeId() + ".json.tmp");
     }
 
     private Future<Void> startStandbys() {
