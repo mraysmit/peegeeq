@@ -824,7 +824,8 @@ for that day's revision. The rows dated 2026-10-21 and 2026-10-22 have their run
 | 7b.2 bootstrap scope A (OD-6 to OD-8) | Implemented and tested, 2026-10-21 | `PgBootstrapRequest` reads and verifies the request file. `PgBootstrap.start` refuses a quarantined node, a node with any stored grant, and an existing control record; a record of the same operation is reported as an interrupted bootstrap. It then creates the withdrawn initial intent with pending policy revision 1, starts the renewal loop, records the `bootstrap` receipt with the request as parameters, and starts PostgreSQL through the monitor with admission closed. A failed start stops the loop. The receipt has no result; completion is derived in scope B. A rerun is refused, not resumed. The request is not operator-authenticated (OD-6) and other members are not inspected (OD-7). |
 | 7b.2 bootstrap scope B, increment B1 (OD-9 to OD-11) | Implemented and tested, 2026-10-22 | `PgDurabilityControl` port; `PgSqlDurabilityControl` adapter. It reads the writer's WAL flush boundary (refused in recovery), lists replication peers, and installs a policy by OD-9. `PgDurabilityPolicy` is the typed form of the control record's policy: it generates the quoted setting and holds the coverage rule (OD-11). `PgLsn` and `PgReplicationPeer` are derived observations. No command argument contains a double quote: the installed value is an escape string. Nothing calls the port yet. |
 | 7b.2 bootstrap scope B, increment B2, step 1: guarded policy installation | Implemented and tested, 2026-10-24 | `PgDurabilityControl.confirmCovered` observes one fresh flush boundary and waits for every required standby to cover it within the adapter's budget. `PgFailoverMonitor.installPendingPolicy(held)` derives the policy from the held record's pending policy, closes the grant and the gate, confirms coverage, and installs under the `install-policy` receipt (`COMPLETED`, or `UNKNOWN` after a failed install). The control record is not changed. `PgFailoverMonitor` takes a `PgDurabilityControl`. See §9.16. |
-| 7b.2 bootstrap scope B, increment B2, remaining steps | Not implemented | Revision-1 confirmation (conditional replacement of the pending policy in the control record), prepare/publish/activate in `PgBootstrap`, and the production-manager write (OD-12). Stopped-before-release remains open. |
+| 7b.2 bootstrap scope B, increment B2, step 2: confirmation, publication, activation | Implemented and tested, 2026-10-24 | `PgBootstrap.serve(held, mode)` runs after `start`: install the pending policy, confirm revision 1 (the pending policy becomes `durabilityPolicy`), prepare the grant, publish `SERVING`, activate the grant. A failure at any step leaves admission closed and the record where the step left it. No bootstrap receipt result is written; completion is derived. See §9.17. |
+| 7b.2 bootstrap scope B, increment B2, remaining step | Not implemented | The production-manager write under the required commit policy (OD-12), a production entry point, and the verified restart of an interrupted `serve`. Stopped-before-release remains open. |
 | 7b.3 manual takeover and re-join | Not implemented by the new module | Requires supervised transitions, old-writer exclusion, policy cutover, repeated failover, and routed production-manager assertions. |
 | G-7 full coordinator qualification | Open | Snapshot/restore, TLS, stopped-before-release, and expiry versus independent old-writer exclusion remain unverified. Component success does not close G-7. |
 
@@ -1035,9 +1036,11 @@ that returns no result, and the real runner never returns none. Item 5 is otherw
 10. **First-start bootstrap, scope B, increment B2, step 1: guarded policy installation.**
     Complete, 2026-10-24 (§8.1, §9.16).
 
-Next, the remaining steps of bootstrap scope B increment B2 within 7b.2, on the same fixture:
-revision-1 confirmation, prepare/publish/activate in `PgBootstrap`, and the production-manager
-write. The text below describes the whole of scope B. Scope A covers
+11. **First-start bootstrap, scope B, increment B2, step 2: confirmation, publication, and
+    activation.** Complete, 2026-10-24 (§8.1, §9.17).
+
+Next, the remaining step of bootstrap scope B increment B2 within 7b.2, on the same fixture: the
+production-manager write. The text below describes the whole of scope B. Scope A covers
 request verification, withdrawn intent, and the guarded primary start. Scope B adds system
 design §5.11 steps 3 to 5: guarded standby start and validation, the fresh WAL boundary check,
 policy installation, confirmation of revision 1, prepare/publish/activate, and a
@@ -1862,5 +1865,116 @@ Integration total 152; core total 88.
   reports 19 and 20 for `startPrimary` and `activateWriter`. None was refactored.
 - A failed test in `PgPolicyInstallationIntegrationTest` leaves servers running and fails the later
   tests of the class (§9.11); the mutation runs showed it.
+- No other module and no Jenkins build was run.
+- Correction, 2026-10-24: the `@BeforeEach` of `PgSqlDurabilityControlIntegrationTest` and of this
+  class ran under a 30-second limit that no test had set. See §9.17.
+
+### 9.17 First-Start Bootstrap, Scope B Increment B2, Step 2: Confirmation, Publication, and Activation, 2026-10-24
+
+**Scope.** `PgBootstrap.serve(held, mode)` completes first-start bootstrap on the writer that
+`start` left running with admission closed. `start` is unchanged, so the scope A tests are
+unchanged. No owner decision was needed. The mode is a parameter because `PgNodeConfig` holds no
+failover mode. The production-manager write is the remaining step.
+
+**Data model.** Nothing new is stored. The control record's `pendingDurabilityPolicy` becomes its
+`durabilityPolicy` at confirmation, and its `phase` becomes `SERVING` at publication. The grant and
+the `install-policy` receipt are as in §9.16. The `bootstrap` receipt keeps no result: completion is
+derived from the confirmed policy, the `SERVING` intent, and the open grant, as §5.11 requires.
+
+**Contract.** In order, each step starting only after the earlier one succeeded:
+
+1. `installPendingPolicy(held)` (§9.16).
+2. `PgPrimaryElector.update` writes the confirmation: the pending policy moves to `durabilityPolicy`;
+   the phase stays `WITHDRAWN`.
+3. `prepareWriter(confirmed, mode)` creates the prepared grant for revision 1.
+4. `PgPrimaryElector.update` writes the `SERVING` intent.
+5. `activateWriter(serving, prepared)` opens the matching grant and the gate.
+
+A failure at any step stops the sequence and is logged once at ERROR by `PgBootstrap`. Admission
+stays closed. The record stays where the failed step left it: before step 2 it is withdrawn with
+the pending policy; after step 2 it is withdrawn with the confirmed policy and a prepared grant;
+after step 4 it is `SERVING` with a prepared grant. A failed gate open closes the grant (§9.11). A
+failed update retires the elector's ownership (§5.3), so the renewal loop demotes the writer.
+
+**Dependency failure modes, each with a test** (`PgBootstrapServingIntegrationTest`).
+
+| Dependency | Failure mode | Test |
+|---|---|---|
+| `installPendingPolicy` | a required standby never connects | `aRequiredStandbyThatNeverConnectsLeavesTheIntentWithdrawnAndAdmissionClosed` |
+| Coordinator update | the confirmation is not written | `aFailedConfirmationLeavesThePolicyPendingAndAdmissionClosed` |
+| Coordinator update | the `SERVING` publication is not written | `aFailedPublicationLeavesAPreparedGrantUnopenedAndAdmissionClosed` |
+| Admission gate | the gate does not open | `aGateThatDoesNotOpenClosesTheGrantAndAdmitsNothing` |
+| Elector | serving a record that already serves | `servingTwiceIsRefusedAndLeavesTheServingIntentUnchanged` |
+| All steps | none fails | `servingInstallsConfirmsPreparesPublishesAndOpensAdmissionForRevisionOne` |
+
+The normal-path test reads the record back from the coordinator, checks the open grant and its
+revision, checks the installed setting, and commits a write over the application route under the
+installed policy. The coordinator failures use `ObservedLeaseCoordinator`, a wrapper over the real
+Consul adapter.
+
+**TDD.** The tests were written first; the module's tests failed compilation on `serve`. After the
+implementation the class passed 6 of 6 on its first run
+(`logs/peegeeq-pg-failover-bootstrap-serving-run1-20261024.log`).
+
+**Mutation checks.** Each file was restored and its checksum equals the one recorded before.
+
+| Temporary change | Result | Log under `logs/` |
+|---|---|---|
+| The installation step removed from `serve` | the coverage-failure test failed: "Admission opened without a required standby" | `peegeeq-pg-failover-bootstrap-serving-mutation-red-a-20261024.log` |
+| The activation step removed from `serve` | the normal-path test failed: "expected: OPEN but was: PREPARED" | `peegeeq-pg-failover-bootstrap-serving-mutation-red-b-20261024.log` |
+
+**Finding: the Vert.x test-context limit.** The full integration run failed in
+`PgSqlDurabilityControlIntegrationTest`: the `@BeforeEach` of its first test exceeded 30 seconds,
+and the other tests of the class failed in provisioning after it (§9.11)
+(`logs/peegeeq-pg-failover-integration-bootstrap-serving-20261024.log`). The class alone failed the
+same way (`logs/peegeeq-pg-failover-durability-rerun-20261024.log`), and a single test of it passed
+in 25.5 seconds (`logs/peegeeq-pg-failover-durability-single-20261024.log`). `VertxExtension`
+reads `io.vertx.junit5.Timeout` from the executing method and class (checked with `javap` on
+`vertx-junit5` 5.0.4). The classes here import JUnit's `@Timeout`, which the extension does not read, so
+every `@BeforeEach` and test body ran under the 30-second default. The setup of that class
+(provisioning, then starting the writer and both standbys) took more than 30 seconds in two runs
+and passed in one single-test run of 25.5 seconds including container start. Three Kubernetes
+containers of another project were running on the host; whether they slowed the setup was not
+measured. The cause is the missing setup limit, not this step's code: the class is unchanged by this
+step, and it passed with the limit raised. Fix: `@io.vertx.junit5.Timeout(120 seconds)` on the
+`@BeforeEach` of `PgSqlDurabilityControlIntegrationTest`, `PgPolicyInstallationIntegrationTest`, and
+`PgBootstrapServingIntegrationTest`. Test bodies keep the 30-second default. The other fixture
+classes (`PgBootstrapIntegrationTest`, `PgFailoverMonitorIntegrationTest`, `PgRenewalLoopIntegrationTest`,
+`PgCtlProcessControlIntegrationTest`, `PgHbaAdmissionGateIntegrationTest`) run under the same default and
+were not changed; they passed in every run of this step.
+
+**Runs after the last source change.** Rebuild:
+`logs/rebuild-peegeeq-pg-failover-setup-timeout-20261024.log`. Every class reports zero failures,
+errors, and skips.
+
+| Profile | Class | Tests run | Saved log under `logs/` |
+|---|---|---:|---|
+| `integration-tests` | `ConsulLeaseCoordinatorIntegrationTest` | 61 | `peegeeq-pg-failover-integration-bootstrap-serving-run2-20261024.log` |
+| `integration-tests` | `PgFailoverMonitorIntegrationTest` | 23 | same |
+| `integration-tests` | `PgBootstrapIntegrationTest` | 7 | same |
+| `integration-tests` | `PgBootstrapServingIntegrationTest` | 6 | same |
+| `integration-tests` | `PgCtlProcessControlIntegrationTest` | 10 | same |
+| `integration-tests` | `PgHbaAdmissionGateIntegrationTest` | 6 | same |
+| `integration-tests` | `PgPolicyInstallationIntegrationTest` | 12 | same |
+| `integration-tests` | `PgPrimaryElectorQueueingIntegrationTest` | 4 | same |
+| `integration-tests` | `PgRenewalLoopIntegrationTest` | 13 | same |
+| `integration-tests` | `PgSqlDurabilityControlIntegrationTest` | 16 | same |
+| default/core | seven classes | 88 | `peegeeq-pg-failover-core-bootstrap-serving-20261024.log` |
+
+Integration total 158; core total 88.
+
+**Known gaps after 2026-10-24.**
+
+- No production entry point calls `serve`, and no step restarts an interrupted `serve`. A rerun of
+  `start` is refused (§9.14), and a second `serve` on a serving record is refused.
+- A failed `serve` leaves the record at the step that failed. No step reverts it. After a failed
+  publication the record holds the confirmed policy with a prepared grant, and nothing resumes it.
+- The coordinator failures are injected into the real adapter's update call. They are not real
+  network faults.
+- A lease lost between steps is covered only through the injected update failure.
+- The commit under the installed policy is a `psql` statement over the application route. It is not
+  the production-manager write (OD-12), which is the remaining step.
+- The two new test classes and the B1 class have no assertion on how long provisioning takes, so a
+  slower host can still exceed the 120-second setup limit.
 - No other module and no Jenkins build was run.
 

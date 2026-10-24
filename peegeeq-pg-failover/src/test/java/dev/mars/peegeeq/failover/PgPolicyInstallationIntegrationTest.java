@@ -73,6 +73,9 @@ class PgPolicyInstallationIntegrationTest {
         CONSUL.stop();
     }
 
+    // Provisioning three nodes can approach the 30-second Vert.x context default. The JUnit @Timeout on
+    // the class does not set it: the extension reads io.vertx.junit5.Timeout.
+    @io.vertx.junit5.Timeout(value = 120, timeUnit = TimeUnit.SECONDS)
     @BeforeEach void setUp(Vertx vertx, VertxTestContext context) {
         this.vertx = vertx;
         admin = WebClient.create(vertx);

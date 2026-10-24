@@ -2,6 +2,7 @@ package dev.mars.peegeeq.failover;
 
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.core.json.JsonObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.nio.file.Path;
@@ -15,10 +16,10 @@ import java.util.Objects;
  * renewal loop; record the bootstrap receipt with the request as its immutable parameters; start
  * PostgreSQL through the monitor.
  *
- * <p>Policy installation, policy confirmation, and writer activation are not performed here.
- * Bootstrap completion is derived from those later records; the bootstrap receipt has no result
- * until then. A rerun after an interruption is refused: resuming the same operation needs the
- * takeover path. Other members are not inspected.
+ * <p>{@link #start} ends there. Policy installation, policy confirmation, and writer activation
+ * are {@link #serve}. Bootstrap completion is derived from the confirmed policy, the serving
+ * intent, and the open grant; the bootstrap receipt has no result. A rerun after an interruption
+ * is refused: resuming the same operation needs the takeover path. Other members are not inspected.
  */
 public final class PgBootstrap {
     public static final String BOOTSTRAP = "bootstrap";
@@ -58,6 +59,37 @@ public final class PgBootstrap {
                     logger.error("Bootstrap failed on node {}", config.nodeId(), failure);
                 }
             });
+    }
+
+    /**
+     * Completes first-start bootstrap on the writer that {@link #start} left running with admission
+     * closed and withdrawn intent. In order: install the pending policy, confirm revision 1 by moving
+     * the pending policy into the control record's confirmed policy, prepare the grant for that
+     * revision, publish {@code SERVING} intent, and activate the matching grant. Returns the serving
+     * record. A failure at any step stops the sequence; admission stays closed and the control
+     * record stays as the failed step left it. The caller keeps the renewal loop running and the
+     * standbys started. There is no bootstrap ready flag: the result is the confirmed policy, the
+     * serving intent, and the open grant.
+     */
+    public Future<PgControlRecord> serve(PgControlRecord held, PgFailoverMode mode) {
+        Objects.requireNonNull(held, "held");
+        Objects.requireNonNull(mode, "mode");
+        return monitor.installPendingPolicy(held)
+            .compose(ignored -> elector.update(held, confirmedIntent(held.intent())))
+            .compose(confirmed -> monitor.prepareWriter(confirmed, mode)
+                .compose(prepared -> elector.update(confirmed, servingIntent(confirmed.intent()))
+                    .compose(serving -> monitor.activateWriter(serving, prepared).map(open -> serving))))
+            .onFailure(failure -> logger.error("Bootstrap admission failed on node {}", config.nodeId(), failure));
+    }
+
+    /** The pending policy becomes the confirmed policy. The phase stays withdrawn. */
+    private static JsonObject confirmedIntent(JsonObject intent) {
+        JsonObject pending = (JsonObject) intent.remove("pendingDurabilityPolicy");
+        return intent.put("durabilityPolicy", pending);
+    }
+
+    private static JsonObject servingIntent(JsonObject intent) {
+        return intent.put("phase", "SERVING");
     }
 
     private Future<PgControlRecord> startUnderOwnership(PgBootstrapRequest request, PgControlRecord held) {
