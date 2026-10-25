@@ -2068,9 +2068,10 @@ log exists when the caller's handler runs. It passes on the new code. The failur
 six saved full core runs of 24 and 25 October; the other five passed, one of them on the new code. One
 passing run is weaker evidence than a red would be.
 
-The testing standards document names `.onFailure(log)` on a returned Future as not an antipattern
+The testing standards document named `.onFailure(log)` on a returned Future as not an antipattern
 ("NOT AN ANTIPATTERN"). That holds for the production behaviour. It does not hold for a log line that a
-test declares as expected. The document is not changed here. It needs an owner decision.
+test declares as expected. On 2026-10-25 the section gained an exception that requires `andThen` for such
+a line, and `pgq-coding-principles.md` section 9 points to it.
 
 **Runs after the last source change.** Every class reports zero failures, errors, and skips.
 
@@ -2086,8 +2087,11 @@ test declares as expected. The document is not changed here. It needs an owner d
 - The Jenkins build. Jenkins builds the pushed branch. Nothing is pushed, and the build is the owner's
   call. The commit needs the `Jenkinsfile`, `pom.xml`, and test changes of this section.
 - The race above has no deterministic red.
-- The `.onFailure(log)`-on-a-returned-future pattern was removed from this module only. Other modules were
-  not searched.
+- The `.onFailure(log)`-on-a-returned-future pattern was removed from this module only. The other modules
+  were searched on 2026-10-25: 341 `onFailure` sites that log in 89 files of 12 modules, and 340 declared
+  `@ExpectedErrorLog` expectations in 65 test files. The exposure is a register backlog row. The standards
+  documents now state the rule (`andThen` where a test declares the ERROR). No site outside this module
+  was changed.
 - No production entry point calls `PgBootstrap`, the renewal loop, or the watchdog. Resuming an
   interrupted `serve` needs the takeover path (7b.3).
 

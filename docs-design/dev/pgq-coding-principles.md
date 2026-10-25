@@ -543,6 +543,12 @@ return step1()
 Use `.onFailure()` for logging, metrics, and alerts. It is terminal; it is not control
 flow.
 
+When a test declares the logged line with `@ExpectedErrorLog`, use `.andThen(outcome -> { if
+(outcome.failed()) log.error(...); })` instead. `.onFailure()` adds a second listener to the future that
+the caller also listens to, and Vert.x gives no order between them. A line logged after the test
+completed fails the run intermittently. The reason and an example are in
+`docs-design/testing/PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md`, section "NOT AN ANTIPATTERN".
+
 ### 3. Cleanup that must run regardless of outcome
 
 ```java
