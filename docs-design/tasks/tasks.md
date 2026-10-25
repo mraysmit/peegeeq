@@ -1067,8 +1067,15 @@ Phase 7b.2 closing of the open items of the 2026-10-24 check, 2026-10-25 (workin
   included). Output: `logs/peegeeq-pg-failover-core-andthen-20261025.log`.
 - Guards in `peegeeq-test-support` (61 tests, five guard classes 14): zero failures. `node --test
   scripts/ci`: 21 pass.
-- Not closed: the Jenkins build (the owner pushes; Jenkins builds the pushed branch); the race has no
-  deterministic red; no production entry point calls `PgBootstrap`.
+- Not closed: the Jenkins build; the race has no deterministic red; no production entry point calls
+  `PgBootstrap`. The Jenkins builds were attempted on 2026-10-25 at `240be0a7` (pushed; `HEAD` equals
+  `origin/master`) on `http://192.168.137.32:8080`: builds 32 (`core`), 33 and 34 (`all`, resumed at
+  `peegeeq-pg-failover`; the job accepts that choice since build 32). Each failed in the Checkout stage and
+  ran no test: the workspace was empty, so each was a full clone, and each clone was reset ("RPC failed; curl 56
+  Recv failure: Connection reset by peer") at 44%, 61%, and 45% of 38,758 objects, at 30 KiB/s, 5.5 MiB/s,
+  and 0.8 MiB/s. The Jenkins web interface also timed out during the clones and answered between them.
+  The consoles are `logs/jenkins-32-console-20261025.log`, `-33-`, and `-34-`. The cause is on the host or
+  its route to GitHub; it was not measured, because commands on that host are the owner's to run.
 - Closed on 2026-10-25 after the list above: other modules were searched for the
   `onFailure`-on-a-returned-future pattern and the exposure is a backlog row (341 sites, 89 files,
   12 modules; 340 declared expectations in 65 test files; none of the 576 saved logs holds the signature
