@@ -2084,8 +2084,11 @@ a line, and `pgq-coding-principles.md` section 9 points to it.
 
 **Not closed.**
 
-- The Jenkins build. Jenkins builds the pushed branch. Nothing is pushed, and the build is the owner's
-  call. The commit needs the `Jenkinsfile`, `pom.xml`, and test changes of this section.
+- The Jenkins build. The changes of this section are pushed (`240be0a7`). On 2026-10-25 three builds
+  (32, 33, 34) were started on `http://192.168.137.32:8080`. Each failed in the Checkout stage, with the
+  workspace empty and the full clone reset by the peer at 44%, 61%, and 45%. No test ran. See the register
+  (`docs-design/tasks/tasks.md`) for the figures and the console logs. The cause is on the host or its
+  route to GitHub.
 - The race above has no deterministic red.
 - The `.onFailure(log)`-on-a-returned-future pattern was removed from this module only. The other modules
   were searched on 2026-10-25: 341 `onFailure` sites that log in 89 files of 12 modules, and 340 declared
@@ -2094,4 +2097,58 @@ a line, and `pgq-coding-principles.md` section 9 points to it.
   was changed.
 - No production entry point calls `PgBootstrap`, the renewal loop, or the watchdog. Resuming an
   interrupted `serve` needs the takeover path (7b.3).
+
+### 9.20 Patroni Operations Matrix, 2026-10-25
+
+The owner directed on 2026-10-25 that PeeGeeQ duplicate Patroni's operations, because Patroni's design
+has had more operational review. This section lists each Patroni operation and its state in this design
+and in `peegeeq-pg-failover`. It changes no design contract and no code. Rows marked **Decision** need
+an owner decision before any work. No row is scheduled by this section.
+
+Patroni sources read on 2026-10-25: the replication modes, watchdog, configuration
+(`patroni_configuration`, `dynamic_configuration`, `yaml_configuration`), REST API, pause, DCS failsafe,
+replica bootstrap, existing data, and standby cluster pages; the FAQ; and `patroni/ha.py` (read in two
+parts). The HA loop diagram page does not exist as text. Statuses for PeeGeeQ come from §8.1, the three
+design documents, the class list of `peegeeq-pg-failover/src/main`, and searches of the design folder and
+the module source for `replication slot`, `CHECKPOINT`, `nofailover`, `failsafe`, `pg_rewind`, and
+`timeline`. No test was run for this section.
+
+| # | Patroni operation | PeeGeeQ state | Class |
+|---|---|---|---|
+| 1 | Leader key with TTL, renewed each loop; `loop_wait + 2 × retry_timeout <= ttl` | Built: Consul lease, `PgRenewalLoop`, the same rule in `PgNodeConfig` | Covered |
+| 2 | Demote on failed renewal | Built: the monitor stops PostgreSQL and records a `stop-writer` receipt | Covered |
+| 3 | Demote modes `graceful` (checkpoint, release key), `immediate`, `immediate-nolock`, `offline` | One stop path: fast stop, then immediate. No checkpoint-and-release path | Gap |
+| 4 | Leader-race checks: `nofailover`, lag limit, timeline, watchdog healthy, sync members only, REST poll of other members' WAL, `failover_priority` | Designed, not built: promotion does not exist. Eligibility is coverage by the last confirmed policy. The choice between two covered standbys and the candidate timeline check are not specified | Gap |
+| 5 | `primary_start_timeout`, `primary_stop_timeout` | Stop budget built. Start timeout designed (default 0), not built | Partly |
+| 6 | DCS failsafe mode | Decided against for the baseline (system design §5.7). A coordinator outage makes the writer self-demote, so the cluster stops accepting writes | **Decision** |
+| 7 | Pause (maintenance) mode | Not in the design. No way to maintain the coordinator without writer demotion | **Decision** |
+| 8 | Switchover (immediate, scheduled, cancel) and manual failover | Designed, not built (7b.3). No scheduled switchover and no cancel | Gap |
+| 9 | Restart (conditional, scheduled), reload, `pending_restart` | Not in the design | **Decision** |
+| 10 | `reinitialize`, `pg_rewind`, `remove_data_directory_on_rewind_failure` | Operator-controlled rewind or rebuild under quarantine. Commands undecided and unbuilt | **Decision** |
+| 11 | Bootstrap: `initdb`, initialize lock, `create_replica_methods`, `basebackup`, `clonefrom` | Scope A and B built. The deployment supplies standby data directories (OD-10). No supervisor base-backup action | Different |
+| 12 | Synchronous mode, strict, quorum, `/sync` key | Built and stricter: fixed `ANY n` set, no downgrade, install then confirm. No dynamic replacement of a lagging sync standby | Covered |
+| 13 | Backend cancelled while waiting for acknowledgement makes its changes visible before replication (Patroni's documented limit) | Not checked. Tests cover weakened `synchronous_commit` and a stopped standby, and the third OD-12 test cancels the backend while it waits. Whether visibility before replication is excluded is not established | Unchecked |
+| 14 | Watchdog modes; activate before promotion; feed after lock update; disarm at stop | Modes built; no-device paths tested; applied at primary start only; no real device armed | Partly |
+| 15 | Dynamic configuration in the coordinator (`edit-config`, `PATCH /config`) | Not in the design. Configuration is static per node | **Decision** |
+| 16 | REST health endpoints `/replica`, `/sync`, `/read-only`, `/liveness`, `/readiness` | Not built. The sidecar answers `/primary` from `pg_is_in_recovery()` only | Gap |
+| 17 | `/cluster`, `/history`, `/patroni`, `/metrics` | Not in the design | **Decision** |
+| 18 | REST authentication, TLS, allowlist | Designed for the sidecar, not built | Gap |
+| 19 | Member tags `nofailover`, `noloadbalance`, `clonefrom`, `nosync`, `nostream`, `replicatefrom` | Not in the design. An operator cannot exclude a node from promotion | **Decision** |
+| 20 | Replication slots, permanent slots, `member_slots_ttl` | Not in the design or the code. Without slots a lagging standby can lose required WAL (S31) | Gap |
+| 21 | CHECKPOINT after promotion | Not in the design or the code. Seen in `ha.py` (`checkpoint_after_promote`). The PostgreSQL `pg_rewind` requirement behind it was not re-read | Gap |
+| 22 | Repoint standbys to the new leader | Designed ("attach surviving peer"), not built | Gap |
+| 23 | Callbacks `on_start`, `on_stop`, `on_restart`, `on_reload`, `on_role_change` | Not in the design | **Decision** |
+| 24 | Leader key released when the agent stops | Differs: closing the elector never releases. A planned supervisor stop leaves the lease until expiry | **Decision** |
+| 25 | System identifier mismatch is a fatal exit | Partly: cluster namespace and `peegeeq.node_id`; bootstrap validates a common database identity; no continuous check | Partly |
+| 26 | Adopt an existing cluster | Not in the design. Bootstrap refuses existing history | **Decision** |
+| 27 | Configuration generation and validation | `PgNodeConfig` validates timing. No generator | Partly |
+| 28 | Cascading replication, standby clusters, Citus, Kubernetes coordinator | Out of scope for this design | Out of scope |
+
+Proposed handling, for the owner to accept or change: rows 20, 21, and 22 enter the 7b.3 promotion work,
+because promotion and re-join depend on them. Rows marked **Decision** wait for the owner. Row 13 gets a
+test before any claim is made.
+
+Not checked by this section: plan §9.1 to §9.15 history; the code of each class behind a "Built" status;
+the `patronictl` page; Patroni's `update_lock` definition, which is outside the returned excerpt of
+`ha.py`; the Kubernetes and Citus pages.
 
