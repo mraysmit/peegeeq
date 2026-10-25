@@ -1153,3 +1153,30 @@ The error propagates through the chain; the log is supplementary. This is correc
 (`peegeeq-db/src/main/java/dev/mars/peegeeq/db/provider/PgConnectionProvider.java`). It
 becomes a violation only when the future is not returned or chained, which is the
 [fire-and-forget](#serious-fire-and-forget-futures) case.
+
+### Exception: a log line that a test declares as expected
+
+Vert.x gives no order between two listeners of one future (see
+[Callback ordering](#callback-ordering)). The logging listener and the caller's listener can run in
+either order. A test that declares the line with `@ExpectedErrorLog` closes its ERROR scope when its
+own handler completes the test. A log line that follows that handler is attributed to no test, and the
+run fails with "Expected ERROR occurrence mismatch ... observed=0" together with a class-level
+"Unexpected ERROR" for the same line. The failure is intermittent and does not reproduce when the test
+runs alone.
+
+Where a test declares the ERROR, sequence the log into the returned future with `andThen`, so the
+future completes only after the line is logged:
+
+```java
+// WRONG for a declared ERROR: the caller's listener may run first
+return operation().onFailure(failure -> logger.error("Operation failed", failure));
+
+// CORRECT: the returned future completes after the handler has run
+return operation().andThen(outcome -> {
+    if (outcome.failed()) logger.error("Operation failed", outcome.cause());
+});
+```
+
+`peegeeq-pg-failover` uses `andThen` at every such site. Other modules still use `.onFailure(log)`
+at sites whose ERROR a test declares. Fix a site in the commit that shows the signature above, or in a
+sweep the register schedules (`docs-design/tasks/tasks.md`, backlog).
