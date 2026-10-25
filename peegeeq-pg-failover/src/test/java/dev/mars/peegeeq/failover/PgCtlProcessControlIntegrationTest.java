@@ -174,6 +174,32 @@ class PgCtlProcessControlIntegrationTest {
         })));
     }
 
+    @Test void aRunnerThatReturnsNoResultFailsEveryOperation(VertxTestContext context) {
+        var silent = new PgCtlProcessControl(new NoResultCommandRunner(runner), POSTGRES.prefix(),
+            PgSupervisedContainer.PG_CTL, dataDirectory, POSTGRES.logFile(dataDirectory), COMMAND_TIMEOUT);
+        silent.status().transform(status -> {
+            assertNoResult(status);
+            return silent.startPrimary();
+        }).transform(start -> {
+            assertNoResult(start);
+            return silent.startInRecovery();
+        }).transform(recovery -> {
+            assertNoResult(recovery);
+            return silent.stop(STOP_BUDGET);
+        }).onComplete(context.failing(failure -> context.verify(() -> {
+            assertInstanceOf(PgProcessControlException.class, failure);
+            assertTrue(failure.getMessage().startsWith("Command returned no result"), failure.getMessage());
+            context.completeNow();
+        })));
+    }
+
+    private static void assertNoResult(io.vertx.core.AsyncResult<?> outcome) {
+        assertTrue(outcome.failed(), "An operation succeeded although its command returned no result");
+        assertInstanceOf(PgProcessControlException.class, outcome.cause());
+        assertTrue(outcome.cause().getMessage().startsWith("Command returned no result"),
+            outcome.cause().getMessage());
+    }
+
     @Test void stopThatCannotFinishFailsWithinItsBudget(VertxTestContext context) {
         // A one-millisecond budget cannot cover one command. The failure must still be prompt.
         long started = System.nanoTime();

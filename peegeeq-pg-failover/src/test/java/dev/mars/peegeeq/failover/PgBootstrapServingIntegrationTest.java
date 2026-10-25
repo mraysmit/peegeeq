@@ -1,5 +1,9 @@
 package dev.mars.peegeeq.failover;
 
+import dev.mars.peegeeq.db.config.PgConnectionConfig;
+import dev.mars.peegeeq.db.config.PgPoolConfig;
+import dev.mars.peegeeq.db.connection.PgCommitOutcomeUnknownException;
+import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.failover.consul.ConsulLeaseCoordinator;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
@@ -9,6 +13,7 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -65,6 +70,7 @@ class PgBootstrapServingIntegrationTest {
     private PgAdmissionGate gate;
     private PgWatchdog watchdog;
     private volatile boolean consulPaused;
+    private PgConnectionManager connectionManager;
 
     @BeforeAll static void startContainers() {
         CONSUL.start();
@@ -107,6 +113,7 @@ class PgBootstrapServingIntegrationTest {
     @AfterEach void tearDown(VertxTestContext context) {
         // A frozen coordinator must be resumed before anything else talks to it.
         (consulPaused ? resumeConsul() : Future.<Void>succeededFuture())
+            .compose(ignored -> connectionManager == null ? Future.<Void>succeededFuture() : connectionManager.close())
             .compose(ignored -> NODES.forceStopAll(runner)).eventually(() -> {
             Future<Void> closed = elector.close();
             for (PgPrimaryElector observer : observers) closed = closed.compose(ignored -> observer.close());
@@ -446,6 +453,142 @@ class PgBootstrapServingIntegrationTest {
                 assertNotEquals(0, application.exitCode(), "Admission opened after ownership expired");
                 context.completeNow();
             })).onFailure(context::failNow);
+    }
+
+    // ---------------------------------------------------------------- production-manager write (OD-12)
+
+    @Test
+    @io.vertx.junit5.Timeout(value = 120, timeUnit = TimeUnit.SECONDS)
+    void aProductionManagerWriteBeforeServingIsRejectedByTheClosedGate(VertxTestContext context) {
+        started(bootstrap(durability(COMMAND_TIMEOUT), gate)).compose(start -> createProbeTable()
+            .compose(created -> writeThroughTheProductionManager()).transform(write -> {
+                assertTrue(write.failed(), "The production manager wrote through a closed admission gate");
+                return NODES.node(WRITER).sql(runner, "select count(*) from " + PROBE_SCHEMA + ".writes");
+            })).onSuccess(count -> context.verify(() -> {
+                assertEquals("0", count.output().strip(), "A rejected write left a row");
+                context.completeNow();
+            })).onFailure(context::failNow);
+    }
+
+    @Test
+    @io.vertx.junit5.Timeout(value = 120, timeUnit = TimeUnit.SECONDS)
+    void aProductionManagerWriteAfterServingIsAcknowledgedByBothStandbys(VertxTestContext context) {
+        var control = durability(COMMAND_TIMEOUT);
+        started(bootstrap(control, gate)).compose(start -> createProbeTable()
+            .compose(created -> start.bootstrap.serve(start.held, PgFailoverMode.MANUAL))
+            .compose(serving -> writeThroughTheProductionManager())
+            .compose(lsn -> control.peers().map(peers -> {
+                for (String standby : STANDBYS) {
+                    var peer = peers.stream().filter(found -> standby.equals(found.applicationName())).findFirst()
+                        .orElseThrow(() -> new AssertionError(standby + " is not connected"));
+                    assertTrue(peer.flushLsn().reached(lsn), standby + " has not flushed the acknowledged write: "
+                        + peer.flushLsn() + " before " + lsn);
+                    assertEquals("quorum", peer.syncState());
+                }
+                return null;
+            }))).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+    }
+
+    @Test
+    @io.vertx.junit5.Timeout(value = 120, timeUnit = TimeUnit.SECONDS)
+    void aWeakenedCommitPolicyStillWaitsForBothStandbysAndReportsAnUnknownOutcome(VertxTestContext context) {
+        var control = durability(COMMAND_TIMEOUT);
+        var missing = STANDBYS.get(1);
+        started(bootstrap(control, gate)).compose(start -> createProbeTable()
+            .compose(created -> start.bootstrap.serve(start.held, PgFailoverMode.MANUAL))
+            .compose(serving -> NODES.node(missing).forceStop(runner, NODES.dataDirectory()))
+            .compose(stopped -> awaitPeerGone(control, missing, System.nanoTime() + TimeUnit.SECONDS.toNanos(30)))
+            .compose(gone -> {
+                var manager = productionManager();
+                // The caller asks for asynchronous commit. The manager restores the required policy before commit.
+                Future<Void> write = manager.withTransaction(WRITER_SERVICE, connection ->
+                    connection.query("select pg_backend_pid() as pid").execute().compose(rows -> {
+                        writeBackend = rows.iterator().next().getInteger("pid");
+                        return connection.query("set local synchronous_commit = off").execute();
+                    }).compose(set -> connection.preparedQuery("insert into " + PROBE_SCHEMA + ".writes (id) values ($1)")
+                        .execute(Tuple.of(2))).mapEmpty());
+                return awaitCommitWait(manager, write, System.nanoTime() + TimeUnit.SECONDS.toNanos(15))
+                    .compose(waiting -> manager.withTransaction(OBSERVER_SERVICE, connection ->
+                        connection.preparedQuery("select pg_cancel_backend($1) as cancelled")
+                            .execute(Tuple.of(writeBackend))))
+                    .compose(cancelled -> {
+                        assertTrue(cancelled.iterator().next().getBoolean("cancelled"));
+                        return write.transform(result -> {
+                            assertTrue(result.failed(), "A write was acknowledged with a required standby missing");
+                            assertInstanceOf(PgCommitOutcomeUnknownException.class, result.cause());
+                            return NODES.node(WRITER).sql(runner, "select count(*) from " + PROBE_SCHEMA + ".writes");
+                        });
+                    });
+            })).onSuccess(count -> context.verify(() -> {
+                assertEquals("1", count.output().strip(),
+                    "The unacknowledged commit is locally committed; it is not reported as a rollback");
+                context.completeNow();
+            })).onFailure(context::failNow);
+    }
+
+    private static final String PROBE_SCHEMA = "bootstrap_probe";
+    private static final String WRITER_SERVICE = "writer";
+    private static final String OBSERVER_SERVICE = "observer";
+    private volatile int writeBackend;
+
+    /** The table the production manager writes. It is created over the local socket, which the gate never closes. */
+    private Future<Void> createProbeTable() {
+        return NODES.node(WRITER).sql(runner, "create schema " + PROBE_SCHEMA + "; create table " + PROBE_SCHEMA
+            + ".writes (id int)").map(created -> {
+                assertEquals(0, created.exitCode(), created.output());
+                return null;
+            });
+    }
+
+    /** The production connection manager, connected directly to the writer node, not through a proxy. */
+    private PgConnectionManager productionManager() {
+        if (connectionManager != null) return connectionManager;
+        connectionManager = new PgConnectionManager(vertx);
+        var pool = new PgPoolConfig.Builder().maxSize(3).shared(false)
+            .connectionTimeout(Duration.ofSeconds(2)).idleTimeout(Duration.ofSeconds(2)).build();
+        var writer = new PgConnectionConfig.Builder().host(NODES.node(WRITER).host())
+            .port(NODES.node(WRITER).mappedPort()).database("postgres").username("postgres").password("postgres")
+            .schema(PROBE_SCHEMA).build();
+        connectionManager.getOrCreateReactivePool(WRITER_SERVICE, writer, pool);
+        connectionManager.getOrCreateReactivePool(OBSERVER_SERVICE, writer, pool);
+        return connectionManager;
+    }
+
+    /** One acknowledged write. Returns the WAL insert position read inside the transaction. */
+    private Future<PgLsn> writeThroughTheProductionManager() {
+        return productionManager().withTransaction(WRITER_SERVICE, connection ->
+            connection.preparedQuery("insert into " + PROBE_SCHEMA + ".writes (id) values ($1)")
+                .execute(Tuple.of(1))
+                .compose(inserted -> connection.query("select pg_current_wal_insert_lsn()::text as lsn").execute())
+                .map(rows -> PgLsn.parse(rows.iterator().next().getString("lsn"))));
+    }
+
+    private Future<Void> awaitPeerGone(PgDurabilityControl control, String standby, long deadline) {
+        return control.peers().compose(peers -> {
+            if (peers.stream().noneMatch(peer -> standby.equals(peer.applicationName()))) {
+                return Future.<Void>succeededFuture();
+            }
+            if (System.nanoTime() >= deadline) {
+                return Future.<Void>failedFuture(new AssertionError(standby + " is still connected"));
+            }
+            return vertx.timer(100).compose(ignored -> awaitPeerGone(control, standby, deadline));
+        });
+    }
+
+    /** Polls until the write's backend waits for synchronous replication. Fails if the write ends first. */
+    private Future<Void> awaitCommitWait(PgConnectionManager manager, Future<?> write, long deadline) {
+        if (write.isComplete()) {
+            return Future.failedFuture(new AssertionError("The write completed before the missing standby returned"));
+        }
+        return manager.withTransaction(OBSERVER_SERVICE, connection -> connection.preparedQuery(
+                "select count(*) as count from pg_stat_activity where pid = $1 and wait_event = 'SyncRep'")
+            .execute(Tuple.of(writeBackend))).compose(rows -> {
+                if (rows.iterator().next().getLong("count") == 1) return Future.<Void>succeededFuture();
+                if (System.nanoTime() >= deadline) {
+                    return Future.<Void>failedFuture(new AssertionError("The commit never waited for synchronous replication"));
+                }
+                return vertx.timer(25).compose(ignored -> awaitCommitWait(manager, write, deadline));
+            });
     }
 
     /** Wraps the real durability control. After the installation took effect it waits until ownership is stale. */

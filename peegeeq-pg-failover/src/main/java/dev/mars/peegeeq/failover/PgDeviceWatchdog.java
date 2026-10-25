@@ -107,7 +107,10 @@ public final class PgDeviceWatchdog implements PgWatchdog {
                 throw new PgWatchdogException("Watchdog device I/O failed", failure);
             }
         };
-        return vertx.executeBlocking(call).onFailure(failure ->
-            logger.error("Watchdog operation failed: {}", operation, failure));
+        // andThen, not onFailure: the caller sees the failure only after it is logged. Two listeners of one
+        // future have no order, and a test that expects the ERROR closes its scope when its handler runs.
+        return vertx.executeBlocking(call).andThen(outcome -> {
+            if (outcome.failed()) logger.error("Watchdog operation failed: {}", operation, outcome.cause());
+        });
     }
 }

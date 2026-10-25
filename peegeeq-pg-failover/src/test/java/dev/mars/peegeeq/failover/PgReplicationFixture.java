@@ -20,10 +20,16 @@ import java.util.UUID;
 public final class PgReplicationFixture implements AutoCloseable {
     public static final String WRITER = "pg-node-1";
     public static final List<String> STANDBYS = List.of("pg-node-2", "pg-node-3");
+    /**
+     * What provisioning may take. The {@code @BeforeEach} of a test that provisions has a Vert.x limit of
+     * 120 seconds; the rest of its setup needs the remainder. A contract test asserts this budget.
+     */
+    public static final Duration PROVISIONING_BUDGET = Duration.ofSeconds(90);
     private static final Duration COMMAND_TIMEOUT = Duration.ofSeconds(20);
     private final Network network = Network.newNetwork();
     private final Map<String, PgSupervisedContainer> nodes = new LinkedHashMap<>();
     private String dataDirectory;
+    private volatile Duration lastProvisioning;
 
     public PgReplicationFixture() {
         nodes.put(WRITER, new PgSupervisedContainer(network, WRITER));
@@ -57,8 +63,25 @@ public final class PgReplicationFixture implements AutoCloseable {
             node.logFile(dataDirectory), COMMAND_TIMEOUT);
     }
 
-    /** Provisions a new cluster in a new data directory on every node. Every node is left stopped. */
+    /**
+     * Provisions a new cluster in a new data directory on every node. Every node is left stopped. A
+     * cluster that an earlier test left running holds the ports of this one, because vertx-junit5 does
+     * not await an asynchronous teardown after a failed test. It is stopped first.
+     */
     public Future<Void> provision(PgCommandRunner runner) {
+        long started = System.nanoTime();
+        return forceStopAll(runner).compose(ignored -> provisionNew(runner)).map(provisioned -> {
+            lastProvisioning = Duration.ofNanos(System.nanoTime() - started);
+            return provisioned;
+        });
+    }
+
+    /** How long the last {@link #provision} took, including the stop of an earlier cluster. */
+    public Duration lastProvisioningDuration() {
+        return lastProvisioning;
+    }
+
+    private Future<Void> provisionNew(PgCommandRunner runner) {
         String directory = "/var/lib/postgresql/" + UUID.randomUUID();
         dataDirectory = directory;
         PgSupervisedContainer writer = node(WRITER);

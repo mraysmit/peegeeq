@@ -388,8 +388,12 @@ public final class PgFailoverMonitor {
                 return Future.failedFuture(failure);
             }
             // The failure is also returned to the caller. This is the one place that reports every one.
-            return result.onFailure(failure ->
-                logger.error("Local supervision operation failed on node {}", config.nodeId(), failure));
+            // andThen, not onFailure: the caller sees the failure only after it is logged.
+            return result.andThen(outcome -> {
+                if (outcome.failed()) {
+                    logger.error("Local supervision operation failed on node {}", config.nodeId(), outcome.cause());
+                }
+            });
         });
         tail = next;
         return next;

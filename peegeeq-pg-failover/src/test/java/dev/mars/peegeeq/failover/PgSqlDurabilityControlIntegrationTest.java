@@ -352,6 +352,32 @@ class PgSqlDurabilityControlIntegrationTest {
             })));
     }
 
+    @Test void aRunnerThatReturnsNoResultFailsEveryOperation(VertxTestContext context) {
+        var silent = new PgSqlDurabilityControl(vertx, new NoResultCommandRunner(runner), NODES.node(WRITER).prefix(),
+            PgSupervisedContainer.PG_CTL, "psql", NODES.dataDirectory(), COMMAND_TIMEOUT);
+        silent.flushBoundary().transform(boundary -> {
+            assertNoResult(boundary);
+            return silent.peers();
+        }).transform(peers -> {
+            assertNoResult(peers);
+            return silent.confirmCovered(POLICY);
+        }).transform(coverage -> {
+            assertNoResult(coverage);
+            return silent.install(POLICY);
+        }).onComplete(context.failing(failure -> context.verify(() -> {
+            assertInstanceOf(PgDurabilityException.class, failure);
+            assertTrue(failure.getMessage().startsWith("Command returned no result"), failure.getMessage());
+            context.completeNow();
+        })));
+    }
+
+    private static void assertNoResult(io.vertx.core.AsyncResult<?> outcome) {
+        assertTrue(outcome.failed(), "An operation succeeded although its command returned no result");
+        assertInstanceOf(PgDurabilityException.class, outcome.cause());
+        assertTrue(outcome.cause().getMessage().startsWith("Command returned no result"),
+            outcome.cause().getMessage());
+    }
+
     @Test void coverageWithoutTimeToRunFailsPromptly(VertxTestContext context) {
         control(WRITER, NODES.node(WRITER).prefix(), "psql", Duration.ofMillis(1)).confirmCovered(POLICY)
             .onComplete(context.failing(failure -> context.verify(() -> {

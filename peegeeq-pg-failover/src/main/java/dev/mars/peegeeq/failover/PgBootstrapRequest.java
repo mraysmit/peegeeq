@@ -52,7 +52,9 @@ public record PgBootstrapRequest(String clusterId, String incarnation, List<Stri
                     return Future.<PgBootstrapRequest>failedFuture(invalid instanceof PgBootstrapException known
                         ? known : new PgBootstrapException("The bootstrap request is invalid", invalid));
                 }
-            }).onFailure(failure -> logger.error("Bootstrap request rejected", failure));
+            }).andThen(outcome -> {
+                if (outcome.failed()) logger.error("Bootstrap request rejected", outcome.cause());
+            });
     }
 
     /** Withdrawn intent that names this request's writer and operation, with pending policy revision 1. */

@@ -825,7 +825,8 @@ for that day's revision. The rows dated 2026-10-21 and 2026-10-22 have their run
 | 7b.2 bootstrap scope B, increment B1 (OD-9 to OD-11) | Implemented and tested, 2026-10-22 | `PgDurabilityControl` port; `PgSqlDurabilityControl` adapter. It reads the writer's WAL flush boundary (refused in recovery), lists replication peers, and installs a policy by OD-9. `PgDurabilityPolicy` is the typed form of the control record's policy: it generates the quoted setting and holds the coverage rule (OD-11). `PgLsn` and `PgReplicationPeer` are derived observations. No command argument contains a double quote: the installed value is an escape string. Nothing calls the port yet. |
 | 7b.2 bootstrap scope B, increment B2, step 1: guarded policy installation | Implemented and tested, 2026-10-24 | `PgDurabilityControl.confirmCovered` observes one fresh flush boundary and waits for every required standby to cover it within the adapter's budget. `PgFailoverMonitor.installPendingPolicy(held)` derives the policy from the held record's pending policy, closes the grant and the gate, confirms coverage, and installs under the `install-policy` receipt (`COMPLETED`, or `UNKNOWN` after a failed install). The control record is not changed. `PgFailoverMonitor` takes a `PgDurabilityControl`. See §9.16. |
 | 7b.2 bootstrap scope B, increment B2, step 2: confirmation, publication, activation | Implemented and tested, 2026-10-24 | `PgBootstrap.serve(held, mode)` runs after `start`: install the pending policy, confirm revision 1 (the pending policy becomes `durabilityPolicy`), prepare the grant, publish `SERVING`, activate the grant. A failure at any step leaves admission closed and the record where the step left it. No bootstrap receipt result is written; completion is derived. See §9.17. |
-| 7b.2 bootstrap scope B, increment B2, remaining step | Not implemented | The production-manager write under the required commit policy (OD-12), a production entry point, and the verified restart of an interrupted `serve`. Stopped-before-release remains open. |
+| 7b.2 bootstrap scope B, increment B2, step 3: production-manager write (OD-12) | Implemented and tested, 2026-10-25 | `peegeeq-db` is a test-scope dependency. The production `PgConnectionManager` connects directly to the writer node (the fixture publishes its port), not through HAProxy. Three tests in `PgBootstrapServingIntegrationTest`: a write before serving is rejected by the closed gate; a write after serving is acknowledged by both standbys (flush position checked); a caller that sets `synchronous_commit = off` still waits for both standbys and gets `PgCommitOutcomeUnknownException` with one standby stopped. See §9.19. |
+| 7b.2 bootstrap scope B, remaining | Not implemented | A production entry point that calls `PgBootstrap`, the renewal loop, and the watchdog; resuming an interrupted `serve` (the takeover path, 7b.3). Stopped-before-release remains open. |
 | 7b.3 manual takeover and re-join | Not implemented by the new module | Requires supervised transitions, old-writer exclusion, policy cutover, repeated failover, and routed production-manager assertions. |
 | G-7 full coordinator qualification | Open | Snapshot/restore, TLS, stopped-before-release, and expiry versus independent old-writer exclusion remain unverified. Component success does not close G-7. |
 
@@ -1039,8 +1040,11 @@ that returns no result, and the real runner never returns none. Item 5 is otherw
 11. **First-start bootstrap, scope B, increment B2, step 2: confirmation, publication, and
     activation.** Complete, 2026-10-24 (§8.1, §9.17).
 
-Next, the remaining step of bootstrap scope B increment B2 within 7b.2, on the same fixture: the
-production-manager write. The text below describes the whole of scope B. Scope A covers
+12. **First-start bootstrap, scope B, increment B2, step 3: the production-manager write.**
+    Complete, 2026-10-25 (§8.1, §9.19). Scope B increment B2 is complete.
+
+Next in 7b.2: the real-device watchdog run on a Linux host. Then 7b.3 (manual takeover), which also
+resumes an interrupted `serve`. The text below describes the whole of scope B. Scope A covers
 request verification, withdrawn intent, and the guarded primary start. Scope B adds system
 design §5.11 steps 3 to 5: guarded standby start and validation, the fresh WAL boundary check,
 policy installation, confirmation of revision 1, prepare/publish/activate, and a
@@ -2011,7 +2015,7 @@ repository. Nothing is left as "not checked" except the items stated under "Not 
 | The `Jenkinsfile` | It does not name `peegeeq-pg-failover` (search), so `ALL_TESTS_START_MODULE` cannot start a resumed run at it. A full run includes it through the root reactor. |
 | A failed test leaves servers running and fails later tests (§9.11) | The mechanism is register finding 13: vertx-junit5 5.0.4 does not await an asynchronous `@AfterEach` after a failed test, so the teardown is interrupted. The mutation runs of this step logged `Interrupted while waiting for command: pg_ctl stop` after each deliberate failure. The correction belongs to the cleanup helper of Task 9, correction 5. It is not changed here. |
 
-**Not closed.**
+**Not closed.** Superseded on 2026-10-25: §9.19 closes each item below, except the Jenkins run.
 
 - A runner that returns no result: the adapter, the gate, and the process control each guard against
   it, and no test exists, because the real runner never returns none and a test needs a stub of the
@@ -2032,4 +2036,58 @@ repository. Nothing is left as "not checked" except the items stated under "Not 
 | `integration-tests` | `PgPolicyInstallationIntegrationTest`, rerun after its fault helper changed | 14 | `peegeeq-pg-failover-policy-install-final-20261024.log` |
 | `integration-tests` | `PgSqlDurabilityControlIntegrationTest`, rerun after its missing-peer test changed | 18 | `peegeeq-pg-failover-durability-final-20261024.log` |
 | default/core | seven classes | 89 | `peegeeq-pg-failover-core-checks-20261024.log` |
+
+### 9.19 Closing the Open Items of §9.18, 2026-10-25
+
+Six items were open at the end of §9.18. Each now has a test or a check that fails when the item is
+wrong. One item cannot be run from the workstation: the Jenkins build.
+
+| Item | Result | Evidence under `logs/` |
+|---|---|---|
+| A failed test leaves servers running and fails the next test (§9.11) | `PgReplicationFixture.provision` and `PgSupervisedContainer.newDataDirectory` stop the cluster an earlier test left running before they provision. Contract class `PgFixtureLeftoverServerContractIntegrationTest` (4 tests). The mechanism is unchanged: vertx-junit5 does not await an asynchronous teardown after a failed test (register finding 13). The fixtures no longer depend on it. | Red: `peegeeq-pg-failover-fixture-contract-red-20261025.log` ("Starting the writer for provisioning failed ... could not start server"). Green: `-green-` |
+| A runner that returns no result | The earlier statement that this needs a stub the no-mocking rule excludes was wrong. `NoResultCommandRunner` runs the real command and drops its result, the same shape as `ObservedLeaseCoordinator`. One test each for the process control, the admission gate, and the durability adapter. | Green first run: `peegeeq-pg-failover-no-result-run1-20261025.log`. With the three guards removed all three tests failed: `-no-result-mutation-red-` |
+| The red state of the coverage batch was not saved | Rebuilt in an isolated git worktree: the tests of `76208e9c` against the production files of `64a84289`. Compilation fails with `cannot find symbol: class PgStandbyNotCoveredException`. The worktree was removed. | `peegeeq-pg-failover-coverage-batch-red-20261025.log` |
+| Production-manager write (OD-12) | `peegeeq-db` is a test-scope dependency of this module; the reactor of this module now builds `peegeeq-api` and `peegeeq-db` upstream. `PgSupervisedContainer` publishes the writer's port. Three tests in `PgBootstrapServingIntegrationTest`: a write before serving is rejected by the closed gate (no row); a write after serving is acknowledged, and both standbys report a flush position at or after the write's WAL position with `quorum` state; a caller that sets `synchronous_commit = off` with one standby stopped still waits in `SyncRep`, and after the backend is cancelled fails with `PgCommitOutcomeUnknownException`, the row being locally committed. The manager connects to the writer directly, not through HAProxy, because the sidecar is role-only. | Red: `rebuild-peegeeq-pg-failover-production-write-red-20261025.log`. Green: `peegeeq-pg-failover-production-write-run1-20261025.log`. With the manager's restore of `synchronous_commit = on` removed the third test failed "The write completed before the missing standby returned": `-production-write-mutation-red-`. `peegeeq-db` has no change. |
+| Provisioning time had no assertion | Both fixtures record the duration of their last provisioning. Contract tests assert 90 seconds for three nodes and 30 seconds for a data directory. Measured: 14.1 seconds and 4.2 seconds. The `@BeforeEach` limit stays 120 seconds. | `peegeeq-pg-failover-fixture-contract-final-20261025.log`. With a one-second budget the test failed "Provisioning took 12 s; the budget is 1 s": `peegeeq-pg-failover-budget-mutation-red-20261025.log` |
+| The `Jenkinsfile` could not resume at this module | `peegeeq-pg-failover` is in the `ALL_TESTS_START_MODULE` choices. A contract test in `scripts/ci/regression-stages.test.mjs` asserts that every module of the root pom is a choice. `node scripts/ci/regression-stages.mjs java peegeeq-pg-failover` prints `-Pall-tests -pl !:peegeeq-management-ui,!:peegeeq-utilities-ui -rf :peegeeq-pg-failover`. The Environment stage already fails the build when the Docker CLI or the socket group is missing, so `docker exec` is available to the Java stage. The 21 CI contract tests pass. | Red: `ci-regression-stages-red-20261025.log`. Green: `ci-regression-stages-green-20261025.log` |
+
+**Finding: an ERROR line logged after the test completed.** The core run of 2026-10-25 failed
+`PgDeviceWatchdogTest.keepaliveWithoutAnActiveWatchdogFails` ("Expected ERROR occurrence mismatch ...
+observed=0") together with a class-level "Unexpected ERROR" for the same line
+(`peegeeq-pg-failover-core-close-20261025.log`). All seven expected lines were logged. The line reached
+the ledger when no scope was open, so it was logged after the test's `afterEach`. The class alone
+passed 7 of 7, and 300 repetitions of the same operation passed on the unchanged code
+(`peegeeq-pg-failover-watchdog-order-red-20261025.log`), so a deterministic red could not be produced.
+The cause is the pattern `future.onFailure(log)` on a future that is also returned to the caller:
+Vert.x gives no order between two listeners of one future, and a future can emit to a listener added
+after completion before it emits to a stored one (the standards document's "Callback ordering"). The
+fix sequences the log into the returned future with `andThen` at the five sites that had the pattern:
+`PgDeviceWatchdog.blocking`, `PgFailoverMonitor.serialized`, `PgBootstrap.start`, `PgBootstrap.serve`,
+and `PgBootstrapRequest.load`. `PgDeviceWatchdogLogOrderTest` (300 repetitions, isolated) asserts that the
+log exists when the caller's handler runs. It passes on the new code. The failure was seen in one of the
+six saved full core runs of 24 and 25 October; the other five passed, one of them on the new code. One
+passing run is weaker evidence than a red would be.
+
+The testing standards document names `.onFailure(log)` on a returned Future as not an antipattern
+("NOT AN ANTIPATTERN"). That holds for the production behaviour. It does not hold for a log line that a
+test declares as expected. The document is not changed here. It needs an owner decision.
+
+**Runs after the last source change.** Every class reports zero failures, errors, and skips.
+
+| Profile | Scope | Tests run | Saved log under `logs/` |
+|---|---|---:|---|
+| `integration-tests` | the whole module, eleven classes | 177 | `peegeeq-pg-failover-integration-andthen-20261025.log` |
+| default/core | eight classes, including 300 repetitions of the log-order test | 389 | `peegeeq-pg-failover-core-andthen-20261025.log` |
+| default/core guards | `peegeeq-test-support`, 61 tests including the five guard classes | 61 | `peegeeq-test-support-core-guards-andthen-20261025.log` |
+| `node --test` | `scripts/ci`, two files | 21 | `ci-regression-stages-green-20261025.log` |
+
+**Not closed.**
+
+- The Jenkins build. Jenkins builds the pushed branch. Nothing is pushed, and the build is the owner's
+  call. The commit needs the `Jenkinsfile`, `pom.xml`, and test changes of this section.
+- The race above has no deterministic red.
+- The `.onFailure(log)`-on-a-returned-future pattern was removed from this module only. Other modules were
+  not searched.
+- No production entry point calls `PgBootstrap`, the renewal loop, or the watchdog. Resuming an
+  interrupted `serve` needs the takeover path (7b.3).
 

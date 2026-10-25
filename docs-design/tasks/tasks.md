@@ -118,7 +118,9 @@ role-bound coverage rule. Scope B increment B2 step 1 (2026-10-24, committed in 
 is implemented and tested: coverage confirmation and guarded policy installation under a receipt
 in `PgFailoverMonitor`. B2 step 2 (2026-10-24, committed in `64a84289`) is implemented and
 tested: `PgBootstrap.serve` confirms revision 1, publishes `SERVING` intent, and activates the
-grant. Next in phase 7b.2 is the remaining B2 step: the production-manager write.
+grant. B2 step 3 (2026-10-25, working tree, not committed) is implemented and tested: the production
+`PgConnectionManager` writes to the bootstrapped writer under the installed policy (OD-12). Scope B
+increment B2 is complete. Next in phase 7b.2 is the real-device watchdog run on a Linux host.
 No production entry point calls bootstrap or starts the renewal loop yet.
 Takeover and production qualification remain open.
 Machine-reset testing and additional host/VM access are not prerequisites for this next scope.
@@ -581,7 +583,7 @@ has the successful remote Jenkins publication evidence recorded above.
 ### 8. Connection management and HAProxy failover
 
 **Priority:** Not assigned
-**Status:** ACTIVE — phase 7b.1 complete; phase 7b.2 partial (renewal loop, watchdog modes, and bootstrap scope A done 2026-10-21; scope B increment B1 done 2026-10-22; scope B increment B2 steps 1 and 2 done 2026-10-24)
+**Status:** ACTIVE — phase 7b.1 complete; phase 7b.2 partial (renewal loop, watchdog modes, and bootstrap scope A done 2026-10-21; scope B increment B1 done 2026-10-22; scope B increment B2 done 2026-10-25)
 **Objective:** implement the design in
 `docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md` (design
 revision 2026-10-08). HAProxy routes by sidecar writer eligibility, which combines current
@@ -707,8 +709,10 @@ Phases:
    the pending policy, confirms revision 1, prepares the grant, publishes `SERVING` intent, and
    activates the grant. Plan §9.17 has the record, including a finding about the Vert.x test-context
    limit of the fixture classes.
-   Remaining, in order: the production-manager write (the last B2 step); the real-device watchdog
-   run on a Linux host. Preserve conservative ownership deadlines and late-reply
+   **7b.2 update, 2026-10-25:** B2 step 3, the production-manager write (OD-12), is implemented.
+   Scope B increment B2 is complete (plan §9.19).
+   Remaining, in order: the real-device watchdog run on a Linux host; 7b.3 manual takeover, which
+   also resumes an interrupted `serve`. Preserve conservative ownership deadlines and late-reply
    rejection. Complete G-7 qualification alongside these scopes. The next scope uses
    Docker/Testcontainers; machine-reset infrastructure is not a prerequisite.
    **OPEN — 7b.3:** manual
@@ -859,7 +863,8 @@ Task 8 status review, 2026-10-21 at `092cf23f`:
   (52 and 97).
 - Gap found: the `Jenkinsfile` choice `ALL_TESTS_START_MODULE` does not list
   `peegeeq-pg-failover`. The module is in the root `pom.xml` reactor, so a full run includes
-  it, but a resumed run cannot start at it.
+  it, but a resumed run cannot start at it. Closed on 2026-10-25 (working tree): the module is a
+  choice, and `scripts/ci/regression-stages.test.mjs` asserts that every root-pom module is one.
 - Not checked: the five guard classes, other modules, Jenkins, and every item under "Known
   gaps" above.
 
@@ -1035,9 +1040,36 @@ except the last edits of `PgPolicyInstallationIntegrationTest` and
   later test edit: `PgPolicyInstallationIntegrationTest` **14** and
   `PgSqlDurabilityControlIntegrationTest` **18**, zero failures.
 - Default/core: seven classes, total **89**. Output: `logs/peegeeq-pg-failover-core-checks-20261024.log`.
-- Not closed: the guard for a runner that returns no result has no test (a stub would be needed);
-  the production-manager write (OD-12) is not implemented; no Jenkins build was run; provisioning
-  time is bounded by a 120-second limit, not asserted.
+- Not closed on 2026-10-24: the guard for a runner that returns no result had no test; the
+  production-manager write (OD-12) was not implemented; no Jenkins build was run; provisioning time
+  was bounded by a 120-second limit, not asserted. Superseded on 2026-10-25 (below), except the
+  Jenkins build.
+
+Phase 7b.2 closing of the open items of the 2026-10-24 check, 2026-10-25 (working tree, not committed):
+
+- Plan §9.19 has each result. Closed by a change and a test: fixtures stop a cluster that an earlier
+  failed test left running (`PgFixtureLeftoverServerContractIntegrationTest`, 4); the guards against a
+  command runner that returns no result are tested for the process control, the admission gate, and
+  the durability adapter (`NoResultCommandRunner`); the production-manager write after bootstrap (OD-12)
+  is tested with `peegeeq-db` as a test-scope dependency; provisioning time is asserted against a
+  budget (measured 14.1 s for three nodes, budget 90 s); `peegeeq-pg-failover` is a choice of
+  `ALL_TESTS_START_MODULE`, with a contract test that every root-pom module is one. The red state of
+  the coverage batch was rebuilt in an isolated worktree. This closes the Jenkinsfile gap found on
+  2026-10-21. Bootstrap scope B increment B2 is complete.
+- Finding: a core run failed `PgDeviceWatchdogTest.keepaliveWithoutAnActiveWatchdogFails` because an
+  expected ERROR line was logged after the test completed. Five production sites logged with
+  `onFailure` on a future they also returned; they now use `andThen`. No deterministic red exists
+  (300 of 300 repetitions passed on the old code). The testing standards document calls the pattern
+  not an antipattern; that needs an owner decision.
+- `-Pintegration-tests`, whole module: eleven classes, total **177**, zero failures/errors/skips.
+  Output: `logs/peegeeq-pg-failover-integration-andthen-20261025.log`.
+- Default/core: eight classes, total **389** (the 300 repetitions of `PgDeviceWatchdogLogOrderTest`
+  included). Output: `logs/peegeeq-pg-failover-core-andthen-20261025.log`.
+- Guards in `peegeeq-test-support` (61 tests, five guard classes 14): zero failures. `node --test
+  scripts/ci`: 21 pass.
+- Not closed: the Jenkins build (the owner pushes; Jenkins builds the pushed branch); the race has no
+  deterministic red; other modules were not searched for the `onFailure`-on-a-returned-future
+  pattern; no production entry point calls `PgBootstrap`.
 
 Test counts are recorded here only from a run made during the task.
 The final phase 7b.1 per-class summaries, and the phase 7b.2 summaries dated 2026-10-08, were
