@@ -17,9 +17,13 @@ import java.util.UUID;
  */
 public final class PgSupervisedContainer implements AutoCloseable {
     public static final String PG_CTL = "pg_ctl";
+    /** What creating a data directory may take. A contract test asserts it. */
+    public static final Duration PROVISIONING_BUDGET = Duration.ofSeconds(30);
     private static final Duration COMMAND_TIMEOUT = Duration.ofSeconds(30);
     private final GenericContainer<?> container = new GenericContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
         .withCreateContainerCmdModifier(command -> command.withEntrypoint("tail", "-f", "/dev/null"));
+    private volatile String lastDataDirectory;
+    private volatile Duration lastProvisioning;
 
     public PgSupervisedContainer() {
     }
@@ -29,8 +33,18 @@ public final class PgSupervisedContainer implements AutoCloseable {
      * container is ready before PostgreSQL runs, because only the supervisor starts it.
      */
     public PgSupervisedContainer(Network network, String alias) {
-        container.withNetwork(network).withNetworkAliases(alias)
+        container.withNetwork(network).withNetworkAliases(alias).withExposedPorts(5432)
             .waitingFor(Wait.forSuccessfulCommand("test -d /var/lib/postgresql"));
+    }
+
+    /** The host on which the node's PostgreSQL port is published, for a client outside the Docker network. */
+    public String host() {
+        return container.getHost();
+    }
+
+    /** The published port of the node's PostgreSQL port. PostgreSQL itself is started only by the supervisor. */
+    public int mappedPort() {
+        return container.getMappedPort(5432);
     }
 
     public void start() {
@@ -51,13 +65,27 @@ public final class PgSupervisedContainer implements AutoCloseable {
         return dataDirectory + ".log";
     }
 
-    /** Creates a new, stopped database cluster and returns its data directory. */
+    /**
+     * Creates a new, stopped database cluster and returns its data directory. A server that an earlier
+     * test left running holds the port of this one, because vertx-junit5 does not await an asynchronous
+     * teardown after a failed test. It is stopped first.
+     */
     public Future<String> newDataDirectory(PgCommandRunner runner) {
+        long started = System.nanoTime();
         String dataDirectory = "/var/lib/postgresql/" + UUID.randomUUID();
-        return exec(runner, "initdb", "-D", dataDirectory).map(result -> {
+        Future<Void> previous = lastDataDirectory == null ? Future.succeededFuture()
+            : forceStop(runner, lastDataDirectory);
+        return previous.compose(ignored -> exec(runner, "initdb", "-D", dataDirectory)).map(result -> {
             if (result.exitCode() != 0) throw new AssertionError("initdb failed: " + result.output());
+            lastDataDirectory = dataDirectory;
+            lastProvisioning = Duration.ofNanos(System.nanoTime() - started);
             return dataDirectory;
         });
+    }
+
+    /** How long the last {@link #newDataDirectory} took, including the stop of an earlier server. */
+    public Duration lastProvisioningDuration() {
+        return lastProvisioning;
     }
 
     public Future<PgCommandResult> exec(PgCommandRunner runner, String... command) {

@@ -52,7 +52,10 @@ public final class PgBootstrap {
             .compose(request -> requireNoControlRecord(request).map(request))
             .compose(request -> elector.createInitialIntent(request.initialIntent())
                 .compose(held -> startUnderOwnership(request, held)))
-            .onFailure(failure -> {
+            // andThen, not onFailure: the caller sees the failure only after it is logged.
+            .andThen(outcome -> {
+                if (outcome.succeeded()) return;
+                Throwable failure = outcome.cause();
                 if (failure instanceof PgBootstrapException) {
                     logger.error("Bootstrap refused on node {}", config.nodeId(), failure);
                 } else {
@@ -79,7 +82,11 @@ public final class PgBootstrap {
             .compose(confirmed -> monitor.prepareWriter(confirmed, mode)
                 .compose(prepared -> elector.update(confirmed, servingIntent(confirmed.intent()))
                     .compose(serving -> monitor.activateWriter(serving, prepared).map(open -> serving))))
-            .onFailure(failure -> logger.error("Bootstrap admission failed on node {}", config.nodeId(), failure));
+            .andThen(outcome -> {
+                if (outcome.failed()) {
+                    logger.error("Bootstrap admission failed on node {}", config.nodeId(), outcome.cause());
+                }
+            });
     }
 
     /** The pending policy becomes the confirmed policy. The phase stays withdrawn. */

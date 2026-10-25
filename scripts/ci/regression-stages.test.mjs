@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -71,6 +71,16 @@ test('the command fails for an unknown start module and prints no selection', ()
   assert.notEqual(result.status, 0)
   assert.equal(result.stdout, '')
   assert.match(result.stderr, /Unknown start module/)
+})
+test('every module of the root pom can be chosen as the start module of the all suite', () => {
+  const declared = [...readFileSync(join(root, 'pom.xml'), 'utf8').matchAll(/<module>([^<]+)<\/module>/g)]
+    .map(match => match[1])
+  const parameter = readFileSync(join(root, 'Jenkinsfile'), 'utf8')
+    .match(/name: 'ALL_TESTS_START_MODULE',\s*choices: \[([^\]]*)\]/)
+  assert.ok(parameter, 'The Jenkinsfile declares no ALL_TESTS_START_MODULE choice')
+  const choices = [...parameter[1].matchAll(/'([^']+)'/g)].map(match => match[1])
+  assert.equal(choices[0], 'beginning')
+  assert.deepEqual(choices.slice(1).sort(), [...declared].sort())
 })
 test('the command fails when the working directory holds no pom.xml', t => {
   const empty = mkdtempSync(join(tmpdir(), 'peegeeq-regression-stages-'))

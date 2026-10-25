@@ -131,6 +131,22 @@ class PgHbaAdmissionGateIntegrationTest {
             })).onFailure(context::failNow);
     }
 
+    @Test void aRunnerThatReturnsNoResultFailsCloseAndOpen(VertxTestContext context) {
+        var silent = new PgHbaAdmissionGate(vertx, new NoResultCommandRunner(runner), POSTGRES.prefix(),
+            PgSupervisedContainer.PG_CTL, "psql", dataDirectory, POSTGRES.openHba(dataDirectory),
+            POSTGRES.closedHba(dataDirectory), COMMAND_TIMEOUT);
+        silent.close(BUDGET).transform(close -> {
+            assertTrue(close.failed(), "A close succeeded although its command returned no result");
+            assertInstanceOf(PgProcessControlException.class, close.cause());
+            assertTrue(close.cause().getMessage().startsWith("Command returned no result"), close.cause().getMessage());
+            return silent.open();
+        }).onComplete(context.failing(failure -> context.verify(() -> {
+            assertInstanceOf(PgProcessControlException.class, failure);
+            assertTrue(failure.getMessage().startsWith("Command returned no result"), failure.getMessage());
+            context.completeNow();
+        })));
+    }
+
     @Test void closeThatCannotFinishFailsWithinItsBudget(VertxTestContext context) {
         // A one-millisecond budget cannot cover one command. The failure must still be prompt.
         var gate = gate(dataDirectory, POSTGRES.openHba(dataDirectory), POSTGRES.closedHba(dataDirectory));

@@ -22,6 +22,7 @@ pipeline {
                 'peegeeq-rest-client',
                 'peegeeq-service-manager',
                 'peegeeq-pg-sidecar',
+                'peegeeq-pg-failover',
                 'peegeeq-examples',
                 'peegeeq-benchmarking',
                 'peegeeq-migrations',
