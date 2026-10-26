@@ -827,7 +827,8 @@ for that day's revision. The rows dated 2026-10-21 and 2026-10-22 have their run
 | 7b.2 bootstrap scope B, increment B2, step 2: confirmation, publication, activation | Implemented and tested, 2026-10-24 | `PgBootstrap.serve(held, mode)` runs after `start`: install the pending policy, confirm revision 1 (the pending policy becomes `durabilityPolicy`), prepare the grant, publish `SERVING`, activate the grant. A failure at any step leaves admission closed and the record where the step left it. No bootstrap receipt result is written; completion is derived. See §9.17. |
 | 7b.2 bootstrap scope B, increment B2, step 3: production-manager write (OD-12) | Implemented and tested, 2026-10-25 | `peegeeq-db` is a test-scope dependency. The production `PgConnectionManager` connects directly to the writer node (the fixture publishes its port), not through HAProxy. Three tests in `PgBootstrapServingIntegrationTest`: a write before serving is rejected by the closed gate; a write after serving is acknowledged by both standbys (flush position checked); a caller that sets `synchronous_commit = off` still waits for both standbys and gets `PgCommitOutcomeUnknownException` with one standby stopped. See §9.19. |
 | 7b.2 bootstrap scope B, remaining | Not implemented | A production entry point that calls `PgBootstrap`, the renewal loop, and the watchdog; resuming an interrupted `serve` (the takeover path, 7b.3). Stopped-before-release remains open. |
-| 7b.3 manual takeover and re-join | Not implemented by the new module | Requires supervised transitions, old-writer exclusion, policy cutover, repeated failover, and routed production-manager assertions. |
+| 7b.3 increment P1: guarded local promotion with CHECKPOINT | Implemented and tested, 2026-10-26 | `PgPromotionControl` and `PgSqlPromotionControl` (`pg_ctl promote`, role observation, forced and verified CHECKPOINT); `PgFailoverMonitor.promoteStandby(held)` under `promote` and `checkpoint-after-promote` receipts, with admission closed. See §9.21. Not in P1: slots, repointing standbys, the policy cutover, planned stop with release, expiry takeover. |
+| 7b.3 manual takeover and re-join, remaining | Not implemented | Requires the policy cutover after promotion, repointing standbys, replication slots, old-writer exclusion by expiry, repeated failover, controlled re-join, and routed production-manager assertions. |
 | G-7 full coordinator qualification | Open | Snapshot/restore, TLS, stopped-before-release, and expiry versus independent old-writer exclusion remain unverified. Component success does not close G-7. |
 
 Recorded clean installs used `mvn clean install -DskipTests -pl :<changed-module> -am`:
@@ -2165,3 +2166,191 @@ Not checked by this section: plan §9.1 to §9.15 history; the code of each clas
 the `patronictl` page; Patroni's `update_lock` definition, which is outside the returned excerpt of
 `ha.py`; the Kubernetes and Citus pages.
 
+### 9.21 Phase 7b.3, Increment P1: Guarded Local Promotion with CHECKPOINT, 2026-10-26
+
+The owner directed on 2026-10-26 that 7b.3 proceed under strict TDD. 7b.3 is large, so it is split. This
+increment is P1. It covers one row of §9.20 (row 21, CHECKPOINT after promotion) and the promotion it
+belongs to. Row 20 (replication slots) and row 22 (repointing standbys) are later increments. The policy
+cutover after promotion (install, confirm, publish, activate on the new writer) is a later increment.
+Planned stop with release (OD-15) is a later increment.
+
+**Purpose.** After the former writer's lease is released or has expired, the surviving standby that holds
+the lease must become a writable PostgreSQL, with application admission still closed, and its timeline
+change must be durable in a checkpoint so that a former writer can later be rewound against it.
+
+**Data model.** No stored field is added.
+
+| Datum | Source of truth or derivable | Contract |
+|---|---|---|
+| Target eligibility | Derived from the held control record | The confirmed `durabilityPolicy` names this node. A pending policy is never used. The record is the takeover record: `WITHDRAWN`, `previousWriterNodeId` present and not this node |
+| Promotion happened | Derived from the live role, with the `promote` receipt as local action evidence | The receipt does not grant authority. A node that is writable with no `promote` receipt of this operation was never promoted by it and is refused |
+| Checkpoint taken | Derived from `pg_control_checkpoint()` after the command | Not stored. The `checkpoint-after-promote` receipt records only that the action ran |
+| Receipts `promote`, `checkpoint-after-promote` | Node-local store (existing) | Parameters are empty. Identity (generation, operation, action, node) is the existing receipt key. Nothing derivable from the record is copied into them |
+| Role, timeline, checkpoint position | Derived live observations | Never stored |
+
+**Contract of `PgFailoverMonitor.promoteStandby(held)`.**
+
+1. Refused before any effect and with no receipt: no fresh ownership of exactly `held`; phase is not
+   `WITHDRAWN`; no `previousWriterNodeId` or it names this node; no confirmed policy or it does not name
+   this node (`PgLeaseProtocolException`); quarantine (`PgLocalStateException`).
+2. Close the grant and the gate. Apply the watchdog mode as `startPrimary` does.
+3. Observe the role. In recovery: begin the `promote` receipt, promote, record `COMPLETED`. A failed
+   promotion records `UNKNOWN` and fails. Writable: a `promote` receipt of this operation must exist,
+   and the call continues; with no receipt the call is refused.
+4. Ownership lost while promoting: demote the node (admission closed, local stop) and fail with
+   `PgLeaseProtocolException`. A writable node that the lease no longer covers must not run.
+5. Begin the `checkpoint-after-promote` receipt, run a forced CHECKPOINT, record `COMPLETED`. A failure
+   records `UNKNOWN` and fails. The node stays writable with admission closed.
+6. Success changes no control record, no policy, and no grant. Admission stays closed.
+
+**Contract of the new port `PgPromotionControl`** (adapter `PgSqlPromotionControl`: `pg_ctl promote` and
+`psql` on the local socket, in the shape of `PgSqlDurabilityControl`):
+
+- `inRecovery()`: `pg_is_in_recovery()`.
+- `promote()`: refused when not in recovery. Runs `pg_ctl promote -w`, then polls the role until it is
+  writable or the budget ends. The exit code of the command is not the evidence; the role is.
+- `checkpoint()`: refused in recovery. Records the latest checkpoint position, runs `CHECKPOINT`, and
+  requires the position to have advanced and the checkpoint timeline to equal the timeline of the current
+  WAL position.
+- Every operation is bounded by one budget. A failed command, a command that returns no result, output
+  that is not an observation, and an exhausted budget each fail with `PgPromotionException`.
+
+**Decisions of the implementer, 2026-10-26, not reviewed by the owner and reversible.**
+
+- OD-16: promotion is a separate port and adapter, not a method of `PgProcessControl`. Reason: the role and
+  checkpoint observations need SQL, and `PgProcessControl` is defined not to depend on SQL.
+- OD-17: eligibility is membership in the confirmed policy only. No WAL comparison between candidate
+  standbys. Reason: under the required synchronous policy every named standby holds every acknowledged
+  commit. Which covered standby wins is decided by lease acquisition. This differs from Patroni, which
+  compares WAL positions among candidates, and is recorded as a difference.
+- OD-18: the CHECKPOINT is verified by an advanced checkpoint position and a matching timeline. A forced
+  CHECKPOINT writes a new checkpoint record even when the server is idle.
+
+**Dependency failure modes, each with a failing test before its code.**
+
+| Dependency | Modes | Test class |
+|---|---|---|
+| `pg_ctl promote` and `psql` through the command runner | failed Future; command exits non-zero; returns no result; output not an observation; budget exhausted; command succeeds and the role does not change | `PgSqlPromotionControlIntegrationTest` |
+| PostgreSQL role | stopped server; server already writable; server in recovery asked to checkpoint | `PgSqlPromotionControlIntegrationTest` |
+| `PgPromotionControl` as the monitor sees it | promote fails; checkpoint fails (fault wrapper over the real control) | `PgPromotionIntegrationTest` |
+| Node-local store | receipt cannot be begun | `PgPromotionIntegrationTest` |
+| Elector | ownership lost during promotion | `PgPromotionIntegrationTest` |
+| Watchdog | `REQUIRED` mode cannot arm | `PgPromotionIntegrationTest` |
+
+**Order of work.** Tests first, run to red (compilation, then behaviour against a stub), then the
+implementation, then green, mutation probes, guards, and the existing module classes that construct
+`PgFailoverMonitor`, whose constructor gains the promotion control.
+
+**Result, 2026-10-26.** Implemented and tested. `PgPromotionControl`, `PgSqlPromotionControl`, and
+`PgPromotionException` are new. `PgFailoverMonitor` has `promoteStandby(held)` and takes the promotion
+control as its eighth constructor argument; the eleven construction sites in five existing test classes
+were updated. Nothing in this increment is called by a production entry point.
+
+| Step | Evidence under `logs/` |
+|---|---|
+| Red, compilation | `peegeeq-pg-failover-promotion-compile-red-20261026.log`: `BUILD FAILURE` at test compilation; missing `PgPromotionControl`, `PgSqlPromotionControl`, `PgPromotionException`, `promoteStandby`, `PROMOTE`, `CHECKPOINT_AFTER_PROMOTE` |
+| Red, behaviour, against a stub that fails with "not implemented" | `peegeeq-pg-failover-promotion-adapter-red-20261026.log`: 13 run, 10 failures, 3 errors (12 methods and one class-level log-contract failure); `peegeeq-pg-failover-promotion-monitor-red-20261026.log`: 16 run, 12 failures, 4 errors (15 methods and one class-level failure). Every failure is `UnsupportedOperationException` or a wrong exception type |
+| Green | `PgSqlPromotionControlIntegrationTest` 12 and `PgPromotionIntegrationTest` 15, zero failures: `peegeeq-pg-failover-promotion-adapter-green1-20261026.log`, `peegeeq-pg-failover-promotion-monitor-green1-20261026.log`; rerun on the final test code: `peegeeq-pg-failover-promotion-final-integration-20261026.log` (27) |
+| Mutation probes | Seven behaviours were removed one at a time and each named test failed with its own message (below). The two production files were restored and their SHA-256 equals the value recorded before the probes: `peegeeq-pg-failover-promotion-mutation-sha-before-20261026.log`, `-sha-after-` |
+| Regression, `-Pintegration-tests`, whole module | 13 classes, **204** tests, zero failures: monitor 23, bootstrap 7, renewal loop 13, policy installation 14, bootstrap serving 14, durability 19, Consul coordinator 61, process control 11, admission gate 7, elector queueing 4, fixture contract 4, and the two new classes 27. Logs `peegeeq-pg-failover-promotion-regress-a-` to `-e-20261026.log` and the final integration log above |
+| Default/core, whole module | 8 classes, **389** tests, zero failures: `peegeeq-pg-failover-promotion-core-20261026.log` |
+| Guards | `peegeeq-test-support`, 61 tests, zero failures: `peegeeq-test-support-promotion-guards-20261026.log` |
+
+Mutation probes, with the test that failed:
+
+| Removed behaviour | Test | Failure message |
+|---|---|---|
+| Adapter: role confirmation after `pg_ctl promote` | `aPromoteCommandThatReportsSuccessButLeavesTheServerInRecoveryFailsWithinItsBudget` | A promotion was reported although the role did not change |
+| Adapter: the `CHECKPOINT` statement | `theCheckpointAfterPromotionAdvancesTheCheckpointPositionOnTheNewTimeline` | The checkpoint did not advance: 0/4000108 then 0/4000108 |
+| Supervisor: demotion when ownership is lost | `ownershipLostWhilePromotingStopsTheNodeAndFailsTheCallWithoutACheckpoint` | A promotion succeeded after ownership was lost |
+| Supervisor: closing the gate first | `promotionClosesAnOpenGrantAndAdmissionBeforeItChangesAnything` | Admission stayed open during the promotion |
+| Supervisor: confirmed-policy membership check | `aTargetThatTheConfirmedPolicyDoesNotNameIsRefused` | A standby that the confirmed policy does not name was promoted |
+| Supervisor: the receipt requirement for a writable node | `aWritableNodeWithNoPromotionReceiptOfThisOperationIsRefused` | A writable node with no promotion of this operation was accepted |
+| Supervisor: skipping a completed checkpoint receipt | `promotingTwiceIsIdempotentAndTakesNoSecondCheckpoint` | A completed checkpoint receipt was run again |
+
+Findings:
+
+- A forced `CHECKPOINT` is needed to prove the checkpoint. On the test fixture the background checkpoint
+  that promotion starts had finished before the explicit one ran, so only the explicit statement advances
+  the position (mutation 2).
+- The teardown of `PgPromotionIntegrationTest` collects every failure. `Future.eventually` discards a
+  cleanup failure, and seven `.eventually(` calls remain in the teardown of four older test classes
+  (`PgRenewalLoopIntegrationTest`, `PgPolicyInstallationIntegrationTest`, `PgBootstrapIntegrationTest`,
+  `PgBootstrapServingIntegrationTest`). They are not changed here.
+
+**Not covered by P1.** Replication slots (§9.20 row 20) and repointing the surviving standby to the new
+writer (row 22). The policy cutover after promotion: install, confirm, publish, and activate on the new
+writer. Planned stop with release (OD-15). Takeover after real lease expiry: the tests use a released
+lease, not an expired one, and the former writer is stopped with `pg_ctl`, not by a host loss. Applying the
+watchdog mode before promotion is tested only for `REQUIRED` without a device; no promotion has run with an
+armed device. The checkpoint was verified on an idle server only. No production entry point calls
+`promoteStandby`. The Jenkins build and the whole-repository gate were not run.
+
+
+### 9.22 Phase 7b.3, Increment P2: a Standby Follows the New Writer, 2026-10-26
+
+The owner directed `continue` after P1 (§9.21). P1 left the policy cutover as the next item. Reading the
+cutover contract showed that it needs this increment first: the cutover's coverage check requires the
+surviving standby to stream from the new writer, and after a takeover that standby still streams from the
+former writer. P2 is therefore the standby follow operation (§9.20 row 22). The policy cutover is P3.
+
+**Purpose.** A running standby, in its own supervisor, must start replicating from the node that the
+control record names as writer, and must report streaming from it, so that the writer can confirm
+synchronous coverage.
+
+**Data model.** No stored field is added.
+
+| Datum | Source of truth or derivable | Contract |
+|---|---|---|
+| Writer identity | Control record `writerNodeId` | Passed in as the observed record. A node never follows itself |
+| Writer address (host, port) | Deployment configuration of the member | Supplied by the caller. The supervisor holds no member address list yet. Not stored by this increment |
+| Replication user and `application_name` | Derived: the node's own identity (OD-11) | Never supplied and never stored |
+| Replication credential | Deployment secret, held in a password file the deployment provisions | Only the path is supplied. No password appears in a command line, a log line, or a receipt |
+| `primary_conninfo` | Derived from the four items above; persisted by `ALTER SYSTEM` | The built string contains no secret |
+| Receipt `follow-writer` | Node-local store (existing) | Parameters are the host and port requested. Reuse with other parameters is rejected, so a rerun cannot silently follow a different writer |
+| Streaming state, sender host and port | Derived live from `pg_stat_wal_receiver` | Never stored |
+
+**Contract of `PgFailoverMonitor.followWriter(observed, writer)`.**
+
+1. Refused before any effect and with no receipt: `observed` names this node as writer
+   (`PgLeaseProtocolException`); the node is quarantined (`PgLocalStateException`); the local server is not
+   in recovery (`PgPromotionException`). A writable server cannot follow a writer without a rewind, which is
+   a later increment.
+2. Close the grant and the gate.
+3. Begin the `follow-writer` receipt with the host and port. Apply the new `primary_conninfo`, reload, and
+   observe that the WAL receiver is streaming from exactly that host and port. Record `COMPLETED`, or
+   `UNKNOWN` after a failure.
+4. A rerun with equal parameters repeats the observed effect and keeps the receipt `COMPLETED`.
+5. No lease is required. The follower never holds ownership. Control record, policy, and grant are not changed.
+
+**Contract of `PgPromotionControl.follow(nodeId, writer)`** (the existing port; its documentation now covers
+local role changes). The adapter refuses a server that is not in recovery, builds
+`host=H port=P user=<nodeId> application_name=<nodeId> passfile=<path>`, installs it with `ALTER SYSTEM`,
+reloads with `pg_ctl reload`, and polls `pg_stat_wal_receiver` until the receiver is streaming from H and P
+or the budget ends. `PgWriterEndpoint` rejects a host or a password-file path outside a restricted character
+set, so the built string needs no quoting.
+
+**Decisions of the implementer, 2026-10-26, not reviewed by the owner and reversible.**
+
+- OD-19: the credential reaches the follower through a password file, not through the command line. Reason:
+  the command runner logs full command lines on failure, and a process list shows them. The alternative of
+  reading the standby's current `primary_conninfo` and rewriting its host would put the password in a command.
+- OD-20: the caller supplies the writer's address. The member address list of system design §5.4
+  (`peegeeq.pg.nodes.<id>.host`) is not in `PgNodeConfig`, and adding it changes every construction site.
+- OD-21: `follow` is added to `PgPromotionControl` instead of a new port, so that the monitor gains no ninth
+  constructor argument. The name `PgPromotionControl` is now narrower than its role.
+
+**Dependency failure modes, each with a failing test before its code.**
+
+| Dependency | Modes | Test class |
+|---|---|---|
+| Command runner (`psql`, `pg_ctl reload`) | failed Future; no result; non-observation output; budget exhausted | `PgSqlPromotionControlIntegrationTest` |
+| Local role | writable server; stopped server | `PgSqlPromotionControlIntegrationTest` |
+| WAL receiver | never streams from the requested address within the budget | `PgSqlPromotionControlIntegrationTest` |
+| Built `primary_conninfo` | other fields of the string are preserved by construction: user, application name, password file | `PgSqlPromotionControlIntegrationTest` |
+| Writer endpoint | blank or unsafe host, port outside 1 to 65535, unsafe password-file path | `PgWriterEndpointTest` (core) |
+| Node-local store | receipt cannot be begun; receipt exists with other parameters | `PgFollowIntegrationTest` |
+| Port as the monitor sees it | follow fails (fault wrapper over the real control) | `PgFollowIntegrationTest` |
+
+**Not in P2.** Following after a rewind of a former writer; the policy cutover (P3); replication slots; any
+production entry point.

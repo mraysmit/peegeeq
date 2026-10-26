@@ -689,7 +689,10 @@ class PgBootstrapServingIntegrationTest {
 
     private Parts bootstrapOn(PgNodeConfig nodeConfig, PgPrimaryElector owner, PgDurabilityControl durability,
                               PgAdmissionGate admission) {
-        var monitor = new PgFailoverMonitor(nodeConfig, owner, store, process, admission, watchdog, durability);
+        var promotion = new PgSqlPromotionControl(vertx, runner, NODES.node(WRITER).prefix(),
+            PgSupervisedContainer.PG_CTL, "psql", NODES.dataDirectory(), COMMAND_TIMEOUT);
+        var monitor = new PgFailoverMonitor(nodeConfig, owner, store, process, admission, watchdog, durability,
+            promotion);
         var loop = new PgRenewalLoop(vertx, nodeConfig, owner, monitor);
         return new Parts(new PgBootstrap(vertx, nodeConfig, owner, store, monitor, loop), monitor);
     }

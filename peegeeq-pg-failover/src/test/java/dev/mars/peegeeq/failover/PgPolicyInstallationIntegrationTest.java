@@ -504,7 +504,9 @@ class PgPolicyInstallationIntegrationTest {
     }
 
     private PgFailoverMonitor monitor(PgDurabilityControl durability) {
-        return new PgFailoverMonitor(config, elector, store, process, gate, watchdog, durability);
+        var promotion = new PgSqlPromotionControl(vertx, runner, NODES.node(WRITER).prefix(),
+            PgSupervisedContainer.PG_CTL, "psql", NODES.dataDirectory(), COMMAND_TIMEOUT);
+        return new PgFailoverMonitor(config, elector, store, process, gate, watchdog, durability, promotion);
     }
 
     private PgDurabilityControl durability(Duration budget) {

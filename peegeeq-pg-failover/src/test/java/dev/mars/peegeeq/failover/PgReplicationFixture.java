@@ -57,6 +57,16 @@ public final class PgReplicationFixture implements AutoCloseable {
         return dataDirectory;
     }
 
+    /** The password file of a standby's replication role, in that standby's container. */
+    public String passfile(String standby) {
+        return dataDirectory + "." + standby + ".pgpass";
+    }
+
+    /** Where and how a standby connects to the node of the given identity, on the shared network. */
+    public PgWriterEndpoint endpoint(String writerNode, String standby) {
+        return new PgWriterEndpoint(writerNode, 5432, passfile(standby));
+    }
+
     public PgProcessControl control(PgCommandRunner runner, String nodeId) {
         PgSupervisedContainer node = node(nodeId);
         return new PgCtlProcessControl(runner, node.prefix(), PgSupervisedContainer.PG_CTL, dataDirectory,
@@ -114,7 +124,11 @@ public final class PgReplicationFixture implements AutoCloseable {
                 .compose(ignored -> node.write(runner, node.closedHba(directory),
                     "local all all trust\\nhost all all all reject\\n"))
                 .compose(ignored -> node.write(runner, node.openHba(directory),
-                    "local all all trust\\nhost all all all trust\\n"));
+                    "local all all trust\\nhost all all all trust\\n"))
+                // The password file a deployment provisions for a follower. libpq requires mode 0600.
+                .compose(ignored -> checked(node.exec(runner, "sh", "-c", "printf '*:*:*:" + standby + ":"
+                    + password(standby) + "\\n' > " + passfile(standby) + " && chmod 600 " + passfile(standby)),
+                    "Password file for " + standby));
         }
         return provisioned.compose(ignored -> checked(writer.exec(runner, PgSupervisedContainer.PG_CTL, "stop",
             "-D", directory, "-m", "fast", "-w"), "Stopping the writer after provisioning"));

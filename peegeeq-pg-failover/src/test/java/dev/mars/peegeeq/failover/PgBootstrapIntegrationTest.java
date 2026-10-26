@@ -319,7 +319,9 @@ class PgBootstrapIntegrationTest {
         var elector = elector(nodeConfig);
         var durability = new PgSqlDurabilityControl(vertx, runner, POSTGRES.prefix(), PgSupervisedContainer.PG_CTL,
             "psql", dataDirectory, Duration.ofSeconds(20));
-        var monitor = new PgFailoverMonitor(nodeConfig, elector, store, control, gate, watchdog, durability);
+        var promotion = new PgSqlPromotionControl(vertx, runner, POSTGRES.prefix(), PgSupervisedContainer.PG_CTL,
+            "psql", dataDirectory, Duration.ofSeconds(20));
+        var monitor = new PgFailoverMonitor(nodeConfig, elector, store, control, gate, watchdog, durability, promotion);
         var loop = new PgRenewalLoop(vertx, nodeConfig, elector, monitor);
         loops.add(loop);
         return new PgBootstrap(vertx, nodeConfig, elector, store, monitor, loop);

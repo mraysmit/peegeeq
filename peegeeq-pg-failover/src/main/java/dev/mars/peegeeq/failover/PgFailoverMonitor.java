@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.failover;
 
+import io.vertx.core.AsyncResult;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
 import org.slf4j.Logger;
@@ -24,6 +25,9 @@ public final class PgFailoverMonitor {
     static final String START_PRIMARY = "start-primary";
     static final String STOP_WRITER = "stop-writer";
     static final String INSTALL_POLICY = "install-policy";
+    static final String PROMOTE = "promote";
+    static final String CHECKPOINT_AFTER_PROMOTE = "checkpoint-after-promote";
+    static final String FOLLOW_WRITER = "follow-writer";
     private final PgNodeConfig config;
     private final PgPrimaryElector elector;
     private final PgLocalStateStore store;
@@ -31,6 +35,7 @@ public final class PgFailoverMonitor {
     private final PgAdmissionGate gate;
     private final PgWatchdog watchdog;
     private final PgDurabilityControl durability;
+    private final PgPromotionControl promotion;
     private volatile PgControlRecord lastHeld;
     // Derived at run time: whether this monitor armed the watchdog and has not disarmed it.
     private volatile boolean armed;
@@ -39,7 +44,7 @@ public final class PgFailoverMonitor {
     /** @param watchdog used only when the configured watchdog mode is not {@code OFF} */
     public PgFailoverMonitor(PgNodeConfig config, PgPrimaryElector elector, PgLocalStateStore store,
                              PgProcessControl process, PgAdmissionGate gate, PgWatchdog watchdog,
-                             PgDurabilityControl durability) {
+                             PgDurabilityControl durability, PgPromotionControl promotion) {
         this.config = Objects.requireNonNull(config, "config");
         this.elector = Objects.requireNonNull(elector, "elector");
         this.store = Objects.requireNonNull(store, "store");
@@ -47,6 +52,116 @@ public final class PgFailoverMonitor {
         this.gate = Objects.requireNonNull(gate, "gate");
         this.watchdog = Objects.requireNonNull(watchdog, "watchdog");
         this.durability = Objects.requireNonNull(durability, "durability");
+        this.promotion = Objects.requireNonNull(promotion, "promotion");
+    }
+
+    /**
+     * Promotes the local standby to a writable PostgreSQL under this node's lease, with application
+     * admission closed, and takes the checkpoint that follows a promotion. The record is the takeover
+     * record: fresh ownership of exactly {@code held}, {@code WITHDRAWN} intent, a previous writer other
+     * than this node, and a confirmed durability policy that names this node. Anything else, and
+     * quarantine, is refused before any effect and with no receipt. The grant and the gate are closed
+     * first, and the watchdog mode is applied as a primary start applies it.
+     *
+     * <p>In recovery, the {@value #PROMOTE} receipt is begun, the standby is promoted, and the result
+     * is recorded: {@code COMPLETED}, or {@code UNKNOWN} after a failure. A node that is already
+     * writable is accepted only when this operation holds a {@value #PROMOTE} receipt, which a rerun
+     * after a lost reply completes. Ownership lost while the node was promoted demotes it and fails
+     * the call. The {@value #CHECKPOINT_AFTER_PROMOTE} receipt then covers the forced checkpoint; a
+     * completed one is not run again. The control record, the policy, and the grant are not changed.
+     */
+    public Future<Void> promoteStandby(PgControlRecord held) {
+        return serialized(() -> {
+            Objects.requireNonNull(held, "held");
+            JsonObject intent = held.intent();
+            JsonObject confirmed = intent.getJsonObject("durabilityPolicy");
+            String previous = intent.getString("previousWriterNodeId");
+            if (!elector.holds(held) || !"WITHDRAWN".equals(intent.getString("phase"))
+                    || previous == null || previous.equals(config.nodeId()) || confirmed == null
+                    || !confirmed.getJsonArray("requiredStandbyNodeIds").contains(config.nodeId())) {
+                throw new PgLeaseProtocolException("Promotion requires fresh ownership of a withdrawn takeover "
+                    + "record whose confirmed durability policy names this node");
+            }
+            String operation = intent.getString("operationId");
+            return requireNoQuarantine().compose(ignored -> store.closeGrant())
+                .compose(ignored -> gate.close(config.stopTimeout()))
+                .compose(ignored -> applyWatchdogMode())
+                .compose(ignored -> promotion.inRecovery())
+                .compose(recovering -> recovering ? promoteAndRecord(held, operation)
+                    : confirmEarlierPromotion(held, operation))
+                .compose(ignored -> elector.hasFreshOwnership() ? Future.<Void>succeededFuture()
+                    : demoteAfterPromotion(held))
+                .compose(ignored -> checkpointAfterPromotion(held, operation));
+        });
+    }
+
+    /** Stub for the red run. It has no behaviour. */
+    public Future<Void> followWriter(PgControlRecord observed, PgWriterEndpoint writer) {
+        return serialized(() -> Future.<Void>failedFuture(new UnsupportedOperationException("not implemented")));
+    }
+
+    /** Begins the receipt, promotes, and records the result. A failed promotion records {@code UNKNOWN}. */
+    private Future<Void> promoteAndRecord(PgControlRecord held, String operation) {
+        return underReceipt(held, operation, PROMOTE, promotion::promote);
+    }
+
+    /**
+     * Begins the receipt of an action with no parameters, runs the effect, and records its result:
+     * {@code COMPLETED}, or {@code UNKNOWN} after a failure. The effect's failure is returned, with a
+     * failure to record attached as suppressed. A failure to record a successful effect is returned,
+     * and the receipt stays {@code PENDING}.
+     */
+    private Future<Void> underReceipt(PgControlRecord held, String operation, String action, Operation<Void> effect) {
+        return store.begin(held.generation(), operation, action, config.nodeId(), new JsonObject())
+            .compose(receipt -> effect.execute().transform(done -> {
+                PgActionResult result = done.succeeded() ? PgActionResult.COMPLETED : PgActionResult.UNKNOWN;
+                return store.record(held.generation(), operation, action, config.nodeId(), result, new JsonObject())
+                    .transform(recorded -> settled(done, recorded));
+            }));
+    }
+
+    /** The effect's failure wins, with a failure to record attached. Otherwise a failure to record fails the call. */
+    private static Future<Void> settled(AsyncResult<Void> effect, AsyncResult<?> recorded) {
+        if (effect.failed()) {
+            if (recorded.failed()) effect.cause().addSuppressed(recorded.cause());
+            return Future.failedFuture(effect.cause());
+        }
+        return recorded.succeeded() ? Future.<Void>succeededFuture() : Future.<Void>failedFuture(recorded.cause());
+    }
+
+    /** A writable node is accepted only when this operation recorded a promotion; a pending one is completed. */
+    private Future<Void> confirmEarlierPromotion(PgControlRecord held, String operation) {
+        return store.receipt(held.generation(), operation, PROMOTE, config.nodeId()).compose(receipt -> {
+            if (receipt.isEmpty()) {
+                throw new PgPromotionException("PostgreSQL is writable but this operation recorded no promotion; "
+                    + "the node was not promoted by it");
+            }
+            if (receipt.orElseThrow().result() == PgActionResult.COMPLETED) return Future.<Void>succeededFuture();
+            return store.record(held.generation(), operation, PROMOTE, config.nodeId(), PgActionResult.COMPLETED,
+                new JsonObject()).<Void>mapEmpty();
+        });
+    }
+
+    /** A writable node that the lease no longer covers must not run. */
+    private Future<Void> demoteAfterPromotion(PgControlRecord held) {
+        PgLeaseProtocolException cause = new PgLeaseProtocolException("Ownership was lost while the standby was promoted");
+        String reason = "Promotion did not complete under ownership";
+        logger.error("Demoting local PostgreSQL on node {}: {}", config.nodeId(), reason, cause);
+        return demoteNow(held, reason).transform(demotion -> {
+            if (demotion.failed()) cause.addSuppressed(demotion.cause());
+            return Future.<Void>failedFuture(cause);
+        });
+    }
+
+    /** Runs the forced checkpoint under its own receipt. A failure records {@code UNKNOWN}. A completed receipt is not run again. */
+    private Future<Void> checkpointAfterPromotion(PgControlRecord held, String operation) {
+        return store.receipt(held.generation(), operation, CHECKPOINT_AFTER_PROMOTE, config.nodeId())
+            .compose(existing -> {
+                if (existing.filter(receipt -> receipt.result() == PgActionResult.COMPLETED).isPresent()) {
+                    return Future.<Void>succeededFuture();
+                }
+                return underReceipt(held, operation, CHECKPOINT_AFTER_PROMOTE, promotion::checkpoint);
+            });
     }
 
     /** Starts PostgreSQL in recovery with admission closed. No lease is required. */
