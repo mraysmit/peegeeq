@@ -99,7 +99,9 @@ class PgRenewalLoopIntegrationTest {
                     stateDirectory.resolve("no-watchdog-timeout"));
                 var durability = new PgSqlDurabilityControl(vertx, runner, POSTGRES.prefix(),
                     PgSupervisedContainer.PG_CTL, "psql", dataDirectory, Duration.ofSeconds(20));
-                monitor = new PgFailoverMonitor(config, elector, store, process, gate, watchdog, durability);
+                var promotion = new PgSqlPromotionControl(vertx, runner, POSTGRES.prefix(),
+                    PgSupervisedContainer.PG_CTL, "psql", dataDirectory, Duration.ofSeconds(20));
+                monitor = new PgFailoverMonitor(config, elector, store, process, gate, watchdog, durability, promotion);
                 loop = new PgRenewalLoop(vertx, config, elector, monitor);
                 context.completeNow();
             })).onFailure(context::failNow);
