@@ -828,7 +828,8 @@ for that day's revision. The rows dated 2026-10-21 and 2026-10-22 have their run
 | 7b.2 bootstrap scope B, increment B2, step 3: production-manager write (OD-12) | Implemented and tested, 2026-10-25 | `peegeeq-db` is a test-scope dependency. The production `PgConnectionManager` connects directly to the writer node (the fixture publishes its port), not through HAProxy. Three tests in `PgBootstrapServingIntegrationTest`: a write before serving is rejected by the closed gate; a write after serving is acknowledged by both standbys (flush position checked); a caller that sets `synchronous_commit = off` still waits for both standbys and gets `PgCommitOutcomeUnknownException` with one standby stopped. See §9.19. |
 | 7b.2 bootstrap scope B, remaining | Not implemented | A production entry point that calls `PgBootstrap`, the renewal loop, and the watchdog; resuming an interrupted `serve` (the takeover path, 7b.3). Stopped-before-release remains open. |
 | 7b.3 increment P1: guarded local promotion with CHECKPOINT | Implemented and tested, 2026-10-26 | `PgPromotionControl` and `PgSqlPromotionControl` (`pg_ctl promote`, role observation, forced and verified CHECKPOINT); `PgFailoverMonitor.promoteStandby(held)` under `promote` and `checkpoint-after-promote` receipts, with admission closed. See §9.21. Not in P1: slots, repointing standbys, the policy cutover, planned stop with release, expiry takeover. |
-| 7b.3 manual takeover and re-join, remaining | Not implemented | Requires the policy cutover after promotion, repointing standbys, replication slots, old-writer exclusion by expiry, repeated failover, controlled re-join, and routed production-manager assertions. |
+| 7b.3 increment P2: a standby follows the new writer | Implemented and tested, 2026-10-26 | `PgPromotionControl.follow`, `PgWriterEndpoint` (host, port, password-file path; no password), `PgFailoverMonitor.followWriter` under a `follow-writer` receipt, no lease required. See §9.22. Not in P2: the policy cutover, slots, following after a rewind. |
+| 7b.3 manual takeover and re-join, remaining | Not implemented | Requires the policy cutover after promotion (P3), replication slots, old-writer exclusion by expiry, planned stop with release, repeated failover, controlled re-join, and routed production-manager assertions. |
 | G-7 full coordinator qualification | Open | Snapshot/restore, TLS, stopped-before-release, and expiry versus independent old-writer exclusion remain unverified. Component success does not close G-7. |
 
 Recorded clean installs used `mvn clean install -DskipTests -pl :<changed-module> -am`:
@@ -2354,3 +2355,50 @@ set, so the built string needs no quoting.
 
 **Not in P2.** Following after a rewind of a former writer; the policy cutover (P3); replication slots; any
 production entry point.
+
+**Result, 2026-10-26.** Implemented and tested. New: `PgWriterEndpoint`; `PgPromotionControl.follow` and its
+adapter implementation in `PgSqlPromotionControl`; `PgFailoverMonitor.followWriter(observed, writer)`. The
+shared receipt helper of P1 now takes the receipt parameters. `PgReplicationFixture` provisions a password
+file per standby. Nothing in this increment is called by a production entry point.
+
+| Step | Evidence under `logs/` |
+|---|---|
+| Red, behaviour, against stubs that fail with "not implemented" | `peegeeq-pg-failover-follow-core-red-20261026.log`: 6 run, 5 failures. `-follow-adapter-red-`: 18 run, 9 failures and 2 errors; the seven follow tests fail on `UnsupportedOperationException` or a wrong exception type, and three P1 tests fail only because a failed test's teardown leaks an "Interrupted ... pg_ctl stop" ERROR line into the next test (register finding 13). `-follow-monitor-red-`: 10 run, 7 failures and 3 errors. A compile-red log was not saved for this increment; the tests were written before the stubs, and the stubs were written before the first run |
+| Green | `PgWriterEndpointTest` 6; `PgSqlPromotionControlIntegrationTest` 17; `PgFollowIntegrationTest` 9 (10 after one test was added for the gate): `-follow-core-green-`, `-follow-adapter-green1-`, `-follow-monitor-green1-` |
+| Mutation probes | Eight removals; each named test failed with its own message (below). The three production files were restored and their SHA-256 equals the value recorded before the probes: `peegeeq-pg-failover-follow-mutation-sha-before-20261026.log`, `-sha-after-` |
+| Regression, `-Pintegration-tests`, whole module | 13 classes, **219** tests, zero failures, on the final code: adapter 17, promotion 15, follow 10, monitor 23, bootstrap 7, renewal loop 13, policy installation 14, bootstrap serving 14, durability 19, Consul coordinator 61, process control 11, admission gate 7, elector queueing 4, fixture contract 4. Logs `peegeeq-pg-failover-follow-final-a-` to `-f3-20261026.log` |
+| Default/core, whole module | 9 classes, **395** tests, zero failures: `peegeeq-pg-failover-follow-core-20261026.log` |
+| Guards | `peegeeq-test-support`, 61 tests, zero failures after the fix below: `peegeeq-test-support-follow-guards-20261026-run2.log` |
+
+Mutation probes, with the test that failed:
+
+| Removed behaviour | Test | Failure message |
+|---|---|---|
+| Adapter: the confirmation that the receiver streams from the requested address | `aWriterThatCannotBeReachedIsNotReportedAsFollowedAndTheWaitEndsWithinItsBudget` | The asynchronous result was expected to have failed |
+| Adapter: `pg_ctl reload` | `aStandbyFollowsTheNewWriterAndStreamsFromIt` | WAL receiver is not streaming from pg-node-2:5432 within the budget; last observed: streaming\|pg-node-1\|5432 |
+| Adapter: the refusal of a writable server | `aServerThatIsNotInRecoveryCannotFollowAndChangesNothing` | A writable server was pointed at another writer |
+| Supervisor: the quarantine check | `aQuarantinedNodeCannotFollow` | A quarantined node followed a writer |
+| Supervisor: the writable-server check, alone | `aWritableNodeCannotFollowAndChangesNothing` | A refused follow must not record an effect |
+| Supervisor: the self-follow check | `aRecordThatNamesThisNodeAsTheWriterIsRefusedAndChangesNothing` | A node was told to follow itself |
+| Supervisor: closing the gate first | `followingClosesAnOpenGrantAndAdmissionBeforeItChangesAnything` | Admission stayed open while following |
+| Endpoint: host validation | `aHostThatCouldChangeTheConnectionStringIsRejected` | Accepted host (blank) |
+
+Findings:
+
+- No test closed the gate until `followingClosesAnOpenGrantAndAdmissionBeforeItChangesAnything` was added. The
+  follower's own admission file already rejects applications, so the other tests could not notice a missing
+  gate close.
+- In the first mutation batch the supervisor's writable check and the adapter's check were removed together,
+  so the supervisor's check was not shown on its own. It was rerun alone.
+- **Correction to §9.21.** The guard run recorded there (61 tests, zero failures) was made before the
+  teardown of `PgPromotionIntegrationTest` was rewritten. The rewritten teardown called `admin.close()`
+  inside `.onSuccess` outside `testContext.verify`, which `OnSuccessExceptionSwallowingGuardTest` rejects
+  (Tier 2). The guards were not rerun after that edit, so P1 was reported with a guard failure present. The
+  guard run of this section found it. Both new teardowns now use `context.verify`, and the guards pass.
+
+**Not covered by P2.** The policy cutover on the new writer (P3), which this increment makes possible: the
+follower can now be confirmed as a synchronous peer of the new writer. Replication slots (§9.20 row 20).
+Following after a rewind of a former writer. The password file is provisioned by the fixture; no deployment
+step provisions it. The follower reads the writer's address from the caller, not from member configuration
+(OD-20). Following a writer that is itself still in promotion was not tested. No production entry point calls
+`followWriter`. The Jenkins build and the whole-repository gate were not run.

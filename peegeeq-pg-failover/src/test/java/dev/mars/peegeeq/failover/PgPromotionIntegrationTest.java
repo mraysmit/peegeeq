@@ -134,7 +134,7 @@ class PgPromotionIntegrationTest {
             .compose(ignored -> elector.close().transform(closed -> settle(closed, failures)))
             .compose(ignored -> modeElector == null ? Future.<Void>succeededFuture()
                 : modeElector.close().transform(closed -> settle(closed, failures)))
-            .onSuccess(ignored -> {
+            .onSuccess(ignored -> context.verify(() -> {
                 admin.close();
                 if (failures.isEmpty()) {
                     context.completeNow();
@@ -143,7 +143,7 @@ class PgPromotionIntegrationTest {
                 Throwable first = failures.get(0);
                 failures.stream().skip(1).forEach(first::addSuppressed);
                 context.failNow(first);
-            }).onFailure(context::failNow);
+            })).onFailure(context::failNow);
     }
 
     private static Future<Void> settle(AsyncResult<?> step, List<Throwable> failures) {

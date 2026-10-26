@@ -719,9 +719,12 @@ Phases:
    promotion, is implemented and tested (plan §9.21). The owner decided OD-13 (no failsafe mode),
    OD-14 (pause mode deferred), and OD-15 (planned supervisor stop releases the lease after a confirmed
    stop) on the basis of the Patroni operations matrix (plan §9.20).
-   **OPEN — 7b.3 remaining:** the policy cutover after promotion, repointing standbys, replication
-   slots, takeover after real lease expiry, planned stop with release, manual takeover,
-   repeated failover, and controlled re-join.
+   **7b.3 update, 2026-10-26:** increment P2, a standby follows the new writer, is implemented and
+   tested (plan §9.22). It must precede the policy cutover, because the cutover's coverage check needs
+   the surviving standby streaming from the new writer.
+   **OPEN — 7b.3 remaining:** the policy cutover after promotion (P3), replication slots, takeover after
+   real lease expiry, planned stop with release, manual takeover, repeated failover, and controlled
+   re-join.
 8. **OPEN.** Enable autonomous initiation on the verified common boundary (8a), complete
    per-node authority/bootstrap reconciliation (8b), infrastructure fault tests including
    S54 to S58 (8c), and automatic database safety acceptance (8d). No second provider or
@@ -1105,6 +1108,22 @@ Phase 7b.3 increment P1 verification, 2026-10-26 (working tree, not committed):
   real lease expiry, promotion with an armed watchdog device, any production entry point, the Jenkins
   build, and the whole-repository gate. Seven `.eventually(` teardown calls remain in four older test
   classes; `Future.eventually` discards a cleanup failure.
+
+Phase 7b.3 increment P2 verification, 2026-10-26 (working tree, not committed):
+
+- Plan §9.22 has the contract, the red and green evidence, and the mutation probes. New: `PgWriterEndpoint`,
+  `PgPromotionControl.follow` and its adapter, `PgFailoverMonitor.followWriter`.
+- `-Pintegration-tests`, whole module: thirteen classes, total **219**, zero failures/errors/skips, on the
+  final code. New or extended: `PgSqlPromotionControlIntegrationTest` 17, `PgFollowIntegrationTest` 10.
+  Logs `logs/peegeeq-pg-failover-follow-final-a-` to `-f3-20261026.log`.
+- Default/core: nine classes, total **395** (`PgWriterEndpointTest` 6 is new). Guards: 61, zero failures.
+- Eight behaviours were removed one at a time and each named test failed; the production files were
+  restored to their recorded SHA-256.
+- Correction to the P1 record above: its guard run preceded a teardown rewrite, and the rewritten teardown
+  failed `OnSuccessExceptionSwallowingGuardTest` (Tier 2). It was found by the P2 guard run and fixed in
+  both classes. P1 was reported with that guard failure present.
+- Not covered: the policy cutover (P3), replication slots, following after a rewind, member address
+  configuration, any production entry point, the Jenkins build, and the whole-repository gate.
 
 Test counts are recorded here only from a run made during the task.
 The final phase 7b.1 per-class summaries, and the phase 7b.2 summaries dated 2026-10-08, were

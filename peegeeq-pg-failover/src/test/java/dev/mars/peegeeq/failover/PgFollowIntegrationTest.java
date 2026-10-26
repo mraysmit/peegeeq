@@ -64,6 +64,7 @@ class PgFollowIntegrationTest {
     private PgPrimaryElector writerElector;
     private PgPrimaryElector followerElector;
     private PgLocalStateStore store;
+    private PgAdmissionGate gate;
     private PgPromotionControl promotion;
     private PgFailoverMonitor monitor;
     private PgControlRecord held;
@@ -112,7 +113,7 @@ class PgFollowIntegrationTest {
                 var follower = NODES.node(FOLLOWER);
                 String directory = NODES.dataDirectory();
                 promotion = promotionControl(FOLLOWER);
-                var gate = new PgHbaAdmissionGate(vertx, runner, follower.prefix(), PgSupervisedContainer.PG_CTL,
+                gate = new PgHbaAdmissionGate(vertx, runner, follower.prefix(), PgSupervisedContainer.PG_CTL,
                     "psql", directory, follower.openHba(directory), follower.closedHba(directory), COMMAND_TIMEOUT);
                 var durability = new PgSqlDurabilityControl(vertx, runner, follower.prefix(),
                     PgSupervisedContainer.PG_CTL, "psql", directory, COMMAND_TIMEOUT);
@@ -135,7 +136,7 @@ class PgFollowIntegrationTest {
             .compose(ignored -> historyElector.close().transform(closed -> settle(closed, failures)))
             .compose(ignored -> writerElector.close().transform(closed -> settle(closed, failures)))
             .compose(ignored -> followerElector.close().transform(closed -> settle(closed, failures)))
-            .onSuccess(ignored -> {
+            .onSuccess(ignored -> context.verify(() -> {
                 admin.close();
                 if (failures.isEmpty()) {
                     context.completeNow();
@@ -144,7 +145,7 @@ class PgFollowIntegrationTest {
                 Throwable first = failures.get(0);
                 failures.stream().skip(1).forEach(first::addSuppressed);
                 context.failNow(first);
-            }).onFailure(context::failNow);
+            })).onFailure(context::failNow);
     }
 
     private static Future<Void> settle(AsyncResult<?> step, List<Throwable> failures) {
@@ -169,6 +170,24 @@ class PgFollowIntegrationTest {
             }).onSuccess(application -> context.verify(() -> {
                 assertNotEquals(0, application.exitCode(), "Following admitted an application connection");
                 assertFalse(followerElector.hasFreshOwnership(), "A follower holds no lease");
+                context.completeNow();
+            })).onFailure(context::failNow);
+    }
+
+    @Test void followingClosesAnOpenGrantAndAdmissionBeforeItChangesAnything(VertxTestContext context) {
+        var follower = NODES.node(FOLLOWER);
+        store.prepare(PgFailoverMode.MANUAL, held.generation(), operationId(), 1).compose(store::activate)
+            .compose(open -> gate.open())
+            .compose(ignored -> follower.applicationSql(runner, "select 1"))
+            .compose(admitted -> {
+                assertEquals(0, admitted.exitCode(), "The precondition failed: admission was not open");
+                return monitor.followWriter(held, writerEndpoint());
+            }).compose(ignored -> store.grant())
+            .compose(grant -> {
+                assertEquals(PgGrantState.CLOSED, grant.orElseThrow().state(), "The grant stayed open");
+                return follower.applicationSql(runner, "select 1");
+            }).onSuccess(application -> context.verify(() -> {
+                assertNotEquals(0, application.exitCode(), "Admission stayed open while following");
                 context.completeNow();
             })).onFailure(context::failNow);
     }
@@ -363,8 +382,6 @@ class PgFollowIntegrationTest {
     private PgFailoverMonitor monitorWith(PgPromotionControl control) {
         var follower = NODES.node(FOLLOWER);
         String directory = NODES.dataDirectory();
-        var gate = new PgHbaAdmissionGate(vertx, runner, follower.prefix(), PgSupervisedContainer.PG_CTL, "psql",
-            directory, follower.openHba(directory), follower.closedHba(directory), COMMAND_TIMEOUT);
         var durability = new PgSqlDurabilityControl(vertx, runner, follower.prefix(), PgSupervisedContainer.PG_CTL,
             "psql", directory, COMMAND_TIMEOUT);
         var watchdog = new PgDeviceWatchdog(vertx, stateDirectory.resolve("no-watchdog"),
