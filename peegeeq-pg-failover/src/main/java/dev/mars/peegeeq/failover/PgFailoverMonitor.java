@@ -95,24 +95,52 @@ public final class PgFailoverMonitor {
         });
     }
 
-    /** Stub for the red run. It has no behaviour. */
+    /**
+     * Points the local standby at the writer that {@code observed} names, and confirms that its WAL
+     * receiver streams from {@code writer}. The follower holds no lease, so no ownership is required.
+     * Refused before any effect and with no receipt: a record that names this node as writer
+     * ({@link PgLeaseProtocolException}), quarantine ({@link PgLocalStateException}), and a server that
+     * is not in recovery ({@link PgPromotionException}); a writable server needs a rewind, not a follow.
+     * The grant and the gate are closed first. The {@value #FOLLOW_WRITER} receipt carries the requested
+     * host and port, so a receipt for another address refuses the call. A failed follow records
+     * {@code UNKNOWN}. A rerun with equal parameters repeats the observed effect. The control record, the
+     * policy, and the grant are not changed.
+     */
     public Future<Void> followWriter(PgControlRecord observed, PgWriterEndpoint writer) {
-        return serialized(() -> Future.<Void>failedFuture(new UnsupportedOperationException("not implemented")));
+        return serialized(() -> {
+            Objects.requireNonNull(observed, "observed");
+            Objects.requireNonNull(writer, "writer");
+            JsonObject intent = observed.intent();
+            if (config.nodeId().equals(intent.getString("writerNodeId"))) {
+                throw new PgLeaseProtocolException("A node cannot follow itself as the writer");
+            }
+            JsonObject parameters = new JsonObject().put("host", writer.host()).put("port", writer.port());
+            return requireNoQuarantine().compose(ignored -> promotion.inRecovery()).compose(recovering -> {
+                if (!recovering) {
+                    throw new PgPromotionException("PostgreSQL is writable; a writable server cannot follow "
+                        + "a writer without a rewind");
+                }
+                return store.closeGrant();
+            }).compose(ignored -> gate.close(config.stopTimeout()))
+                .compose(ignored -> underReceipt(observed, intent.getString("operationId"), FOLLOW_WRITER,
+                    parameters, () -> promotion.follow(config.nodeId(), writer)));
+        });
     }
 
     /** Begins the receipt, promotes, and records the result. A failed promotion records {@code UNKNOWN}. */
     private Future<Void> promoteAndRecord(PgControlRecord held, String operation) {
-        return underReceipt(held, operation, PROMOTE, promotion::promote);
+        return underReceipt(held, operation, PROMOTE, new JsonObject(), promotion::promote);
     }
 
     /**
-     * Begins the receipt of an action with no parameters, runs the effect, and records its result:
-     * {@code COMPLETED}, or {@code UNKNOWN} after a failure. The effect's failure is returned, with a
-     * failure to record attached as suppressed. A failure to record a successful effect is returned,
-     * and the receipt stays {@code PENDING}.
+     * Begins the receipt of an action with the given immutable parameters, runs the effect, and records
+     * its result: {@code COMPLETED}, or {@code UNKNOWN} after a failure. The effect's failure is returned,
+     * with a failure to record attached as suppressed. A failure to record a successful effect is
+     * returned, and the receipt stays {@code PENDING}.
      */
-    private Future<Void> underReceipt(PgControlRecord held, String operation, String action, Operation<Void> effect) {
-        return store.begin(held.generation(), operation, action, config.nodeId(), new JsonObject())
+    private Future<Void> underReceipt(PgControlRecord held, String operation, String action, JsonObject parameters,
+                                      Operation<Void> effect) {
+        return store.begin(held.generation(), operation, action, config.nodeId(), parameters)
             .compose(receipt -> effect.execute().transform(done -> {
                 PgActionResult result = done.succeeded() ? PgActionResult.COMPLETED : PgActionResult.UNKNOWN;
                 return store.record(held.generation(), operation, action, config.nodeId(), result, new JsonObject())
@@ -160,7 +188,7 @@ public final class PgFailoverMonitor {
                 if (existing.filter(receipt -> receipt.result() == PgActionResult.COMPLETED).isPresent()) {
                     return Future.<Void>succeededFuture();
                 }
-                return underReceipt(held, operation, CHECKPOINT_AFTER_PROMOTE, promotion::checkpoint);
+                return underReceipt(held, operation, CHECKPOINT_AFTER_PROMOTE, new JsonObject(), promotion::checkpoint);
             });
     }
 
