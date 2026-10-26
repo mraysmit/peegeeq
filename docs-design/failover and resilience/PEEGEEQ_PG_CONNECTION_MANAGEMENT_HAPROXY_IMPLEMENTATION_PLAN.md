@@ -2120,8 +2120,8 @@ the module source for `replication slot`, `CHECKPOINT`, `nofailover`, `failsafe`
 | 3 | Demote modes `graceful` (checkpoint, release key), `immediate`, `immediate-nolock`, `offline` | One stop path: fast stop, then immediate. No checkpoint-and-release path | Gap |
 | 4 | Leader-race checks: `nofailover`, lag limit, timeline, watchdog healthy, sync members only, REST poll of other members' WAL, `failover_priority` | Designed, not built: promotion does not exist. Eligibility is coverage by the last confirmed policy. The choice between two covered standbys and the candidate timeline check are not specified | Gap |
 | 5 | `primary_start_timeout`, `primary_stop_timeout` | Stop budget built. Start timeout designed (default 0), not built | Partly |
-| 6 | DCS failsafe mode | Decided against for the baseline (system design §5.7). A coordinator outage makes the writer self-demote, so the cluster stops accepting writes | **Decision** |
-| 7 | Pause (maintenance) mode | Not in the design. No way to maintain the coordinator without writer demotion | **Decision** |
+| 6 | DCS failsafe mode | Decided against for the baseline (system design §5.7). A coordinator outage makes the writer self-demote, so the cluster stops accepting writes | Decided OD-13: keep rejected |
+| 7 | Pause (maintenance) mode | Not in the design. No way to maintain the coordinator without writer demotion | Decided OD-14: deferred |
 | 8 | Switchover (immediate, scheduled, cancel) and manual failover | Designed, not built (7b.3). No scheduled switchover and no cancel | Gap |
 | 9 | Restart (conditional, scheduled), reload, `pending_restart` | Not in the design | **Decision** |
 | 10 | `reinitialize`, `pg_rewind`, `remove_data_directory_on_rewind_failure` | Operator-controlled rewind or rebuild under quarantine. Commands undecided and unbuilt | **Decision** |
@@ -2138,15 +2138,28 @@ the module source for `replication slot`, `CHECKPOINT`, `nofailover`, `failsafe`
 | 21 | CHECKPOINT after promotion | Not in the design or the code. Seen in `ha.py` (`checkpoint_after_promote`). The PostgreSQL `pg_rewind` requirement behind it was not re-read | Gap |
 | 22 | Repoint standbys to the new leader | Designed ("attach surviving peer"), not built | Gap |
 | 23 | Callbacks `on_start`, `on_stop`, `on_restart`, `on_reload`, `on_role_change` | Not in the design | **Decision** |
-| 24 | Leader key released when the agent stops | Differs: closing the elector never releases. A planned supervisor stop leaves the lease until expiry | **Decision** |
+| 24 | Leader key released when the agent stops | Differs: closing the elector never releases. A planned supervisor stop leaves the lease until expiry | Decided OD-15: stop PostgreSQL, then release |
 | 25 | System identifier mismatch is a fatal exit | Partly: cluster namespace and `peegeeq.node_id`; bootstrap validates a common database identity; no continuous check | Partly |
 | 26 | Adopt an existing cluster | Not in the design. Bootstrap refuses existing history | **Decision** |
 | 27 | Configuration generation and validation | `PgNodeConfig` validates timing. No generator | Partly |
 | 28 | Cascading replication, standby clusters, Citus, Kubernetes coordinator | Out of scope for this design | Out of scope |
 
+**OD-13 to OD-15 decided by the owner, 2026-10-26.** The implementer recommended each choice.
+
+- OD-13 Failsafe mode (row 6): not adopted. The writer self-demotes when it cannot renew, as in system
+  design §5.7. Loss of the Consul quorum stops committed writes. A three-server quorum tolerates the loss
+  of one server (S17). This is an accepted limit and is revisited after 7b.3.
+- OD-14 Pause mode (row 7): deferred. No code and no design change. Maintenance of the coordinator uses
+  a rolling restart that keeps quorum. A full coordinator outage has no maintenance mode.
+- OD-15 Planned supervisor stop (row 24): the supervisor stops local PostgreSQL, confirms the stop, then
+  releases the lease through the guarded release that exists. This is the same order as planned
+  switchover. Not built. It belongs to 7b.3. When it is built, the coordinator design §3.1 sentence
+  "Closing the elector preserves the lease" must name this path as the one exception to elector close:
+  the elector's own close still never releases.
+
 Proposed handling, for the owner to accept or change: rows 20, 21, and 22 enter the 7b.3 promotion work,
-because promotion and re-join depend on them. Rows marked **Decision** wait for the owner. Row 13 gets a
-test before any claim is made.
+because promotion and re-join depend on them. The remaining rows marked **Decision** (9, 10, 15, 17, 19,
+23, 26) wait for the owner. Row 13 gets a test before any claim is made.
 
 Not checked by this section: plan §9.1 to §9.15 history; the code of each class behind a "Built" status;
 the `patronictl` page; Patroni's `update_lock` definition, which is outside the returned excerpt of
