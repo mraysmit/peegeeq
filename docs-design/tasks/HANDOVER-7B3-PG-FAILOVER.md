@@ -1,6 +1,6 @@
 # Handover: phase 7b.3, PostgreSQL failover supervisor
 
-**Written:** 2026-10-26, at the end of the P2 session.
+**Written:** 2026-10-26, at the end of the P2 session. **Corrected:** 2026-10-27 (§1 Git, §7 Logs).
 **For:** the next session that continues Task 8, phase 7b.3, in `peegeeq-pg-failover`.
 **Status of this document:** a briefing, not state. Status lives in code, tests, and logs. Check each claim
 against the artifact before relying on it. The authoritative records are plan §9.20 to §9.22 in
@@ -20,10 +20,13 @@ and the Task 8 entries in `docs-design/tasks/tasks.md`.
   supervisor stop stops PostgreSQL, then releases the lease. OD-15 is decided and not built.
 - **Implementer decisions OD-16 to OD-21.** Reversible and not reviewed by the owner. They are listed in
   plan §9.21 and §9.22.
-- **Git.** HEAD was `2232a3cd` at the end of the session. It holds P1 and the P2 stubs, with failing P2
-  tests. The P2 implementation, the test fixes, and the documentation were uncommitted. The owner makes all
-  commits. Do not commit and do not suggest committing. Run `git status` and `git log` to see what has
-  changed since.
+- **Git.** On 2026-10-27, HEAD was `9c66fa41` on `master` and the working tree was clean.
+  - `2232a3cd` holds P1 and the P2 stubs, with failing P2 tests.
+  - `e9189df1` holds the P2 implementation, the P1 teardown guard fix, and the plan and register updates.
+  - `9c66fa41` adds this document.
+
+  The owner makes all commits. Do not commit and do not suggest committing. Run `git status` and `git log`
+  to see what has changed since.
 
 ## 2. What exists in the module
 
@@ -120,9 +123,14 @@ Rows 9, 10, 15, 17, 19, 23, and 26 of plan §9.20 still await owner decisions. N
 
 - **Plan.** §9.20 (Patroni matrix), §9.21 (P1), §9.22 (P2), and the §8.1 status rows.
 - **Register.** The Task 8 entries and the P1 and P2 verification records in `docs-design/tasks/tasks.md`.
-- **Logs.** Under `logs/`, untracked. P1: `peegeeq-pg-failover-promotion-*`. P2: `peegeeq-pg-failover-follow-*`.
-- **Last verified counts, 2026-10-26.** Integration, whole module: 13 classes, 219 tests. Core: 395. Guards: 61.
-  Re-run them before quoting them.
+- **Logs.** `logs/` is ignored by `.gitignore`. On 2026-10-27 it held no P1 or P2 log. The newest file was
+  dated 2026-10-22, and no file name contained `promotion` or `follow`. A search of the repository found no
+  P1 or P2 log in any other location. Plan §9.21 and §9.22 and the register name P1 and P2 log files, for
+  example `peegeeq-pg-failover-promotion-core-20261026.log` and `peegeeq-pg-failover-follow-core-20261026.log`.
+  None of the named files exists on this machine. The P1 and P2 run logs are not available as evidence.
+- **Last reported counts, 2026-10-26.** Integration, whole module: 13 classes, 219 tests. Core: 395. Guards: 61.
+  The source is the `e9189df1` commit message and the register. No saved log supports them. Re-run them
+  before quoting them.
 
 ## 8. Not checked at handover
 
