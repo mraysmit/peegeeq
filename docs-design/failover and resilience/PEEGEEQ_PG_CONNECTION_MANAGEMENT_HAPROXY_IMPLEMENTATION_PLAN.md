@@ -2515,7 +2515,9 @@ during the installation.
 red run, the implementation, the green run, mutation probes with SHA-256 records, the module's
 integration classes one at a time, the core tests, and the guards last.
 
-**Status, 2026-11-03.** Implemented; not compiled and not run green.
+**Status, 2026-11-03.** Implemented (commit `5ead8746`), green, mutation-probed, regression, core, and
+guards green. Evidence below; every count is from a run made on 2026-11-03 against `5ead8746` with a clean
+working tree.
 
 | Step | Evidence under `logs/` |
 |---|---|
@@ -2523,6 +2525,189 @@ integration classes one at a time, the core tests, and the guards last.
 | Red, behaviour, against the stub | `peegeeq-pg-failover-cutover-red-20261103.log`: `Tests run: 10, Failures: 7, Errors: 3`. Nine methods fail on `UnsupportedOperationException` or a wrong exception type. The tenth failure is the class-level ERROR log contract: the declared `PgTakeover` lines were never logged, and each failed test's unawaited teardown leaked an "Interrupted ... pg_ctl stop" ERROR line (register finding 13). The same teardown prints `RejectedExecutionException: event executor terminated` from the worker thread whose result arrives after Vert.x closed |
 | SHA-256 before the implementation | `peegeeq-pg-failover-cutover-sha-before-implementation-20261103.log` (`PgBootstrap`, the stub `PgTakeover`, `PgFailoverMonitor`) |
 | Implementation | `PgTakeover.cutover`; new package-private `PgPolicyCutover.serve`; `PgBootstrap.serve` delegates to it and keeps its log line |
-| Green, regression, core, guards | Not run. The implementing session had no Maven dependencies: its network policy denied `repo.maven.apache.org` and `registry-1.docker.io` (HTTP 403). The sequence is `.vscode/p3-verification.ps1` (gitignored): rebuild, then `PgTakeoverIntegrationTest`, `PgBootstrapServingIntegrationTest`, `PgPromotionIntegrationTest`, `PgFollowIntegrationTest` one at a time, then the module core tests, then the guards |
+| Rebuild of `5ead8746` | `rebuild-peegeeq-pg-failover-cutover-impl-20261103.log`: `BUILD SUCCESS`, 45 main sources |
+| Green, `PgTakeoverIntegrationTest` | `peegeeq-pg-failover-cutover-impl-20261103.log` and `...-impl-run2-20261103.log`: `Tests run: 9, Failures: 0, Errors: 0, Skipped: 0` in both runs. The same 9 methods as the red run; the red run's tenth entry was the class-level log contract. No WARN line; every ERROR line matched a declaration |
+| SHA-256 around the probes | `peegeeq-pg-failover-cutover-mutation-sha-before-20261103.log` and `...-sha-after-20261103.log`: `PgTakeover.java` `387ECAD8...257D3E` in both. Rebuilt from the restored source afterwards (`rebuild-peegeeq-pg-failover-cutover-restored-20261103.log`) |
+| Regression, `PgBootstrapServingIntegrationTest` | `peegeeq-pg-failover-cutover-regression-bootstrap-serving-20261103.log`: `Tests run: 14, Failures: 0, Errors: 0, Skipped: 0` (14 `@Test` methods) |
+| Regression, `PgPromotionIntegrationTest` | `peegeeq-pg-failover-cutover-regression-promotion-20261103.log`: `Tests run: 15, Failures: 0, Errors: 0, Skipped: 0` (15 `@Test` methods) |
+| Regression, `PgFollowIntegrationTest` | `peegeeq-pg-failover-cutover-regression-follow-20261103.log`: `Tests run: 10, Failures: 0, Errors: 0, Skipped: 0` (10 `@Test` methods) |
+| Module core tests | `peegeeq-pg-failover-cutover-core-20261103.log`: `Tests run: 395, Failures: 0, Errors: 0, Skipped: 0` across 9 classes |
+| Guards | `peegeeq-test-support-cutover-guards-20261103.log`: `Tests run: 61, Failures: 0, Errors: 0, Skipped: 0`; the five guard classes 2, 2, 8, 1, 1 |
 
-Mutation probes follow a green run. Planned removals, each with the test expected to fail: the empty-set refusal (`aConfirmedPolicyThatNamesOnlyTheNewWriter...`); the receipt check (`aCutoverBeforeThisOperationsPromotionCompleted...`); the quarantine check (`aQuarantinedNode...`); the reuse of a pending policy with the derived set (`aRerunAfterACoverageFailure...`, revision 3 instead of 2); the use of the carried pending revision (`aPendingPolicyCarried...`, revision 2 instead of 3); the ownership check (`recordsOtherThanTheHeldTakeoverRecord...`).
+Mutation probes, each a removal in `PgTakeover.java`, a rebuild, and a run of the one target method
+(`peegeeq-pg-failover-cutover-mutation<N>-rebuild-20261103.log` and `...-mutation<N>-red-20261103.log`). Each
+probe failed its target test:
+
+| N | Removal | Target test failure |
+|---|---|---|
+| 1 | Empty-set refusal | `aConfirmedPolicyThatNamesOnlyTheNewWriter...`: expected `PgDurabilityException`, was `IllegalArgumentException` from the `PgDurabilityPolicy` constructor |
+| 2 | Receipt check | `aCutoverBeforeThisOperationsPromotionCompleted...`: expected `PgPromotionException`, was `PgDurabilityException` (the node is in recovery) |
+| 3 | Quarantine check | `aQuarantinedNode...`: the control record changed; the pending policy was written at revision 25 |
+| 4 | Reuse of a pending policy with the derived set | `aRerunAfterACoverageFailure...`: revision 3 instead of 2 |
+| 5 | Use of the carried pending revision | `aPendingPolicyCarried...`: revision 2 instead of 3 |
+| 6 | Ownership and record check | `recordsOtherThanTheHeldTakeoverRecord...`: the pending policy was written on a `FENCING` record |
+
+Each failing probe run also failed the class-level log contract with one `LocalCommandRunner` "Interrupted
+while waiting for command ... pg_ctl stop" ERROR. The line appears only when a test fails; neither green run
+logged it. This is register finding 13: vertx-junit5 5.0.4 does not await an asynchronous `@AfterEach`
+after a failed test, so Vert.x is closed while the teardown's `pg_ctl stop` waits. Its correction is the
+cleanup helper of Task 9, correction 5, as §9.18 records; it is not changed here.
+
+### 9.24 Phase 7b.3, Increment P4: Member Replication Slots on the Writer, 2026-11-03 (design)
+
+The owner directed on 2026-11-03 that the implementer choose the next 7b.3 item. P4 is §9.20 row 20,
+replication slots. It is the next item of the handover's ordered list (`HANDOVER-7B3-PG-FAILOVER.md` §4),
+and §9.20 classes it as a gap, not a decision. It is a correctness gap in P2 and P3: without a slot the
+writer may remove WAL that a lagging or reconnecting standby still needs, and that standby can then
+neither follow nor be covered (S31). Takeover after real lease expiry tests existing code and follows.
+
+**Purpose.** The writer keeps every WAL segment that each member still needs to stream, in one physical
+slot per member, so that a standby that falls behind or disconnects briefly resumes streaming. The
+retention is bounded, so a member that stays away cannot fill the writer's `pg_wal`.
+
+**Sources read, 2026-11-03.** PostgreSQL 15 documentation: §27.2.6 replication slots;
+`max_replication_slots`, `max_slot_wal_keep_size`, `wal_keep_size`, `primary_slot_name`; the
+`pg_replication_slots` view; `pg_create_physical_replication_slot`, `pg_drop_replication_slot`,
+`pg_replication_slot_advance`. Patroni dynamic configuration (`use_slots`, `slots`, `member_slots_ttl`).
+Code read in full: `PgFailoverMonitor`, `PgBootstrap`, `PgPolicyCutover`, `PgSqlDurabilityControl`,
+`PgDurabilityControl`, `PgSqlPromotionControl`, `PgPromotionControl`, `PgWriterEndpoint`, `PgNodeConfig`,
+and the test fixture `PgReplicationFixture`. The test image is `postgres:15.13-alpine3.20`.
+
+Facts from the PostgreSQL documentation that the design rests on:
+
+- A slot keeps WAL from its `restart_lsn` until the consumer has received it. With
+  `max_slot_wal_keep_size = -1` (the default) the retention is unlimited. With a bound, a slot that falls
+  further behind reports `wal_status` `unreserved`, then `lost`, and a lost slot is no longer usable.
+- `primary_slot_name` is set in the configuration file (reload). A change restarts the WAL receiver.
+- `max_replication_slots` is set at server start only. The default is 10.
+- `pg_create_physical_replication_slot(name, true)` reserves the WAL position at once.
+- Slot names contain only lower-case letters, digits, and the underscore.
+
+Patroni keeps a physical slot for each member on every node from PostgreSQL 11, advances the slots on
+replicas from member positions published in its coordinator, and keeps a departed member's slot for
+`member_slots_ttl` (default 30 minutes). For a fixed membership its documentation recommends permanent
+slots named after the members. PeeGeeQ's membership is fixed per incarnation (`PgNodeConfig.memberNodeIds`).
+
+**Data model.** No stored field is added.
+
+| Datum | Source of truth or derivable | Contract |
+|---|---|---|
+| Member slot name | Derived from the member identity: `peegeeq_`, then the identity in lower case with `-` and `.` replaced by `_` | Never stored. `PgNodeConfig` refuses a membership in which two members derive the same name or a name is longer than 63 bytes |
+| Slots a writer must hold | Derived: the membership minus this node | Includes the former writer after a takeover, so that its WAL from the slot's creation onward is kept for re-join |
+| Slot existence, type, `restart_lsn`, `active`, `wal_status` | Derived live from `pg_replication_slots` | Never stored. A slot with another prefix is never created, dropped, or advanced (§9.20 row 20, Patroni `ignore_slots`) |
+| Retention bound | Deployment configuration: `max_slot_wal_keep_size` in `postgresql.conf` | Observed, never set by the supervisor. An unbounded value is refused (OD-27) |
+| A standby's `primary_slot_name` | Derived from its own identity | Installed with `primary_conninfo` by `follow`; written at provisioning by the deployment for an initial standby |
+| Slot used by the WAL receiver | Derived live from `pg_stat_wal_receiver.slot_name` | Part of the follow confirmation. Never stored |
+
+**Contracts.**
+
+1. `PgNodeConfig.slotName(nodeId)` (static) returns the derived name. The record's validation adds the
+   two refusals in the table.
+2. `PgDurabilityControl.ensureSlots(List<String> nodeIds)` (adapter `PgSqlDurabilityControl`). Refused in
+   recovery, and when `max_slot_wal_keep_size` is `-1` (`PgDurabilityException`). For each name, reads
+   `pg_replication_slots` first and creates a physical slot with an immediately reserved position only when
+   none exists: creating an existing slot fails with `replication slot ... already exists` (check 1 below).
+   A slot that exists is not recreated, moved, or dropped. The call then observes every named slot as physical. A logical slot
+   under a member slot name fails the call. A `lost` slot is reported in the failure of a later coverage
+   check, not here: recreating it would not restore the WAL its standby needs.
+3. `PgFailoverMonitor.ensureMemberSlots(held)`. Refused without fresh ownership of exactly `held`, and under
+   quarantine. Derives the set from the membership and calls `ensureSlots`. No receipt: the effect is
+   idempotent, and the slots themselves are the evidence (OD-28).
+4. `promoteStandby` calls the slot step after the checkpoint and before it returns. A failure leaves the
+   node writable with admission closed, as a checkpoint failure does, and a rerun repeats only the
+   missing work. The P1 contract line "success changes no control record, no policy, and no grant" is
+   unchanged.
+5. `PgPolicyCutover.serve` calls `ensureMemberSlots` first. Bootstrap therefore refuses an unbounded
+   retention before it installs a policy, and a takeover cutover confirms the slots that promotion created.
+6. `PgPromotionControl.follow` also installs `primary_slot_name` with the derived name of this node, and
+   the confirmation requires the WAL receiver to stream from the host and port through that slot.
+7. The fixture, which stands for the deployment (OD-10), sets `max_slot_wal_keep_size` on every node and
+   takes each base backup with `-S <slot> -C`, so that the writer holds the standbys' slots from
+   provisioning and `-R` writes `primary_slot_name`.
+
+**Decisions of the implementer, 2026-11-03, not reviewed by the owner and reversible.**
+
+- OD-27: an unbounded retention (`max_slot_wal_keep_size = -1`) is refused. **Danger this addresses:** with
+  no bound, any member that stays down keeps WAL on the writer without limit. After every takeover the
+  former writer is such a member until re-join. `pg_wal` then fills, and the writer stops accepting
+  commits for every application: a whole-cluster write outage, with no warning before the disk is full.
+  With a bound, the same member loses its slot (`wal_status = lost`) and must be rebuilt under quarantine
+  (S31), which the design already requires. The bound's value is a deployment choice. **This needs the
+  owner's review**, because the bound trades writer availability against standby rebuilds.
+- OD-28: slot creation has no receipt. Reason: it is idempotent and observable, as the gate close is.
+- OD-29: `ensureSlots` is added to `PgDurabilityControl`, not to a new port. Reason: slots are writer-side
+  WAL retention, next to the peer observation of that port, and the monitor gains no ninth argument.
+- OD-30: slots are kept on the writer only. Patroni's slots on replicas are not built (see the gap below).
+
+**Known gap left by P4.** After a takeover the new writer's slots reserve WAL from their creation. WAL
+that the surviving standby needs from before that point is kept only by the new writer's own retention.
+Under `ANY 1` of two standbys one standby may lag, so after a takeover it may need a rebuild. Patroni
+closes this gap with slots on replicas, advanced to member positions that it publishes in its
+coordinator. PeeGeeQ publishes no member positions; publishing them is a new design item for the owner.
+
+**Dependency failure modes, each with a failing test before its code.**
+
+| Dependency | Modes | Test class |
+|---|---|---|
+| Identity rules | colliding derived names; a derived name over 63 bytes; mixed case and `.` | `PgNodeConfigTest` (core) |
+| `psql` through the command runner | failed Future; no result; non-observation output; budget exhausted | `PgSqlDurabilityControlIntegrationTest` |
+| Local server | in recovery; unbounded retention; a logical slot under a member name; a slot that exists already | `PgSqlDurabilityControlIntegrationTest` |
+| WAL receiver | streams from the host and port without the slot; the writer has no slot of that name | `PgSqlPromotionControlIntegrationTest` |
+| Elector and store | no fresh ownership; quarantine | `PgSlotIntegrationTest` (new) |
+| Port as the monitor sees it | `ensureSlots` fails during promotion (fault wrapper over the real control) | `PgPromotionIntegrationTest` |
+| Retention end to end | a stopped standby's slot keeps the WAL it needs, and it resumes streaming after restart | `PgSlotIntegrationTest` |
+
+**Checks run, 2026-11-03,** on throwaway containers of the test image `postgres:15.13-alpine3.20` (Docker
+29.9.2), not on `PgReplicationFixture`. The image and the server version (`PostgreSQL 15.13`) are the
+fixture's; the fixture's own `initdb` settings were not reproduced. The containers were removed afterwards.
+
+1. **Slot creation.** With `wal_level=replica` and `max_slot_wal_keep_size=256MB`,
+   `pg_create_physical_replication_slot('peegeeq_pg_node_2', true)` returned a position at once. The view
+   showed `physical`, `temporary = f`, `active = f`, `wal_status = reserved`, and a `safe_wal_size` within the
+   bound. A second creation under the same name failed with `replication slot "peegeeq_pg_node_2" already
+   exists`. The names `pg-node-2` and `Peegeeq_X` were rejected with `contains invalid character`, so the
+   derived name is required. `max_replication_slots` was `10`.
+2. **Reserved position.** On a writer, an immediately reserved slot started at the redo point of the last
+   checkpoint (`0/2000028`), not at the current WAL position (`0/30203D8`); after a `CHECKPOINT` a new slot
+   started at the new redo point. On a standby promoted with `pg_ctl promote`, a slot created before the
+   forced checkpoint started at the current position (`0/30204F0`), not at the earlier redo point
+   (`0/2000028`). Creating the slots before the checkpoint after promotion therefore does not narrow the
+   known gap above. Neither behaviour is stated in the documentation that was read; both are observations.
+   Why the promoted server differs was not established.
+3. **WAL receiver without its slot.** A standby started with `primary_slot_name` naming a slot the writer did
+   not have logged `FATAL: could not start WAL streaming: ERROR: replication slot "peegeeq_pg_node_9" does not
+   exist`, retried every 5.0 seconds (`wal_retrieve_retry_interval = 5s`, observed with `SHOW` and in the log
+   timestamps), and showed no row in `pg_stat_wal_receiver`. After the slot was created on the writer, the
+   next retry started streaming (`10:04:43.251`); the receiver then reported `streaming` with
+   `slot_name = peegeeq_pg_node_9`, and the writer's slot became `active`. The longest wait after the slot
+   exists is one retry interval. The PostgreSQL page for the setting returned HTTP 503 when fetched, so the
+   documented default was not read.
+
+Consequences for this design: `follow`'s 20-second budget in the tests covers one 5-second retry. A
+5-second durability budget, as in `aRerunAfterACoverageFailure...`, can end before the next retry, so a slot
+must exist before any coverage wait begins. Contract 4 (slots created inside `promoteStandby`) provides that.
+
+**Classes that construct the changed types.** `PgDurabilityControl` gains a method, so every test
+implementation of the port must implement it.
+
+**Existing tests that follow a writer promoted through the adapter** (read in full, 2026-11-03; not run with
+the change). Their writer is promoted with `PgPromotionControl.promote()`, not with `promoteStandby`, so it
+holds no slot, and a follow under contract 6 would wait until its 20-second budget ends and fail:
+
+| Class | Where the writer is promoted | Tests that need a successful follow (affected) | Tests not affected |
+|---|---|---|---|
+| `PgFollowIntegrationTest` | `setUp`: `newWriter.promote()` then `checkpoint()` | `followingTheNewWriterStreamsFromItWithAdmissionClosedAndACompletedReceipt`, `followingClosesAnOpenGrantAndAdmissionBeforeItChangesAnything`, `followingTwiceIsIdempotentAndKeepsTheReceiptCompleted`, `aRerunAfterAnUnknownReceiptCompletesTheSameReceipt` | the six that refuse or fail before an effect, or use the failing control |
+| `PgSqlPromotionControlIntegrationTest` | in the test: `control(STANDBY).promote()` | `aStandbyFollowsTheNewWriterAndStreamsFromIt`, `theInstalledConnectionStringKeepsTheIdentityAndHoldsNoPassword` | the other fifteen; `aWriterThatCannotBeReached...` still fails on its unreachable host |
+
+The change for both: after the adapter promotion, the set-up or test creates the follower's slot on the new
+writer through `PgSqlDurabilityControl.ensureSlots`, the adapter step that `promoteStandby` runs in
+production. `PgTakeoverIntegrationTest` promotes through `promoteStandby` and follows afterwards in every
+test, so it needs no change.
+
+**Order of work.** As P1 to P3: tests and stubs that fail with "not implemented", the red run, the
+implementation, the green run, mutation probes with SHA-256 records, the module's integration classes one
+at a time, the core tests, and the guards last.
+
+**Not decided here.** The bound's value for a production deployment. Slots on replicas and published member
+positions. Dropping the slot of a member removed from the membership, which belongs to controlled membership
+change (§8, phase 14).
