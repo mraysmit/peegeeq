@@ -726,9 +726,15 @@ Phases:
    §9.23). `PgTakeoverIntegrationTest` (9 tests) and a stub `PgTakeover.cutover` are written. The fixture
    now writes replication rules into every node's admission files. Nothing was run: the session had no
    Maven, Docker, or PowerShell. Red run by the owner: 10 run, 7 failures, 3 errors, all on the stub.
-   The implementation (`PgTakeover.cutover`, `PgPolicyCutover`) is written. Green not run: this session's network
-   policy denies Maven Central and Docker Hub. Sequence: `.vscode\p3-verification.ps1`.
-   **OPEN — 7b.3 remaining:** the policy cutover after promotion (P3), replication slots, takeover after
+   The implementation (`PgTakeover.cutover`, `PgPolicyCutover`) is written.
+   **7b.3 update, 2026-11-03, verification of `5ead8746`:** P3 is implemented and tested (plan §9.23).
+   `PgTakeoverIntegrationTest` 9/9 in two runs; six mutation probes, each failed its target test, and
+   `PgTakeover.java` SHA-256 is unchanged after them; regression `PgBootstrapServingIntegrationTest` 14/14,
+   `PgPromotionIntegrationTest` 15/15, `PgFollowIntegrationTest` 10/10; module core 395/395; guards
+   (`peegeeq-test-support` core) 61/61. Not run: the Jenkins build and the whole-repository gate.
+   **7b.3 update, 2026-11-03:** increment P4, member replication slots on the writer, is designed (plan
+   §9.24). Not implemented. OD-27 (an unbounded `max_slot_wal_keep_size` is refused) needs owner review.
+   **OPEN — 7b.3 remaining:** replication slots (P4), takeover after
    real lease expiry, planned stop with release, manual takeover, repeated failover, and controlled
    re-join.
 8. **OPEN.** Enable autonomous initiation on the verified common boundary (8a), complete
