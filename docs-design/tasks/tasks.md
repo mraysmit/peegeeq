@@ -725,7 +725,9 @@ Phases:
    **7b.3 update, 2026-11-03:** increment P3, the policy cutover on the new writer, is designed (plan
    §9.23). `PgTakeoverIntegrationTest` (9 tests) and a stub `PgTakeover.cutover` are written. The fixture
    now writes replication rules into every node's admission files. Nothing was run: the session had no
-   Maven, Docker, or PowerShell. The red run is next.
+   Maven, Docker, or PowerShell. Red run by the owner: 10 run, 7 failures, 3 errors, all on the stub.
+   The implementation (`PgTakeover.cutover`, `PgPolicyCutover`) is written. Green not run: this session's network
+   policy denies Maven Central and Docker Hub. Sequence: `.vscode\p3-verification.ps1`.
    **OPEN — 7b.3 remaining:** the policy cutover after promotion (P3), replication slots, takeover after
    real lease expiry, planned stop with release, manual takeover, repeated failover, and controlled
    re-join.

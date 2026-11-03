@@ -2,7 +2,6 @@ package dev.mars.peegeeq.failover;
 
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
-import io.vertx.core.json.JsonObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.nio.file.Path;
@@ -77,26 +76,12 @@ public final class PgBootstrap {
     public Future<PgControlRecord> serve(PgControlRecord held, PgFailoverMode mode) {
         Objects.requireNonNull(held, "held");
         Objects.requireNonNull(mode, "mode");
-        return monitor.installPendingPolicy(held)
-            .compose(ignored -> elector.update(held, confirmedIntent(held.intent())))
-            .compose(confirmed -> monitor.prepareWriter(confirmed, mode)
-                .compose(prepared -> elector.update(confirmed, servingIntent(confirmed.intent()))
-                    .compose(serving -> monitor.activateWriter(serving, prepared).map(open -> serving))))
+        return PgPolicyCutover.serve(elector, monitor, held, mode)
             .andThen(outcome -> {
                 if (outcome.failed()) {
                     logger.error("Bootstrap admission failed on node {}", config.nodeId(), outcome.cause());
                 }
             });
-    }
-
-    /** The pending policy becomes the confirmed policy. The phase stays withdrawn. */
-    private static JsonObject confirmedIntent(JsonObject intent) {
-        JsonObject pending = (JsonObject) intent.remove("pendingDurabilityPolicy");
-        return intent.put("durabilityPolicy", pending);
-    }
-
-    private static JsonObject servingIntent(JsonObject intent) {
-        return intent.put("phase", "SERVING");
     }
 
     private Future<PgControlRecord> startUnderOwnership(PgBootstrapRequest request, PgControlRecord held) {
