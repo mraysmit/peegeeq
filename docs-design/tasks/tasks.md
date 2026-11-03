@@ -722,6 +722,10 @@ Phases:
    **7b.3 update, 2026-10-26:** increment P2, a standby follows the new writer, is implemented and
    tested (plan §9.22). It must precede the policy cutover, because the cutover's coverage check needs
    the surviving standby streaming from the new writer.
+   **7b.3 update, 2026-11-03:** increment P3, the policy cutover on the new writer, is designed (plan
+   §9.23). `PgTakeoverIntegrationTest` (9 tests) and a stub `PgTakeover.cutover` are written. The fixture
+   now writes replication rules into every node's admission files. Nothing was run: the session had no
+   Maven, Docker, or PowerShell. The red run is next.
    **OPEN — 7b.3 remaining:** the policy cutover after promotion (P3), replication slots, takeover after
    real lease expiry, planned stop with release, manual takeover, repeated failover, and controlled
    re-join.
