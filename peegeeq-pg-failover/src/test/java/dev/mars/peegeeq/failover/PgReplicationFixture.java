@@ -121,10 +121,12 @@ public final class PgReplicationFixture implements AutoCloseable {
                 .compose(ignored -> checked(node.exec(runner, "pg_basebackup", "-d",
                     primaryConnectionInfo(standby, standby), "-D", directory, "-Fp", "-Xs", "-R"),
                     "Base backup for " + standby))
+                // Every node keeps the replication rules in both admission files, as the gate requires: a
+                // standby that is promoted closes its gate, and its surviving peer must still replicate from it.
                 .compose(ignored -> node.write(runner, node.closedHba(directory),
-                    "local all all trust\\nhost all all all reject\\n"))
+                    "local all all trust\\n" + replicationRules + "host all all all reject\\n"))
                 .compose(ignored -> node.write(runner, node.openHba(directory),
-                    "local all all trust\\nhost all all all trust\\n"))
+                    "local all all trust\\n" + replicationRules + "host all all all trust\\n"))
                 // The password file a deployment provisions for a follower. libpq requires mode 0600.
                 .compose(ignored -> checked(node.exec(runner, "sh", "-c", "printf '*:*:*:" + standby + ":"
                     + password(standby) + "\\n' > " + passfile(standby) + " && chmod 600 " + passfile(standby)),

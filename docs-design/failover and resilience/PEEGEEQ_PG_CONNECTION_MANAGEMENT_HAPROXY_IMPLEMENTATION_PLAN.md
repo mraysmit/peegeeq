@@ -829,6 +829,7 @@ for that day's revision. The rows dated 2026-10-21 and 2026-10-22 have their run
 | 7b.2 bootstrap scope B, remaining | Not implemented | A production entry point that calls `PgBootstrap`, the renewal loop, and the watchdog; resuming an interrupted `serve` (the takeover path, 7b.3). Stopped-before-release remains open. |
 | 7b.3 increment P1: guarded local promotion with CHECKPOINT | Implemented and tested, 2026-10-26 | `PgPromotionControl` and `PgSqlPromotionControl` (`pg_ctl promote`, role observation, forced and verified CHECKPOINT); `PgFailoverMonitor.promoteStandby(held)` under `promote` and `checkpoint-after-promote` receipts, with admission closed. See §9.21. Not in P1: slots, repointing standbys, the policy cutover, planned stop with release, expiry takeover. |
 | 7b.3 increment P2: a standby follows the new writer | Implemented and tested, 2026-10-26 | `PgPromotionControl.follow`, `PgWriterEndpoint` (host, port, password-file path; no password), `PgFailoverMonitor.followWriter` under a `follow-writer` receipt, no lease required. See §9.22. Not in P2: the policy cutover, slots, following after a rewind. |
+| 7b.3 increment P3: the policy cutover on the new writer | Designed; tests and stub written, not run, 2026-11-03 | `PgTakeover.cutover(held, mode)` derives the next policy (confirmed set minus the new writer, next revision), persists it as pending, then runs the serving sequence shared with `PgBootstrap.serve`. Fixture finding: standby admission files lacked replication rules. See §9.23. |
 | 7b.3 manual takeover and re-join, remaining | Not implemented | Requires the policy cutover after promotion (P3), replication slots, old-writer exclusion by expiry, planned stop with release, repeated failover, controlled re-join, and routed production-manager assertions. |
 | G-7 full coordinator qualification | Open | Snapshot/restore, TLS, stopped-before-release, and expiry versus independent old-writer exclusion remain unverified. Component success does not close G-7. |
 
@@ -2402,3 +2403,117 @@ Following after a rewind of a former writer. The password file is provisioned by
 step provisions it. The follower reads the writer's address from the caller, not from member configuration
 (OD-20). Following a writer that is itself still in promotion was not tested. No production entry point calls
 `followWriter`. The Jenkins build and the whole-repository gate were not run.
+
+
+### 9.23 Phase 7b.3, Increment P3: the Policy Cutover on the New Writer, 2026-11-03
+
+The owner directed `proceed` after reading the handover of 2026-10-27
+(`docs-design/tasks/HANDOVER-7B3-PG-FAILOVER.md`). P3 is the policy cutover that §9.21 and §9.22 left
+open. It covers the second row of the system design §5.8 lifecycle table: node 1 fenced, node 2
+promoted, node 2 serves with `ANY 1 ("pg-node-3")`.
+
+**Purpose.** After `promoteStandby` (P1) on the new writer, and `followWriter` (P2) on the surviving
+standby, the new writer must persist, install, confirm, publish, and activate a policy that requires
+only the surviving standby. Admission stays closed until activation.
+
+**Data model.** No stored field is added.
+
+| Datum | Source of truth or derivable | Contract |
+|---|---|---|
+| Next required standby set | Derived: the confirmed `durabilityPolicy` set of the takeover record, minus the new writer, in the same order | The former writer is not added back. It returns only through re-join (§5.8 table, rows 3 and 4). An empty set is refused |
+| Next policy revision | Derived: one more than the larger of the confirmed revision and the revision of any pending policy the record carries | A revision number never names two different standby sets within one incarnation |
+| `pendingDurabilityPolicy` | Control record (existing); authoritative proposed policy | Written by `PgPrimaryElector.update` before any configuration effect (§5.8 step 1). A carried pending policy whose set equals the derived set is used unchanged; otherwise it is replaced |
+| `durabilityPolicy`, `phase` | Control record (existing) | Confirmation and publication as in §9.17 |
+| Promotion completed | Derived from the node-local `checkpoint-after-promote` receipt of this generation and operation, result `COMPLETED` | Local action evidence. It grants no authority; the lease does |
+| Receipt `install-policy` | Node-local store (existing) | As in §9.16. Its key carries the new generation and operation, so it cannot collide with the former writer's receipt |
+| Prepared and open grant | Node-local store (existing) | Policy revision is the cut-over revision |
+| Coverage, sync state, WAL boundary | Derived live observations | Never stored |
+
+**Contract of `PgTakeover.cutover(held, mode)`** (new class, sibling of `PgBootstrap`).
+
+1. Refused before any effect, with no coordinator write and no receipt:
+   - no fresh ownership of exactly `held`; phase other than `WITHDRAWN`; no `previousWriterNodeId`, or
+     it names this node; no confirmed policy, or it does not name this node
+     (`PgLeaseProtocolException`);
+   - the `checkpoint-after-promote` receipt of this generation and operation is absent or not
+     `COMPLETED` (`PgPromotionException`);
+   - quarantine (`PgLocalStateException`);
+   - the derived standby set is empty (`PgDurabilityException`). Committed-write admission stays closed
+     until a standby is restored (§5.8, two-node pair).
+2. When the record has no pending policy with the derived set, `PgPrimaryElector.update` writes
+   `pendingDurabilityPolicy` at the derived revision. The phase stays `WITHDRAWN`. The confirmed policy
+   is carried unchanged, which the elector permits although it names the new writer (§8.1, policy
+   validation row).
+3. The shared serving sequence runs on the record with the pending policy: `installPendingPolicy`,
+   confirmation, `prepareWriter(confirmed, mode)`, publication of `SERVING`, `activateWriter`. This is
+   the sequence of §9.17, moved out of `PgBootstrap.serve` without change (OD-22).
+4. The result is the serving record. A failure at any step stops the sequence and is logged once at
+   ERROR by `PgTakeover` (`Takeover cutover failed on node <id>`), through `andThen`.
+
+State after a failure: before step 2 the record is unchanged. After step 2 it is withdrawn with the
+pending policy, admission is closed, and ownership is kept, so a rerun with that record (read back from
+the coordinator) skips step 2 and continues. After a failed coordinator update ownership is retired, as
+in §9.17, and this elector instance cannot rerun.
+
+**Answer to the open question of the handover.** Each follower's own supervisor runs the follow (P2).
+The cutover does not run it and does not wait for it. The coverage check of step 3 observes one fresh
+boundary and waits within the durability budget until the required standby streams from the new writer
+and covers the boundary. The order of the follow and the cutover therefore does not matter within that
+budget. A follow that lands after the budget fails the cutover with admission closed and the pending
+policy persisted, and a rerun completes. Two tests cover this (below). This is static reading until
+those tests run.
+
+**Finding: the standby admission files of the fixture have no replication rules.** The gate's contract
+(`PgHbaAdmissionGate` Javadoc) states that both admission files keep the replication rules. The
+fixture writes them only into the writer's files. Each standby's files hold the local rule and one
+`host all all all` rule. In `pg_hba.conf`, `all` does not match a physical replication connection. So
+after `promoteStandby` closes the gate on the new writer, the installed file would reject the
+follower's replication connection, and the coverage check could never pass. The P2 test did not meet
+this, because its new writer was promoted through the adapter and its gate never installed a standby
+file. This is static reading; no run has shown it. Fix: every node's admission files carry the same
+replication rules. The rules name the standby roles only; the former writer has no replication role
+until re-join.
+
+**Decisions of the implementer, 2026-11-03, not reviewed by the owner and reversible.**
+
+- OD-22: `PgTakeover` is a new class, and the serving sequence moves from `PgBootstrap.serve` into a
+  package-private `PgPolicyCutover`, which both classes call. Reason: one mechanism with two callers.
+  Takeover is not bootstrap, and the later takeover steps (manual takeover, the production entry point)
+  belong in `PgTakeover`. `PgBootstrap.serve` keeps its contract and its log line, so
+  `PgBootstrapServingIntegrationTest` is the regression check for the move.
+- OD-23: the next required set is the confirmed set minus the new writer. Reason: §5.8 requires every
+  remaining covered peer after a promotion, and only members of the last confirmed policy are covered.
+- OD-24: the next revision is one more than the larger of the confirmed and carried pending revisions.
+  A carried pending policy with the derived set is reused. Reason: revisions increase within an
+  incarnation, and one revision must not name two sets. The reuse also makes the rerun after a failed
+  installation write nothing new.
+- OD-25: the cutover requires the completed `checkpoint-after-promote` receipt of its own operation.
+  Reason: a policy must not be confirmed on a node whose promotion sequence did not complete. The role
+  check inside the durability control would refuse a standby only after the coordinator write.
+- OD-26: the cutover does not run or wait for the follow. Reason: the follower is another node with its
+  own supervisor (P2); the coverage wait is the synchronisation point.
+
+**Dependency failure modes, each with a failing test before its code** (`PgTakeoverIntegrationTest`).
+
+| Dependency | Mode | Test |
+|---|---|---|
+| All steps | none fails | `theCutoverServesTheNewWriterWithOnlyTheSurvivingStandbyRequired` |
+| Follower | follows only after the coverage wait has begun | `aCutoverWaitingForCoverageCompletesWhenTheFollowerFollowsDuringTheWait` |
+| Durability control | the surviving standby is not covered within the budget; rerun after it follows | `aRerunAfterACoverageFailureReusesThePendingPolicyAndServesOnceTheFollowerFollows` |
+| Control record history | a pending policy carried from the former writer | `aPendingPolicyCarriedFromTheFormerWriterIsReplacedAtTheNextRevision` |
+| Confirmed policy | names only the new writer, so no standby remains | `aConfirmedPolicyThatNamesOnlyTheNewWriterLeavesNoStandbyAndIsRefusedBeforeAnyEffect` |
+| Node-local store | no completed promotion of this operation | `aCutoverBeforeThisOperationsPromotionCompletedIsRefusedBeforeAnyEffect` |
+| Node-local store | quarantine | `aQuarantinedNodeIsRefusedBeforeAnyEffect` |
+| Elector | a record this node does not hold; a record that is not withdrawn | `recordsOtherThanTheHeldTakeoverRecordAreRefusedBeforeAnyEffect` |
+| Coordinator update | the pending policy is not written | `aFailedPendingPolicyWriteLeavesTheRecordUnchangedAndInstallsNothing` |
+
+Not repeated here, because the shared sequence is tested by `PgBootstrapServingIntegrationTest`: a
+failed confirmation, a failed publication, a gate that does not open, a frozen coordinator, and expiry
+during the installation.
+
+**Order of work.** Tests and a stub that fails with "not implemented", written 2026-11-03. Then the
+red run, the implementation, the green run, mutation probes with SHA-256 records, the module's
+integration classes one at a time, the core tests, and the guards last.
+
+**Status, 2026-11-03.** Designed. Tests and stub written. No command was run: the session that wrote
+them had no Maven, Docker, or PowerShell. The red run is the owner's next step.
