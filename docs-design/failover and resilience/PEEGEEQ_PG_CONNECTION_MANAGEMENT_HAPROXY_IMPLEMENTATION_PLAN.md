@@ -829,7 +829,7 @@ for that day's revision. The rows dated 2026-10-21 and 2026-10-22 have their run
 | 7b.2 bootstrap scope B, remaining | Not implemented | A production entry point that calls `PgBootstrap`, the renewal loop, and the watchdog; resuming an interrupted `serve` (the takeover path, 7b.3). Stopped-before-release remains open. |
 | 7b.3 increment P1: guarded local promotion with CHECKPOINT | Implemented and tested, 2026-10-26 | `PgPromotionControl` and `PgSqlPromotionControl` (`pg_ctl promote`, role observation, forced and verified CHECKPOINT); `PgFailoverMonitor.promoteStandby(held)` under `promote` and `checkpoint-after-promote` receipts, with admission closed. See §9.21. Not in P1: slots, repointing standbys, the policy cutover, planned stop with release, expiry takeover. |
 | 7b.3 increment P2: a standby follows the new writer | Implemented and tested, 2026-10-26 | `PgPromotionControl.follow`, `PgWriterEndpoint` (host, port, password-file path; no password), `PgFailoverMonitor.followWriter` under a `follow-writer` receipt, no lease required. See §9.22. Not in P2: the policy cutover, slots, following after a rewind. |
-| 7b.3 increment P3: the policy cutover on the new writer | Designed; tests and stub written, not run, 2026-11-03 | `PgTakeover.cutover(held, mode)` derives the next policy (confirmed set minus the new writer, next revision), persists it as pending, then runs the serving sequence shared with `PgBootstrap.serve`. Fixture finding: standby admission files lacked replication rules. See §9.23. |
+| 7b.3 increment P3: the policy cutover on the new writer | Implemented, red run recorded, green not run, 2026-11-03 | `PgTakeover.cutover(held, mode)` derives the next policy (confirmed set minus the new writer, next revision), persists it as pending, then runs the serving sequence shared with `PgBootstrap.serve`. Fixture finding: standby admission files lacked replication rules. See §9.23. |
 | 7b.3 manual takeover and re-join, remaining | Not implemented | Requires the policy cutover after promotion (P3), replication slots, old-writer exclusion by expiry, planned stop with release, repeated failover, controlled re-join, and routed production-manager assertions. |
 | G-7 full coordinator qualification | Open | Snapshot/restore, TLS, stopped-before-release, and expiry versus independent old-writer exclusion remain unverified. Component success does not close G-7. |
 
@@ -2515,5 +2515,14 @@ during the installation.
 red run, the implementation, the green run, mutation probes with SHA-256 records, the module's
 integration classes one at a time, the core tests, and the guards last.
 
-**Status, 2026-11-03.** Designed. Tests and stub written. No command was run: the session that wrote
-them had no Maven, Docker, or PowerShell. The red run is the owner's next step.
+**Status, 2026-11-03.** Implemented; not compiled and not run green.
+
+| Step | Evidence under `logs/` |
+|---|---|
+| Rebuild with tests and stub | `rebuild-peegeeq-pg-failover-cutover-20261103.log`: `BUILD SUCCESS` (run by the owner) |
+| Red, behaviour, against the stub | `peegeeq-pg-failover-cutover-red-20261103.log`: `Tests run: 10, Failures: 7, Errors: 3`. Nine methods fail on `UnsupportedOperationException` or a wrong exception type. The tenth failure is the class-level ERROR log contract: the declared `PgTakeover` lines were never logged, and each failed test's unawaited teardown leaked an "Interrupted ... pg_ctl stop" ERROR line (register finding 13). The same teardown prints `RejectedExecutionException: event executor terminated` from the worker thread whose result arrives after Vert.x closed |
+| SHA-256 before the implementation | `peegeeq-pg-failover-cutover-sha-before-implementation-20261103.log` (`PgBootstrap`, the stub `PgTakeover`, `PgFailoverMonitor`) |
+| Implementation | `PgTakeover.cutover`; new package-private `PgPolicyCutover.serve`; `PgBootstrap.serve` delegates to it and keeps its log line |
+| Green, regression, core, guards | Not run. The implementing session had no Maven dependencies: its network policy denied `repo.maven.apache.org` and `registry-1.docker.io` (HTTP 403). The sequence is `.vscode/p3-verification.ps1` (gitignored): rebuild, then `PgTakeoverIntegrationTest`, `PgBootstrapServingIntegrationTest`, `PgPromotionIntegrationTest`, `PgFollowIntegrationTest` one at a time, then the module core tests, then the guards |
+
+Mutation probes follow a green run. Planned removals, each with the test expected to fail: the empty-set refusal (`aConfirmedPolicyThatNamesOnlyTheNewWriter...`); the receipt check (`aCutoverBeforeThisOperationsPromotionCompleted...`); the quarantine check (`aQuarantinedNode...`); the reuse of a pending policy with the derived set (`aRerunAfterACoverageFailure...`, revision 3 instead of 2); the use of the carried pending revision (`aPendingPolicyCarried...`, revision 2 instead of 3); the ownership check (`recordsOtherThanTheHeldTakeoverRecord...`).
