@@ -1728,6 +1728,72 @@ and the run logs are in `logs/`; neither is in the repository. No probe remains 
     `docs-design/consumer-groups/PEEGEEQ_DELIVERY_OUTCOME_REDESIGN_PROPOSAL.md`. That file is
     a proposal. The owner had it moved out of the implemented-contract document on 2026-10-12.
 
+#### Remediation of 2026-11-07 (working tree, not committed)
+
+Owner direction 2026-11-07: remediate the confirmed findings without stopping between them.
+Each correction below was test-first unless stated: the tests ran red against the old code, then
+green. Logs are in `logs/` with the prefix shown. No Jenkins build and no whole-repository gate ran.
+
+| Finding | Status | Correction | Evidence |
+|---|---|---|---|
+| 3 (native message loss) | Fixed | `PgNativeConsumerGroup.distributeMessage` returns a `DeliveryOutcome` (new, `peegeeq-api`). Group filter false: `REJECTED`, one row in the new `queue_message_group_exclusions` (Flyway `V022`, template `04d`), message `AVAILABLE` for every other consumer, and the group's claim skips it. No member accepts, no active member, member left: `UNAVAILABLE`, released with `visible_at` one polling interval later, retry count unchanged. A throwing group or member filter (with no other member accepting): failed delivery, retried, dead-lettered. The member's second filter evaluation, which skipped the handler and reported success (N-4), is removed. The partitioned path commits `COMPLETED`/`REJECTED` and holds `UNAVAILABLE`. This implements the native column of the approved Delivery Outcome Contract ahead of Task 9 phases 5 and 6. | Red: `f3-native-red-core` (70 run, 9 failed), `f3-native-red-it` (14 run, 11 failed: messages deleted). Green: `NativeConsumerGroupDeliveryOutcomeIntegrationTest` 9/9, lifecycle core 70/70. Probes M1 (exclusion predicate) and M2 (release delay) each failed their guarding test with a named message (`f3-native-mutation1-red2`, `-mutation2-red`). |
+| 5 (visibility-timeout redelivery without bound) | Fixed | An expired in-process delivery counts one failed attempt in one transaction and is dead-lettered at the retry limit. The 10-second expired-lock cleanup also counts the attempt and dead-letters exhausted rows. | `NativeQueueVisibilityExpiryIntegrationTest` 5/5. Probes M3 and M4 failed their tests (`f3-native-mutation3-red`, `-mutation4-red`). |
+| 18 (unreadable `validTime` stored as now) | Fixed | `EventRequest.getValidFrom` refuses an unreadable `validTime` and a `validFrom`/`validTime` pair that disagree; the handler answers 400 and stores nothing. | Red `f18-rest-red` (2 failed: stored, 201). Green 3/3; `EventStoreIntegrationTest` 52/52, `EventStoreEnhancementTest` 6/6. |
+| 9 (idle WebSocket drops every later message) | Fixed | `WebSocketConnection.isHealthy` and `EventStoreSSEConnection.isHealthy` depend on the socket and on write failures, not on time since the last send. Write and close Futures are observed. | Red `f9-rest-red` (open socket unhealthy after one hour on an injected clock). Green `WebSocketConnectionIdleTest` 2/2; streaming regression 32 + 4. |
+| 1 (`ConsumerGroupHandler` 201 after failed subscribe) | Already fixed in increment 1b | The subscription Future is chained. Read on 2026-11-07. | Static read |
+| 2 (read failure answered 200 with empty list) | Fixed | `ManagementApiHandler` listings propagate failures (503). A setup removed while it is listed is left out (`SetupNotFoundException` only). The overview keeps its per-setup `ERROR` entry and now gives the cause. | Red `f2-f12-rest-red` (23 run, 8 failed). Green `ManagementApiHandlerErrorTest` 23/23. |
+| 12 (404 for every failure; fake update; unobserved close) | Fixed | Failures other than a missing setup answer 503 at ERROR. `PUT /management/queues/:setupId/:queueName` answers 501 and changes nothing (it never applied anything). `DELETE` reports the queue close; a failed close answers 503 and keeps the queue listed. | Same red and green runs. `ManagementApiIntegrationTest` test 23 now asserts 501. REST regression 190 + 26 + 10. |
+| 19 (in part) | Partly fixed | Fixed: the two empty catches around `browser.close()` in `ManagementApiHandler`, the swallowed subscription listing in queue details and queue consumers, the swallowed consumer count, `EventRequest:60`. Not done: `VertxSpanIdConverter`, `VertxTraceIdConverter`, `SystemMonitoringHandler` 200/216, `PgConnectionProvider:122`, `QueueHandler:571`, `ReactiveNotificationHandler:292`, `PerformanceSnapshot:227`, the six numeric-parameter defaults, `SubscriptionHandler:153`. | REST runs above |
+| 11 (service manager reports Consul connected without Consul) | Fixed | The success line is logged only after Consul accepted the registration. `/health` reports `consul: registered` or `not-registered`. | Red `f11-svcmgr-red`; green `PeeGeeQServiceManagerConsulUnavailableTest` 1/1, module 57 core + 20 integration. |
+| 14 (system properties for Consul) | Fixed | Host and port come from the constructor or `main` arguments only; the integration test passes them to the constructor. | Same runs |
+| 15 (refused connection logged at DEBUG as expected during shutdown) | Fixed | The DEBUG branch applies only while the manager stops; otherwise a WARN like every failed check. | Red `f15-db-red2`; green `HealthCheckManagerCoreTest` 19/19, `HealthCheckManagerTest` 15/15. |
+| 16 (open outbox consumer stops on an exception type) | Fixed, latent path | Only the consumer's own close makes a failure an expected shutdown failure; the claim path no longer sets `closed`. TDD order was not followed: the rule test was written after the code and its red was reconstructed by a mutation probe (`f16-outbox-mutation-red`, 2 failed). | Outbox core 120/120, consumer integration classes 91/91. |
+| 17 (detached and OFF test loggers) | Fixed in `peegeeq-native` and `peegeeq-service-manager` | The detached and OFF loggers are removed. Three hidden ERRORs surfaced. Two were intentional and are now declared. One was a defect: `PgNativeQueue` left a LISTEN connection open when it closed during the connect, and the connection's later loss logged ERROR. The queue now closes a late connection and ends the stream after its close; its banned `onComplete(ar -> ... succeeded)` blocks are rewritten. Open: `peegeeq-outbox`, `peegeeq-rest`, `peegeeq-db`, `peegeeq-bitemporal`, `peegeeq-examples`. | Native core 163/163; native integration in batches 111 + 72 + 54 (`f17-native-*`); service manager 57 + 20. |
+
+Found during the remediation and corrected:
+
+- `VertxPoolAdapterHappyPathIT` never created its schema and failed 2/2 when run. Five native
+  classes had no `@Tag` and ran in no profile. All five are tagged `INTEGRATION`; the schema is
+  created; the close Future is observed.
+- `PgNativeQueueConcurrentClaimIT` completed before its deletes and closed the pool under the
+  consumers. It now closes both consumers first and asserts both rows deleted.
+
+Found and not corrected:
+
+- The event query endpoints serialize `Instant` fields as decimal epoch seconds (Jackson's
+  default on the Vert.x mapper). The Java REST client decodes both forms. Whether the management
+  UI renders these values correctly was not checked.
+- Three test teardowns chain `vertx.close()` inside `compose` on a Future of the same Vert.x:
+  `TransactionPropagationHonestyTest:216` (bitemporal), `PostgresNoticeHandlerIntegrationTest:103`
+  (db), `RestApiStreamingExampleTest:111` (rest). They pass today because the Future before the
+  `compose` is not bound to that Vert.x. A change to the closed component's Future binding hangs
+  them, as it hung the two native classes below. Not changed.
+
+Not started on 2026-11-07: finding 4 (partitioned handler failure blocks without bound; Task 9
+phases 3 and 7), finding 20 and the rest of Task 9, findings 6, 7, 8, 10, 13.
+
+Decisions of 2026-11-08 (the owner delegated them: "you make the decision"):
+
+| Item | Decision | Correction | Evidence |
+|---|---|---|---|
+| `validTo` accepted and dropped | Refuse it. The event store records one valid time per event (`BiTemporalEvent` has no end); a value it cannot keep must not be answered 201. | `EventRequest` has no `validTo` property, so the parser refuses it; the store handler answers `400 Invalid request format: <cause>` at WARN (it was ERROR with no cause). `testStoreOneEvent` no longer sends it. The API reference is corrected. The response field `validTo`, always null, is unchanged: the UI and the REST client read it. | Red `validto-rest-red` (201, stored). Green `EventStoreIntegrationTest` 53/53 (`validto-rest-green`). |
+| Native and outbox count retries differently | Native follows the outbox and the documented meaning ("maximum number of retry attempts; must be >= 0"): with `max-retries` N a message is delivered N + 1 times and its dead letter records N. Before, 0 and 1 both gave one delivery. | Three comparisons in `PgNativeQueueConsumer` change from `>=` to `>`: handler failure, in-process visibility expiry, expired-lock cleanup. Tests pin the counts exactly; the orphaned-lock test moved to the boundary `N - 1`, so it fails under the old rule. `ConsumerModeFailureTest` and `ConsumerModeTypeSafetyTest` encoded the old count and now derive it. | Red `retry-rule-native-red` (15 run, 6 failed on the count). Green 27/27; native integration in two batches, 100 (`retry-rule-native-it-al`) and 143 (`-it-mz`), 236 distinct tests; native core 163/163. |
+| Two dead REST test files | Delete. | Deleted in the working tree by the owner. | `git status`: both ` D` |
+| Template schemas provisioned before `queue_message_group_exclusions` | Keep the refusal. Connecting applies no DDL (S-5, locked lifecycle); the refusal now names the upgrade path. | The validation failure ends: "Connecting applies no DDL. Add the missing tables with the Flyway migrations in peegeeq-migrations, or with the base template scripts in db/templates/base, then connect again." The 400 body carries it. | Red `connect-remedy-rest-red`; green `DatabaseSetupConnectIntegrationTest` 2/2. Connect-path classes: `SetupManagementIntegrationTest` 15/15, `SetupBindingPersistenceIntegrationTest` 10/10, `PeeGeeQDatabaseSetupServiceEnhancedTest` 11/11, `RuntimeDatabaseSetupServiceIntegrationTest` 11/11. |
+
+Defects found while making these decisions, and corrected:
+
+- `DatabaseSetupConnectIntegrationTest` declared the 13 missing tables of the old manifest; the
+  manifest has had 14 since `04d` on 2026-11-07. No run on 2026-11-07 included the class, so the
+  REST runs reported then were not the whole REST integration suite.
+- `PgNativeQueueContainersTest` and `PgNativeQueueContainersWithPojoTest` timed out 3/3 each. The
+  finding 17 rewrite of `PgNativeQueue.close()` returns a Future bound to the queue's Vert.x; the
+  teardowns chained `vertx.close()` on it, and its completion was dispatched to that Vert.x's
+  stopped event loop (`RejectedExecutionException: event executor terminated`). The tests now
+  use the extension's Vert.x and close only the queue: 6/6 (`pgnativequeue-containers-fixed`).
+  The classes ran in no run after that rewrite on 2026-11-07. `PgNativeQueue` has no production
+  caller.
+
 The per-row tables, with the trigger and the evidence line for all 318 calls, were produced in
 the review session and are not in the repository.
 

@@ -1858,9 +1858,14 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
                                 if (!missingTables.isEmpty()) {
                                     logger.error("VALIDATION FAILED: Missing required tables: {}", missingTables);
+                                    // A schema provisioned before a table was added to the templates
+                                    // is refused, not upgraded: connecting applies no DDL (S-5).
                                     return Future.<Void>failedFuture(new IllegalStateException(
                                             "Database infrastructure validation failed - missing tables: "
-                                                    + missingTables));
+                                                    + missingTables + ". Connecting applies no DDL. Add the "
+                                                    + "missing tables with the Flyway migrations in "
+                                                    + "peegeeq-migrations, or with the base template scripts in "
+                                                    + "db/templates/base, then connect again."));
                                 }
 
                                 logger.info("========== VALIDATION PASSED ==========");

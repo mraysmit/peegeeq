@@ -28,6 +28,7 @@ import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.ConsumerGroupMember;
 import dev.mars.peegeeq.api.messaging.ConsumerGroupStats;
 import dev.mars.peegeeq.api.messaging.ConsumerMemberStats;
+import dev.mars.peegeeq.api.messaging.DeliveryOutcome;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.api.subscription.SubscriptionService;
 import dev.mars.peegeeq.api.subscription.SubscriptionStore;
@@ -79,7 +80,7 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
     private final MetricsProvider metrics;
     private final PeeGeeQConfiguration configuration;
     private final DatabaseService databaseService;
-    private final BiFunction<Long, OffsetDateTime, MessageConsumer<T>> referenceCountingConsumerFactory;
+    private final BiFunction<Long, OffsetDateTime, NativeGroupConsumer<T>> referenceCountingConsumerFactory;
     private final Instant createdAt;
 
     private final Map<String, PgNativeConsumerGroupMember<T>> members = new ConcurrentHashMap<>();
@@ -134,7 +135,7 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
                           MetricsProvider metrics, PeeGeeQConfiguration configuration,
                           DatabaseService databaseService,
                           PgConnectionManager connectionManager, String connectionServiceId,
-                          BiFunction<Long, OffsetDateTime, MessageConsumer<T>> referenceCountingConsumerFactory) {
+                          BiFunction<Long, OffsetDateTime, NativeGroupConsumer<T>> referenceCountingConsumerFactory) {
         this.groupName = groupName;
         this.topic = topic;
         this.payloadType = payloadType;
@@ -278,7 +279,7 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
         partitionedEngine = engine;
 
         // Collect the first member's handler (or the distributeMessage handler)
-        MessageHandler<T> handler = this::distributeMessage;
+        MessageHandler<T> handler = message -> partitionedResult(distributeMessage(message));
 
         return engine.start(handler)
                 .compose(v -> {
@@ -374,12 +375,12 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
         // Create the underlying consumer that will receive all messages
         // The configuration is required: the consumer's LISTEN channel derives from
         // the configured schema — PeeGeeQ has no default schema.
-        MessageConsumer<T> consumer = referenceCountingConsumerFactory.apply(
+        NativeGroupConsumer<T> consumer = referenceCountingConsumerFactory.apply(
                 startPosition.minimumMessageId(), startPosition.minimumCreatedAt());
         underlyingConsumer = consumer;
 
         // Subscribe to messages and distribute them to group members
-        return consumer.subscribe(this::distributeMessage)
+        return consumer.subscribeGroup(groupName, this::distributeMessage)
                 .compose(v -> {
                     if (!state.compareAndSet(State.STARTING, State.ACTIVE)) {
                         consumer.close();
@@ -748,11 +749,36 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
     }
     
     /**
-     * Distributes a message to the appropriate consumer group member.
-     * Applies group-level filtering and load balancing.
-     * Creates a child span from the message's trace context for fan-out visibility.
+     * Maps a delivery outcome to the result the partitioned engine commits on.
+     *
+     * <p>COMPLETED and REJECTED are terminal for the group, so the engine moves the offset past
+     * the message. UNAVAILABLE is not: the offset must not move, so the result fails and the
+     * engine delivers the message again. A failed outcome stays failed.</p>
      */
-    Future<Void> distributeMessage(Message<T> message) {
+    static Future<Void> partitionedResult(Future<DeliveryOutcome> outcome) {
+        return outcome.compose(result -> result == DeliveryOutcome.UNAVAILABLE
+                ? Future.<Void>failedFuture(new IllegalStateException(
+                        "No active member of the consumer group accepted the message; the offset does not move"))
+                : Future.<Void>succeededFuture());
+    }
+
+    /**
+     * Dispatches one delivery of a message to this group and returns its outcome.
+     *
+     * <p>The outcome follows the delivery outcome contract
+     * ({@code docs-design/consumer-groups/PEEGEEQ_DELIVERY_OUTCOME_REDESIGN_PROPOSAL.md}):</p>
+     * <ul>
+     *   <li>the group filter refuses the message: {@link DeliveryOutcome#REJECTED};</li>
+     *   <li>no active member accepts it, or the selected member left before dispatch:
+     *       {@link DeliveryOutcome#UNAVAILABLE};</li>
+     *   <li>the handler succeeds: {@link DeliveryOutcome#COMPLETED};</li>
+     *   <li>the handler fails, the group filter throws, or a member filter throws and no other
+     *       member accepts the message: a failed Future.</li>
+     * </ul>
+     * <p>Each predicate is evaluated once. A member whose filter throws is not eligible for this
+     * delivery. Creates a child span from the message's trace context for fan-out visibility.</p>
+     */
+    Future<DeliveryOutcome> distributeMessage(Message<T> message) {
         // Create a child span from the message's traceparent for fan-out trace propagation.
         // The underlying PgNativeQueueConsumer already sets MDC from headers; here we
         // derive a per-group child span so that parallel group deliveries form a span tree.
@@ -765,46 +791,86 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
         TraceContextUtil.setMDC(TraceContextUtil.MDC_TOPIC, topic);
         TraceContextUtil.setMDC(TraceContextUtil.MDC_MESSAGE_ID, message.getId());
 
-        // Apply group-level filter first
-        if (groupFilter != null && !groupFilter.test(message)) {
-            totalMessagesFiltered.incrementAndGet();
-            logger.debug("Message {} filtered out by group filter", message.getId());
-            return Future.<Void>succeededFuture()
-                    .eventually(() -> {
-                        TraceContextUtil.clearTraceMDC();
-                        return Future.succeededFuture();
-                    });
+        Future<DeliveryOutcome> outcome;
+        try {
+            outcome = dispatch(message);
+        } catch (RuntimeException unexpected) {
+            outcome = Future.failedFuture(unexpected);
         }
-        
-        // Find eligible consumers (those whose filters accept the message)
-        List<PgNativeConsumerGroupMember<T>> eligibleConsumers = members.values().stream()
-            .filter(PgNativeConsumerGroupMember::isActive)
-            .filter(member -> member.acceptsMessage(message))
-            .toList();
-        
+        return outcome.eventually(() -> {
+            TraceContextUtil.clearTraceMDC();
+            return Future.succeededFuture();
+        });
+    }
+
+    private Future<DeliveryOutcome> dispatch(Message<T> message) {
+        Predicate<Message<T>> filter = groupFilter;
+        if (filter != null) {
+            boolean accepted;
+            try {
+                accepted = filter.test(message);
+            } catch (RuntimeException filterFailure) {
+                totalMessagesFailed.incrementAndGet();
+                logger.warn("Group filter of consumer group '{}' failed for message {}: {}",
+                        groupName, message.getId(), filterFailure.getMessage());
+                return Future.failedFuture(filterFailure);
+            }
+            if (!accepted) {
+                totalMessagesFiltered.incrementAndGet();
+                logger.debug("Message {} refused by the group filter of consumer group '{}'",
+                        message.getId(), groupName);
+                return Future.succeededFuture(DeliveryOutcome.REJECTED);
+            }
+        }
+
+        // Evaluate each active member's filter once.
+        List<PgNativeConsumerGroupMember<T>> eligibleConsumers = new ArrayList<>();
+        RuntimeException memberFilterFailure = null;
+        for (PgNativeConsumerGroupMember<T> member : members.values()) {
+            if (!member.isActive()) {
+                continue;
+            }
+            try {
+                if (member.acceptsMessage(message)) {
+                    eligibleConsumers.add(member);
+                }
+            } catch (RuntimeException filterFailure) {
+                logger.warn("Message filter of consumer '{}' in group '{}' failed for message {}: {}",
+                        member.getConsumerId(), groupName, message.getId(), filterFailure.getMessage());
+                if (memberFilterFailure == null) {
+                    memberFilterFailure = filterFailure;
+                } else {
+                    memberFilterFailure.addSuppressed(filterFailure);
+                }
+            }
+        }
+
         if (eligibleConsumers.isEmpty()) {
+            if (memberFilterFailure != null) {
+                totalMessagesFailed.incrementAndGet();
+                return Future.failedFuture(memberFilterFailure);
+            }
             totalMessagesFiltered.incrementAndGet();
-            logger.debug("Message {} has no eligible consumers in group '{}'", message.getId(), groupName);
-            return Future.<Void>succeededFuture()
-                    .eventually(() -> {
-                        TraceContextUtil.clearTraceMDC();
-                        return Future.succeededFuture();
-                    });
+            logger.debug("Message {} has no eligible consumers in group '{}'; it is kept", message.getId(), groupName);
+            return Future.succeededFuture(DeliveryOutcome.UNAVAILABLE);
         }
-        
+
         // Simple round-robin load balancing
         PgNativeConsumerGroupMember<T> selectedConsumer = selectConsumer(eligibleConsumers, message);
-        
-        logger.debug("Distributing message {} to consumer '{}' in group '{}'", 
+        if (!selectedConsumer.isActive()) {
+            totalMessagesFiltered.incrementAndGet();
+            logger.debug("Consumer '{}' left group '{}' before message {} was dispatched; it is kept",
+                    selectedConsumer.getConsumerId(), groupName, message.getId());
+            return Future.succeededFuture(DeliveryOutcome.UNAVAILABLE);
+        }
+
+        logger.debug("Distributing message {} to consumer '{}' in group '{}'",
             message.getId(), selectedConsumer.getConsumerId(), groupName);
-        
+
         return selectedConsumer.processMessage(message)
             .onSuccess(result -> totalMessagesProcessed.incrementAndGet())
             .onFailure(error -> totalMessagesFailed.incrementAndGet())
-            .eventually(() -> {
-                TraceContextUtil.clearTraceMDC();
-                return Future.succeededFuture();
-            });
+            .map(result -> DeliveryOutcome.COMPLETED);
     }
     
     /**

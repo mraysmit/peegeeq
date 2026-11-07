@@ -40,9 +40,6 @@
     <logger name="dev.mars.peegeeq.db.provider.PgQueueFactoryProvider" level="DEBUG" />
     <logger name="dev.mars.peegeeq.pgqueue.NativeQueueIntegrationTest" level="DEBUG" />
 
-    <!-- Suppress intentional test error stack traces from PgNotificationStream -->
-    <!-- This prevents confusing error logs during intentional failure tests -->
-    <logger name="dev.mars.peegeeq.pgqueue.PgNotificationStream" level="OFF" />
     
     <!-- Reduce TestContainers noise -->
     <logger name="org.testcontainers" level="WARN" />
@@ -62,13 +59,9 @@
     <!-- Reduce Hikari connection pool noise -->
     <logger name="com.zaxxer.hikari" level="WARN" />
 
-    <!-- Suppress intentional test failure warnings from native queue classes during tests -->
-    <!-- This prevents confusing WARN logs with stack traces during intentional failure tests -->
-    <logger name="dev.mars.peegeeq.pgqueue.PgNativeConsumerGroupMember" level="ERROR" additivity="false">
-        <appender-ref ref="CONSOLE" />
-    </logger>
-    <logger name="dev.mars.peegeeq.pgqueue.PgNativeConsumer" level="ERROR" additivity="false">
-        <appender-ref ref="CONSOLE" />
-    </logger>
+    <!-- Finding 17: no production logger is switched off or detached from the root logger.
+         The unexpected-ERROR check listens on the root logger only, so a detached or OFF logger
+         hides its ERROR lines from every test. A test that causes an ERROR declares it with
+         @ExpectedErrorLog. -->
 </configuration>
 

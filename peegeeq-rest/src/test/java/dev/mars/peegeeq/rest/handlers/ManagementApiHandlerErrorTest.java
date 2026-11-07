@@ -30,11 +30,8 @@ import static org.junit.jupiter.api.Assertions.*;
  * Deploys PeeGeeQRestServer with a ControllableSetupService test double.
  * No database. No Testcontainers. The HTTP server is real; only the service is controlled.
  *
- * NOTE on read-path error absorption: getRealQueues(), getRealConsumerGroups(), and
- * getRealEventStores() each use .transform(ar -> succeededFuture(emptyArray)) to absorb
- * getAllActiveSetupIds() failures. Those routes always return 200 with an empty list even
- * when the service fails — there is no 503 path to test on them.
- * Only getSystemOverview() propagates service failures to onFailure(503).
+ * Read paths propagate failures (finding 2): the queue, consumer-group and event-store listings
+ * answer 503 when the service fails, and leave out only a setup removed while it was listed.
  *
  * Port 18112: class-level server with defaults() — used by C1 (overview), C2 (queues),
  *             C4 (createQueue body missing), C7 (deleteQueue), C8 (updateQueue).
@@ -456,5 +453,213 @@ class ManagementApiHandlerErrorTest {
                     assertNotNull(response.bodyAsJsonObject().getString("error"));
                     testContext.completeNow();
                 })));
+    }
+
+    // =========================================================================
+    // Finding 2: a failed read is a failure, never an empty list answered 200.
+    // Finding 12: a failure that is not "setup not found" is not answered 404,
+    // an update that applies nothing does not report success, and a delete
+    // reports the outcome of the queue close.
+    // =========================================================================
+
+    private static final String MANAGEMENT_LOGGER = "dev.mars.peegeeq.rest.handlers.ManagementApiHandler";
+
+    @Test
+    @ExpectedErrorLog(logger = MANAGEMENT_LOGGER, message = "Error retrieving queues",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS, throwableType = RuntimeException.class)
+    @ExpectedErrorLog(logger = "io.vertx.ext.web.handler.LoggerHandler", message = "127.0.0.1 - - [",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX, throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    void getQueues_serviceFails_returns503(Vertx vertx, VertxTestContext testContext) {
+        expectStatus(vertx, ControllableSetupService.alwaysFailing("service down"),
+                "/api/v1/management/queues", 503, testContext);
+    }
+
+    @Test
+    @ExpectedErrorLog(logger = MANAGEMENT_LOGGER, message = "Error retrieving consumer groups",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS, throwableType = RuntimeException.class)
+    @ExpectedErrorLog(logger = "io.vertx.ext.web.handler.LoggerHandler", message = "127.0.0.1 - - [",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX, throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    void getConsumerGroups_serviceFails_returns503(Vertx vertx, VertxTestContext testContext) {
+        expectStatus(vertx, ControllableSetupService.alwaysFailing("service down"),
+                "/api/v1/management/consumer-groups", 503, testContext);
+    }
+
+    @Test
+    @ExpectedErrorLog(logger = MANAGEMENT_LOGGER, message = "Error retrieving event stores",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS, throwableType = RuntimeException.class)
+    @ExpectedErrorLog(logger = "io.vertx.ext.web.handler.LoggerHandler", message = "127.0.0.1 - - [",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX, throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    void getEventStores_serviceFails_returns503(Vertx vertx, VertxTestContext testContext) {
+        expectStatus(vertx, ControllableSetupService.alwaysFailing("service down"),
+                "/api/v1/management/event-stores", 503, testContext);
+    }
+
+    @Test
+    @ExpectedErrorLog(logger = MANAGEMENT_LOGGER, message = "Error retrieving queues",
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS, throwableType = RuntimeException.class)
+    @ExpectedErrorLog(logger = "io.vertx.ext.web.handler.LoggerHandler", message = "127.0.0.1 - - [",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX, throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    void getQueues_setupReadFails_returns503(Vertx vertx, VertxTestContext testContext) {
+        ControllableSetupService svc = ControllableSetupService.defaults()
+                .withGetAllActiveSetupIds(() -> Future.succeededFuture(java.util.Set.of("s1")))
+                .withGetSetupResult(id -> Future.failedFuture(new RuntimeException("database unreachable")));
+        expectStatus(vertx, svc, "/api/v1/management/queues", 503, testContext);
+    }
+
+    @Test
+    void getQueues_setupDeletedWhileListing_returns200WithoutThatSetup(Vertx vertx, VertxTestContext testContext) {
+        ControllableSetupService svc = ControllableSetupService.defaults()
+                .withGetAllActiveSetupIds(() -> Future.succeededFuture(java.util.Set.of("s1")))
+                .withGetSetupResult(id -> Future.failedFuture(
+                        new dev.mars.peegeeq.api.setup.SetupNotFoundException("Setup not found: " + id)));
+        withAuxServer(vertx, svc, () -> webClient.get(AUX_PORT, "localhost", "/api/v1/management/queues").send())
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
+                    assertEquals(200, response.statusCode(), response.bodyAsString());
+                    assertEquals(0, response.bodyAsJsonObject().getInteger("queueCount"));
+                    testContext.completeNow();
+                })));
+    }
+
+    @Test
+    @ExpectedErrorLog(logger = MANAGEMENT_LOGGER, message = "Error updating queue 'test-q' in setup 'test-setup'",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS, throwableType = RuntimeException.class)
+    @ExpectedErrorLog(logger = "io.vertx.ext.web.handler.LoggerHandler", message = "127.0.0.1 - - [",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX, throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    void updateQueue_setupReadFails_returns503Not404(Vertx vertx, VertxTestContext testContext) {
+        ControllableSetupService svc = ControllableSetupService.defaults()
+                .withGetSetupResult(id -> Future.failedFuture(new RuntimeException("database unreachable")));
+        withAuxServer(vertx, svc, () -> webClient.put(AUX_PORT, "localhost",
+                        "/api/v1/management/queues/test-setup/test-q")
+                        .sendJsonObject(new JsonObject().put("maxRetries", 5)))
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
+                    assertEquals(503, response.statusCode(),
+                            "a failed read is not 'setup or queue not found': " + response.bodyAsString());
+                    testContext.completeNow();
+                })));
+    }
+
+    @Test
+    @ExpectedErrorLog(logger = MANAGEMENT_LOGGER, message = "Error deleting queue 'test-q' from setup 'test-setup'",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS, throwableType = RuntimeException.class)
+    @ExpectedErrorLog(logger = "io.vertx.ext.web.handler.LoggerHandler", message = "127.0.0.1 - - [",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX, throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    void deleteQueue_setupReadFails_returns503Not404(Vertx vertx, VertxTestContext testContext) {
+        ControllableSetupService svc = ControllableSetupService.defaults()
+                .withGetSetupResult(id -> Future.failedFuture(new RuntimeException("database unreachable")));
+        withAuxServer(vertx, svc, () -> webClient.delete(AUX_PORT, "localhost",
+                        "/api/v1/management/queues/test-setup/test-q").send())
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
+                    assertEquals(503, response.statusCode(),
+                            "a failed read is not 'setup or queue not found': " + response.bodyAsString());
+                    testContext.completeNow();
+                })));
+    }
+
+    @Test
+    @ExpectedErrorLog(logger = "io.vertx.ext.web.handler.LoggerHandler", message = "127.0.0.1 - - [",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX, throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    void updateQueue_existingQueue_isRefusedBecauseNothingIsApplied(Vertx vertx, VertxTestContext testContext) {
+        java.util.Map<String, dev.mars.peegeeq.api.messaging.QueueFactory> factories = new java.util.HashMap<>();
+        factories.put("test-q", new TestQueueFactory(Future.succeededFuture()));
+        DatabaseSetupResult active = new DatabaseSetupResult("test-setup", factories, Map.of(), DatabaseSetupStatus.ACTIVE);
+        ControllableSetupService svc = ControllableSetupService.defaults()
+                .withGetSetupResult(id -> Future.succeededFuture(active));
+        withAuxServer(vertx, svc, () -> webClient.put(AUX_PORT, "localhost",
+                        "/api/v1/management/queues/test-setup/test-q")
+                        .sendJsonObject(new JsonObject().put("maxRetries", 5)))
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
+                    assertEquals(501, response.statusCode(),
+                            "an update that changes nothing must not report success: " + response.bodyAsString());
+                    testContext.completeNow();
+                })));
+    }
+
+    @Test
+    @ExpectedErrorLog(logger = MANAGEMENT_LOGGER, message = "Error deleting queue 'test-q' from setup 'test-setup'",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS, throwableType = IllegalStateException.class)
+    @ExpectedErrorLog(logger = "io.vertx.ext.web.handler.LoggerHandler", message = "127.0.0.1 - - [",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX, throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    void deleteQueue_closeFails_returns503AndKeepsTheQueue(Vertx vertx, VertxTestContext testContext) {
+        java.util.Map<String, dev.mars.peegeeq.api.messaging.QueueFactory> factories = new java.util.HashMap<>();
+        factories.put("test-q", new TestQueueFactory(
+                Future.failedFuture(new IllegalStateException("consumer close failed"))));
+        DatabaseSetupResult active = new DatabaseSetupResult("test-setup", factories, Map.of(), DatabaseSetupStatus.ACTIVE);
+        ControllableSetupService svc = ControllableSetupService.defaults()
+                .withGetSetupResult(id -> Future.succeededFuture(active));
+        withAuxServer(vertx, svc, () -> webClient.delete(AUX_PORT, "localhost",
+                        "/api/v1/management/queues/test-setup/test-q").send())
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
+                    assertEquals(503, response.statusCode(),
+                            "a failed close must fail the delete: " + response.bodyAsString());
+                    assertTrue(factories.containsKey("test-q"),
+                            "a queue whose close failed must stay listed, so the operator can retry");
+                    testContext.completeNow();
+                })));
+    }
+
+    private void expectStatus(Vertx vertx, ControllableSetupService svc, String path, int status,
+                              VertxTestContext testContext) {
+        withAuxServer(vertx, svc, () -> webClient.get(AUX_PORT, "localhost", path).send())
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
+                    assertEquals(status, response.statusCode(), response.bodyAsString());
+                    assertNotNull(response.bodyAsJsonObject().getString("error"));
+                    testContext.completeNow();
+                })));
+    }
+
+    private <T> Future<T> withAuxServer(Vertx vertx, ControllableSetupService svc,
+                                        java.util.function.Supplier<Future<T>> request) {
+        RestServerConfig config = new RestServerConfig(
+                AUX_PORT, RestServerConfig.MonitoringConfig.defaults(), List.of("*"));
+        return vertx.deployVerticle(new PeeGeeQRestServer(config, svc))
+                .compose(auxId -> request.get().eventually(() -> vertx.undeploy(auxId)));
+    }
+
+    /** A queue implementation whose close returns the given result. It creates nothing. */
+    private static final class TestQueueFactory implements dev.mars.peegeeq.api.messaging.QueueFactory {
+        private final Future<Void> closeResult;
+
+        private TestQueueFactory(Future<Void> closeResult) {
+            this.closeResult = closeResult;
+        }
+
+        @Override
+        public <T> dev.mars.peegeeq.api.messaging.MessageProducer<T> createProducer(String topic, Class<T> type) {
+            throw new UnsupportedOperationException("This test factory creates no producer");
+        }
+
+        @Override
+        public <T> dev.mars.peegeeq.api.messaging.MessageConsumer<T> createConsumer(String topic, Class<T> type) {
+            throw new UnsupportedOperationException("This test factory creates no consumer");
+        }
+
+        @Override
+        public <T> dev.mars.peegeeq.api.messaging.ConsumerGroup<T> createConsumerGroup(
+                String groupName, String topic, Class<T> type) {
+            throw new UnsupportedOperationException("This test factory creates no consumer group");
+        }
+
+        @Override
+        public <T> Future<dev.mars.peegeeq.api.messaging.QueueBrowser<T>> createBrowser(String topic, Class<T> type) {
+            return Future.failedFuture(new UnsupportedOperationException("This test factory creates no browser"));
+        }
+
+        @Override
+        public String getImplementationType() {
+            return "test";
+        }
+
+        @Override
+        public Future<Boolean> isHealthy() {
+            return Future.succeededFuture(true);
+        }
+
+        @Override
+        public Future<Void> close() {
+            return closeResult;
+        }
     }
 }

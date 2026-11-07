@@ -68,8 +68,10 @@ public class PgNativeQueueContainersWithPojoTest {
     private ObjectMapper objectMapper;
 
     @BeforeEach
-    void setUp() {
-        vertx = Vertx.vertx();
+    void setUp(Vertx vertx) {
+        // The extension owns this Vert.x and closes it after the test. A test that closes its
+        // own Vert.x from a callback on that Vert.x never sees the close complete.
+        this.vertx = vertx;
         objectMapper = new ObjectMapper();
 
         // Create connection options from TestContainer
@@ -92,7 +94,6 @@ public class PgNativeQueueContainersWithPojoTest {
     @AfterEach
     void tearDown(VertxTestContext ctx) {
         queue.close()
-            .compose(v -> vertx.close())
             .onComplete(ctx.succeedingThenComplete());
     }
 

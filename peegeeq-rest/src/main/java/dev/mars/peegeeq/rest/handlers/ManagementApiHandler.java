@@ -170,10 +170,13 @@ public class ManagementApiHandler {
                     .put("eventStores", eventStores);
         }).transform(ar -> {
             if (ar.failed()) {
+                // The overview lists every setup. A setup whose read failed is listed with status
+                // ERROR and the cause, so one unreachable setup does not hide the others.
                 logger.warn("Failed to get summary for setup {}: {}", setupId, ar.cause().getMessage());
                 return Future.succeededFuture(new JsonObject()
                         .put("setupId", setupId)
                         .put("status", "ERROR")
+                        .put("error", String.valueOf(ar.cause().getMessage()))
                         .put("totalQueues", 0)
                         .put("totalConsumerGroups", 0)
                         .put("totalEventStores", 0)
@@ -239,13 +242,6 @@ public class ManagementApiHandler {
                         }
                         return total;
                     });
-                })
-                .transform(ar -> {
-                    if (ar.failed()) {
-                        logger.debug("Failed to get total active connections: {}", ar.cause().getMessage());
-                        return Future.succeededFuture(0);
-                    }
-                    return Future.succeededFuture(ar.result());
                 });
     }
 
@@ -274,13 +270,7 @@ public class ManagementApiHandler {
                             .map(rows -> rows.iterator().next().getInteger(0))
                             .eventually(() -> tempPool.close());
                 })
-                .transform(ar -> {
-                    if (ar.failed()) {
-                        logger.debug("Failed to get active connections for setup {}: {}", setupId, ar.cause().getMessage());
-                        return Future.succeededFuture(0);
-                    }
-                    return Future.succeededFuture(ar.result());
-                });
+                .transform(absentIfSetupRemoved(0, setupId));
     }
 
     /**
@@ -344,13 +334,6 @@ public class ManagementApiHandler {
                         }
                         return queues;
                     });
-                })
-                .transform(ar -> {
-                    if (ar.failed()) {
-                        logger.warn("Failed to retrieve real queue data", ar.cause());
-                        return Future.succeededFuture(new JsonArray());
-                    }
-                    return Future.succeededFuture(ar.result());
                 });
     }
 
@@ -427,13 +410,7 @@ public class ManagementApiHandler {
                         return queues;
                     });
                 })
-                .transform(ar -> {
-                    if (ar.failed()) {
-                        logger.debug("Setup {} not found or error occurred: {}", setupId, ar.cause().getMessage());
-                        return Future.succeededFuture(new JsonArray());
-                    }
-                    return Future.succeededFuture(ar.result());
-                });
+                .transform(absentIfSetupRemoved(new JsonArray(), setupId));
     }
 
     /**
@@ -493,6 +470,19 @@ public class ManagementApiHandler {
         String queueName = ctx.request().getParam("queue");
         String limit = ctx.request().getParam("limit");
         String offset = ctx.request().getParam("offset");
+        // A request that names no setup or no queue lists no messages (the UI asks before a queue
+        // is selected). A request whose limit or offset is not a number is refused.
+        try {
+            if (limit != null) {
+                Integer.parseInt(limit);
+            }
+            if (offset != null) {
+                Integer.parseInt(offset);
+            }
+        } catch (NumberFormatException invalid) {
+            sendError(ctx, 400, "Query parameters 'limit' and 'offset' must be integers");
+            return;
+        }
 
         getRealMessages(setupId, queueName, limit, offset)
                 .map(messages -> new JsonObject()
@@ -630,13 +620,6 @@ public class ManagementApiHandler {
                         }
                         return activities;
                     });
-                })
-                .transform(ar -> {
-                    if (ar.failed()) {
-                        logger.warn("Failed to get recent activity: {}", ar.cause().getMessage());
-                        return Future.succeededFuture(new JsonArray());
-                    }
-                    return Future.succeededFuture(ar.result());
                 });
     }
 
@@ -696,13 +679,6 @@ public class ManagementApiHandler {
                                                 activities.add(activity);
                                             }
                                             return activities;
-                                        })
-                                        .transform(ar2 -> {
-                                            if (ar2.failed()) {
-                                                logger.debug("Failed to query events from store {}: {}", storeName, ar2.cause().getMessage());
-                                                return Future.succeededFuture(List.<JsonObject>of());
-                                            }
-                                            return Future.succeededFuture(ar2.result());
                                         }));
                     }
                     if (storeFutures.isEmpty()) {
@@ -716,13 +692,7 @@ public class ManagementApiHandler {
                         return results;
                     });
                 })
-                .transform(ar -> {
-                    if (ar.failed()) {
-                        logger.debug("Failed to get setup result for {}: {}", setupId, ar.cause().getMessage());
-                        return Future.succeededFuture(List.<JsonObject>of());
-                    }
-                    return Future.succeededFuture(ar.result());
-                });
+                .transform(absentIfSetupRemoved(List.<JsonObject>of(), setupId));
     }
 
     /**
@@ -788,13 +758,6 @@ public class ManagementApiHandler {
                         }
                         return consumerGroups;
                     });
-                })
-                .transform(ar -> {
-                    if (ar.failed()) {
-                        logger.warn("Failed to retrieve real consumer group data", ar.cause());
-                        return Future.succeededFuture(new JsonArray());
-                    }
-                    return Future.succeededFuture(ar.result());
                 });
     }
 
@@ -853,13 +816,6 @@ public class ManagementApiHandler {
                                                     groups.add(group);
                                                 }
                                                 return groups;
-                                            })
-                                            .transform(ar2 -> {
-                                                if (ar2.failed()) {
-                                                    logger.debug("Failed to list subscriptions for topic {}: {}", queueName, ar2.cause().getMessage());
-                                                    return Future.succeededFuture(new JsonArray());
-                                                }
-                                                return Future.succeededFuture(ar2.result());
                                             }));
                         }
                     }
@@ -875,13 +831,7 @@ public class ManagementApiHandler {
                         return consumerGroups;
                     });
                 })
-                .transform(ar -> {
-                    if (ar.failed()) {
-                        logger.debug("Setup {} not found or error occurred: {}", setupId, ar.cause().getMessage());
-                        return Future.succeededFuture(new JsonArray());
-                    }
-                    return Future.succeededFuture(ar.result());
-                });
+                .transform(absentIfSetupRemoved(new JsonArray(), setupId));
     }
 
     /**
@@ -921,13 +871,6 @@ public class ManagementApiHandler {
                         }
                         return eventStores;
                     });
-                })
-                .transform(ar -> {
-                    if (ar.failed()) {
-                        logger.warn("Failed to retrieve real event store data", ar.cause());
-                        return Future.succeededFuture(new JsonArray());
-                    }
-                    return Future.succeededFuture(ar.result());
                 });
     }
 
@@ -969,13 +912,7 @@ public class ManagementApiHandler {
                         return eventStores;
                     });
                 })
-                .transform(ar -> {
-                    if (ar.failed()) {
-                        logger.debug("Setup {} not found or error occurred: {}", setupId, ar.cause().getMessage());
-                        return Future.succeededFuture(new JsonArray());
-                    }
-                    return Future.succeededFuture(ar.result());
-                });
+                .transform(absentIfSetupRemoved(new JsonArray(), setupId));
     }
 
     private Future<Long> getRealEventCount(String setupId, String storeName) {
@@ -986,13 +923,6 @@ public class ManagementApiHandler {
                         return Future.succeededFuture(0L);
                     }
                     return store.getStats().map(dev.mars.peegeeq.api.EventStore.EventStoreStats::getTotalEvents);
-                })
-                .transform(ar -> {
-                    if (ar.failed()) {
-                        logger.debug("Failed to get event count for store {}/{}: {}", setupId, storeName, ar.cause().getMessage());
-                        return Future.succeededFuture(0L);
-                    }
-                    return Future.succeededFuture(ar.result());
                 });
     }
 
@@ -1004,13 +934,6 @@ public class ManagementApiHandler {
                         return Future.succeededFuture(0L);
                     }
                     return store.getStats().map(dev.mars.peegeeq.api.EventStore.EventStoreStats::getUniqueAggregateCount);
-                })
-                .transform(ar -> {
-                    if (ar.failed()) {
-                        logger.debug("Failed to get aggregate count for store {}/{}: {}", setupId, storeName, ar.cause().getMessage());
-                        return Future.succeededFuture(0L);
-                    }
-                    return Future.succeededFuture(ar.result());
                 });
     }
 
@@ -1022,13 +945,6 @@ public class ManagementApiHandler {
                         return Future.succeededFuture(0L);
                     }
                     return store.getStats().map(dev.mars.peegeeq.api.EventStore.EventStoreStats::getTotalCorrections);
-                })
-                .transform(ar -> {
-                    if (ar.failed()) {
-                        logger.debug("Failed to get correction count for store {}/{}: {}", setupId, storeName, ar.cause().getMessage());
-                        return Future.succeededFuture(0L);
-                    }
-                    return Future.succeededFuture(ar.result());
                 });
     }
 
@@ -1073,16 +989,9 @@ public class ManagementApiHandler {
                                 return messages;
                             })
                             .eventually(() -> {
-                                try { browser.close(); } catch (Exception ignored) { }
+                                closeBrowser(browser, queueName);
                                 return Future.succeededFuture();
                             }));
-                })
-                .transform(ar -> {
-                    if (ar.failed()) {
-                        logger.debug("Failed to retrieve message data (table may not exist): {}", ar.cause().getMessage());
-                        return Future.succeededFuture(new JsonArray());
-                    }
-                    return Future.succeededFuture(ar.result());
                 });
     }
 
@@ -1185,11 +1094,11 @@ public class ManagementApiHandler {
                 return;
             }
 
-            // For now, queue updates are limited since we can't modify the underlying table
-            // structure. We can only update configuration parameters that don't require schema changes
             logger.info("Queue update requested for setup: {}, queue: {}", setupId, queueName);
 
-            // Verify the queue exists
+            // The endpoint verifies the queue and refuses the update: no queue setting can be
+            // changed at run time. It used to answer "configuration updated successfully" and
+            // apply nothing (finding 12).
             setupService.getSetupResult(setupId)
                     .compose(setupResult -> {
                         if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
@@ -1199,33 +1108,11 @@ public class ManagementApiHandler {
                         if (queueFactory == null) {
                             return Future.failedFuture(new ResponseException(404, "Queue not found: " + queueName));
                         }
-                        return Future.succeededFuture(queueFactory);
+                        return Future.<Void>failedFuture(new ResponseException(501,
+                                "Queue configuration cannot be changed at run time; queue '" + queueName
+                                        + "' in setup '" + setupId + "' is unchanged"));
                     })
-                    .map(queueFactory -> {
-                        logger.info("Queue {} updated successfully in setup {}", queueName, setupId);
-                        return new JsonObject()
-                                .put("message", "Queue '" + queueName + "' configuration updated successfully in setup '" + setupId + "'")
-                                .put("setupId", setupId)
-                                .put("queueName", queueName)
-                                .put("note", "Configuration updates are applied to runtime settings")
-                                .put("timestamp", System.currentTimeMillis());
-                    })
-                    .onSuccess(response -> {
-                        publishQueueChanged(setupId, queueName, "QUEUE_UPDATED");
-                        ctx.response()
-                            .setStatusCode(200)
-                            .putHeader("content-type", "application/json")
-                            .end(response.encode());
-                    })
-                    .onFailure(throwable -> {
-                        if (throwable instanceof ResponseException re) {
-                            sendError(ctx, re.statusCode, re.getMessage());
-                        } else {
-                            logger.warn("Setup or queue not found while updating queue {} in setup {}: {}",
-                                    queueName, setupId, throwable.getMessage());
-                            sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
-                        }
-                    });
+                    .onFailure(throwable -> sendQueueOperationFailure(ctx, throwable, "updating", queueName, setupId));
 
         } catch (Exception e) {
             logger.error("Error parsing update queue request", e);
@@ -1265,21 +1152,24 @@ public class ManagementApiHandler {
                     .compose(arr -> {
                         DatabaseSetupResult setupResult = (DatabaseSetupResult) arr[0];
                         QueueFactory queueFactory = (QueueFactory) arr[1];
+                        Future<Void> close;
                         try {
-                            queueFactory.close();
+                            close = queueFactory.close();
                         } catch (Exception e) {
-                            return Future.failedFuture(new ResponseException(503,
-                                    "Failed to clean up queue resources: " + e.getMessage()));
+                            close = Future.failedFuture(e);
                         }
-                        // Remove the queue from the active setup so subsequent listings no longer include it.
-                        setupResult.getQueueFactories().remove(queueName);
-                        logger.info("Queue {} deleted successfully from setup {}", queueName, setupId);
-                        return Future.succeededFuture(new JsonObject()
-                            .put("message", "Queue '" + queueName + "' deleted successfully from setup '" + setupId + "'")
-                            .put("setupId", setupId)
-                            .put("queueName", queueName)
-                            .put("note", "Queue resources have been cleaned up")
-                            .put("timestamp", System.currentTimeMillis()));
+                        // The delete reports the outcome of the close. A queue whose close failed
+                        // stays listed, so the operator sees it and can retry (finding 12).
+                        return close.map(closed -> {
+                            setupResult.getQueueFactories().remove(queueName);
+                            logger.info("Queue {} deleted successfully from setup {}", queueName, setupId);
+                            return new JsonObject()
+                                .put("message", "Queue '" + queueName + "' deleted successfully from setup '" + setupId + "'")
+                                .put("setupId", setupId)
+                                .put("queueName", queueName)
+                                .put("note", "Queue resources have been cleaned up")
+                                .put("timestamp", System.currentTimeMillis());
+                        });
                     })
                     .onSuccess(response -> {
                         publishQueueChanged(setupId, queueName, "QUEUE_DELETED");
@@ -1289,15 +1179,7 @@ public class ManagementApiHandler {
                             .putHeader("content-type", "application/json")
                             .end(response.encode());
                     })
-                    .onFailure(throwable -> {
-                        if (throwable instanceof ResponseException re) {
-                            sendError(ctx, re.statusCode, re.getMessage());
-                        } else {
-                            logger.warn("Setup or queue not found while deleting queue {} from setup {}: {}",
-                                    queueName, setupId, throwable.getMessage());
-                            sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
-                        }
-                    });
+                    .onFailure(throwable -> sendQueueOperationFailure(ctx, throwable, "deleting", queueName, setupId));
 
         } catch (Exception e) {
             logger.error("Error parsing delete queue request", e);
@@ -1906,21 +1788,13 @@ public class ManagementApiHandler {
                 return subscriptionService.listSubscriptions(queueName)
                         .map(subscriptions -> (int) subscriptions.stream()
                                 .filter(sub -> sub.state() == dev.mars.peegeeq.api.subscription.SubscriptionState.ACTIVE)
-                                .count())
-                        .transform(ar -> {
-                            if (ar.failed()) {
-                                logger.debug("Error getting real consumer count for queue {}: {}", queueName, ar.cause().getMessage());
-                                return Future.succeededFuture(0);
-                            }
-                            return Future.succeededFuture(ar.result());
-                        });
+                                .count());
             }
 
             return Future.succeededFuture(0);
 
         } catch (Exception e) {
-            logger.debug("Error getting real consumer count for queue {}: {}", queueName, e.getMessage());
-            return Future.succeededFuture(0);
+            return Future.failedFuture(e);
         }
     }
 
@@ -1945,12 +1819,10 @@ public class ManagementApiHandler {
                     }
 
                     // Fetch subscriptions so we can derive "paused" status when all subs are paused.
-                    // Failures or a missing service both collapse to an empty list so they never
-                    // prevent the rest of the details from being returned.
+                    // A failed listing fails the request: it must not be shown as "no subscriptions".
                     SubscriptionService subscriptionService = setupService.getSubscriptionServiceForSetup(setupId);
                     Future<List<SubscriptionInfo>> subsFuture = subscriptionService != null
                             ? subscriptionService.listSubscriptions(queueName)
-                                    .transform(ar -> Future.succeededFuture(ar.succeeded() ? ar.result() : List.of()))
                             : Future.succeededFuture(List.of());
 
                     return getRealConsumerCount(setupResult, queueName)
@@ -2026,19 +1898,7 @@ public class ManagementApiHandler {
                         .setStatusCode(200)
                         .putHeader("content-type", "application/json")
                         .end(queueDetails.encode()))
-                .onFailure(throwable -> {
-                    if (throwable instanceof ResponseException re) {
-                        sendError(ctx, re.statusCode, re.getMessage());
-                    } else {
-                        Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
-                        if (isSetupNotFoundError(cause)) {
-                            logger.debug("Setup not found for queue details: {} (setup: {})", queueName, setupId);
-                        } else {
-                            logger.error("Error getting queue details for setup: {}, queue: {}", setupId, queueName, throwable);
-                        }
-                        sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
-                    }
-                });
+                .onFailure(throwable -> sendQueueOperationFailure(ctx, throwable, "reading", queueName, setupId));
     }
 
     /**
@@ -2063,14 +1923,7 @@ public class ManagementApiHandler {
                     }
                     SubscriptionService subscriptionService = setupService.getSubscriptionServiceForSetup(setupId);
                     if (subscriptionService != null) {
-                        return subscriptionService.listSubscriptions(queueName)
-                                .transform(ar -> {
-                                    if (ar.failed()) {
-                                        logger.debug("Failed to list subscriptions for queue {}: {}", queueName, ar.cause().getMessage());
-                                        return Future.succeededFuture(java.util.List.<SubscriptionInfo>of());
-                                    }
-                                    return Future.succeededFuture(ar.result());
-                                });
+                        return subscriptionService.listSubscriptions(queueName);
                     }
                     return Future.succeededFuture(java.util.List.<SubscriptionInfo>of());
                 })
@@ -2106,14 +1959,7 @@ public class ManagementApiHandler {
                         .setStatusCode(200)
                         .putHeader("content-type", "application/json")
                         .end(response.encode()))
-                .onFailure(throwable -> {
-                    if (throwable instanceof ResponseException re) {
-                        sendError(ctx, re.statusCode, re.getMessage());
-                    } else {
-                        logger.error("Error getting consumers for setup: {}, queue: {}", setupId, queueName, throwable);
-                        sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
-                    }
-                });
+                .onFailure(throwable -> sendQueueOperationFailure(ctx, throwable, "reading consumers of", queueName, setupId));
     }
 
     /**
@@ -2147,14 +1993,7 @@ public class ManagementApiHandler {
                         .setStatusCode(200)
                         .putHeader("content-type", "application/json")
                         .end(response.encode()))
-                .onFailure(throwable -> {
-                    if (throwable instanceof ResponseException re) {
-                        sendError(ctx, re.statusCode, re.getMessage());
-                    } else {
-                        logger.error("Error getting bindings for setup: {}, queue: {}", setupId, queueName, throwable);
-                        sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
-                    }
-                });
+                .onFailure(throwable -> sendQueueOperationFailure(ctx, throwable, "reading bindings of", queueName, setupId));
     }
 
     /**
@@ -2206,7 +2045,7 @@ public class ManagementApiHandler {
                                         return messages;
                                     })
                                     .eventually(() -> {
-                                        try { browser.close(); } catch (Exception ignored) { }
+                                        closeBrowser(browser, queueName);
                                         return Future.succeededFuture();
                                     }));
                 })
@@ -2494,6 +2333,54 @@ public class ManagementApiHandler {
      */
     private boolean isSetupNotFoundError(Throwable throwable) {
         return throwable instanceof SetupNotFoundException;
+    }
+
+    /** Closes a browse-only queue browser. A failed close is logged, never discarded (finding 19). */
+    private void closeBrowser(dev.mars.peegeeq.api.messaging.QueueBrowser<?> browser, String queueName) {
+        try {
+            browser.close();
+        } catch (Exception closeFailure) {
+            logger.warn("Failed to close the message browser of queue {}: {}",
+                    queueName, closeFailure.getMessage(), closeFailure);
+        }
+    }
+
+    /**
+     * Reads one setup for a listing. A setup that was removed between listing the active setup
+     * ids and reading it is no longer part of the listing, so it contributes {@code absent}. Every
+     * other failure propagates: a listing never answers an empty result for a read that failed
+     * (finding 2).
+     */
+    private <T> java.util.function.Function<io.vertx.core.AsyncResult<T>, Future<T>> absentIfSetupRemoved(
+            T absent, String setupId) {
+        return outcome -> {
+            if (outcome.succeeded()) {
+                return Future.succeededFuture(outcome.result());
+            }
+            if (isSetupNotFoundError(outcome.cause())) {
+                logger.debug("Setup {} was removed while it was being listed; it is left out", setupId);
+                return Future.succeededFuture(absent);
+            }
+            return Future.failedFuture(outcome.cause());
+        };
+    }
+
+    /**
+     * Answers a failed queue operation. A {@link ResponseException} carries its own status, a
+     * missing setup is 404, and every other failure is 503 and logged at ERROR. A failure is
+     * never reported as "not found" (finding 12).
+     */
+    private void sendQueueOperationFailure(RoutingContext ctx, Throwable failure, String operation,
+                                           String queueName, String setupId) {
+        if (failure instanceof ResponseException re) {
+            sendError(ctx, re.statusCode, re.getMessage());
+        } else if (isSetupNotFoundError(failure)) {
+            sendError(ctx, 404, "Setup not found: " + setupId);
+        } else {
+            logger.error("Error {} queue '{}' {} setup '{}': {}", operation, queueName,
+                    "deleting".equals(operation) ? "from" : "in", setupId, failure.getMessage(), failure);
+            sendError(ctx, 503, "Failed " + operation + " queue: " + failure.getMessage());
+        }
     }
 
     /**

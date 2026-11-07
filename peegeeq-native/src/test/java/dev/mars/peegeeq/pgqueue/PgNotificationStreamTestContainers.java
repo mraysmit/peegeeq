@@ -50,6 +50,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Integration tests for the PgNotificationStream class using TestContainers.
  */
+@org.junit.jupiter.api.Tag(dev.mars.peegeeq.test.categories.TestCategories.INTEGRATION)
 @ExtendWith(VertxExtension.class)
 @Testcontainers
 public class PgNotificationStreamTestContainers {
@@ -129,6 +130,11 @@ public class PgNotificationStreamTestContainers {
     }
 
     @Test
+    @dev.mars.peegeeq.test.logging.ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.pgqueue.PgNotificationStream",
+            message = "Handling error: Test error",
+            throwable = dev.mars.peegeeq.test.logging.ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = RuntimeException.class)
     void testHandleError(VertxTestContext testContext) {
         Exception expectedException = new RuntimeException("Test error");
 

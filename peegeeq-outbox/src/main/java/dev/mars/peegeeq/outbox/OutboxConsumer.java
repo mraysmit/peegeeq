@@ -38,7 +38,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 // Removed JDBC imports - no longer needed after migration to Vert.x 5.x reactive patterns
-import java.nio.channels.ClosedChannelException;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -51,7 +50,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -447,9 +445,6 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             }
             if (isShutdownRelatedError(e)) {
                 logger.debug("Expected error during shutdown for topic {}: {}", topic, e.getMessage());
-                if (!closed.get()) {
-                    closed.set(true);
-                }
             } else {
                 logger.error("Failed to process messages reactively for topic {}: {}", topic, e.getMessage(), e);
             }
@@ -559,16 +554,20 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     }
 
     private boolean isShutdownRelatedError(Throwable error) {
-        if (closed.get()) {
-            return true;
-        }
-        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
-            if (cause instanceof RejectedExecutionException
-                    || cause instanceof ClosedChannelException) {
-                return true;
-            }
-        }
-        return false;
+        return isExpectedShutdownFailure(closed.get(), error);
+    }
+
+    /**
+     * Decides whether a failure is part of this consumer's own shutdown.
+     *
+     * <p>Only a close of this consumer makes a failure expected. The exception type alone does
+     * not: a {@code RejectedExecutionException} or {@code ClosedChannelException} while the
+     * consumer is open is a failure, logged at ERROR, and the consumer keeps running. Before this
+     * rule such an exception was logged at DEBUG as "expected during shutdown" and, in the claim
+     * path, marked the open consumer closed, so it stopped for good (finding 16).</p>
+     */
+    static boolean isExpectedShutdownFailure(boolean consumerClosed, Throwable error) {
+        return consumerClosed;
     }
 
     /**

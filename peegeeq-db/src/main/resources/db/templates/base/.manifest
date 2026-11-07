@@ -5,6 +5,7 @@
 04-search-path.sql
 04a-core-table-outbox.sql
 04b-core-table-queue-messages.sql
+04d-core-table-queue-message-group-exclusions.sql
 04c-core-table-dead-letter.sql
 05-queue-template.sql
 06-event-store-template.sql

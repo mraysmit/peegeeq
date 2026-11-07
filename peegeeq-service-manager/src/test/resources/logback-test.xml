@@ -20,20 +20,9 @@
     <logger name="dev.mars.peegeeq.servicemanager" level="INFO" />
     <logger name="dev.mars.peegeeq" level="WARN" />
     
-    <!-- Suppress intentional test failure warnings from production classes during tests -->
-    <!-- This prevents confusing WARN logs with stack traces during intentional failure tests -->
-    <logger name="dev.mars.peegeeq.outbox.OutboxConsumerGroupMember" level="ERROR" additivity="false">
-        <appender-ref ref="CONSOLE" />
-    </logger>
-    <logger name="dev.mars.peegeeq.outbox.OutboxConsumer" level="ERROR" additivity="false">
-        <appender-ref ref="CONSOLE" />
-    </logger>
-    <logger name="dev.mars.peegeeq.pgqueue.PgNativeConsumerGroupMember" level="ERROR" additivity="false">
-        <appender-ref ref="CONSOLE" />
-    </logger>
-    <logger name="dev.mars.peegeeq.pgqueue.PgNativeConsumer" level="ERROR" additivity="false">
-        <appender-ref ref="CONSOLE" />
-    </logger>
+    <!-- Finding 17: no production logger is detached from the root logger. The unexpected-ERROR
+         check listens on the root logger only. A test that causes an ERROR declares it with
+         @ExpectedErrorLog. -->
     
     <!-- Reduce TestContainers noise -->
     <logger name="org.testcontainers" level="WARN" />

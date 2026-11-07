@@ -37,6 +37,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+@org.junit.jupiter.api.Tag(dev.mars.peegeeq.test.categories.TestCategories.INTEGRATION)
 @ExtendWith(VertxExtension.class)
 @Testcontainers
 class PgNativeQueueConsumerClaimIT {

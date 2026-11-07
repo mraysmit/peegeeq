@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.pgqueue;
 
+import dev.mars.peegeeq.api.messaging.MessageHandler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
@@ -12,7 +13,6 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Pool;
@@ -40,6 +40,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+@org.junit.jupiter.api.Tag(dev.mars.peegeeq.test.categories.TestCategories.INTEGRATION)
 @ExtendWith(VertxExtension.class)
 @Testcontainers
 class PgNativeQueueConcurrentClaimIT {
@@ -130,29 +131,34 @@ class PgNativeQueueConcurrentClaimIT {
 
         AtomicInteger processed = new AtomicInteger();
         Set<String> payloads = Collections.synchronizedSet(new HashSet<>());
-        Checkpoint bothDone = testContext.checkpoint(2);
+        io.vertx.core.Promise<Void> bothHandled = io.vertx.core.Promise.promise();
 
-        Future<Void> c1Subscription = c1.subscribe(msg -> {
+        MessageHandler<String> handler = msg -> {
             payloads.add(msg.getPayload());
-            processed.incrementAndGet();
-            bothDone.flag();
+            if (processed.incrementAndGet() == 2) {
+                bothHandled.tryComplete();
+            }
             return Future.succeededFuture();
-        });
-        Future<Void> c2Subscription = c2.subscribe(msg -> {
-            payloads.add(msg.getPayload());
-            processed.incrementAndGet();
-            bothDone.flag();
-            return Future.succeededFuture();
-        });
-        Future.all(c1Subscription, c2Subscription).onFailure(testContext::failNow);
+        };
+        long deadline = vertx.setTimer(10_000, id -> bothHandled.tryFail(
+                new AssertionError("both messages were not handled within 10 s; handled " + processed.get())));
 
-        // Wait up to 10s for both messages to be processed exactly once
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        assertEquals(2, processed.get());
-        assertEquals(Set.of("m1", "m2"), payloads);
-
-        c1.close();
-        c2.close();
+        Future.all(c1.subscribe(handler), c2.subscribe(handler))
+            .compose(v -> bothHandled.future())
+            .compose(v -> {
+                vertx.cancelTimer(deadline);
+                // Close both consumers before the pool: each close waits for its delete.
+                return Future.join(c1.closeAsync(), c2.closeAsync()).mapEmpty();
+            })
+            .compose(v -> pool.preparedQuery("SELECT COUNT(*) AS c FROM queue_messages WHERE topic = $1")
+                .execute(Tuple.of(TOPIC)))
+            .onSuccess(rows -> testContext.verify(() -> {
+                assertEquals(2, processed.get(), "each message must be claimed exactly once");
+                assertEquals(Set.of("m1", "m2"), payloads);
+                assertEquals(0L, rows.iterator().next().getLong("c"), "both messages must be deleted");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 }
 

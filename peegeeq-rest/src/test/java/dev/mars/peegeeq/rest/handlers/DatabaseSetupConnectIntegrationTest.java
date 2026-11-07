@@ -55,6 +55,10 @@ public class DatabaseSetupConnectIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(DatabaseSetupConnectIntegrationTest.class);
     private static final int TEST_PORT = 18110;
+    /** Connecting applies no DDL, so the refusal of an incomplete schema names the upgrade path. */
+    static final String MISSING_TABLES_REMEDY = "Connecting applies no DDL. Add the missing tables "
+            + "with the Flyway migrations in peegeeq-migrations, or with the base template scripts in "
+            + "db/templates/base, then connect again.";
 
     @Container
     static PostgreSQLContainer postgres = PostgreSQLTestConstants.createContainer(
@@ -186,11 +190,12 @@ public class DatabaseSetupConnectIntegrationTest {
     @DisplayName("Connect with an absent PeeGeeQ schema returns 400")
     @ExpectedErrorLog(
             logger = "dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService",
-            message = "VALIDATION FAILED: Missing required tables: [outbox, queue_messages, dead_letter_queue, queue_template, event_store_template, outbox_topics, outbox_topic_subscriptions, outbox_consumer_groups, processed_ledger, consumer_group_index, bitemporal_subscriptions, peegeeq_object_registry, peegeeq_setup_metadata]",
+            message = "VALIDATION FAILED: Missing required tables: [outbox, queue_messages, queue_message_group_exclusions, dead_letter_queue, queue_template, event_store_template, outbox_topics, outbox_topic_subscriptions, outbox_consumer_groups, processed_ledger, consumer_group_index, bitemporal_subscriptions, peegeeq_object_registry, peegeeq_setup_metadata]",
             throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     @ExpectedErrorLog(
             logger = "dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService",
-            message = "Failed to connect to existing setup 'does-not-exist': Database infrastructure validation failed - missing tables: [outbox, queue_messages, dead_letter_queue, queue_template, event_store_template, outbox_topics, outbox_topic_subscriptions, outbox_consumer_groups, processed_ledger, consumer_group_index, bitemporal_subscriptions, peegeeq_object_registry, peegeeq_setup_metadata]",
+            message = "Failed to connect to existing setup 'does-not-exist': Database infrastructure validation failed - missing tables: [outbox, queue_messages, queue_message_group_exclusions, dead_letter_queue, queue_template, event_store_template, outbox_topics, outbox_topic_subscriptions, outbox_consumer_groups, processed_ledger, consumer_group_index, bitemporal_subscriptions, peegeeq_object_registry, peegeeq_setup_metadata]. "
+                    + DatabaseSetupConnectIntegrationTest.MISSING_TABLES_REMEDY,
             throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
             throwableType = IllegalStateException.class)
     @ExpectedErrorLog(
@@ -222,6 +227,8 @@ public class DatabaseSetupConnectIntegrationTest {
                                 response.statusCode(), response.bodyAsString());
                         assertEquals(400, response.statusCode(),
                                 "Expected 400 when the PeeGeeQ schema is absent, got: " + response.statusCode());
+                        assertTrue(response.bodyAsString().contains(MISSING_TABLES_REMEDY),
+                                "the refusal must tell the operator how to add the tables: " + response.bodyAsString());
                     });
                     testContext.completeNow();
                 })

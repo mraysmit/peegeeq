@@ -437,7 +437,9 @@ class NativeQueueIntegrationTest {
         inDlq.future()
                 .onSuccess(v -> testContext.verify(() -> {
                     vertx.cancelTimer(pollTimer[0]);
-                    assertTrue(attemptCount.get() > 1);
+                    int maxRetries = manager.getConfiguration().getQueueConfig().getMaxRetries();
+                    assertEquals(maxRetries + 1, attemptCount.get(),
+                            "with max-retries N a native message is delivered N + 1 times before it is dead-lettered");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);

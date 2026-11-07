@@ -90,8 +90,8 @@ public class EventStoreHandler {
         try {
             eventRequest = objectMapper.readValue(ctx.body().asString(), EventRequest.class);
         } catch (Exception e) {
-            logger.error("Error parsing store event request", e);
-            sendError(ctx, 400, "Invalid request format");
+            logger.warn("Invalid store event request: {}", e.getMessage());
+            sendError(ctx, 400, "Invalid request format: " + e.getMessage());
             return;
         }
 
@@ -101,6 +101,13 @@ public class EventStoreHandler {
         }
         if (eventRequest.getEventData() == null) {
             sendError(ctx, 400, "eventData is required");
+            return;
+        }
+        Instant requestedValidTime;
+        try {
+            requestedValidTime = eventRequest.getValidFrom();
+        } catch (IllegalArgumentException invalidValidTime) {
+            sendError(ctx, 400, invalidValidTime.getMessage());
             return;
         }
 
@@ -120,7 +127,8 @@ public class EventStoreHandler {
                     return Future.succeededFuture(eventStore);
                 })
                 .compose(eventStore -> {
-                    Instant validTime = eventRequest.getValidFrom() != null ? eventRequest.getValidFrom() : Instant.now();
+                    // A request that names no valid time records the event as valid from now.
+                    Instant validTime = requestedValidTime != null ? requestedValidTime : Instant.now();
                     Map<String, String> headers = eventRequest.getMetadata() != null
                             ? eventRequest.getMetadata().entrySet().stream()
                                     .collect(java.util.stream.Collectors.toMap(
@@ -1279,7 +1287,12 @@ public class EventStoreHandler {
             // Add empty line to complete the event
             sseEvent.append("\n");
 
-            connection.getResponse().write(sseEvent.toString());
+            connection.getResponse().write(sseEvent.toString())
+                    .onFailure(writeFailure -> {
+                        logger.error("Error sending SSE event to connection {}: {}",
+                                connection.getConnectionId(), writeFailure.getMessage(), writeFailure);
+                        connection.setActive(false);
+                    });
             connection.incrementEventsSent();
             connection.updateActivity();
 

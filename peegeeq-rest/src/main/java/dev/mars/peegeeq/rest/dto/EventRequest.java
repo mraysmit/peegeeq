@@ -17,10 +17,15 @@
 package dev.mars.peegeeq.rest.dto;
 
 import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.Map;
 
 /**
  * Request object for storing events.
+ *
+ * <p>The event store records one valid time per event. The request has no {@code validTo}
+ * property, so the parser refuses a request that sends one. Before this rule {@code validTo} was
+ * accepted and dropped.</p>
  */
 public class EventRequest {
 
@@ -29,7 +34,6 @@ public class EventRequest {
     private Object eventData;
     private Object payload;  // Alias for eventData for API flexibility
     private Instant validFrom;
-    private Instant validTo;
     private String validTime;  // String version of validFrom for API flexibility
     private String correlationId;
     private String causationId;
@@ -51,25 +55,37 @@ public class EventRequest {
     public Object getPayload() { return payload; }
     public void setPayload(Object payload) { this.payload = payload; }
 
+    /**
+     * Returns the valid time this request names: {@code validFrom}, or {@code validTime} read
+     * as an ISO-8601 instant. Returns null when the request names neither.
+     *
+     * <p>A valid time is business data of an append-only store. A value that cannot be read is
+     * refused, never replaced: before this rule an unreadable {@code validTime} was stored as the
+     * time of the request and answered 201 (finding 18).</p>
+     *
+     * @throws IllegalArgumentException if {@code validTime} is not an ISO-8601 instant, or if
+     *                                  {@code validFrom} and {@code validTime} name different instants
+     */
     public Instant getValidFrom() {
-        // Return validFrom if set, otherwise parse validTime
-        if (validFrom != null) return validFrom;
+        Instant parsedValidTime = null;
         if (validTime != null) {
             try {
-                return Instant.parse(validTime);
-            } catch (Exception e) {
-                return null;
+                parsedValidTime = Instant.parse(validTime);
+            } catch (DateTimeParseException e) {
+                throw new IllegalArgumentException(
+                        "validTime is not an ISO-8601 instant: '" + validTime + "'", e);
             }
         }
-        return null;
+        if (validFrom != null && parsedValidTime != null && !validFrom.equals(parsedValidTime)) {
+            throw new IllegalArgumentException("validFrom (" + validFrom + ") and validTime ("
+                    + parsedValidTime + ") name different instants");
+        }
+        return validFrom != null ? validFrom : parsedValidTime;
     }
     public void setValidFrom(Instant validFrom) { this.validFrom = validFrom; }
 
     public String getValidTime() { return validTime; }
     public void setValidTime(String validTime) { this.validTime = validTime; }
-
-    public Instant getValidTo() { return validTo; }
-    public void setValidTo(Instant validTo) { this.validTo = validTo; }
 
     public String getCorrelationId() { return correlationId; }
     public void setCorrelationId(String correlationId) { this.correlationId = correlationId; }

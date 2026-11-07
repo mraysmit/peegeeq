@@ -48,12 +48,21 @@ public class WebSocketConnection {
     private volatile long messagesSent = 0;
     private volatile long lastActivityTime;
     
+    // Wall clock for the statistics timestamps.
+    private final java.util.function.LongSupplier clock;
+
     public WebSocketConnection(String connectionId, ServerWebSocket webSocket, String setupId, String queueName) {
+        this(connectionId, webSocket, setupId, queueName, System::currentTimeMillis);
+    }
+
+    WebSocketConnection(String connectionId, ServerWebSocket webSocket, String setupId, String queueName,
+                        java.util.function.LongSupplier clock) {
         this.connectionId = connectionId;
         this.webSocket = webSocket;
         this.setupId = setupId;
         this.queueName = queueName;
-        this.createdAt = System.currentTimeMillis();
+        this.clock = clock;
+        this.createdAt = clock.getAsLong();
         this.lastActivityTime = this.createdAt;
         
         logger.debug("Created WebSocket connection: {} for queue {} in setup {}", 
@@ -64,31 +73,29 @@ public class WebSocketConnection {
      * Updates the last activity timestamp.
      */
     public void updateActivity() {
-        this.lastActivityTime = System.currentTimeMillis();
+        this.lastActivityTime = clock.getAsLong();
     }
     
     /**
-     * Checks if the connection is still active and healthy.
+     * Checks if the connection is still active and healthy: it was not cleaned up, its socket is
+     * open, and no write to it has failed.
+     *
+     * <p>Health does not depend on how long ago the server last sent data. A stream on a quiet
+     * queue sends nothing, and an earlier rule that called such a connection unhealthy after
+     * 5 minutes dropped every later message while the socket stayed open (finding 9).</p>
      */
     public boolean isHealthy() {
         if (!active) {
             return false;
         }
-        
+
         // Check if WebSocket is still open
         if (webSocket.isClosed()) {
             logger.debug("WebSocket connection {} is closed", connectionId);
             active = false;
             return false;
         }
-        
-        // Check for timeout (no activity for more than 5 minutes)
-        long inactiveTime = System.currentTimeMillis() - lastActivityTime;
-        if (inactiveTime > 300000) { // 5 minutes
-            logger.warn("WebSocket connection {} has been inactive for {} ms", connectionId, inactiveTime);
-            return false;
-        }
-        
+
         return true;
     }
     
@@ -97,15 +104,20 @@ public class WebSocketConnection {
      */
     public void sendMessage(JsonObject message) {
         if (!isHealthy()) {
-            logger.debug("Cannot send message to unhealthy connection: {}", connectionId);
+            logger.warn("Message not sent: WebSocket connection {} is closed or failed", connectionId);
             return;
         }
         
         try {
-            webSocket.writeTextMessage(message.encode());
+            webSocket.writeTextMessage(message.encode())
+                    .onFailure(writeFailure -> {
+                        logger.error("Error sending message to WebSocket connection {}: {}",
+                                connectionId, writeFailure.getMessage(), writeFailure);
+                        active = false;
+                    });
             messagesSent++;
             updateActivity();
-            
+
             logger.trace("Sent message to WebSocket connection {}: {}", connectionId, message.encode());
         } catch (Exception e) {
             logger.error("Error sending message to WebSocket connection {}: {}", connectionId, e.getMessage(), e);
@@ -236,7 +248,9 @@ public class WebSocketConnection {
         // Close WebSocket if still open
         if (!webSocket.isClosed()) {
             try {
-                webSocket.close();
+                webSocket.close()
+                        .onFailure(closeFailure -> logger.warn("Error closing WebSocket for connection {}: {}",
+                                connectionId, closeFailure.getMessage()));
                 logger.debug("Closed WebSocket for connection: {}", connectionId);
             } catch (Exception e) {
                 logger.warn("Error closing WebSocket for connection {}: {}", connectionId, e.getMessage());

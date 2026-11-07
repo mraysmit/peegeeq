@@ -3111,12 +3111,15 @@ Stores a new event in a bi-temporal event store. The event is immediately availa
   "eventType": "string",
   "eventData": {},
   "validFrom": "ISO-8601 timestamp",
-  "validTo": "ISO-8601 timestamp",
   "correlationId": "string",
   "causationId": "string",
   "metadata": {}
 }
 ```
+
+The event store records one valid time per event. A request that sends `validTo` is refused with
+`400 Bad Request` and nothing is stored. The same applies to any property the request object does
+not define.
 
 **Request Body Parameters:**
 
@@ -3125,7 +3128,7 @@ Stores a new event in a bi-temporal event store. The event is immediately availa
 | `eventType` | string | Yes | - | Type/category of the event (e.g., "order.created", "payment.received") |
 | `eventData` | object | Yes | - | The event payload - any valid JSON object |
 | `validFrom` | string | No | now | ISO-8601 timestamp when the event became valid in the real world |
-| `validTo` | string | No | infinity | ISO-8601 timestamp when the event stopped being valid |
+| `validTime` | string | No | now | Alternative name for `validFrom`. Refused with 400 if unreadable or if it names a different instant from `validFrom` |
 | `correlationId` | string | No | null | ID to correlate related events across services |
 | `causationId` | string | No | null | ID of the event that caused this event |
 | `metadata` | object | No | {} | Additional metadata (user ID, source system, etc.) |

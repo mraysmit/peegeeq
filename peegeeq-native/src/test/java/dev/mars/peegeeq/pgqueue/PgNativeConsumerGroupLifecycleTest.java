@@ -17,8 +17,8 @@ package dev.mars.peegeeq.pgqueue;
  */
 
 import dev.mars.peegeeq.api.messaging.ConsumerGroupMember;
+import dev.mars.peegeeq.api.messaging.DeliveryOutcome;
 import dev.mars.peegeeq.api.messaging.Message;
-import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.api.messaging.SimpleMessage;
 import dev.mars.peegeeq.api.messaging.StartPosition;
@@ -835,8 +835,7 @@ class PgNativeConsumerGroupLifecycleTest {
             });
             startGroup();
 
-            Future<Void> result = group.distributeMessage(createMessage("msg-1", "hello"));
-            assertTrue(result.succeeded(), "distributeMessage should succeed");
+            assertOutcome(DeliveryOutcome.COMPLETED, group.distributeMessage(createMessage("msg-1", "hello")));
             assertEquals(1, handlerCalls.get(), "handler should be called once");
 
             var stats = group.getStats();
@@ -856,9 +855,8 @@ class PgNativeConsumerGroupLifecycleTest {
 
             // Send enough messages to exercise both consumers
             for (int i = 0; i < 20; i++) {
-                assertSucceeded(
-                        group.distributeMessage(createMessage("msg-" + i, "data-" + i)),
-                        "distributeMessage");
+                assertOutcome(DeliveryOutcome.COMPLETED,
+                        group.distributeMessage(createMessage("msg-" + i, "data-" + i)));
             }
 
             assertTrue(consumer1Calls.get() > 0, "consumer 1 should receive some messages");
@@ -868,35 +866,96 @@ class PgNativeConsumerGroupLifecycleTest {
         }
 
         @Test
-        @DisplayName("group filter rejects message filtered count increments")
-        void groupFilterRejects_incrementsFilteredCount() {
+        @DisplayName("group filter refusal is REJECTED, no handler runs, filtered count increments")
+        void groupFilterRejects_isRejected() {
             group = createGroup("dm-group", "topic-a");
-            group.addConsumer("c1", msg -> Future.succeededFuture());
+            AtomicInteger handlerCalls = new AtomicInteger(0);
+            group.addConsumer("c1", msg -> {
+                handlerCalls.incrementAndGet();
+                return Future.succeededFuture();
+            });
             startGroup();
             group.setGroupFilter(msg -> false); // reject all
 
-            Future<Void> result = group.distributeMessage(createMessage("msg-1", "hello"));
-            assertTrue(result.succeeded(), "distributeMessage should succeed even when filtered");
+            assertOutcome(DeliveryOutcome.REJECTED, group.distributeMessage(createMessage("msg-1", "hello")));
 
             var stats = group.getStats();
+            assertEquals(0, handlerCalls.get(), "a refused message must not reach a handler");
             assertEquals(0, stats.getTotalMessagesProcessed(), "No messages should be processed");
-            assertTrue(stats.getTotalMessagesFiltered() > 0, "Filtered count should increase");
+            assertEquals(1, stats.getTotalMessagesFiltered(), "Filtered count should increase");
         }
 
         @Test
-        @DisplayName("no eligible consumers filtered count increments")
-        void noEligibleConsumers_incrementsFilteredCount() {
+        @DisplayName("group filter that throws fails the delivery, no handler runs")
+        void groupFilterThrows_failsTheDelivery() {
             group = createGroup("dm-group", "topic-a");
+            AtomicInteger handlerCalls = new AtomicInteger(0);
+            group.addConsumer("c1", msg -> {
+                handlerCalls.incrementAndGet();
+                return Future.succeededFuture();
+            });
+            startGroup();
+            group.setGroupFilter(msg -> { throw new IllegalStateException("group filter exploded"); });
+
+            Future<DeliveryOutcome> result = assertDoesNotThrow(
+                    () -> group.distributeMessage(createMessage("msg-1", "hello")));
+            assertTrue(result.failed(), "a throwing group filter is a processing failure");
+            assertEquals("group filter exploded", result.cause().getMessage());
+            assertEquals(0, handlerCalls.get());
+        }
+
+        @Test
+        @DisplayName("no eligible consumers is UNAVAILABLE, not a completed delivery")
+        void noEligibleConsumers_isUnavailable() {
+            group = createGroup("dm-group", "topic-a");
+            AtomicInteger handlerCalls = new AtomicInteger(0);
             // Add consumer with a filter that rejects everything
-            group.addConsumer("c1", msg -> Future.succeededFuture(), msg -> false);
+            group.addConsumer("c1", msg -> {
+                handlerCalls.incrementAndGet();
+                return Future.succeededFuture();
+            }, msg -> false);
             startGroup();
 
-            Future<Void> result = group.distributeMessage(createMessage("msg-1", "hello"));
-            assertTrue(result.succeeded(), "distributeMessage should succeed when no consumers eligible");
+            assertOutcome(DeliveryOutcome.UNAVAILABLE, group.distributeMessage(createMessage("msg-1", "hello")));
 
             var stats = group.getStats();
+            assertEquals(0, handlerCalls.get(), "a member filter refusal must not reach the handler");
             assertEquals(0, stats.getTotalMessagesProcessed());
-            assertTrue(stats.getTotalMessagesFiltered() > 0, "Filtered count should increase");
+            assertEquals(1, stats.getTotalMessagesFiltered(), "Filtered count should increase");
+        }
+
+        @Test
+        @DisplayName("each member filter runs once per delivery")
+        void memberFilterRunsOncePerDelivery() {
+            group = createGroup("dm-group", "topic-a");
+            AtomicInteger filterCalls = new AtomicInteger(0);
+            AtomicInteger handlerCalls = new AtomicInteger(0);
+            group.addConsumer("c1", msg -> {
+                handlerCalls.incrementAndGet();
+                return Future.succeededFuture();
+            }, msg -> filterCalls.incrementAndGet() > 0);
+            startGroup();
+
+            assertOutcome(DeliveryOutcome.COMPLETED, group.distributeMessage(createMessage("msg-1", "hello")));
+            assertEquals(1, filterCalls.get(), "the member predicate must be evaluated exactly once");
+            assertEquals(1, handlerCalls.get());
+        }
+
+        @Test
+        @DisplayName("a member filter that accepts once and refuses on a second check still delivers")
+        void memberFilterIsNotEvaluatedASecondTime() {
+            group = createGroup("dm-group", "topic-a");
+            AtomicInteger filterCalls = new AtomicInteger(0);
+            AtomicInteger handlerCalls = new AtomicInteger(0);
+            group.addConsumer("c1", msg -> {
+                handlerCalls.incrementAndGet();
+                return Future.succeededFuture();
+            }, msg -> filterCalls.incrementAndGet() == 1);
+            startGroup();
+
+            assertOutcome(DeliveryOutcome.COMPLETED, group.distributeMessage(createMessage("msg-1", "hello")));
+            assertEquals(1, handlerCalls.get(),
+                    "COMPLETED must mean the handler ran; a second predicate check must not skip it");
         }
 
         @Test
@@ -906,7 +965,7 @@ class PgNativeConsumerGroupLifecycleTest {
             group.addConsumer("c1", msg -> Future.failedFuture(new RuntimeException("handler error")));
             startGroup();
 
-            Future<Void> result = group.distributeMessage(createMessage("msg-1", "hello"));
+            Future<DeliveryOutcome> result = group.distributeMessage(createMessage("msg-1", "hello"));
             assertTrue(result.failed(), "distributeMessage should propagate handler failure");
 
             var stats = group.getStats();
@@ -928,29 +987,39 @@ class PgNativeConsumerGroupLifecycleTest {
                     "traceparent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
                     "custom-header", "value"
             );
-            Future<Void> result = group.distributeMessage(
-                    createMessageWithHeaders("msg-1", "hello", headers));
-            assertTrue(result.succeeded());
-            assertNotNull(receivedHeaders.get());
+            assertOutcome(DeliveryOutcome.COMPLETED, group.distributeMessage(
+                    createMessageWithHeaders("msg-1", "hello", headers)));
+            assertEquals("value", receivedHeaders.get().get("custom-header"));
         }
 
         @Test
-        @DisplayName("distributeMessage with no active members all stopped")
-        void noActiveMembers_filteredAsNoEligible() {
+        @DisplayName("distributeMessage with no active member is UNAVAILABLE")
+        void noActiveMembers_isUnavailable() {
             group = createGroup("dm-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            // Not started members not active
-
-            // Force state to ACTIVE for testing distributeMessage directly
-            // We start and then stop members manually by removing them
             startGroup();
             group.removeConsumer("c1");
 
-            Future<Void> result = group.distributeMessage(createMessage("msg-1", "hello"));
-            assertTrue(result.succeeded());
+            assertOutcome(DeliveryOutcome.UNAVAILABLE, group.distributeMessage(createMessage("msg-1", "hello")));
 
             var stats = group.getStats();
-            assertTrue(stats.getTotalMessagesFiltered() > 0);
+            assertEquals(1, stats.getTotalMessagesFiltered());
+        }
+
+        @Test
+        @DisplayName("the partitioned engine commits COMPLETED and REJECTED and holds UNAVAILABLE")
+        void partitionedResultMapsOutcomes() {
+            assertSucceeded(PgNativeConsumerGroup.partitionedResult(
+                    Future.succeededFuture(DeliveryOutcome.COMPLETED)), "COMPLETED");
+            assertSucceeded(PgNativeConsumerGroup.partitionedResult(
+                    Future.succeededFuture(DeliveryOutcome.REJECTED)), "REJECTED");
+            Future<Void> unavailable = PgNativeConsumerGroup.partitionedResult(
+                    Future.succeededFuture(DeliveryOutcome.UNAVAILABLE));
+            assertTrue(unavailable.failed(), "UNAVAILABLE must not move the partition offset");
+            Future<Void> failed = PgNativeConsumerGroup.partitionedResult(
+                    Future.failedFuture(new IllegalStateException("handler failed")));
+            assertTrue(failed.failed());
+            assertEquals("handler failed", failed.cause().getMessage());
         }
     }
 
@@ -967,45 +1036,48 @@ class PgNativeConsumerGroupLifecycleTest {
         }
 
         @Test
-        @DisplayName("F5: consumer filter that throws exception message rejected, no crash")
-        void filterThrowsException_messageRejected() {
+        @DisplayName("F5: the only member's filter throws: the delivery fails and no handler runs")
+        void filterThrowsException_deliveryFails() {
             group = createGroup("bad-group", "topic-a");
+            AtomicInteger handlerCalls = new AtomicInteger(0);
             // Consumer whose filter always throws
-            group.addConsumer("c1", msg -> Future.succeededFuture(),
-                    msg -> { throw new RuntimeException("filter exploded"); });
+            group.addConsumer("c1", msg -> {
+                handlerCalls.incrementAndGet();
+                return Future.succeededFuture();
+            }, msg -> { throw new RuntimeException("filter exploded"); });
             startGroup();
 
-            Future<Void> result = group.distributeMessage(msg("msg-1"));
-            assertTrue(result.succeeded(),
-                    "distributeMessage should succeed message is filtered/dropped, not error");
+            Future<DeliveryOutcome> result = assertDoesNotThrow(() -> group.distributeMessage(msg("msg-1")));
+            assertTrue(result.failed(),
+                    "a throwing member filter is a processing failure; the message must not be completed");
+            assertEquals("filter exploded", result.cause().getMessage());
 
             var stats = group.getStats();
+            assertEquals(0, handlerCalls.get());
             assertEquals(0, stats.getTotalMessagesProcessed(),
                     "Message should not be processed");
-            assertTrue(stats.getTotalMessagesFiltered() > 0,
-                    "Message should count as filtered");
         }
 
         @Test
-        @DisplayName("F5: two consumers, one filter throws message routed to healthy consumer")
+        @DisplayName("F5: two consumers, one filter throws: every message goes to the healthy consumer")
         void filterThrowsOnOne_routedToOther() {
             group = createGroup("bad-group", "topic-a");
             AtomicInteger healthyCalls = new AtomicInteger(0);
 
             // c1's filter always throws
-            group.addConsumer("c1", msg -> Future.succeededFuture(),
+            group.addConsumer("c1", msg -> Future.failedFuture(
+                            new AssertionError("a member whose filter threw must not be selected")),
                     msg -> { throw new RuntimeException("c1 filter broken"); });
             // c2 is healthy
             group.addConsumer("c2", msg -> { healthyCalls.incrementAndGet(); return Future.succeededFuture(); });
             startGroup();
 
-            // Send enough messages: round-robin selects c2 for some IDs since c1 is filtered out
             for (int i = 0; i < 10; i++) {
-                assertSucceeded(group.distributeMessage(msg("msg-" + i)), "distributeMessage");
+                assertOutcome(DeliveryOutcome.COMPLETED, group.distributeMessage(msg("msg-" + i)));
             }
 
-            assertTrue(healthyCalls.get() > 0,
-                    "Healthy consumer should receive messages when broken filter excludes c1");
+            assertEquals(10, healthyCalls.get(),
+                    "every message must reach the healthy consumer while c1's filter throws");
         }
 
         @Test
@@ -1027,7 +1099,7 @@ class PgNativeConsumerGroupLifecycleTest {
 
             // Send messages each is routed to exactly one consumer via round-robin
             for (int i = 0; i < 10; i++) {
-                Future<Void> result = group.distributeMessage(msg("msg-" + i));
+                Future<DeliveryOutcome> result = group.distributeMessage(msg("msg-" + i));
                 assertTrue(result.failed(), "Each message should fail");
             }
 
@@ -1055,13 +1127,12 @@ class PgNativeConsumerGroupLifecycleTest {
             group.removeConsumer("c1");
 
             // Now distributeMessage with no active consumers
-            Future<Void> result = group.distributeMessage(msg("msg-1"));
+            Future<DeliveryOutcome> result = assertDoesNotThrow(() -> group.distributeMessage(msg("msg-1")));
 
-            // Should succeed (filtered as "no eligible consumers") not throw NPE
-            assertTrue(result.succeeded(),
-                    "Should succeed as filtered when no active consumers remain");
+            // UNAVAILABLE: the message is kept for a later member, not completed
+            assertOutcome(DeliveryOutcome.UNAVAILABLE, result);
             var stats = group.getStats();
-            assertTrue(stats.getTotalMessagesFiltered() > 0);
+            assertEquals(1, stats.getTotalMessagesFiltered());
         }
 
         @Test
@@ -1071,7 +1142,7 @@ class PgNativeConsumerGroupLifecycleTest {
             group.addConsumer("c1", msg -> { throw new RuntimeException("sync boom"); });
             startGroup();
 
-            Future<Void> result = assertDoesNotThrow(
+            Future<DeliveryOutcome> result = assertDoesNotThrow(
                     () -> group.distributeMessage(msg("msg-1")),
                     "Async APIs must surface handler exceptions through their Future");
             assertTrue(result.failed(), "Synchronous handler exception must fail the Future");
@@ -1299,7 +1370,12 @@ class PgNativeConsumerGroupLifecycleTest {
                 connMgr, "test-svc");
     }
 
-    private static void assertSucceeded(Future<Void> future, String operation) {
+    private static void assertOutcome(DeliveryOutcome expected, Future<DeliveryOutcome> future) {
+        assertSucceeded(future, "distributeMessage");
+        assertEquals(expected, future.result());
+    }
+
+    private static void assertSucceeded(Future<?> future, String operation) {
         assertTrue(future.isComplete(), operation + " must complete in this in-process fixture");
         assertTrue(future.succeeded(),
                 () -> operation + " failed: " + (future.cause() == null ? "unknown" : future.cause().getMessage()));
@@ -1317,7 +1393,7 @@ class PgNativeConsumerGroupLifecycleTest {
         assertSucceeded(group.close(), "close");
     }
 
-    private static final class TestMessageConsumer<T> implements MessageConsumer<T> {
+    private static final class TestMessageConsumer<T> implements NativeGroupConsumer<T> {
         private final Future<Void> subscribeResult;
         private boolean closed;
 
@@ -1331,6 +1407,12 @@ class PgNativeConsumerGroupLifecycleTest {
 
         @Override
         public Future<Void> subscribe(MessageHandler<T> handler) {
+            return subscribeResult;
+        }
+
+        @Override
+        public Future<Void> subscribeGroup(String groupName,
+                java.util.function.Function<Message<T>, Future<DeliveryOutcome>> dispatcher) {
             return subscribeResult;
         }
 

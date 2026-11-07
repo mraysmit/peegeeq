@@ -4,7 +4,15 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
+import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import io.vertx.core.Future;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import io.vertx.core.Future;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
@@ -20,7 +28,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.createContainer;
@@ -28,6 +35,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+@Tag(TestCategories.INTEGRATION)
 @ExtendWith(VertxExtension.class)
 @Testcontainers
 class VertxPoolAdapterHappyPathIT {
@@ -41,8 +49,8 @@ class VertxPoolAdapterHappyPathIT {
 
     @BeforeEach
     void setUp(VertxTestContext testContext) throws Exception {
-        logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        // Configure system properties for TestContainers
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA,
+                SchemaComponent.QUEUE_ALL);
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
@@ -82,7 +90,13 @@ class VertxPoolAdapterHappyPathIT {
             .compose((PgConnection conn) -> conn
                 .query("SELECT 1 AS one")
                 .execute()
-                .onComplete(ar -> conn.close()))
+                .compose(rows -> conn.close().map(v -> rows),
+                        queryFailure -> conn.close().transform(closed -> {
+                            if (closed.failed()) {
+                                queryFailure.addSuppressed(closed.cause());
+                            }
+                            return Future.<RowSet<Row>>failedFuture(queryFailure);
+                        })))
             .onSuccess(rows -> {
                 testContext.verify(() -> {
                     assertNotNull(rows);
