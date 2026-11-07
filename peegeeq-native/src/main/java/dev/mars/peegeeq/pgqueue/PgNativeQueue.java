@@ -110,19 +110,19 @@ public class PgNativeQueue<T> implements ReactiveQueue<T> {
                     jsonPayload = jsonPayload.replace("'", "''");
                     return conn.query("NOTIFY " + channelName + ", '" + jsonPayload + "'")
                         .execute()
-                        .onComplete(ar -> {
-                            conn.close();
-                            if (ar.succeeded()) {
-                                logger.debug("Successfully sent message to channel {}", channelName);
-                            } else {
-                                logger.error("Failed to send message to channel {}: {}", channelName, ar.cause().getMessage());
-                            }
-                        })
-                        .mapEmpty();
+                        .onSuccess(rows -> logger.debug("Successfully sent message to channel {}", channelName))
+                        .onFailure(error -> logger.error("Failed to send message to channel {}: {}",
+                                channelName, error.getMessage()))
+                        .<Void>mapEmpty()
+                        .eventually(() -> conn.close()
+                                .onFailure(closeError -> logger.warn("Failed to return the send connection of channel {}: {}",
+                                        channelName, closeError.getMessage())));
                 } catch (Exception e) {
                     logger.error("Failed to serialize message: {}", message, e);
-                    conn.close();
-                    return Future.failedFuture(e);
+                    return conn.close()
+                        .onFailure(closeError -> logger.warn("Failed to return the send connection of channel {}: {}",
+                                channelName, closeError.getMessage()))
+                        .transform(closed -> Future.<Void>failedFuture(e));
                 }
             });
     }
@@ -138,6 +138,16 @@ public class PgNativeQueue<T> implements ReactiveQueue<T> {
         logger.trace("Connecting to PostgreSQL for LISTEN/NOTIFY");
         PgConnection.connect(vertx, connectOptions)
             .onSuccess(conn -> {
+                if (closed.get()) {
+                    // The queue was closed while the connection was being made. Close it now:
+                    // close() could not see it, and it would otherwise stay open.
+                    logger.debug("LISTEN connection for channel {} arrived after close; closing it", channelName);
+                    conn.close().onFailure(closeError -> logger.warn(
+                            "Failed to close the late LISTEN connection of channel {}: {}",
+                            channelName, closeError.getMessage()));
+                    stream.handleEnd();
+                    return;
+                }
                 this.listenConnection = conn;
                 logger.debug("Successfully established LISTEN connection to PostgreSQL");
 
@@ -170,22 +180,9 @@ public class PgNativeQueue<T> implements ReactiveQueue<T> {
                 logger.debug("Executing LISTEN command for channel: {}", channelName);
                 conn.query("LISTEN " + channelName).execute()
                     .onSuccess(v -> logger.info("Now listening on channel: {}", channelName))
-                    .onFailure(err -> {
-                        logger.error("Failed to LISTEN on channel {}: {}", channelName, err.getMessage());
-                        stream.handleError(err);
-                    });
+                    .onFailure(err -> failOrEndStream(stream, "Failed to LISTEN on channel " + channelName, err));
             })
-            .onFailure(err -> {
-                String errMsg = err.getMessage();
-                if (closed.get() || (errMsg != null && (errMsg.contains("Failed to read any response") ||
-                        errMsg.contains("Connection is not active now") ||
-                        errMsg.contains("Pool closed")))) {
-                    logger.debug("Failed to establish LISTEN connection (pool closing): {}", errMsg);
-                } else {
-                    logger.error("Failed to establish LISTEN connection: {}", errMsg);
-                }
-                stream.handleError(err);
-            });
+            .onFailure(err -> failOrEndStream(stream, "Failed to establish LISTEN connection for channel " + channelName, err));
 
         return stream;
     }
@@ -203,42 +200,33 @@ public class PgNativeQueue<T> implements ReactiveQueue<T> {
         return promise.future();
     }
 
+    /**
+     * Reports a LISTEN failure to the stream. After {@link #close()} a failure is part of the
+     * close: the stream ends and nothing is logged above DEBUG. Before it, the failure is an
+     * error. The queue's own closed state decides, not the text of the exception.
+     */
+    private void failOrEndStream(PgNotificationStream<T> stream, String context, Throwable err) {
+        if (closed.get()) {
+            logger.debug("{} after the queue was closed: {}", context, err.getMessage());
+            stream.handleEnd();
+        } else {
+            logger.error("{}: {}", context, err.getMessage());
+            stream.handleError(err);
+        }
+    }
+
     @Override
     public Future<Void> close() {
         closed.set(true);
         logger.info("Closing PgNativeQueue for channel: {}", channelName);
-        Promise<Void> promise = Promise.promise();
 
-        if (listenConnection != null) {
-            logger.debug("Closing LISTEN connection and connection pool");
-            listenConnection.close()
-                .compose(v -> {
-                    logger.debug("LISTEN connection closed successfully");
-                    return pool.close();
-                })
-                .onComplete(ar -> {
-                    if (ar.succeeded()) {
-                        logger.info("Successfully closed all resources for channel: {}", channelName);
-                        promise.complete();
-                    } else {
-                        logger.error("Failed to close resources: {}", ar.cause().getMessage());
-                        promise.fail(ar.cause());
-                    }
-                });
-        } else {
-            logger.debug("No LISTEN connection to close, closing only the connection pool");
-            pool.close().onComplete(ar -> {
-                if (ar.succeeded()) {
-                    logger.info("Successfully closed connection pool for channel: {}", channelName);
-                    promise.complete();
-                } else {
-                    logger.error("Failed to close connection pool: {}", ar.cause().getMessage());
-                    promise.fail(ar.cause());
-                }
-            });
-        }
-
-        return promise.future();
+        PgConnection connection = listenConnection;
+        Future<Void> listenClose = connection != null ? connection.close() : Future.succeededFuture();
+        return listenClose
+            .compose(v -> pool.close())
+            .onSuccess(v -> logger.info("Successfully closed all resources for channel: {}", channelName))
+            .onFailure(error -> logger.error("Failed to close resources for channel {}: {}",
+                    channelName, error.getMessage(), error));
     }
 
     /**

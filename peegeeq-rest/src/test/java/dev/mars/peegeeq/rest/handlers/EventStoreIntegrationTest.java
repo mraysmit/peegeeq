@@ -287,8 +287,7 @@ public class EventStoreIntegrationTest {
                         .put("orderId", "12345")
                         .put("amount", 99.99))
                 .put("correlationId", "test-correlation-1")
-                .put("validFrom", Instant.now().toString())
-                .put("validTo", Instant.now().plusSeconds(86400).toString()); // +1 day
+                .put("validFrom", Instant.now().toString());
 
         webClient.post(TEST_PORT, "localhost", "/api/v1/eventstores/" + testSetupId + "/test_events/events")
                 .putHeader("content-type", "application/json")
@@ -2263,5 +2262,146 @@ public class EventStoreIntegrationTest {
                     });
                 })
                 .onFailure(testContext::failNow);
+    }
+
+    // ------------------------------------------------------------------------------------
+    // Finding 18: an event's valid time is business data. A value the server cannot read is
+    // refused; it is never replaced by the time of the request.
+    // ------------------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("Finding 18 - an unreadable validTime is refused with 400 and stores nothing")
+    void storeEventWithUnreadableValidTimeIsRefusedAndStoresNothing(VertxTestContext testContext) {
+        String eventType = "ValidTimeRefused" + System.nanoTime();
+        JsonObject request = new JsonObject()
+                .put("eventType", eventType)
+                .put("eventData", new JsonObject().put("key", "value"))
+                .put("validTime", "not-a-time");
+
+        storeEvent(request)
+                .compose(response -> {
+                    testContext.verify(() -> {
+                        assertEquals(400, response.statusCode(),
+                                "an unreadable validTime must be refused: " + response.bodyAsString());
+                        assertTrue(response.bodyAsString().contains("validTime"),
+                                "the error must name the field: " + response.bodyAsString());
+                    });
+                    return eventsOfType(eventType);
+                })
+                .onSuccess(events -> testContext.verify(() -> {
+                    assertEquals(0, events.size(), "a refused event must not be stored: " + events.encode());
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @DisplayName("Finding 18 - validFrom and validTime that name different instants are refused with 400")
+    void storeEventWithContradictoryValidTimesIsRefusedAndStoresNothing(VertxTestContext testContext) {
+        String eventType = "ValidTimeContradiction" + System.nanoTime();
+        JsonObject request = new JsonObject()
+                .put("eventType", eventType)
+                .put("eventData", new JsonObject().put("key", "value"))
+                .put("validFrom", "2020-01-01T00:00:00Z")
+                .put("validTime", "2021-06-15T12:00:00Z");
+
+        storeEvent(request)
+                .compose(response -> {
+                    testContext.verify(() -> assertEquals(400, response.statusCode(),
+                            "two different valid times must be refused: " + response.bodyAsString()));
+                    return eventsOfType(eventType);
+                })
+                .onSuccess(events -> testContext.verify(() -> {
+                    assertEquals(0, events.size(), "a refused event must not be stored: " + events.encode());
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @DisplayName("Finding 18 - a readable validTime is stored exactly as sent")
+    void storeEventKeepsTheValidTimeItWasSent(VertxTestContext testContext) {
+        String eventType = "ValidTimeKept" + System.nanoTime();
+        JsonObject request = new JsonObject()
+                .put("eventType", eventType)
+                .put("eventData", new JsonObject().put("key", "value"))
+                .put("validTime", "2020-01-01T00:00:00Z");
+
+        storeEvent(request)
+                .compose(response -> {
+                    testContext.verify(() -> assertEquals(201, response.statusCode(), response.bodyAsString()));
+                    return eventsOfType(eventType);
+                })
+                .onSuccess(events -> testContext.verify(() -> {
+                    assertEquals(1, events.size(), events.encode());
+                    assertEquals(Instant.parse("2020-01-01T00:00:00Z"),
+                            instantFromWire(events.getJsonObject(0).getValue("validTime")),
+                            "the stored valid time must be the one sent");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @DisplayName("validTo is refused with 400 and stores nothing: the event store records one valid time per event")
+    void storeEventWithValidToIsRefusedAndStoresNothing(VertxTestContext testContext) {
+        String eventType = "ValidToRefused" + System.nanoTime();
+        JsonObject request = new JsonObject()
+                .put("eventType", eventType)
+                .put("eventData", new JsonObject().put("key", "value"))
+                .put("validFrom", "2020-01-01T00:00:00Z")
+                .put("validTo", "2020-01-02T00:00:00Z");
+
+        storeEvent(request)
+                .compose(response -> {
+                    testContext.verify(() -> {
+                        assertEquals(400, response.statusCode(),
+                                "a validTo the store cannot keep must be refused, not dropped: " + response.bodyAsString());
+                        assertTrue(response.bodyAsString().contains("validTo"),
+                                "the error must name the field: " + response.bodyAsString());
+                    });
+                    return eventsOfType(eventType);
+                })
+                .onSuccess(events -> testContext.verify(() -> {
+                    assertEquals(0, events.size(), "a refused event must not be stored: " + events.encode());
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
+    }
+
+    private io.vertx.core.Future<io.vertx.ext.web.client.HttpResponse<io.vertx.core.buffer.Buffer>> storeEvent(
+            JsonObject request) {
+        return webClient.post(TEST_PORT, "localhost", "/api/v1/eventstores/" + testSetupId + "/test_events/events")
+                .putHeader("content-type", "application/json")
+                .timeout(10000)
+                .sendJsonObject(request);
+    }
+
+    /**
+     * Decodes an event time as the REST client does: the query response carries an ISO-8601
+     * string or decimal epoch seconds (Jackson's default for {@link Instant}).
+     */
+    private static Instant instantFromWire(Object value) {
+        if (value instanceof String text) {
+            return Instant.parse(text);
+        }
+        if (value instanceof Number number) {
+            java.math.BigDecimal seconds = new java.math.BigDecimal(number.toString());
+            long secs = seconds.longValue();
+            long nanos = seconds.subtract(java.math.BigDecimal.valueOf(secs)).movePointRight(9).longValue();
+            return Instant.ofEpochSecond(secs, nanos);
+        }
+        throw new AssertionError("unsupported event time on the wire: " + value);
+    }
+
+    private io.vertx.core.Future<JsonArray> eventsOfType(String eventType) {
+        return webClient.get(TEST_PORT, "localhost", "/api/v1/eventstores/" + testSetupId + "/test_events/events")
+                .addQueryParam("eventType", eventType)
+                .timeout(10000)
+                .send()
+                .compose(response -> response.statusCode() == 200
+                        ? io.vertx.core.Future.succeededFuture(response.bodyAsJsonObject().getJsonArray("events"))
+                        : io.vertx.core.Future.failedFuture(new AssertionError(
+                                "event query failed: " + response.statusCode() + " " + response.bodyAsString())));
     }
 }

@@ -48,10 +48,12 @@ public class PeeGeeQServiceManager extends AbstractVerticle {
     private ConsulClient consulClient;
     private ConsulServiceDiscovery serviceDiscovery;
     private ObjectMapper objectMapper;
+    // True only after Consul accepted this service manager's registration.
+    private volatile boolean consulRegistered;
 
-    // Default configuration from system properties
-    private static final String DEFAULT_CONSUL_HOST = System.getProperty("consul.host", "localhost");
-    private static final int DEFAULT_CONSUL_PORT = Integer.parseInt(System.getProperty("consul.port", "8500"));
+    // Defaults. Configuration is passed to the constructor, never read from system properties.
+    private static final String DEFAULT_CONSUL_HOST = "localhost";
+    private static final int DEFAULT_CONSUL_PORT = 8500;
     private static final String SERVICE_NAME = "peegeeq-service-manager";
 
     public PeeGeeQServiceManager() {
@@ -96,16 +98,17 @@ public class PeeGeeQServiceManager extends AbstractVerticle {
                     server = httpServer;
                     logger.info("PeeGeeQ Service Manager started successfully on port {}", port);
 
-                    // Register this service manager with Consul (optional)
+                    // Register this service manager with Consul (optional). The success line is
+                    // logged only after Consul accepted the registration.
                     return registerSelfWithConsul()
+                        .onSuccess(v -> {
+                            consulRegistered = true;
+                            logger.info("Service Manager registered with Consul at {}:{}", consulHost, consulPort);
+                        })
                         .onFailure(throwable ->
-                            logger.warn("Failed to register with Consul (continuing without Consul): {}",
-                                    throwable.getMessage()))
+                            logger.warn("Failed to register with Consul at {}:{} (continuing without Consul): {}",
+                                    consulHost, consulPort, throwable.getMessage()))
                         .transform(ar -> Future.<Void>succeededFuture());
-                })
-                .compose(v -> {
-                    logger.info("Service Manager registered with Consul");
-                    return Future.succeededFuture();
                 })
                 .onSuccess(v -> startPromise.complete())
                 .onFailure(cause -> {
@@ -196,7 +199,7 @@ public class PeeGeeQServiceManager extends AbstractVerticle {
                     .put("status", "UP")
                     .put("service", SERVICE_NAME)
                     .put("timestamp", System.currentTimeMillis())
-                    .put("consul", consulClient != null ? "connected" : "disconnected");
+                    .put("consul", consulRegistered ? "registered" : "not-registered");
             
             ctx.response()
                     .setStatusCode(200)
@@ -258,6 +261,8 @@ public class PeeGeeQServiceManager extends AbstractVerticle {
     
     public static void main(String[] args) {
         int port = args.length > 0 ? Integer.parseInt(args[0]) : 9090;
+        String consulHost = args.length > 1 ? args[1] : DEFAULT_CONSUL_HOST;
+        int consulPort = args.length > 2 ? Integer.parseInt(args[2]) : DEFAULT_CONSUL_PORT;
 
         // Display PeeGeeQ logo
         System.out.println();
@@ -275,7 +280,7 @@ public class PeeGeeQServiceManager extends AbstractVerticle {
 
         // Deploy Service Manager with composable Future chain
         Future.succeededFuture(vertx)
-            .compose(v -> vertx.deployVerticle(new PeeGeeQServiceManager(port)))
+            .compose(v -> vertx.deployVerticle(new PeeGeeQServiceManager(port, consulHost, consulPort)))
             .compose(deploymentId -> {
                 logger.info("PeeGeeQ Service Manager deployed successfully with ID: {}", deploymentId);
                 return Future.succeededFuture();

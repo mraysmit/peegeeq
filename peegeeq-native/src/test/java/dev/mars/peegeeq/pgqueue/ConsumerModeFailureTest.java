@@ -168,10 +168,11 @@ class ConsumerModeFailureTest {
             // Verify that normal messages were processed
             assertEquals(3, processedCount.get(), "Should process exactly 3 normal messages");
 
-            // The system retries failed messages multiple times before moving to DLQ
-            // So we expect more than 2 exceptions due to retries (typically 3 attempts per message = 6 total)
+            // A failing message is delivered max-retries + 1 times before it is dead-lettered.
+            int deliveriesPerFailingMessage = manager.getConfiguration().getQueueConfig().getMaxRetries() + 1;
             assertTrue(exceptionCount.get() >= 2, "Should encounter at least 2 exceptions (original attempts)");
-            assertTrue(exceptionCount.get() <= 6, "Should not exceed 6 exceptions (2 messages  3 retry attempts)");
+            assertTrue(exceptionCount.get() <= 2 * deliveriesPerFailingMessage,
+                    "Should not exceed 2 messages x (max-retries + 1) deliveries, got " + exceptionCount.get());
 
         logger.info("Exception handling verified - processed: {}, exceptions: {} (includes retries)",
             processedCount.get(), exceptionCount.get());

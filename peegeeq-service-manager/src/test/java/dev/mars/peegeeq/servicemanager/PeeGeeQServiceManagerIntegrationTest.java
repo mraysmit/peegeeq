@@ -43,12 +43,8 @@ class PeeGeeQServiceManagerIntegrationTest {
     
     @BeforeEach
     void setUp(Vertx vertx, VertxTestContext testContext) {
-        // Configure system properties for Consul connection
-        System.setProperty("consul.host", consul.getHost());
-        System.setProperty("consul.port", String.valueOf(consul.getFirstMappedPort()));
-        
-        // Create and deploy service manager using Vert.x 5.x Future pattern
-        serviceManager = new PeeGeeQServiceManager();
+        // The Consul address is passed to the constructor; PeeGeeQ reads no system properties.
+        serviceManager = new PeeGeeQServiceManager(TEST_PORT, consul.getHost(), consul.getFirstMappedPort());
 
         vertx.deployVerticle(serviceManager)
             .onSuccess(deploymentId -> {
@@ -95,6 +91,8 @@ class PeeGeeQServiceManagerIntegrationTest {
                     JsonObject health = response.bodyAsJsonObject();
                     assertNotNull(health);
                     assertEquals("UP", health.getString("status"));
+                    assertEquals("registered", health.getString("consul"),
+                            "the service manager registered with the real Consul: " + health.encode());
                     assertTrue(health.containsKey("timestamp"));
 
                     logger.info("Health endpoint test passed: {}", health.encode());

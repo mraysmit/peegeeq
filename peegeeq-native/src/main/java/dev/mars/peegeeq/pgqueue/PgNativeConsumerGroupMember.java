@@ -212,32 +212,46 @@ public class PgNativeConsumerGroupMember<T> implements dev.mars.peegeeq.api.mess
     }
     
     /**
-     * Checks if this consumer accepts the given message based on its filter.
-     * 
+     * Evaluates this member's filter once for one delivery.
+     *
+     * <p>A filter that throws is a processing failure of the delivery, not a refusal. The
+     * exception is recorded as this member's last error and propagated to the group, which
+     * decides the outcome. It is never turned into {@code false}: a refusal keeps the message,
+     * a failure counts a retry, and the two must not be confused.</p>
+     *
      * @param message The message to check
-     * @return true if the message should be processed by this consumer
+     * @return true if this member accepts the message; false if it is inactive or refuses it
+     * @throws RuntimeException the exception of a filter that failed
      */
     public boolean acceptsMessage(Message<T> message) {
         if (!isActive()) {
             return false;
         }
-        
+
         if (messageFilter == null) {
             return true; // No filter means accept all messages
         }
-        
+
+        boolean accepted;
         try {
-            return messageFilter.test(message);
-        } catch (Exception e) {
-            logger.warn("Error applying message filter for consumer '{}' in group '{}': {}", 
-                consumerId, groupName, e.getMessage());
-            return false; // Reject message if filter throws exception
+            accepted = messageFilter.test(message);
+        } catch (RuntimeException e) {
+            lastError.set(e.getMessage());
+            throw e;
         }
+        if (!accepted) {
+            filteredMessageCount.incrementAndGet();
+        }
+        return accepted;
     }
-    
+
     /**
-     * Processes a message using this consumer's message handler.
-     * 
+     * Runs this member's handler for a message the group dispatched to it.
+     *
+     * <p>The group has already evaluated this member's filter for this delivery. The filter is
+     * not evaluated a second time: a second evaluation that refused would skip the handler and
+     * report success, and the message would be deleted unprocessed.</p>
+     *
      * @param message The message to process
      * @return A Future that completes when processing is done
      */
@@ -246,15 +260,7 @@ public class PgNativeConsumerGroupMember<T> implements dev.mars.peegeeq.api.mess
             return Future.failedFuture(
                 new IllegalStateException("Consumer member is not active"));
         }
-        
-        // Check filter again (defensive programming)
-        if (!acceptsMessage(message)) {
-            filteredMessageCount.incrementAndGet();
-            logger.debug("Message {} filtered out by consumer '{}' in group '{}'", 
-                message.getId(), consumerId, groupName);
-            return Future.succeededFuture();
-        }
-        
+
         lastActiveAt.set(Instant.now());
         long startTime = System.currentTimeMillis();
         

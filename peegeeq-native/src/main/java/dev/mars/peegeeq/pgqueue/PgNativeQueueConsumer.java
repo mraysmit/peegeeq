@@ -15,6 +15,7 @@
  */
 package dev.mars.peegeeq.pgqueue;
 
+import dev.mars.peegeeq.api.messaging.DeliveryOutcome;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.api.messaging.ServerSideFilter;
@@ -52,6 +53,7 @@ import java.util.Set;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 
 /**
  * Native PostgreSQL queue message consumer.
@@ -63,7 +65,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @since 2025-07-13
  * @version 1.0
  */
-public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.MessageConsumer<T> {
+public class PgNativeQueueConsumer<T> implements NativeGroupConsumer<T> {
     private static final Logger logger = LoggerFactory.getLogger(PgNativeQueueConsumer.class);
 
     private final VertxPoolAdapter poolAdapter;
@@ -83,7 +85,10 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     private final Object lifecycleLock = new Object();
     private final Set<Future<Void>> inFlightProcessing = new HashSet<>();
 
-    private MessageHandler<T> messageHandler;
+    // The delivery of one message: a plain handler mapped to COMPLETED, or a group's dispatch.
+    private volatile Function<Message<T>, Future<DeliveryOutcome>> dispatcher;
+    // Set only for a consumer group: the claim skips the messages this group refused.
+    private volatile String exclusionGroupName;
     private PgConnection subscriber;
     // Reconnect/backoff state for LISTEN connection (dedicated, non-pooled)
     private long listenReconnectTimerId = -1;
@@ -94,17 +99,17 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     private long delayedWakeupTimerId = -1;
     private Future<Void> closeFuture;
 
-    private record HandlerSettlement(Throwable failure, boolean visibilityExpired) {
-        private static HandlerSettlement succeeded() {
-            return new HandlerSettlement(null, false);
+    private record HandlerSettlement(DeliveryOutcome outcome, Throwable failure, boolean visibilityExpired) {
+        private static HandlerSettlement succeeded(DeliveryOutcome outcome) {
+            return new HandlerSettlement(outcome, null, false);
         }
 
         private static HandlerSettlement failed(Throwable failure) {
-            return new HandlerSettlement(failure, false);
+            return new HandlerSettlement(null, failure, false);
         }
 
         private static HandlerSettlement expired() {
-            return new HandlerSettlement(null, true);
+            return new HandlerSettlement(null, null, true);
         }
     }
 
@@ -192,6 +197,36 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
 
     @Override
     public Future<Void> subscribe(MessageHandler<T> handler) {
+        if (handler == null) {
+            return Future.failedFuture(new IllegalArgumentException("handler cannot be null"));
+        }
+        return subscribeDispatcher(null, message -> {
+            Future<Void> handling = handler.handle(message);
+            if (handling == null) {
+                return Future.failedFuture(new IllegalStateException("Message handler returned null Future"));
+            }
+            return handling.map(ignored -> DeliveryOutcome.COMPLETED);
+        });
+    }
+
+    /**
+     * Starts consumption for a consumer group. The claim skips every message that this group
+     * refused, and each delivery applies the durable effect of the outcome the dispatcher returns.
+     */
+    @Override
+    public Future<Void> subscribeGroup(String groupName,
+            Function<Message<T>, Future<DeliveryOutcome>> dispatcher) {
+        if (groupName == null || groupName.isBlank()) {
+            return Future.failedFuture(new IllegalArgumentException("groupName cannot be null or blank"));
+        }
+        if (dispatcher == null) {
+            return Future.failedFuture(new IllegalArgumentException("dispatcher cannot be null"));
+        }
+        return subscribeDispatcher(groupName, dispatcher);
+    }
+
+    private Future<Void> subscribeDispatcher(String groupName,
+            Function<Message<T>, Future<DeliveryOutcome>> deliveryDispatcher) {
         logger.info("Subscribe called for topic: {}, closed: {}, subscribed: {}", topic, closed.get(),
                 subscribed.get());
 
@@ -201,8 +236,10 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
         }
 
         if (subscribed.compareAndSet(false, true)) {
-            logger.info("Starting subscription for topic: {}", topic);
-            this.messageHandler = handler;
+            logger.info("Starting subscription for topic: {}{}", topic,
+                    groupName == null ? "" : " (consumer group '" + groupName + "')");
+            this.exclusionGroupName = groupName;
+            this.dispatcher = deliveryDispatcher;
 
             // Determine consumer mode - use ConsumerConfig if available, otherwise default to HYBRID
             ConsumerMode mode = consumerConfig != null ? consumerConfig.getMode() : ConsumerMode.HYBRID;
@@ -249,7 +286,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                     .onFailure(err -> logger.warn(
                             "Failed to stop LISTEN subscription for topic {}: {}",
                             topic, err.getMessage(), err));
-            this.messageHandler = null;
+            this.dispatcher = null;
             logger.info("Unsubscribed from topic: {}", topic);
         }
     }
@@ -485,10 +522,10 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
         logger.debug("processAvailableMessages() called for topic: {}", topic);
         Future<Void> processing;
         synchronized (lifecycleLock) {
-            if (!subscribed.get() || messageHandler == null || closed.get()) {
+            if (!subscribed.get() || dispatcher == null || closed.get()) {
                 logger.debug(
-                        "Skipping message processing - subscribed: {}, messageHandler: {}, closed: {} for topic {}",
-                        subscribed.get(), messageHandler != null, closed.get(), topic);
+                        "Skipping message processing - subscribed: {}, dispatcher: {}, closed: {} for topic {}",
+                        subscribed.get(), dispatcher != null, closed.get(), topic);
                 return Future.succeededFuture();
             }
             int maxThreads = consumerConfig != null && consumerConfig.getConsumerThreads() > 0
@@ -517,7 +554,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                         inFlightProcessing.remove(processing);
                         runDeferredDrain = drainRequested.compareAndSet(true, false)
                                 && subscribed.get()
-                                && messageHandler != null
+                                && dispatcher != null
                                 && !closed.get();
                     }
                     return runDeferredDrain
@@ -555,6 +592,14 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             } else if (minimumCreatedAt != null) {
                 startPositionCondition = " AND created_at >= $4";
                 startPositionParameters.add(minimumCreatedAt);
+            }
+            String groupName = exclusionGroupName;
+            if (groupName != null) {
+                // REJECTED is terminal for the group: it never claims a message it refused.
+                startPositionCondition += " AND NOT EXISTS (SELECT 1 FROM queue_message_group_exclusions x"
+                        + " WHERE x.message_id = queue_messages.id AND x.group_name = $"
+                        + (4 + startPositionParameters.size()) + ")";
+                startPositionParameters.add(groupName);
             }
 
             String sql;
@@ -778,9 +823,9 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 TraceContextUtil.setMDC(TraceContextUtil.MDC_CORRELATION_ID, correlationId);
             }
 
-            // Get message handler
-            MessageHandler<T> handler = this.messageHandler;
-            if (handler == null) {
+            // Get the delivery dispatcher
+            Function<Message<T>, Future<DeliveryOutcome>> deliveryDispatcher = this.dispatcher;
+            if (deliveryDispatcher == null) {
                 TraceContextUtil.clearTraceMDC();
                 return Future.failedFuture(new IllegalStateException(
                         "Message handler is unavailable for admitted message " + messageId));
@@ -793,12 +838,12 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             long startTime = System.currentTimeMillis();
             var traceCtx = TraceContextUtil.captureTraceContext();
 
-            Future<Void> processingFuture;
+            Future<DeliveryOutcome> processingFuture;
             try {
-                processingFuture = handler.handle(message);
+                processingFuture = deliveryDispatcher.apply(message);
                 if (processingFuture == null) {
                     processingFuture = Future.failedFuture(
-                            new IllegalStateException("Message handler returned null Future"));
+                            new IllegalStateException("Message dispatcher returned null Future"));
                 }
             } catch (Exception processingError) {
                 processingFuture = Future.failedFuture(processingError);
@@ -815,6 +860,18 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                             }
 
                             if (settlement.failure() == null) {
+                                DeliveryOutcome outcome = settlement.outcome();
+                                if (outcome == DeliveryOutcome.REJECTED) {
+                                    return excludeMessage(messageIdLong, messageId);
+                                }
+                                if (outcome == DeliveryOutcome.UNAVAILABLE) {
+                                    return releaseUnavailableMessage(messageIdLong, messageId);
+                                }
+                                if (outcome != DeliveryOutcome.COMPLETED) {
+                                    return handleProcessingFailure(messageIdLong, messageId,
+                                            previousRetryCount + 1, new IllegalStateException(
+                                                    "Message dispatcher returned no delivery outcome"));
+                                }
                                 long processingTime = System.currentTimeMillis() - startTime;
                                 metrics.recordMessageReceived(topic);
                                 metrics.recordMessageProcessed(
@@ -844,7 +901,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     // processMessageWithTransaction
 
     private Future<HandlerSettlement> settleHandlerWithinVisibility(
-            Future<Void> handlerFuture,
+            Future<DeliveryOutcome> handlerFuture,
             Long messageIdLong,
             String messageId) {
         Vertx vertx = poolAdapter.getVertx();
@@ -867,7 +924,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             }
 
             logger.warn(
-                    "Message handler visibility expired for message {}; relinquishing the stale delivery",
+                    "Message handler visibility expired for message {}; counting a failed attempt",
                     messageId);
             releaseTimedOutMessage(messageIdLong, messageId)
                     .onSuccess(v -> settlement.tryComplete(HandlerSettlement.expired()))
@@ -875,10 +932,10 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
         });
 
         handlerFuture
-                .onSuccess(v -> {
+                .onSuccess(outcome -> {
                     if (decided.compareAndSet(false, true)) {
                         operationVertx.cancelTimer(timeoutId);
-                        settlement.tryComplete(HandlerSettlement.succeeded());
+                        settlement.tryComplete(HandlerSettlement.succeeded(outcome));
                     }
                 })
                 .onFailure(error -> {
@@ -890,36 +947,148 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
         return settlement.future();
     }
 
+    /**
+     * Settles a delivery whose handler did not settle within the visibility timeout. The expiry
+     * is a failed attempt: it raises {@code retry_count}, and at the retry limit the message is
+     * dead-lettered. Without this count a handler that never settles is redelivered with no
+     * bound (finding 5).
+     *
+     * <p>The statements run in one transaction and touch the row only while it is still the
+     * expired lock of this delivery. If the expired-lock cleanup or another consumer has already
+     * released it, nothing changes, so an expiry is counted once.</p>
+     */
     private Future<Void> releaseTimedOutMessage(Long messageIdLong, String messageId) {
         try {
             Pool pool = poolAdapter.getPoolOrThrow();
-            String sql = """
-                    UPDATE queue_messages
-                    SET status = 'AVAILABLE', lock_until = NULL
+            int maxRetries = configuration.getQueueConfig().getMaxRetries();
+            String reason = "Message handler did not settle within the visibility timeout of "
+                    + configuration.getQueueConfig().getVisibilityTimeout();
+            String lockSql = """
+                    SELECT payload, headers, correlation_id, message_group,
+                           COALESCE(retry_count, 0) AS retry_count, created_at
+                    FROM queue_messages
                     WHERE id = $1 AND status = 'LOCKED' AND lock_until <= now()
+                    FOR UPDATE
                     """;
+            String retrySql = "UPDATE queue_messages "
+                    + "SET status = 'AVAILABLE', lock_until = NULL, retry_count = $2 WHERE id = $1";
+
+            java.util.function.Supplier<Future<Boolean>> settle = () -> pool.withTransaction(conn ->
+                    conn.preparedQuery(lockSql).execute(Tuple.of(messageIdLong)).compose(rows -> {
+                        if (rows.size() == 0) {
+                            return Future.succeededFuture(Boolean.FALSE);
+                        }
+                        Row row = rows.iterator().next();
+                        int attempts = row.getInteger("retry_count") + 1;
+                        if (attempts > maxRetries) {
+                            return insertDeadLetterAndDelete(conn, messageIdLong, row, reason)
+                                    .map(Boolean.TRUE);
+                        }
+                        return conn.preparedQuery(retrySql)
+                                .execute(Tuple.of(messageIdLong, attempts))
+                                .map(Boolean.FALSE);
+                    }));
+
             Vertx vertx = poolAdapter.getVertx();
             if (vertx == null && Vertx.currentContext() != null) {
                 vertx = Vertx.currentContext().owner();
             }
-
-            Future<io.vertx.sqlclient.RowSet<Row>> release = vertx == null
-                    ? pool.withTransaction(conn -> conn.preparedQuery(sql)
-                            .execute(Tuple.of(messageIdLong)))
-                    : withRetry(vertx,
-                            () -> pool.withTransaction(conn -> conn.preparedQuery(sql)
-                                    .execute(Tuple.of(messageIdLong))),
-                            3, 50);
+            Future<Boolean> release = vertx == null ? settle.get() : withRetry(vertx, settle, 3, 50);
             return release
-                    .map(ignored -> (Void) null)
-                    .onSuccess(v -> logger.debug(
-                            "Relinquished stale delivery for message {} after visibility timeout",
-                            messageId))
+                    .onSuccess(deadLettered -> {
+                        if (deadLettered) {
+                            logger.warn("Message {} exceeded retry limit after a visibility timeout, "
+                                    + "moved to dead letter queue", messageId);
+                            metrics.recordMessageDeadLettered(topic, reason);
+                        } else {
+                            logger.debug("Counted a failed attempt for message {} after visibility timeout",
+                                    messageId);
+                        }
+                    })
                     .onFailure(error -> logger.error(
-                            "Failed to relinquish stale delivery for message {}: {}",
+                            "Failed to settle the expired delivery of message {}: {}",
+                            messageId, error.getMessage(), error))
+                    .mapEmpty();
+        } catch (Exception error) {
+            logger.error("Error settling the expired delivery of message {}: {}",
+                    messageId, error.getMessage(), error);
+            return Future.failedFuture(error);
+        }
+    }
+
+    /**
+     * REJECTED: the group refused the message. One transaction records the exclusion and
+     * releases the message for every other consumer. The retry count is unchanged.
+     */
+    private Future<Void> excludeMessage(Long messageIdLong, String messageId) {
+        String groupName = exclusionGroupName;
+        if (groupName == null) {
+            return Future.failedFuture(new IllegalStateException(
+                    "Message " + messageId + " was refused, but this consumer belongs to no consumer group"));
+        }
+        try {
+            Pool pool = poolAdapter.getPoolOrThrow();
+            String excludeSql = """
+                    INSERT INTO queue_message_group_exclusions (message_id, group_name)
+                    VALUES ($1, $2)
+                    ON CONFLICT (message_id, group_name) DO NOTHING
+                    """;
+            String releaseSql = "UPDATE queue_messages SET status = 'AVAILABLE', lock_until = NULL WHERE id = $1";
+            java.util.function.Supplier<Future<Void>> exclude = () -> pool.withTransaction(conn ->
+                    conn.preparedQuery(excludeSql).execute(Tuple.of(messageIdLong, groupName))
+                            .compose(inserted -> conn.preparedQuery(releaseSql).execute(Tuple.of(messageIdLong)))
+                            .mapEmpty());
+            Vertx vertx = poolAdapter.getVertx();
+            if (vertx == null && Vertx.currentContext() != null) {
+                vertx = Vertx.currentContext().owner();
+            }
+            Future<Void> exclusion = vertx == null ? exclude.get() : withRetry(vertx, exclude, 3, 50);
+            return exclusion
+                    .onSuccess(v -> logger.debug("Consumer group '{}' refused message {}; recorded the exclusion",
+                            groupName, messageId))
+                    .onFailure(error -> logger.error(
+                            "Failed to record the refusal of message {} by consumer group '{}': {}",
+                            messageId, groupName, error.getMessage(), error));
+        } catch (Exception error) {
+            logger.error("Error recording the refusal of message {}: {}", messageId, error.getMessage(), error);
+            return Future.failedFuture(error);
+        }
+    }
+
+    /**
+     * UNAVAILABLE: no member accepted the message. It is released with its retry count
+     * unchanged and becomes visible again after one polling interval. Without the delay the
+     * claim, which orders by priority and age, would take it again at once ahead of every later
+     * message.
+     */
+    private Future<Void> releaseUnavailableMessage(Long messageIdLong, String messageId) {
+        try {
+            Pool pool = poolAdapter.getPoolOrThrow();
+            Duration delay = consumerConfig != null
+                    ? consumerConfig.getPollingInterval()
+                    : configuration.getQueueConfig().getPollingInterval();
+            double delaySeconds = Math.max(0.001d, delay.toMillis() / 1000.0d);
+            String sql = """
+                    UPDATE queue_messages
+                    SET status = 'AVAILABLE', lock_until = NULL,
+                        visible_at = now() + make_interval(secs => $2)
+                    WHERE id = $1
+                    """;
+            java.util.function.Supplier<Future<Void>> release = () -> pool.withTransaction(conn ->
+                    conn.preparedQuery(sql).execute(Tuple.of(messageIdLong, delaySeconds)).mapEmpty());
+            Vertx vertx = poolAdapter.getVertx();
+            if (vertx == null && Vertx.currentContext() != null) {
+                vertx = Vertx.currentContext().owner();
+            }
+            Future<Void> released = vertx == null ? release.get() : withRetry(vertx, release, 3, 50);
+            return released
+                    .onSuccess(v -> logger.debug(
+                            "No member accepted message {}; released it for {} ms", messageId, delay.toMillis()))
+                    .onFailure(error -> logger.error(
+                            "Failed to release message {} that no member accepted: {}",
                             messageId, error.getMessage(), error));
         } catch (Exception error) {
-            logger.error("Error relinquishing stale delivery for message {}: {}",
+            logger.error("Error releasing message {} that no member accepted: {}",
                     messageId, error.getMessage(), error);
             return Future.failedFuture(error);
         }
@@ -953,13 +1122,20 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
         }
     }
 
+    /**
+     * Counts one failed attempt. {@code max-retries} is the number of retries after the first
+     * delivery, as in the outbox: with a limit of N a message is delivered N + 1 times, and its
+     * dead letter records the N retries.
+     *
+     * @param retryCount the failed attempts of this message, including this one
+     */
     private Future<Void> handleProcessingFailure(
             Long messageIdLong,
             String messageId,
             int retryCount,
             Throwable error) {
         try {
-            if (retryCount >= configuration.getQueueConfig().getMaxRetries()) {
+            if (retryCount > configuration.getQueueConfig().getMaxRetries()) {
                 return moveToDeadLetterQueue(messageIdLong, messageId, error.getMessage());
             }
 
@@ -1006,16 +1182,8 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                     FROM queue_messages
                     WHERE id = $1
                     """;
-            String insertSql = """
-                    INSERT INTO dead_letter_queue (
-                        original_table, original_id, topic, payload, headers,
-                        correlation_id, message_group, retry_count, failure_reason,
-                        failed_at, original_created_at
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), $10)
-                    """;
-            String deleteSql = "DELETE FROM queue_messages WHERE id = $1";
 
-            java.util.function.Supplier<Future<io.vertx.sqlclient.RowSet<Row>>> moveOperation = () ->
+            java.util.function.Supplier<Future<Void>> moveOperation = () ->
                     pool.withTransaction(conn -> conn.preparedQuery(selectSql)
                             .execute(Tuple.of(messageIdLong))
                             .compose(selectResult -> {
@@ -1025,20 +1193,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                                                     + " not found during dead-letter persistence"));
                                 }
                                 Row row = selectResult.iterator().next();
-                                return conn.preparedQuery(insertSql)
-                                        .execute(Tuple.of(
-                                                "queue_messages",
-                                                messageIdLong,
-                                                topic,
-                                                row.getJsonObject("payload"),
-                                                row.getJsonObject("headers"),
-                                                row.getString("correlation_id"),
-                                                row.getString("message_group"),
-                                                row.getInteger("retry_count"),
-                                                errorMessage,
-                                                row.get(OffsetDateTime.class, "created_at")))
-                                        .compose(inserted -> conn.preparedQuery(deleteSql)
-                                                .execute(Tuple.of(messageIdLong)));
+                                return insertDeadLetterAndDelete(conn, messageIdLong, row, errorMessage);
                             }));
 
             Vertx vertx = poolAdapter.getVertx();
@@ -1062,6 +1217,37 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                     messageId, moveError.getMessage(), moveError);
             return Future.failedFuture(moveError);
         }
+    }
+
+    /**
+     * Inserts the dead-letter record of a native message and deletes the message, on the
+     * caller's connection and inside the caller's transaction. The row must hold the columns
+     * payload, headers, correlation_id, message_group, retry_count and created_at.
+     */
+    private Future<Void> insertDeadLetterAndDelete(io.vertx.sqlclient.SqlConnection conn, Long messageIdLong,
+            Row row, String reason) {
+        String insertSql = """
+                INSERT INTO dead_letter_queue (
+                    original_table, original_id, topic, payload, headers,
+                    correlation_id, message_group, retry_count, failure_reason,
+                    failed_at, original_created_at
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), $10)
+                """;
+        return conn.preparedQuery(insertSql)
+                .execute(Tuple.of(
+                        "queue_messages",
+                        messageIdLong,
+                        topic,
+                        row.getJsonObject("payload"),
+                        row.getJsonObject("headers"),
+                        row.getString("correlation_id"),
+                        row.getString("message_group"),
+                        row.getInteger("retry_count"),
+                        reason,
+                        row.get(OffsetDateTime.class, "created_at")))
+                .compose(inserted -> conn.preparedQuery("DELETE FROM queue_messages WHERE id = $1")
+                        .execute(Tuple.of(messageIdLong)))
+                .mapEmpty();
     }
 
     // Advisory lock release method removed - using pg_try_advisory_xact_lock
@@ -1182,34 +1368,69 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                         topic, error.getMessage(), error));
     }
 
+    /**
+     * Releases the expired locks of this topic. Each expired lock is a delivery that was not
+     * settled, for example because its consumer stopped, so it counts one failed attempt. A
+     * message whose failed attempts exceed {@code max-retries} is dead-lettered instead of
+     * released. Without the count a message that stops its consumer every time is redelivered
+     * with no bound.
+     */
     private Future<Void> releaseExpiredLocksInternal() {
         final Pool pool = poolAdapter.getPoolOrThrow();
+        int maxRetries = configuration.getQueueConfig().getMaxRetries();
+        String reason = "Message lock expired without settlement (visibility timeout of "
+                + configuration.getQueueConfig().getVisibilityTimeout() + ")";
+        String deadLetterSql = """
+                WITH dead AS (
+                    DELETE FROM queue_messages
+                    WHERE topic = $1 AND status = 'LOCKED' AND lock_until < now()
+                      AND COALESCE(retry_count, 0) + 1 > $2
+                    RETURNING id, topic, payload, headers, correlation_id, message_group,
+                              retry_count, created_at
+                )
+                INSERT INTO dead_letter_queue (
+                    original_table, original_id, topic, payload, headers,
+                    correlation_id, message_group, retry_count, failure_reason,
+                    failed_at, original_created_at
+                )
+                SELECT 'queue_messages', id, topic, payload, headers, correlation_id, message_group,
+                       retry_count, $3, now(), created_at
+                FROM dead
+                """;
         String updateSql = """
                 UPDATE queue_messages
-                SET status = 'AVAILABLE', lock_until = NULL
+                SET status = 'AVAILABLE', lock_until = NULL, retry_count = COALESCE(retry_count, 0) + 1
                 WHERE topic = $1 AND status = 'LOCKED' AND lock_until < now()
                 """;
+
+        record CleanupResult(int deadLettered, int released) {
+        }
+        java.util.function.Supplier<Future<CleanupResult>> operation = () -> pool.withTransaction(conn ->
+                conn.preparedQuery(deadLetterSql).execute(Tuple.of(topic, maxRetries, reason))
+                        .compose(dead -> conn.preparedQuery(updateSql).execute(Tuple.of(topic))
+                                .map(released -> new CleanupResult(dead.rowCount(), released.rowCount()))));
 
         Vertx vertx = poolAdapter.getVertx();
         if (vertx == null && Vertx.currentContext() != null) {
             vertx = Vertx.currentContext().owner();
         }
-        Future<io.vertx.sqlclient.RowSet<Row>> cleanup = vertx == null
-                ? pool.withTransaction(conn -> conn.preparedQuery(updateSql).execute(Tuple.of(topic)))
-                : withRetry(vertx,
-                        () -> pool.withTransaction(conn -> conn.preparedQuery(updateSql)
-                                .execute(Tuple.of(topic))),
-                        3, 50);
+        Future<CleanupResult> cleanup = vertx == null ? operation.get() : withRetry(vertx, operation, 3, 50);
         return cleanup
-                .onSuccess(updateResult -> {
-                    if (updateResult.rowCount() > 0) {
-                        logger.debug(
-                                "Reset {} expired locks for topic: {} - advisory locks will auto-release",
-                                updateResult.rowCount(), topic);
+                .onSuccess(result -> {
+                    if (result.deadLettered() > 0) {
+                        logger.warn("Dead-lettered {} messages of topic {} whose expired locks spent the retry limit",
+                                result.deadLettered(), topic);
+                        for (int i = 0; i < result.deadLettered(); i++) {
+                            metrics.recordMessageDeadLettered(topic, reason);
+                        }
+                    }
+                    if (result.released() > 0) {
+                        logger.debug("Released {} expired locks for topic: {}, each counted as a failed attempt",
+                                result.released(), topic);
                         processAvailableMessages();
                     }
                 })
-                .map(ignored -> (Void) null);
+                .mapEmpty();
     }
 
     @Override
@@ -1262,7 +1483,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             closeFuture = Future.join(listenClose, processingDrain)
                     .map(ignored -> (Void) null)
                     .eventually(() -> {
-                        messageHandler = null;
+                        dispatcher = null;
                         logger.info("Completed graceful shutdown of native queue consumer for topic: {}", topic);
                         return Future.<Void>succeededFuture();
                     });

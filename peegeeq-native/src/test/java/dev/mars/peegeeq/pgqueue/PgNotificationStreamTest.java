@@ -219,6 +219,11 @@ public class PgNotificationStreamTest {
      * NOTE: The ERROR log that appears during this test is EXPECTED and INTENTIONAL.
      */
     @Test
+    @dev.mars.peegeeq.test.logging.ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.pgqueue.PgNotificationStream",
+            message = "Handling error: INTENTIONAL TEST ERROR: Testing error handling in notification stream",
+            throwable = dev.mars.peegeeq.test.logging.ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = RuntimeException.class)
     void testHandleError(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Arrange
         AtomicReference<Throwable> receivedError = new AtomicReference<>();

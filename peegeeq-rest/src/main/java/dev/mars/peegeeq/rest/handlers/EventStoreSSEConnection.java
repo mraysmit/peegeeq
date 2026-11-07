@@ -78,27 +78,22 @@ public class EventStoreSSEConnection {
     }
     
     /**
-     * Checks if the connection is still active and healthy.
+     * Checks if the connection is still active and healthy: it was not cleaned up, its response is
+     * open, and no write to it has failed. Health does not depend on how long ago the server last
+     * sent an event (finding 9; the same rule as {@link WebSocketConnection#isHealthy()}).
      */
     public boolean isHealthy() {
         if (!active) {
             return false;
         }
-        
+
         // Check if HTTP response is still open
         if (response.closed()) {
             logger.debug("EventStore SSE connection {} is closed", connectionId);
             active = false;
             return false;
         }
-        
-        // Check for timeout (no activity for more than 5 minutes)
-        long inactiveTime = System.currentTimeMillis() - lastActivityTime;
-        if (inactiveTime > 300000) { // 5 minutes
-            logger.warn("EventStore SSE connection {} has been inactive for {} ms", connectionId, inactiveTime);
-            return false;
-        }
-        
+
         return true;
     }
     
@@ -127,7 +122,10 @@ public class EventStoreSSEConnection {
         // Close HTTP response if still open
         if (!response.closed()) {
             try {
-                response.end();
+                response.end()
+                        .onFailure(endFailure -> logger.warn(
+                                "Error closing HTTP response for EventStore SSE connection {}: {}",
+                                connectionId, endFailure.getMessage()));
                 logger.debug("Closed HTTP response for EventStore SSE connection: {}", connectionId);
             } catch (Exception e) {
                 logger.warn("Error closing HTTP response for EventStore SSE connection {}: {}", 

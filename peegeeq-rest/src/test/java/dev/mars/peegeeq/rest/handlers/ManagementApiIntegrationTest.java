@@ -1171,14 +1171,16 @@ public class ManagementApiIntegrationTest {
 
     @Test
     @Order(23)
-    @DisplayName("Management API - PUT /management/queues/:setupId/:queueName updates an existing queue (200)")
+    @dev.mars.peegeeq.test.logging.ExpectedErrorLog(logger = "io.vertx.ext.web.handler.LoggerHandler", message = "127.0.0.1 - - [",
+            messageMatch = dev.mars.peegeeq.test.logging.ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = dev.mars.peegeeq.test.logging.ExpectedErrorLog.ThrowablePolicy.NONE)
+    @DisplayName("Management API - PUT /management/queues/:setupId/:queueName on an existing queue is refused (501)")
     void testUpdateQueueEndpoint(Vertx vertx, VertxTestContext testContext) {
-        logger.info("=== Test 23: PUT /management/queues/:setupId/:queueName happy path ===");
+        logger.info("=== Test 23: PUT /management/queues/:setupId/:queueName on an existing queue ===");
 
-        // Closes the §10.5 gap: only the 404 (queue-not-found) error path was covered. This
-        // asserts the happy path for an existing queue. Note: the handler applies updates to
-        // runtime settings only (per its own response note) — it does not persist a schema/config
-        // change — so this asserts the success contract, not a persisted value.
+        // Finding 12: the handler used to answer "configuration updated successfully" and apply
+        // nothing. No queue setting can be changed at run time, so the endpoint now refuses the
+        // update with 501 and changes nothing.
         JsonObject updateRequest = new JsonObject()
             .put("maxRetries", 7)
             .put("visibilityTimeoutSeconds", 120);
@@ -1191,13 +1193,12 @@ public class ManagementApiIntegrationTest {
                 testContext.verify(() -> {
                     logger.info("Update queue response: {} - {}", response.statusCode(), response.bodyAsString());
 
-                    assertEquals(200, response.statusCode(), "PUT on an existing queue should return 200");
+                    assertEquals(501, response.statusCode(),
+                            "an update that applies nothing must not report success: " + response.bodyAsString());
 
                     JsonObject body = response.bodyAsJsonObject();
-                    assertNotNull(body, "Response should be a JSON object");
-                    assertEquals(setupId, body.getString("setupId"), "setupId should match");
-                    assertEquals(QUEUE_NAME, body.getString("queueName"), "queueName should match");
-                    assertNotNull(body.getString("message"), "Response should contain a message");
+                    assertTrue(body.getString("error").contains(QUEUE_NAME),
+                            "the refusal must name the queue: " + body.encode());
 
                     testContext.completeNow();
                 });

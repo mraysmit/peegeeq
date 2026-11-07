@@ -128,6 +128,60 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
         assertFalse(healthCheckManager.isRunning());
     }
 
+    /**
+     * Finding 15: a refused connection while the manager runs is a failed health check. It was
+     * logged at DEBUG as "expected during shutdown" although no shutdown was in progress, so a
+     * database outage produced no WARN or ERROR line from the health checks.
+     */
+    @Test
+    void aRefusedConnectionWhileRunningIsLoggedAsAFailureNotAsAnExpectedShutdown(VertxTestContext testContext) {
+        ch.qos.logback.classic.Logger hcmLogger =
+                (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(HealthCheckManager.class);
+        ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender =
+                new ch.qos.logback.core.read.ListAppender<>();
+        appender.setContext(hcmLogger.getLoggerContext());
+        appender.start();
+        hcmLogger.addAppender(appender);
+        ch.qos.logback.classic.Level previousLevel = hcmLogger.getLevel();
+        hcmLogger.setLevel(ch.qos.logback.classic.Level.DEBUG);
+
+        healthCheckManager.registerHealthCheck("refused-db", () -> Future.succeededFuture(
+                HealthStatus.unhealthy("refused-db", "Connection refused: localhost/127.0.0.1:1")));
+
+        healthCheckManager.start()
+                .compose(v -> pollForEvent(appender, "refused-db", System.currentTimeMillis() + 5_000))
+                .eventually(() -> {
+                    hcmLogger.detachAppender(appender);
+                    hcmLogger.setLevel(previousLevel);
+                    return Future.succeededFuture();
+                })
+                .onSuccess(event -> testContext.verify(() -> {
+                    assertEquals(ch.qos.logback.classic.Level.WARN, event.getLevel(),
+                            "a running manager's refused connection must be a WARN: " + event.getFormattedMessage());
+                    assertFalse(event.getFormattedMessage().contains("expected during shutdown"),
+                            "no shutdown is in progress: " + event.getFormattedMessage());
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
+    }
+
+    private Future<ch.qos.logback.classic.spi.ILoggingEvent> pollForEvent(
+            ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender,
+            String checkName, long deadline) {
+        List<ch.qos.logback.classic.spi.ILoggingEvent> snapshot = new ArrayList<>(appender.list);
+        for (ch.qos.logback.classic.spi.ILoggingEvent event : snapshot) {
+            if (event.getFormattedMessage().contains(checkName)
+                    && event.getFormattedMessage().contains("Connection refused")) {
+                return Future.succeededFuture(event);
+            }
+        }
+        if (System.currentTimeMillis() >= deadline) {
+            return Future.failedFuture(new AssertionError(
+                    "the health check '" + checkName + "' logged nothing within 5 s"));
+        }
+        return manager.getVertx().timer(100).compose(t -> pollForEvent(appender, checkName, deadline));
+    }
+
     @Test
     void testCleanupFailureAggregationRetainsAllFailures() {
         RuntimeException firstFailure = new RuntimeException("reserved manager stop failed");

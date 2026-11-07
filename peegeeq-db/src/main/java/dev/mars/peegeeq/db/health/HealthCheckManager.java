@@ -377,8 +377,11 @@ public class HealthCheckManager implements HealthService {
 
         boolean isFatalSchemaError = statusMsg != null && statusMsg.contains("FATAL:");
 
-        if (isConnectionError) {
-            logger.debug("Health check failed due to connection issue (expected during shutdown): {} - {}", name, statusMsg);
+        // A connection failure is expected only while the manager stops: a check that was in
+        // flight when stop() ran can see the pool close. While the manager runs it is a failed
+        // health check like any other (finding 15).
+        if (isConnectionError && !running) {
+            logger.debug("Health check failed due to connection issue during shutdown: {} - {}", name, statusMsg);
         } else if (isFatalSchemaError) {
             logger.error("Health check failed with FATAL schema error: {} - {}", name, statusMsg);
         } else {

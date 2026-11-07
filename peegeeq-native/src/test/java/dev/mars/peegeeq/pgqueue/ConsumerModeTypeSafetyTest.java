@@ -230,13 +230,14 @@ class ConsumerModeTypeSafetyTest {
     }
 
     @Test
+    // One parse error per delivery: the default max-retries of 3 gives 3 + 1 deliveries.
     @ExpectedErrorLog(
             logger = "dev.mars.peegeeq.pgqueue.PgNativeQueueConsumer",
             message = "Error parsing message 1: Payload cannot be null",
             throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
             throwableType = NullPointerException.class,
-            minOccurrences = 3,
-            maxOccurrences = 3)
+            minOccurrences = 4,
+            maxOccurrences = 4)
     void testNullValueHandlingAcrossConsumerModes(VertxTestContext testContext) throws Exception {
         logger.info("Test: null value handling across consumer modes");
         String topicName = "test-null-value-handling";

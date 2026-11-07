@@ -261,7 +261,11 @@ class PgNativeQueueBrowserTailIntegrationTest {
             logger = "dev.mars.peegeeq.pgqueue.PgNativeQueueObserver",
             message = "tail: LISTEN connection error on channel peegeeq_test_queue_tail-reconnect-",
             messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
-            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE,
+            // One terminated backend reports the server's FATAL 57P01 and, on Windows, the socket
+            // abort that follows it: one or two connection errors for the one dropped connection.
+            minOccurrences = 1,
+            maxOccurrences = 2)
     void tail_reconnectsAfterListenConnectionDropped_andObservesGapMessage(VertxTestContext ctx) {
         String topic = "tail-reconnect-" + System.currentTimeMillis();
         // Same package as NativeQueueChannels — compute the exact channel the observer LISTENs on.
