@@ -145,26 +145,15 @@ class HighFrequencyProducerConsumerTest {
     void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
         if (producer != null) {
-            producer.close();
+            try { producer.close(); } catch (Exception e) { logger.warn("Error closing producer: {}", e.getMessage()); }
         }
-        if (queueFactory != null) {
-            try {
-                queueFactory.close();
-            } catch (Exception e) {
-                logger.warn("Error closing queue factory: {}", e.getMessage());
-            }
-        }
-        if (manager == null) {
-            testContext.completeNow();
-            return;
-        }
-        manager.closeReactive()
-            .onSuccess(v -> logger.info("PeeGeeQ manager closed"))
-            .onFailure(err -> logger.error("Error closing manager", err))
-            .eventually(() -> {
-                logger.info("Performance test teardown completed");
-                testContext.completeNow();
-                return Future.<Void>succeededFuture();
+        // The factory and manager closes return Futures: they are composed, and a failed close fails the test.
+        (queueFactory != null ? queueFactory.close() : Future.<Void>succeededFuture())
+            .compose(v -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(err -> {
+                logger.error("Error during teardown", err);
+                testContext.failNow(err);
             });
     }
 
@@ -172,17 +161,18 @@ class HighFrequencyProducerConsumerTest {
      * Test high-frequency message production with throughput measurement.
      */
     @Test
-    void testHighFrequencyProduction(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @io.vertx.junit5.Timeout(value = 60, timeUnit = TimeUnit.SECONDS)
+    void testHighFrequencyProduction(Vertx vertx, VertxTestContext testContext) {
         logger.info("Testing high-frequency message production");
 
         final int messageCount = 1000;
         final int concurrentProducers = 5;
         final AtomicLong sentMessages = new AtomicLong(0);
-        var sendCheckpoint = testContext.checkpoint(messageCount);
 
         Instant startTime = Instant.now();
 
-        // Create multiple concurrent producers
+        // Every send is collected; the test settles when all have completed or one has failed.
+        java.util.List<Future<Void>> sends = new java.util.ArrayList<>(messageCount);
         for (int producerId = 0; producerId < concurrentProducers; producerId++) {
             int messagesPerProducer = messageCount / concurrentProducers;
             for (int i = 0; i < messagesPerProducer; i++) {
@@ -190,39 +180,34 @@ class HighFrequencyProducerConsumerTest {
                 OrderEvent event = createOrderEvent(messageId);
                 Map<String, String> headers = createRoutingHeaders(messageId);
 
-                producer.send(event, headers, "perf-" + messageId, getMessageGroup(headers))
-                    .onSuccess(result -> {
-                        sentMessages.incrementAndGet();
-                        sendCheckpoint.flag();
-                    })
-                    .onFailure(testContext::failNow);
+                sends.add(producer.send(event, headers, "perf-" + messageId, getMessageGroup(headers))
+                    .onSuccess(result -> sentMessages.incrementAndGet()));
             }
         }
 
-        // Wait for completion
-        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS),
-            "All messages should be sent within timeout");
+        Future.all(sends)
+            .onSuccess(all -> testContext.verify(() -> {
+                Duration duration = Duration.between(startTime, Instant.now());
+                double throughput = sentMessages.get() / (duration.toMillis() / 1000.0);
 
-        Duration duration = Duration.between(startTime, Instant.now());
-        double throughput = sentMessages.get() / (duration.toMillis() / 1000.0);
-        String throughputFmt = String.format("%.2f", throughput);
+                logger.info("High-frequency production results:");
+                logger.info("  Messages sent: {}", sentMessages.get());
+                logger.info("  Duration: {} ms", duration.toMillis());
+                logger.info("  Throughput: {} messages/second", String.format("%.2f", throughput));
 
-        logger.info("High-frequency production results:");
-        logger.info("  Messages sent: {}", sentMessages.get());
-        logger.info("  Duration: {} ms", duration.toMillis());
-        logger.info("  Throughput: {} messages/second", throughputFmt);
-
-        assertTrue(sentMessages.get() >= messageCount * 0.95,
-            "At least 95% of messages should be sent successfully");
-        assertTrue(throughput > 100,
-            "Throughput should exceed 100 messages/second");
+                assertEquals(messageCount, sentMessages.get(), "Every message must be sent");
+                assertTrue(throughput > 100, "Throughput should exceed 100 messages/second, was: " + throughput);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     /**
      * Test consumer group performance under high load.
      */
     @Test
-    void testConsumerGroupPerformanceUnderLoad(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @io.vertx.junit5.Timeout(value = 60, timeUnit = TimeUnit.SECONDS)
+    void testConsumerGroupPerformanceUnderLoad(Vertx vertx, VertxTestContext testContext) {
         logger.info("Testing consumer group performance under high load");
 
         // Create multiple consumer groups for load distribution with unique names
@@ -249,32 +234,33 @@ class HighFrequencyProducerConsumerTest {
                 MessageFilter.acceptAll());
         }
 
-        // Start consumer groups
-        orderGroup.start();
-        paymentGroup.start();
-
-        // Send high volume of messages (chained sends, fail-fast via testContext)
         final int messageCount = 500;
         Instant startTime = Instant.now();
 
-        Future<Void> sendChain = Future.succeededFuture();
-        for (int i = 1; i <= messageCount; i++) {
-            final int idx = i;
-            sendChain = sendChain.compose(v -> {
-                OrderEvent event = createOrderEvent(idx);
-                Map<String, String> headers = createRoutingHeaders(idx);
-                return producer.send(event, headers, "load-" + idx, getMessageGroup(headers)).mapEmpty();
-            });
-        }
-        sendChain.onFailure(testContext::failNow);
-
-        // Wait for processing to complete using Vert.x timer
-        vertx.timer(30000).onSuccess(tick -> {
-            try {
+        // The two groups compete for the queue: every message is processed once across both.
+        Future.all(orderGroup.start(), paymentGroup.start())
+            .compose(started -> {
+                Future<Void> sendChain = Future.succeededFuture();
+                for (int i = 1; i <= messageCount; i++) {
+                    final int idx = i;
+                    sendChain = sendChain.compose(v -> {
+                        OrderEvent event = createOrderEvent(idx);
+                        Map<String, String> headers = createRoutingHeaders(idx);
+                        return producer.send(event, headers, "load-" + idx, getMessageGroup(headers)).mapEmpty();
+                    });
+                }
+                return sendChain;
+            })
+            .compose(sent -> awaitCount(vertx,
+                () -> orderProcessedCount.get() + paymentProcessedCount.get(), messageCount,
+                System.currentTimeMillis() + 45_000))
+            .transform(outcome -> closeThenFirstFailure(outcome,
+                () -> Future.join(orderGroup.close(), paymentGroup.close()).mapEmpty()))
+            .onSuccess(processed -> testContext.verify(() -> {
                 Duration duration = Duration.between(startTime, Instant.now());
                 int totalProcessed = orderProcessedCount.get() + paymentProcessedCount.get();
                 double processingThroughput = totalProcessed / (duration.toMillis() / 1000.0);
-                double avgProcessingTime = totalProcessed > 0 ? totalProcessingTime.get() / (double) totalProcessed : 0;
+                double avgProcessingTime = totalProcessingTime.get() / (double) totalProcessed;
 
                 logger.info("Consumer group performance results:");
                 logger.info("  Total messages processed: {}", totalProcessed);
@@ -283,36 +269,24 @@ class HighFrequencyProducerConsumerTest {
                 logger.info("  Processing throughput: {} messages/second", String.format("%.2f", processingThroughput));
                 logger.info("  Average processing time: {} ms", String.format("%.2f", avgProcessingTime));
 
-                assertTrue(totalProcessed >= messageCount * 0.2,
-                    "At least 20% of messages should be processed");
-                assertTrue(totalProcessed <= messageCount,
-                    "Total messages processed should not exceed messages sent");
-                assertTrue(processingThroughput > 1,
-                    "Processing throughput should exceed 1 message/second");
-                assertTrue(avgProcessingTime < 2000,
-                    "Average processing time should be under 2 seconds");
-
-                orderGroup.close().onFailure(testContext::failNow);
-                paymentGroup.close().onFailure(testContext::failNow);
+                assertEquals(messageCount, totalProcessed, "Every message must be processed exactly once across the groups");
+                assertTrue(processingThroughput > 1, "Processing throughput should exceed 1 message/second");
+                assertTrue(avgProcessingTime < 2000, "Average processing time should be under 2 seconds");
                 testContext.completeNow();
-            } catch (Throwable t) {
-                testContext.failNow(t);
-            }
-        });
-
-        testContext.awaitCompletion(35, TimeUnit.SECONDS);
+            }))
+            .onFailure(testContext::failNow);
     }
 
     /**
      * Test message routing performance with complex filtering.
      */
     @Test
-    void testMessageRoutingPerformance(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @io.vertx.junit5.Timeout(value = 60, timeUnit = TimeUnit.SECONDS)
+    void testMessageRoutingPerformance(Vertx vertx, VertxTestContext testContext) {
         logger.info("Testing message routing performance with complex filtering");
 
-        // Create a single consumer group with different filtering strategies using unique names
-        // Note: Using separate groups would cause messages to be distributed across groups,
-        // not allowing each message to be processed by multiple filtered consumers
+        // A single consumer group with different filtering strategies; separate groups would
+        // distribute the messages across groups instead of across filtered consumers.
         String routingGroupName = getUniqueGroupName("MessageRouting");
         ConsumerGroup<OrderEvent> routingGroup = queueFactory.createConsumerGroup(
             routingGroupName, testQueueName, OrderEvent.class);
@@ -352,21 +326,18 @@ class HighFrequencyProducerConsumerTest {
                 MessageFilter.byPriority("HIGH")
             ));
 
-        // Start the consumer group
-        routingGroup.start();
-
-        // Send messages with various routing characteristics
         final int messageCount = 300;
         Instant startTime = Instant.now();
+        java.util.function.IntSupplier totalRouted = () -> usCount.get() + euCount.get() + asiaCount.get()
+                + highPriorityCount.get() + normalPriorityCount.get() + analyticsCount.get();
 
-        sendRoutingPerformanceMessages(messageCount, testContext);
-
-        // Wait for processing using Vert.x timer
-        vertx.timer(20000).onSuccess(tick -> {
-            try {
+        // Every message matches a region filter, so each one reaches one consumer of the group.
+        routingGroup.start()
+            .compose(started -> sendRoutingPerformanceMessages(messageCount))
+            .compose(sent -> awaitCount(vertx, totalRouted, messageCount, System.currentTimeMillis() + 45_000))
+            .transform(outcome -> closeThenFirstFailure(outcome, routingGroup::close))
+            .onSuccess(routed -> testContext.verify(() -> {
                 Duration duration = Duration.between(startTime, Instant.now());
-                int totalRouted = usCount.get() + euCount.get() + asiaCount.get() +
-                                 highPriorityCount.get() + normalPriorityCount.get() + analyticsCount.get();
 
                 logger.info("Message routing performance results:");
                 logger.info("  US messages: {}", usCount.get());
@@ -375,14 +346,10 @@ class HighFrequencyProducerConsumerTest {
                 logger.info("  High priority messages: {}", highPriorityCount.get());
                 logger.info("  Normal priority messages: {}", normalPriorityCount.get());
                 logger.info("  Analytics messages: {}", analyticsCount.get());
-                logger.info("  Total routed messages: {}", totalRouted);
+                logger.info("  Total routed messages: {}", totalRouted.getAsInt());
                 logger.info("  Routing duration: {} ms", duration.toMillis());
 
-                int totalProcessed = usCount.get() + euCount.get() + asiaCount.get() +
-                                   highPriorityCount.get() + normalPriorityCount.get() + analyticsCount.get();
-
-                assertTrue(totalProcessed > 0, "Some messages should be processed");
-                assertTrue(totalProcessed <= messageCount, "Should not process more messages than sent");
+                assertEquals(messageCount, totalRouted.getAsInt(), "Every message must be routed to exactly one consumer");
 
                 int categoriesWithMessages = 0;
                 if (usCount.get() > 0) categoriesWithMessages++;
@@ -394,15 +361,39 @@ class HighFrequencyProducerConsumerTest {
 
                 assertTrue(categoriesWithMessages >= 3,
                     "At least 3 different filter categories should process messages");
-
-                routingGroup.close().onFailure(testContext::failNow);
                 testContext.completeNow();
-            } catch (Throwable t) {
-                testContext.failNow(t);
-            }
-        });
+            }))
+            .onFailure(testContext::failNow);
+    }
 
-        testContext.awaitCompletion(25, TimeUnit.SECONDS);
+    /**
+     * Runs {@code close} whatever the outcome of the test work, then returns the first failure:
+     * the work's, else the close's. {@code eventually} would discard a failed close.
+     */
+    private static Future<Void> closeThenFirstFailure(io.vertx.core.AsyncResult<Void> outcome,
+                                                      java.util.function.Supplier<Future<Void>> close) {
+        return close.get().transform(closed -> {
+            if (outcome.failed()) {
+                return Future.<Void>failedFuture(outcome.cause());
+            }
+            return closed.failed() ? Future.<Void>failedFuture(closed.cause()) : Future.<Void>succeededFuture();
+        });
+    }
+
+    /**
+     * Completes when {@code count} reaches {@code expected}; re-checks every 100 ms and fails
+     * after the deadline, naming the count it reached.
+     */
+    private Future<Void> awaitCount(Vertx vertx, java.util.function.IntSupplier count, int expected, long deadlineMillis) {
+        int current = count.getAsInt();
+        if (current >= expected) {
+            return Future.succeededFuture();
+        }
+        if (System.currentTimeMillis() >= deadlineMillis) {
+            return Future.failedFuture(new AssertionError(
+                "Processed " + current + " of " + expected + " messages before the deadline"));
+        }
+        return vertx.timer(100).compose(tick -> awaitCount(vertx, count, expected, deadlineMillis));
     }
 
     // Helper Methods
@@ -484,7 +475,7 @@ class HighFrequencyProducerConsumerTest {
     /**
      * Sends messages for routing performance testing using a chained {@link Future} sequence.
      */
-    private void sendRoutingPerformanceMessages(int messageCount, VertxTestContext testContext) {
+    private Future<Void> sendRoutingPerformanceMessages(int messageCount) {
         Future<Void> chain = Future.succeededFuture();
         for (int i = 1; i <= messageCount; i++) {
             final int idx = i;
@@ -494,8 +485,7 @@ class HighFrequencyProducerConsumerTest {
                 return producer.send(event, headers, "routing-perf-" + idx, getMessageGroup(headers)).mapEmpty();
             });
         }
-        chain.onSuccess(v -> logger.info("Sent {} messages for routing performance test", messageCount))
-             .onFailure(testContext::failNow);
+        return chain.onSuccess(v -> logger.info("Sent {} messages for routing performance test", messageCount));
     }
 
     /**

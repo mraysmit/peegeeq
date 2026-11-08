@@ -22,6 +22,7 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.PoolOptions;
 import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -106,49 +107,44 @@ public class OutboxQueueTest {
     }
 
     @Test
-    void testSendMessage(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 5, timeUnit = TimeUnit.SECONDS)
+    void testSendMessage(VertxTestContext testContext) {
         JsonObject message = new JsonObject().put("test", "value");
         Checkpoint sent = testContext.checkpoint();
 
         queue.send(message)
             .onSuccess(v -> sent.flag())
-            .onFailure(throwable -> testContext.failNow("Failed to send message: " + throwable.getMessage()));
-
-        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Failed to send message");
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testAcknowledgeMessage(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 5, timeUnit = TimeUnit.SECONDS)
+    void testAcknowledgeMessage(VertxTestContext testContext) {
         Checkpoint acknowledged = testContext.checkpoint();
 
         queue.acknowledge("test-message-id")
             .onSuccess(v -> acknowledged.flag())
-            .onFailure(e -> testContext.failNow("Failed to acknowledge message: " + e.getMessage()));
-
-        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Failed to acknowledge message");
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testCreateMessage(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 5, timeUnit = TimeUnit.SECONDS)
+    void testCreateMessage(VertxTestContext testContext) {
         JsonObject payload = new JsonObject().put("test", "value");
         Checkpoint created = testContext.checkpoint();
 
-        vertx.runOnContext(v -> {
-            try {
-                var message = queue.createMessage(payload);
+        // verify() routes a failed assertion to the test context; an AssertionError thrown on the
+        // event loop would otherwise reach the Vert.x exception handler and the test would time out.
+        vertx.runOnContext(v -> testContext.verify(() -> {
+            var message = queue.createMessage(payload);
 
-                assertNotNull(message);
-                assertNotNull(message.getId());
-                assertEquals(payload, message.getPayload());
-                assertNotNull(message.getCreatedAt());
-                assertNotNull(message.getHeaders());
+            assertNotNull(message);
+            assertNotNull(message.getId());
+            assertEquals(payload, message.getPayload());
+            assertNotNull(message.getCreatedAt());
+            assertNotNull(message.getHeaders());
 
-                created.flag();
-            } catch (Exception e) {
-                testContext.failNow("Failed to create message: " + e.getMessage());
-            }
-        });
-
-        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Failed to create message");
+            created.flag();
+        }));
     }
 }

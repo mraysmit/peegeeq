@@ -4,7 +4,6 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.messaging.ConsumerGroup;
-import dev.mars.peegeeq.api.messaging.ConsumerGroupMember;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageHandler;
@@ -27,6 +26,7 @@ import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.sqlclient.Tuple;
 import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -118,22 +118,28 @@ public class OutboxConsumerGroupIntegrationTest {
     }
 
     @Test
-    void testGroupDistribution(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+    @Timeout(value = 20, timeUnit = TimeUnit.SECONDS)
+    void testGroupDistribution(io.vertx.core.Vertx vertx, VertxTestContext testContext) {
         int messageCount = 20;
-        Checkpoint latch = testContext.checkpoint(messageCount);
+        // The distribution is checked once every message has arrived.
+        Promise<Void> allReceived = Promise.promise();
+        AtomicInteger received = new AtomicInteger(0);
         List<String> member1Messages = Collections.synchronizedList(new ArrayList<>());
         List<String> member2Messages = Collections.synchronizedList(new ArrayList<>());
 
-        ConsumerGroupMember<String> member1 = consumerGroup.addConsumer("member-1", message -> {
-        logger.info("Test: group distribution");
+        consumerGroup.addConsumer("member-1", message -> {
             member1Messages.add(message.getPayload());
-            latch.flag();
+            if (received.incrementAndGet() == messageCount) {
+                allReceived.tryComplete();
+            }
             return Future.succeededFuture();
         });
 
-        ConsumerGroupMember<String> member2 = consumerGroup.addConsumer("member-2", message -> {
+        consumerGroup.addConsumer("member-2", message -> {
             member2Messages.add(message.getPayload());
-            latch.flag();
+            if (received.incrementAndGet() == messageCount) {
+                allReceived.tryComplete();
+            }
             return Future.succeededFuture();
         });
 
@@ -145,16 +151,16 @@ public class OutboxConsumerGroupIntegrationTest {
                     }
                     return Future.all(sends).mapEmpty();
                 })
+                .compose(sent -> allReceived.future())
+                .onSuccess(done -> testContext.verify(() -> {
+                    logger.info("Member 1 received: {}, member 2 received: {}",
+                            member1Messages.size(), member2Messages.size());
+                    assertFalse(member1Messages.isEmpty(), "Member 1 should have received messages");
+                    assertFalse(member2Messages.isEmpty(), "Member 2 should have received messages");
+                    assertEquals(messageCount, member1Messages.size() + member2Messages.size(), "Total messages should match");
+                    testContext.completeNow();
+                }))
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Did not receive all messages");
-
-        logger.info("Member 1 received: {}", member1Messages.size());
-        logger.info("Member 2 received: {}", member2Messages.size());
-
-        assertFalse(member1Messages.isEmpty(), "Member 1 should have received messages");
-        assertFalse(member2Messages.isEmpty(), "Member 2 should have received messages");
-        assertEquals(messageCount, member1Messages.size() + member2Messages.size(), "Total messages should match");
     }
 
     @Test
@@ -195,21 +201,23 @@ public class OutboxConsumerGroupIntegrationTest {
     }
 
     @Test
-    void testMemberFiltering(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    void testMemberFiltering(io.vertx.core.Vertx vertx, VertxTestContext testContext) {
         int messageCount = 10;
+        // A strict checkpoint: exactly ten deliveries. Each member asserts its filter, so with five
+        // A and five B messages each member receives exactly its five.
         Checkpoint latch = testContext.checkpoint(messageCount);
-        List<String> member1Messages = Collections.synchronizedList(new ArrayList<>());
-        List<String> member2Messages = Collections.synchronizedList(new ArrayList<>());
 
         consumerGroup.addConsumer("member-A", message -> {
-        logger.info("Test: member filtering");
-            member1Messages.add(message.getPayload());
+            testContext.verify(() -> assertTrue(message.getPayload().contains("-A-"),
+                    "member-A received " + message.getPayload()));
             latch.flag();
             return Future.succeededFuture();
         }, msg -> msg.getPayload().contains("-A-"));
 
         consumerGroup.addConsumer("member-B", message -> {
-            member2Messages.add(message.getPayload());
+            testContext.verify(() -> assertTrue(message.getPayload().contains("-B-"),
+                    "member-B received " + message.getPayload()));
             latch.flag();
             return Future.succeededFuture();
         }, msg -> msg.getPayload().contains("-B-"));
@@ -224,13 +232,6 @@ public class OutboxConsumerGroupIntegrationTest {
                     return Future.all(sends).mapEmpty();
                 })
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Did not receive all messages");
-
-        assertEquals(messageCount / 2, member1Messages.size());
-        assertEquals(messageCount / 2, member2Messages.size());
-        assertTrue(member1Messages.stream().allMatch(s -> s.contains("-A-")));
-        assertTrue(member2Messages.stream().allMatch(s -> s.contains("-B-")));
     }
     
     @Test

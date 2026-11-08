@@ -32,6 +32,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import io.vertx.core.Future;
 import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -117,6 +118,7 @@ class PeeGeeQConfigurationConsumerModeTest {
     }
 
     @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     void testConfigurationBatchSizeIntegrationWithConsumerModes(VertxTestContext testContext) throws Exception {
         logger.info(" Testing PeeGeeQConfiguration batch size integration with consumer modes");
 
@@ -162,17 +164,10 @@ class PeeGeeQConfigurationConsumerModeTest {
         sendChain.onFailure(testContext::failNow);
 
         // Wait for all messages to be processed
-        boolean allProcessed = testContext.awaitCompletion(10, TimeUnit.SECONDS);
-        assertTrue(allProcessed, "All messages should be processed with custom batch size");
-        assertEquals(5, processedCount.get(), "Should process exactly 5 messages");
-
-        consumer.close();
-        producer.close();
-
-        logger.info("PeeGeeQConfiguration batch size integration test completed successfully");
     }
 
     @Test
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
     void testConfigurationPollingIntervalIntegrationWithConsumerModes(VertxTestContext testContext) throws Exception {
         logger.info(" Testing PeeGeeQConfiguration polling interval integration with consumer modes");
 
@@ -217,17 +212,10 @@ class PeeGeeQConfigurationConsumerModeTest {
             .onFailure(testContext::failNow);
 
         // Wait for messages to be processed
-        boolean allProcessed = testContext.awaitCompletion(15, TimeUnit.SECONDS);
-        assertTrue(allProcessed, "All messages should be processed with custom polling interval");
-        assertEquals(2, processedCount.get(), "Should process exactly 2 messages");
-
-        consumer.close();
-        producer.close();
-
-        logger.info("PeeGeeQConfiguration polling interval integration test completed successfully");
     }
 
     @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     void testConfigurationVisibilityTimeoutIntegrationWithConsumerModes(VertxTestContext testContext) throws Exception {
         logger.info(" Testing PeeGeeQConfiguration visibility timeout integration with consumer modes");
 
@@ -271,17 +259,10 @@ class PeeGeeQConfigurationConsumerModeTest {
             .onFailure(testContext::failNow);
 
         // Wait for messages to be processed
-        boolean allProcessed = testContext.awaitCompletion(10, TimeUnit.SECONDS);
-        assertTrue(allProcessed, "All messages should be processed with custom visibility timeout");
-        assertEquals(2, processedCount.get(), "Should process exactly 2 messages");
-
-        consumer.close();
-        producer.close();
-
-        logger.info("PeeGeeQConfiguration visibility timeout integration test completed successfully");
     }
 
     @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     void testConfigurationConsumerThreadsIntegrationWithConsumerModes(VertxTestContext testContext) throws Exception {
         logger.info(" Testing PeeGeeQConfiguration consumer threads integration with consumer modes");
 
@@ -329,17 +310,10 @@ class PeeGeeQConfigurationConsumerModeTest {
             .onFailure(testContext::failNow);
 
         // Wait for messages to be processed
-        boolean allProcessed = testContext.awaitCompletion(10, TimeUnit.SECONDS);
-        assertTrue(allProcessed, "All messages should be processed with custom consumer threads");
-        assertEquals(3, processedCount.get(), "Should process exactly 3 messages");
-
-        consumer.close();
-        producer.close();
-
-        logger.info("PeeGeeQConfiguration consumer threads integration test completed successfully");
     }
 
     @Test
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
     void testMultipleConfigurationPropertiesIntegrationWithConsumerModes(VertxTestContext testContext) throws Exception {
         logger.info(" Testing multiple PeeGeeQConfiguration properties integration with consumer modes");
 
@@ -398,17 +372,10 @@ class PeeGeeQConfigurationConsumerModeTest {
         sendChain.onFailure(testContext::failNow);
 
         // Wait for messages to be processed
-        boolean allProcessed = testContext.awaitCompletion(15, TimeUnit.SECONDS);
-        assertTrue(allProcessed, "All messages should be processed with multiple custom configuration properties");
-        assertEquals(6, processedCount.get(), "Should process exactly 6 messages");
-
-        consumer.close();
-        producer.close();
-
-        logger.info("PeeGeeQConfiguration multiple properties integration test completed successfully");
     }
 
     @Test
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
     void testConfigurationDefaultValuesWithConsumerModes(VertxTestContext testContext) throws Exception {
         logger.info(" Testing PeeGeeQConfiguration default values with consumer modes");
 
@@ -459,13 +426,5 @@ class PeeGeeQConfigurationConsumerModeTest {
             .onFailure(testContext::failNow);
 
         // Wait for messages to be processed
-        boolean allProcessed = testContext.awaitCompletion(15, TimeUnit.SECONDS);
-        assertTrue(allProcessed, "All messages should be processed with default configuration values");
-        assertEquals(3, processedCount.get(), "Should process exactly 3 messages");
-
-        consumer.close();
-        producer.close();
-
-        logger.info("PeeGeeQConfiguration default values integration test completed successfully");
     }
 }

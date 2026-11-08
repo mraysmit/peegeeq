@@ -16,11 +16,14 @@ import dev.mars.peegeeq.db.consumer.WatermarkCalculator;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.AsyncResult;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
+import io.vertx.pgclient.PgException;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
@@ -39,6 +42,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent.*;
 import static org.junit.jupiter.api.Assertions.*;
@@ -57,11 +62,11 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.INTEGRATION)
 @ExtendWith(VertxExtension.class)
 @Testcontainers
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class PartitionedNativeConsumerIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(PartitionedNativeConsumerIntegrationTest.class);
     private static final String SERVICE_ID = "phase6-test";
+    private static final long CONDITION_DEADLINE_MILLIS = 30_000;
 
     @Container
     static final PostgreSQLContainer postgres =
@@ -167,7 +172,6 @@ class PartitionedNativeConsumerIntegrationTest {
     // ========================================================================
 
     @Test
-    @Order(1)
     void testStart_offsetWatermarkTopic_autoJoins(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST 6.1: testStart_offsetWatermarkTopic_autoJoins STARTED ===");
 
@@ -193,11 +197,12 @@ class PartitionedNativeConsumerIntegrationTest {
                     // Set a handler (required before start)
                     group.setMessageHandler(msg -> Future.succeededFuture());
 
-                    // Start the group this should trigger auto-join for OFFSET_WATERMARK topics
-                    // Give a short delay after the observed start for async join to settle.
+                    // Start the group this should trigger auto-join for OFFSET_WATERMARK topics.
                     return group.start()
-                            .compose(started -> databaseService.getVertx().timer(2000).mapEmpty())
-                            .compose(delayed -> {
+                            .compose(started -> awaitCondition(
+                                    () -> countPartitionAssignments(topic, groupName).map(count -> count >= 3),
+                                    "three partition assignments after the auto-join"))
+                            .compose(joined -> {
                                 // Assert: verify partition assignments exist in the database
                                 return connectionManager.withConnection(SERVICE_ID, conn ->
                                         conn.preparedQuery(
@@ -223,7 +228,6 @@ class PartitionedNativeConsumerIntegrationTest {
     // ========================================================================
 
     @Test
-    @Order(2)
     void testClose_autoLeaves(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST 6.2: testClose_autoLeaves STARTED ===");
 
@@ -241,10 +245,11 @@ class PartitionedNativeConsumerIntegrationTest {
                             connectionManager, SERVICE_ID
                     );
                     group.setMessageHandler(msg -> Future.succeededFuture());
-                    // Wait for join to complete after the observed start.
                     return group.start()
-                            .compose(started -> databaseService.getVertx().timer(2000).mapEmpty())
-                            .compose(delayed -> {
+                            .compose(started -> awaitCondition(
+                                    () -> countPartitionAssignments(topic, groupName).map(count -> count > 0),
+                                    "partition assignments after the auto-join"))
+                            .compose(joined -> {
                                 // Verify assignments exist before close
                                 return countPartitionAssignments(topic, groupName)
                                         .compose(countBefore -> {
@@ -274,7 +279,6 @@ class PartitionedNativeConsumerIntegrationTest {
     // ========================================================================
 
     @Test
-    @Order(3)
     void testMessageHandler_receivesInOrder(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST 6.3: testMessageHandler_receivesInOrder STARTED ===");
 
@@ -303,10 +307,11 @@ class PartitionedNativeConsumerIntegrationTest {
                         receivedIds.add(msg.getId());
                         return Future.succeededFuture();
                     });
-                    // Wait long enough for fetch loop to process the messages after startup.
                     return group.start()
-                            .compose(started -> databaseService.getVertx().timer(4000).mapEmpty())
-                            .compose(delayed -> group.stopGracefully())
+                            .compose(started -> awaitCondition(
+                                    () -> Future.succeededFuture(receivedIds.size() >= 5),
+                                    "delivery of the five messages"))
+                            .compose(received -> group.stopGracefully())
                             .map(ignored -> {
                                 // Verify messages were received
                                 assertFalse(receivedIds.isEmpty(),
@@ -334,7 +339,6 @@ class PartitionedNativeConsumerIntegrationTest {
     // ========================================================================
 
     @Test
-    @Order(4)
     void testAutoCommit_afterHandlerReturns(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST 6.4: testAutoCommit_afterHandlerReturns STARTED ===");
 
@@ -354,10 +358,11 @@ class PartitionedNativeConsumerIntegrationTest {
                             connectionManager, SERVICE_ID
                     );
                     group.setMessageHandler(msg -> Future.succeededFuture());
-                    // Wait for processing and auto-commit after startup.
                     return group.start()
-                            .compose(started -> databaseService.getVertx().timer(4000).mapEmpty())
-                            .compose(delayed -> group.stopGracefully())
+                            .compose(started -> awaitCondition(
+                                    () -> allMessagesCommitted(topic, groupName),
+                                    "the commit of every message"))
+                            .compose(committed -> group.stopGracefully())
                             .compose(ignored -> connectionManager.withConnection(SERVICE_ID, conn ->
                                         conn.preparedQuery(
                                                 "SELECT committed_offset FROM outbox_partition_offsets " +
@@ -385,7 +390,6 @@ class PartitionedNativeConsumerIntegrationTest {
     // ========================================================================
 
     @Test
-    @Order(5)
     void testRebalance_stopsProcessingRevokedPartitions(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST 6.5: testRebalance_stopsProcessingRevokedPartitions STARTED ===");
 
@@ -405,8 +409,10 @@ class PartitionedNativeConsumerIntegrationTest {
                     );
                     group1.setMessageHandler(msg -> Future.succeededFuture());
                     return group1.start()
-                            .compose(started -> databaseService.getVertx().timer(2000).mapEmpty())
-                            .compose(delayed -> countPartitionAssignments(topic, groupName))
+                            .compose(started -> awaitCondition(
+                                    () -> countPartitionAssignments(topic, groupName).map(count -> count >= 2),
+                                    "two partition assignments after the auto-join"))
+                            .compose(joined -> countPartitionAssignments(topic, groupName))
                             .compose(countBefore -> {
                                 assertTrue(countBefore >= 2, "Should have at least 2 assignments, got: " + countBefore);
 
@@ -450,7 +456,6 @@ class PartitionedNativeConsumerIntegrationTest {
     // ========================================================================
 
     @Test
-    @Order(6)
     void testMultipleInstances_parallelPartitions(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST 6.6: testMultipleInstances_parallelPartitions STARTED ===");
 
@@ -517,7 +522,6 @@ class PartitionedNativeConsumerIntegrationTest {
     // ========================================================================
 
     @Test
-    @Order(7)
     void testReferenceCountingTopic_unchanged(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST 6.7: testReferenceCountingTopic_unchanged STARTED ===");
 
@@ -580,7 +584,6 @@ class PartitionedNativeConsumerIntegrationTest {
     // ========================================================================
 
     @Test
-    @Order(8)
     void testWatermarkSweep_completesProcessedMessages(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST 6.8: testWatermarkSweep_completesProcessedMessages STARTED ===");
 
@@ -599,10 +602,11 @@ class PartitionedNativeConsumerIntegrationTest {
                             connectionManager, SERVICE_ID
                     );
                     group.setMessageHandler(msg -> Future.succeededFuture());
-                    // Wait for messages to be processed and offset committed after startup.
                     return group.start()
-                            .compose(started -> databaseService.getVertx().timer(4000).mapEmpty())
-                            .compose(delayed -> {
+                            .compose(started -> awaitCondition(
+                                    () -> allMessagesCommitted(topic, groupName),
+                                    "the commit of every message"))
+                            .compose(committed -> {
                                 // Manually run watermark sweep
                                 WatermarkCalculator calculator = new WatermarkCalculator(connectionManager, SERVICE_ID);
                                 return calculator.calculateAndSweep(topic);
@@ -640,7 +644,6 @@ class PartitionedNativeConsumerIntegrationTest {
     // ========================================================================
 
     @Test
-    @Order(9)
     void testMultiConsumer_partitionIsolation_noContamination(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST 6.9: testMultiConsumer_partitionIsolation_noContamination STARTED ===");
 
@@ -734,7 +737,6 @@ class PartitionedNativeConsumerIntegrationTest {
     // ========================================================================
 
     @Test
-    @Order(10)
     void testConsumerCrash_newConsumerResumes_zeroMessageLoss(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST 6.10: testConsumerCrash_newConsumerResumes_zeroMessageLoss STARTED ===");
 
@@ -833,7 +835,6 @@ class PartitionedNativeConsumerIntegrationTest {
     // ========================================================================
 
     @Test
-    @Order(11)
     void testRebalanceUnderLoad_noMessageLoss_noInfiniteRedelivery(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST 6.11: testRebalanceUnderLoad_noMessageLoss_noInfiniteRedelivery STARTED ===");
 
@@ -864,7 +865,9 @@ class PartitionedNativeConsumerIntegrationTest {
                     group1.setMessageHandler(msg -> Future.succeededFuture());
 
                     return group1.start()
-                            .compose(started1 -> databaseService.getVertx().timer(2000).mapEmpty())
+                            .compose(started1 -> awaitCondition(
+                                    () -> countAssignedInstances(topic, groupName).map(count -> count >= 1),
+                                    "the first instance's partition assignments"))
                             .compose(d1 -> {
                                 PgNativeConsumerGroup<String> group2 = new PgNativeConsumerGroup<>(
                                         groupName, topic, String.class,
@@ -873,9 +876,11 @@ class PartitionedNativeConsumerIntegrationTest {
                                 );
                                 group2.setMessageHandler(msg -> Future.succeededFuture());
 
-                                // Wait a bit, then add a third consumer (rebalance under load)
+                                // Once both instances hold partitions, add a third (rebalance under load)
                                 return group2.start()
-                                        .compose(started2 -> databaseService.getVertx().timer(2000).mapEmpty())
+                                        .compose(started2 -> awaitCondition(
+                                                () -> countAssignedInstances(topic, groupName).map(count -> count >= 2),
+                                                "partition assignments for two instances"))
                                         .compose(d2 -> {
                                             PgNativeConsumerGroup<String> group3 = new PgNativeConsumerGroup<>(
                                                     groupName, topic, String.class,
@@ -884,9 +889,11 @@ class PartitionedNativeConsumerIntegrationTest {
                                             );
                                             group3.setMessageHandler(msg -> Future.succeededFuture());
 
-                                            // Wait for processing to complete
+                                            // Every message must be committed: no message is lost in the rebalances
                                             return group3.start()
-                                                    .compose(started3 -> databaseService.getVertx().timer(5000).mapEmpty())
+                                                    .compose(started3 -> awaitCondition(
+                                                            () -> allMessagesCommitted(topic, groupName),
+                                                            "the commit of all 100 messages"))
                                                     .compose(d3 -> {
                                                         // Run watermark sweep
                                                         WatermarkCalculator calc = new WatermarkCalculator(connectionManager, SERVICE_ID);
@@ -925,7 +932,6 @@ class PartitionedNativeConsumerIntegrationTest {
     // ========================================================================
 
     @Test
-    @Order(12)
     void testColocatedTransaction_exactlyOnceCommit(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST 6.12: testColocatedTransaction_exactlyOnceCommit STARTED ===");
 
@@ -1004,7 +1010,6 @@ class PartitionedNativeConsumerIntegrationTest {
     // ========================================================================
 
     @Test
-    @Order(13)
     void testGenerationFence_preventsZombieConsumer(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST 6.13: testGenerationFence_preventsZombieConsumer STARTED ===");
 
@@ -1073,8 +1078,123 @@ class PartitionedNativeConsumerIntegrationTest {
     }
 
     // ========================================================================
+    // Test 6.14: The engine teardown waits for an in-flight watermark sweep when
+    // the group leave fails, and reports the leave failure.
+    //
+    // A held lock on outbox_topic_watermarks stops the first sweep (run at start)
+    // at its upsert. A second lock, EXCLUSIVE on outbox_topic_subscriptions, stops
+    // the leave at its generation bump, and the test cancels exactly that query
+    // (SQLSTATE 57014). The stop must stay open until the sweep has settled.
+    // ========================================================================
+
+    @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.pgqueue.PgNativeConsumerGroup",
+            message = "Error stopping partitioned engine for group 'group-6-14': ",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = PgException.class)
+    void testTeardown_waitsForInFlightSweep_whenLeaveFails(VertxTestContext testContext) {
+        String topic = "test-p6-teardown-" + System.nanoTime();
+        String groupName = "group-6-14";
+        AtomicReference<Future<Void>> stop = new AtomicReference<>();
+
+        createTopic(topic, "OFFSET_WATERMARK")
+                .compose(v -> createSubscription(topic, groupName))
+                .compose(v -> insertOutboxMessage(topic, "part-A", "payload-1"))
+                .compose(v -> insertOutboxMessage(topic, "part-B", "payload-2"))
+                .compose(v -> connectionManager.withTransaction(SERVICE_ID, lockHolder ->
+                        lockHolder.query("LOCK TABLE outbox_topic_watermarks IN ACCESS EXCLUSIVE MODE").execute()
+                                .compose(locked -> {
+                                    PgNativeConsumerGroup<String> group = new PgNativeConsumerGroup<>(
+                                            groupName, topic, String.class,
+                                            adapter, mapper, null, configuration, databaseService,
+                                            connectionManager, SERVICE_ID
+                                    );
+                                    group.setMessageHandler(msg -> Future.succeededFuture());
+                                    return group.start()
+                                            .compose(started -> awaitCondition(
+                                                    () -> allMessagesCommitted(topic, groupName),
+                                                    "the commit of every message"))
+                                            .compose(committed -> awaitCondition(
+                                                    () -> waitingQueries(WATERMARK_UPSERT_MARKER).map(count -> count > 0),
+                                                    "a watermark sweep waiting on the lock"))
+                                            .compose(sweepWaiting -> lockHolder.query(
+                                                    "LOCK TABLE outbox_topic_subscriptions IN EXCLUSIVE MODE").execute())
+                                            .compose(subscriptionsLocked -> {
+                                                stop.set(group.stopGracefully());
+                                                return awaitCondition(
+                                                        () -> waitingQueries(GENERATION_BUMP_MARKER).map(count -> count > 0),
+                                                        "the group leave waiting on the lock");
+                                            })
+                                            .compose(leaveWaiting -> cancelWaitingQueries(GENERATION_BUMP_MARKER))
+                                            // A teardown that ends when the leave fails settles here,
+                                            // while the sweep still waits on the lock.
+                                            .compose(cancelled -> databaseService.getVertx().timer(500))
+                                            .compose(tick -> {
+                                                if (stop.get().isComplete()) {
+                                                    return Future.<Void>failedFuture(new AssertionError(
+                                                            "The engine stop settled while a watermark sweep was in flight: "
+                                                                    + stop.get().cause()));
+                                                }
+                                                return Future.<Void>succeededFuture();
+                                            });
+                                })))
+                .compose(lockReleased -> stop.get().<AsyncResult<Void>>transform(Future::succeededFuture))
+                .onComplete(testContext.succeeding(outcome -> testContext.verify(() -> {
+                    assertTrue(outcome.failed(), "The stop must report the failed group leave");
+                    assertTrue(hasSqlState(outcome.cause(), "57014"),
+                            "The reported failure must be the cancelled leave, but was: " + outcome.cause());
+                    testContext.completeNow();
+                })));
+    }
+
+    // ========================================================================
     // Helpers
     // ========================================================================
+
+    private static final String WATERMARK_UPSERT_MARKER = "INSERT INTO outbox_topic_watermarks";
+    private static final String GENERATION_BUMP_MARKER = "rebalance_generation = rebalance_generation + 1";
+
+    /** Number of backends whose query contains {@code marker} and that wait for a lock. */
+    private Future<Long> waitingQueries(String marker) {
+        return connectionManager.withConnection(SERVICE_ID, conn ->
+                conn.preparedQuery(
+                        "SELECT COUNT(*) AS waiting FROM pg_stat_activity " +
+                        "WHERE datname = current_database() AND wait_event_type = 'Lock' " +
+                        "AND position($1 in query) > 0"
+                ).execute(Tuple.of(marker))
+                .map(rows -> rows.iterator().next().getLong("waiting"))
+        );
+    }
+
+    /** Cancels the waiting backends whose query contains {@code marker}, and only those. */
+    private Future<Void> cancelWaitingQueries(String marker) {
+        return connectionManager.withConnection(SERVICE_ID, conn ->
+                conn.preparedQuery(
+                        "SELECT pg_cancel_backend(pid) AS cancelled FROM pg_stat_activity " +
+                        "WHERE datname = current_database() AND wait_event_type = 'Lock' " +
+                        "AND position($1 in query) > 0"
+                ).execute(Tuple.of(marker))
+                .compose(rows -> rows.size() > 0
+                        ? Future.<Void>succeededFuture()
+                        : Future.<Void>failedFuture(new AssertionError("No waiting query to cancel for: " + marker)))
+        );
+    }
+
+    private static boolean hasSqlState(Throwable failure, String sqlState) {
+        for (Throwable t = failure; t != null; t = t.getCause()) {
+            if (t instanceof PgException pg && sqlState.equals(pg.getSqlState())) {
+                return true;
+            }
+            for (Throwable suppressed : t.getSuppressed()) {
+                if (hasSqlState(suppressed, sqlState)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
 
     private Future<Void> createTopic(String topic, String completionTrackingMode) {
         testTopics.add(topic);
@@ -1143,6 +1263,52 @@ class PartitionedNativeConsumerIntegrationTest {
                         .compose(v -> conn.preparedQuery("DELETE FROM queue_messages WHERE topic = ANY($1::text[])").execute(Tuple.of(topics)))
                         .compose(v -> conn.preparedQuery("DELETE FROM outbox_topics WHERE topic = ANY($1::text[])").execute(Tuple.of(topics)))
                         .map(rows -> (Void) null)
+        );
+    }
+
+    /**
+     * Completes when {@code check} answers true; re-checks every 100 ms and fails with an
+     * AssertionError naming {@code description} after 30 s.
+     */
+    private Future<Void> awaitCondition(Supplier<Future<Boolean>> check, String description) {
+        return awaitCondition(check, description, System.currentTimeMillis() + CONDITION_DEADLINE_MILLIS);
+    }
+
+    private Future<Void> awaitCondition(Supplier<Future<Boolean>> check, String description, long deadlineMillis) {
+        return check.get().compose(done -> {
+            if (done) {
+                return Future.<Void>succeededFuture();
+            }
+            if (System.currentTimeMillis() >= deadlineMillis) {
+                return Future.<Void>failedFuture(new AssertionError(
+                        description + " did not happen within " + CONDITION_DEADLINE_MILLIS + " ms"));
+            }
+            return databaseService.getVertx().timer(100)
+                    .compose(tick -> awaitCondition(check, description, deadlineMillis));
+        });
+    }
+
+    /** True when every partition's committed offset has reached its last message id. */
+    private Future<Boolean> allMessagesCommitted(String topic, String groupName) {
+        return connectionManager.withConnection(SERVICE_ID, conn ->
+                conn.preparedQuery(
+                        "SELECT COUNT(*) AS behind FROM (" +
+                        "  SELECT message_group, MAX(id) AS last_id FROM outbox WHERE topic = $1 GROUP BY message_group" +
+                        ") m LEFT JOIN outbox_partition_offsets o" +
+                        "  ON o.topic = $1 AND o.group_name = $2 AND o.partition_key = m.message_group " +
+                        "WHERE COALESCE(o.committed_offset, 0) < m.last_id"
+                ).execute(Tuple.of(topic, groupName))
+                .map(rows -> rows.iterator().next().getLong("behind") == 0L)
+        );
+    }
+
+    private Future<Integer> countAssignedInstances(String topic, String groupName) {
+        return connectionManager.withConnection(SERVICE_ID, conn ->
+                conn.preparedQuery(
+                        "SELECT COUNT(DISTINCT assigned_instance_id) AS cnt FROM outbox_partition_assignments " +
+                        "WHERE topic = $1 AND group_name = $2"
+                ).execute(Tuple.of(topic, groupName))
+                .map(rows -> rows.iterator().next().getInteger("cnt"))
         );
     }
 

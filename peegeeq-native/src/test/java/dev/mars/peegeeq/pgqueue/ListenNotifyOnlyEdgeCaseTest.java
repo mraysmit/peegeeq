@@ -16,6 +16,7 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 
@@ -113,9 +114,8 @@ class ListenNotifyOnlyEdgeCaseTest {
     }
 
     @Test
-    void testExistingMessagesProcessingAfterListenSetup(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info(" Testing existing messages processing after LISTEN setup");
-
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+    void testExistingMessagesProcessingAfterListenSetup(Vertx vertx, VertxTestContext testContext) {
         String topicName = "test-existing-messages";
 
         // First, send messages BEFORE setting up the consumer
@@ -124,8 +124,6 @@ class ListenNotifyOnlyEdgeCaseTest {
         producer.send("Message 1 - Before Consumer").onFailure(testContext::failNow);
         producer.send("Message 2 - Before Consumer").onFailure(testContext::failNow);
         producer.send("Message 3 - Before Consumer").onFailure(testContext::failNow);
-
-        logger.info("Sent 3 messages before consumer setup");
 
         // Now create LISTEN_NOTIFY_ONLY consumer
         ConsumerConfig config = ConsumerConfig.builder()
@@ -138,33 +136,18 @@ class ListenNotifyOnlyEdgeCaseTest {
         Checkpoint atLeastOneReceived = testContext.checkpoint();
 
         consumer.subscribe(message -> {
-            int count = messageCount.incrementAndGet();
-            logger.info(" Received existing message {}: {}", count, message.getPayload());
-            // Flag only the FIRST delivery: the checkpoint is strict (exactly one flag) while
-            // THREE messages are in flight and the assertion is "at least 1". Unguarded, the
-            // second delivery threw "Strict checkpoint flagged too many times" — the test
-            // errored precisely because delivery WORKED (surfaced by -Pall-tests 2026-08-09;
-            // same guard pattern as PostgreSQLErrorHandlingTest's checkpointCount).
-            if (count == 1) {
+            // Flag only the first delivery: three messages are in flight and the property under
+            // test is that at least one existing message is processed.
+            if (messageCount.incrementAndGet() == 1) {
                 atLeastOneReceived.flag();
             }
             return Future.succeededFuture();
         }).onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS),
-            "Should receive at least 1 existing message via LISTEN_NOTIFY_ONLY mode");
-
-        assertTrue(messageCount.get() >= 1, "Should have processed at least 1 message, got: " + messageCount.get());
-
-        consumer.close();
-        producer.close();
-        logger.info("LISTEN_NOTIFY_ONLY correctly processed existing messages");
     }
 
     @Test
-    void testChannelNameSpecialCharacters(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info(" Testing channel name with special characters");
-
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    void testChannelNameSpecialCharacters(Vertx vertx, VertxTestContext testContext) {
         String topicName = "test-special_chars.with-numbers123";
 
         ConsumerConfig config = ConsumerConfig.builder()
@@ -174,30 +157,21 @@ class ListenNotifyOnlyEdgeCaseTest {
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class, config);
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
+        // A strict checkpoint: a second delivery fails the test.
         Checkpoint messageReceived = testContext.checkpoint();
-        AtomicReference<String> receivedMessage = new AtomicReference<>();
 
         consumer.subscribe(message -> {
-            receivedMessage.set(message.getPayload());
+            testContext.verify(() -> assertEquals("Special characters test message", message.getPayload(), "Should receive message even with special characters in topic name"));
             messageReceived.flag();
             return Future.succeededFuture();
         })
-        .onSuccess(ignored -> producer.send("Special characters test message").onFailure(testContext::failNow))
+        .compose(ignored -> producer.send("Special characters test message"))
         .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS),
-            "Should receive message even with special characters in topic name");
-        assertEquals("Special characters test message", receivedMessage.get());
-
-        consumer.close();
-        producer.close();
-        logger.info("LISTEN_NOTIFY_ONLY handles special characters in topic names");
     }
 
     @Test
-    void testLargePayloadProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info(" Testing large payload processing");
-
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    void testLargePayloadProcessing(Vertx vertx, VertxTestContext testContext) {
         String topicName = "test-large-payload";
 
         ConsumerConfig config = ConsumerConfig.builder()
@@ -207,37 +181,28 @@ class ListenNotifyOnlyEdgeCaseTest {
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class, config);
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        // Create a large message (1MB)
+        // Create a large message (about 5 MB)
         StringBuilder largeMessage = new StringBuilder();
         for (int i = 0; i < 100000; i++) {
             largeMessage.append("This is a large message payload for testing purposes. ");
         }
         String largePayload = largeMessage.toString();
 
+        // A strict checkpoint: a second delivery fails the test.
         Checkpoint messageReceived = testContext.checkpoint();
-        AtomicReference<String> receivedMessage = new AtomicReference<>();
 
         consumer.subscribe(message -> {
-            receivedMessage.set(message.getPayload());
+            testContext.verify(() -> assertEquals(largePayload, message.getPayload(), "Large payload should be received intact"));
             messageReceived.flag();
             return Future.succeededFuture();
         })
-        .onSuccess(ignored -> producer.send(largePayload).onFailure(testContext::failNow))
+        .compose(ignored -> producer.send(largePayload))
         .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
-            "Should receive large message via LISTEN_NOTIFY_ONLY mode");
-        assertEquals(largePayload, receivedMessage.get(), "Large payload should be received intact");
-
-        consumer.close();
-        producer.close();
-        logger.info("LISTEN_NOTIFY_ONLY handles large payloads correctly");
     }
 
     @Test
-    void testConcurrentProducerScenarios(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info(" Testing concurrent producer scenarios");
-
+    @Timeout(value = 20, timeUnit = TimeUnit.SECONDS)
+    void testConcurrentProducerScenarios(Vertx vertx, VertxTestContext testContext) {
         String topicName = "test-concurrent-producers";
 
         ConsumerConfig config = ConsumerConfig.builder()
@@ -246,7 +211,7 @@ class ListenNotifyOnlyEdgeCaseTest {
 
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class, config);
 
-        AtomicInteger messageCount = new AtomicInteger(0);
+        // A strict checkpoint: exactly ten deliveries.
         Checkpoint messagesReceived = testContext.checkpoint(10);
 
         List<MessageProducer<String>> producers = new ArrayList<>();
@@ -255,34 +220,32 @@ class ListenNotifyOnlyEdgeCaseTest {
         }
 
         consumer.subscribe(message -> {
-            int count = messageCount.incrementAndGet();
-            logger.info(" Received concurrent message {}: {}", count, message.getPayload());
             messagesReceived.flag();
             return Future.succeededFuture();
         })
-        .onSuccess(ignored -> {
+        .compose(ignored -> {
+            // Five producer lanes run concurrently; each sends two messages in order.
+            List<Future<Void>> lanes = new ArrayList<>();
             for (int i = 0; i < 5; i++) {
                 final int producerId = i;
                 MessageProducer<String> producer = producers.get(producerId);
-                producer.send("Message from producer " + producerId + " - msg 1")
-                    .compose(v -> producer.send("Message from producer " + producerId + " - msg 2"))
-                    .onFailure(testContext::failNow);
+                lanes.add(producer.send("Message from producer " + producerId + " - msg 1")
+                    .compose(v -> producer.send("Message from producer " + producerId + " - msg 2")));
             }
+            return Future.all(lanes);
+        })
+        .eventually(() -> {
+            // MessageProducer.close() is synchronous and void.
+            for (MessageProducer<String> p : producers) {
+                try { p.close(); } catch (Exception e) { logger.warn("Producer close failed: {}", e.getMessage()); }
+            }
+            return Future.succeededFuture();
         })
         .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS),
-            "Should receive all 10 messages from concurrent producers");
-        assertEquals(10, messageCount.get(), "Should have processed exactly 10 messages");
-
-        consumer.close();
-        for (MessageProducer<String> p : producers) {
-            p.close();
-        }
-        logger.info("LISTEN_NOTIFY_ONLY handles concurrent producers correctly");
     }
 
     @Test
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
     void testShutdownDuringMessageProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info(" Testing shutdown during message processing");
 
@@ -324,9 +287,6 @@ class ListenNotifyOnlyEdgeCaseTest {
             });
         })
         .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
-        logger.info("LISTEN_NOTIFY_ONLY handles shutdown during processing gracefully");
     }
 }
 

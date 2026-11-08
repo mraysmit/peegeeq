@@ -45,6 +45,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.vertx.core.Vertx;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.core.Promise;
@@ -149,28 +150,25 @@ class AdvancedProducerConsumerGroupTest {
     
     @AfterEach
     void tearDown(VertxTestContext testContext) {
-        logger.info("Tearing down: closing resources and manager");
         if (producer != null) {
-            producer.close();
+            try { producer.close(); } catch (Exception e) { logger.warn("Error closing producer: {}", e.getMessage()); }
         }
-        if (queueFactory != null) {
-            try {
-                queueFactory.close();
-            } catch (Exception e) {
-                logger.warn("Error closing queue factory: {}", e.getMessage());
-            }
-        }
-        if (manager == null) {
-            testContext.completeNow();
-            return;
-        }
-        manager.closeReactive()
-            .onSuccess(v -> logger.info("PeeGeeQ manager closed"))
-            .onFailure(err -> logger.error("Error closing manager", err))
-            .eventually(() -> {
-                logger.info("Test teardown completed");
-                testContext.completeNow();
-                return Future.<Void>succeededFuture();
+        // The factory close returns a Future: it is awaited before the manager closes, and the
+        // manager closes whatever its outcome; the first failure fails the teardown.
+        (queueFactory != null ? queueFactory.close() : Future.<Void>succeededFuture())
+            .transform(factoryResult -> (manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+                .transform(managerResult -> {
+                    if (factoryResult.failed()) {
+                        return Future.<Void>failedFuture(factoryResult.cause());
+                    }
+                    return managerResult.failed()
+                        ? Future.<Void>failedFuture(managerResult.cause())
+                        : Future.<Void>succeededFuture();
+                }))
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(err -> {
+                logger.error("Teardown failed", err);
+                testContext.failNow(err);
             });
     }
     
@@ -178,6 +176,7 @@ class AdvancedProducerConsumerGroupTest {
      * Test basic high-frequency message production with routing headers.
      */
     @Test
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
     void testHighFrequencyProducerWithRouting(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Testing high-frequency producer with message routing");
         
@@ -200,12 +199,6 @@ class AdvancedProducerConsumerGroupTest {
         }
         
         // Wait for all messages to be sent
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
-            "All messages should be sent within timeout");
-        assertEquals(messageCount, sentMessages.get(), 
-            "All messages should be sent successfully");
-        
-        logger.info("Successfully sent {} messages with routing headers", sentMessages.get());
     }
 
     /**

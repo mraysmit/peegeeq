@@ -42,6 +42,7 @@ import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -51,11 +52,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.UUID;
 
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -127,21 +129,20 @@ public class OutboxConsumerCoreTest {
     }
 
     @Test
-    void testConsumerSubscribe(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("Test: consumer creation");
-        Checkpoint latch = testContext.checkpoint();
-        AtomicReference<String> receivedMessage = new AtomicReference<>();
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    void testConsumerSubscribe(Vertx vertx, VertxTestContext testContext) {
+        logger.info("Test: consumer subscribe");
+        // A strict checkpoint: a second delivery fails the test.
+        Checkpoint received = testContext.checkpoint();
 
         consumer.subscribe(message -> {
-            receivedMessage.set(message.getPayload());
-            latch.flag();
+            testContext.verify(() ->
+                assertEquals("Test message for subscribe", message.getPayload(), "Should receive correct message"));
+            received.flag();
             return Future.succeededFuture();
         })
             .compose(v -> producer.send("Test message for subscribe"))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message within timeout");
-        assertEquals("Test message for subscribe", receivedMessage.get(), "Should receive correct message");
     }
 
     @Test
@@ -174,15 +175,19 @@ public class OutboxConsumerCoreTest {
     }
 
     @Test
-    void testConsumerReceivesMultipleMessages(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+    void testConsumerReceivesMultipleMessages(Vertx vertx, VertxTestContext testContext) {
         int messageCount = 5;
-        Checkpoint latch = testContext.checkpoint(messageCount);
-        AtomicInteger receivedCount = new AtomicInteger(0);
+        // A strict checkpoint: a sixth delivery fails the test; a repeated payload fails it too.
+        Checkpoint received = testContext.checkpoint(messageCount);
+        Set<String> payloads = ConcurrentHashMap.newKeySet();
 
         consumer.subscribe(message -> {
-            logger.info("Test: consumer receives multiple messages");
-            receivedCount.incrementAndGet();
-            latch.flag();
+            testContext.verify(() -> {
+                assertTrue(message.getPayload().startsWith("Message "), "Unexpected payload: " + message.getPayload());
+                assertTrue(payloads.add(message.getPayload()), "Delivered twice: " + message.getPayload());
+            });
+            received.flag();
             return Future.succeededFuture();
         })
             .compose(v -> {
@@ -193,44 +198,41 @@ public class OutboxConsumerCoreTest {
                 return Future.all(sends).mapEmpty();
             })
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive all messages within timeout");
-        assertEquals(messageCount, receivedCount.get(), "Should receive all messages");
     }
 
     @Test
-    void testConsumerReceivesMessagesWithHeaders(Vertx vertx, VertxTestContext testContext) throws Exception {
-        Checkpoint latch = testContext.checkpoint();
-        AtomicReference<Map<String, String>> receivedHeaders = new AtomicReference<>();
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    void testConsumerReceivesMessagesWithHeaders(Vertx vertx, VertxTestContext testContext) {
+        // A strict checkpoint: a second delivery fails the test.
+        Checkpoint received = testContext.checkpoint();
         Map<String, String> headers = new HashMap<>();
         headers.put("content-type", "application/json");
         headers.put("source", "test");
 
         consumer.subscribe(message -> {
-            logger.info("Test: consumer receives messages with headers");
-            receivedHeaders.set(message.getHeaders());
-            latch.flag();
+            testContext.verify(() -> {
+                assertNotNull(message.getHeaders(), "Should receive headers");
+                assertEquals("application/json", message.getHeaders().get("content-type"), "Header value should match");
+                assertEquals("test", message.getHeaders().get("source"), "Header value should match");
+            });
+            received.flag();
             return Future.succeededFuture();
         })
             .compose(v -> producer.send("Message with headers", headers))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message within timeout");
-        assertNotNull(receivedHeaders.get(), "Should receive headers");
-        assertTrue(receivedHeaders.get().containsKey("content-type"), "Should contain content-type header");
-        assertEquals("application/json", receivedHeaders.get().get("content-type"), "Header value should match");
     }
 
     @Test
-    void testConsumerHandlerException(Vertx vertx, VertxTestContext testContext) throws Exception {
-        Checkpoint latch = testContext.checkpoint();
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    void testConsumerHandlerException(Vertx vertx, VertxTestContext testContext) {
+        // The first attempt fails and the message is delivered again; the second attempt
+        // succeeds. A strict two-pass checkpoint: a third delivery fails the test.
+        Checkpoint attempts = testContext.checkpoint(2);
         AtomicInteger attemptCount = new AtomicInteger(0);
 
         consumer.subscribe(message -> {
-            logger.info("Test: consumer handler exception");
             int attempt = attemptCount.incrementAndGet();
-            latch.flag();
-
+            attempts.flag();
             if (attempt == 1) {
                 return Future.failedFuture(new RuntimeException("Handler error"));
             }
@@ -238,9 +240,6 @@ public class OutboxConsumerCoreTest {
         })
             .compose(v -> producer.send("Message that causes error"))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should attempt to process message");
-        assertTrue(attemptCount.get() >= 1, "Should have at least one processing attempt");
     }
 
     @Test
@@ -285,7 +284,8 @@ public class OutboxConsumerCoreTest {
     }
 
     @Test
-    void testConsumerGroupNameSetting(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    void testConsumerGroupNameSetting(Vertx vertx, VertxTestContext testContext) {
         // Close the setUp consumer and replace with a group-named one;
         // tearDown will close the reassigned field, avoiding an explicit close() here.
         consumer.close();
@@ -296,15 +296,14 @@ public class OutboxConsumerCoreTest {
             ((OutboxConsumer<String>) consumer).setConsumerGroupName("test-group");
         }
 
-        Checkpoint latch = testContext.checkpoint();
+        // A strict checkpoint: a second delivery fails the test.
+        Checkpoint received = testContext.checkpoint();
 
         consumer.subscribe(message -> {
-            latch.flag();
+            received.flag();
             return Future.succeededFuture();
         })
             .compose(v -> producer.send("Message for consumer group"))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Consumer with group should receive message");
     }
 }

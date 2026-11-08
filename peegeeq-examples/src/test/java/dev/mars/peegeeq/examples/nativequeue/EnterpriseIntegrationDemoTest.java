@@ -19,6 +19,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import org.junit.jupiter.api.*;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -30,6 +31,7 @@ import java.time.Instant;
 import java.util.*;
 
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxTestContext;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -307,7 +309,8 @@ class EnterpriseIntegrationDemoTest {
 
     @Test
     @DisplayName("Message Transformation - Converting Between Different Message Formats")
-    void testMessageTransformation(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    void testMessageTransformation(VertxTestContext testContext) {
         logger.info("Test: message transformation");
         logger.info("Testing Message Transformation");
 
@@ -316,8 +319,13 @@ class EnterpriseIntegrationDemoTest {
         
         List<TransformedMessage> transformedMessages = new ArrayList<>();
         AtomicInteger messagesProcessed = new AtomicInteger(0);
-        var inputCheckpoint = testContext.checkpoint(3);
-        var outputCheckpoint = testContext.checkpoint(3);
+        // Events counted across the former checkpoints; the assertions run once all have happened.
+        Promise<Void> allEvents = Promise.promise();
+        AtomicInteger remainingEvents = new AtomicInteger();
+        remainingEvents.addAndGet(3);
+        Runnable inputCheckpoint = () -> countEvent(testContext, remainingEvents, allEvents);
+        remainingEvents.addAndGet(3);
+        Runnable outputCheckpoint = () -> countEvent(testContext, remainingEvents, allEvents);
 
         // Create producers and consumers
         MessageProducer<OrderMessage> inputProducer = queueFactory.createProducer(inputQueue, OrderMessage.class);
@@ -392,7 +400,7 @@ class EnterpriseIntegrationDemoTest {
                     .onFailure(testContext::failNow);
             
             messagesProcessed.incrementAndGet();
-            inputCheckpoint.flag();
+            inputCheckpoint.run();
             return Future.succeededFuture();
         });
 
@@ -403,7 +411,7 @@ class EnterpriseIntegrationDemoTest {
             logger.info("Received transformed message for: {}", transformed.targetSystem);
             transformedMessages.add(transformed);
             
-            outputCheckpoint.flag();
+            outputCheckpoint.run();
             return Future.succeededFuture();
         });
         Future<Void> subscriptions = Future.all(inputSubscription, outputSubscription).mapEmpty();
@@ -435,34 +443,37 @@ class EnterpriseIntegrationDemoTest {
         subscriptions.compose(v -> inputProducer.send(apacOrder))
                 .onFailure(testContext::failNow);
 
-        // Wait for all transformations to complete
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Should process all transformations");
+        allEvents.future()
+            .onSuccess(done -> testContext.verify(() -> {
+            // Verify transformations
+            assertEquals(3, transformedMessages.size(), "Should have 3 transformed messages");
+            assertEquals(3, messagesProcessed.get(), "Should have processed 3 messages");
 
-        // Verify transformations
-        assertEquals(3, transformedMessages.size(), "Should have 3 transformed messages");
-        assertEquals(3, messagesProcessed.get(), "Should have processed 3 messages");
+            logger.info("Message Transformation Results:");
+            for (TransformedMessage msg : transformedMessages) {
+                logger.info("  {} -> {} (Message ID: {})", msg.sourceSystem, msg.targetSystem, msg.messageId);
+            }
 
-        logger.info("Message Transformation Results:");
-        for (TransformedMessage msg : transformedMessages) {
-            logger.info("  {} -> {} (Message ID: {})", msg.sourceSystem, msg.targetSystem, msg.messageId);
-        }
+            // Verify different target systems
+            Set<String> targetSystems = new HashSet<>();
+            transformedMessages.forEach(msg -> targetSystems.add(msg.targetSystem));
+            assertEquals(3, targetSystems.size(), "Should have 3 different target systems");
 
-        // Verify different target systems
-        Set<String> targetSystems = new HashSet<>();
-        transformedMessages.forEach(msg -> targetSystems.add(msg.targetSystem));
-        assertEquals(3, targetSystems.size(), "Should have 3 different target systems");
+            // Cleanup
+            inputConsumer.close();
+            outputConsumer.close();
 
-        // Cleanup
-        inputConsumer.close();
-        outputConsumer.close();
-
-        logger.info("Message Transformation test completed successfully");
-        logger.info("Total messages transformed: {}", messagesProcessed.get());
+            logger.info("Message Transformation test completed successfully");
+            logger.info("Total messages transformed: {}", messagesProcessed.get());
+            testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
     @DisplayName("Content-Based Routing - Routing Messages Based on Content")
-    void testContentBasedRouting(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    void testContentBasedRouting(VertxTestContext testContext) {
         logger.info("Test: content based routing");
         logger.info("Testing Content-Based Routing");
 
@@ -473,8 +484,13 @@ class EnterpriseIntegrationDemoTest {
 
         Map<String, List<OrderMessage>> routedMessages = new HashMap<>();
         AtomicInteger messagesRouted = new AtomicInteger(0);
-        var inputCheckpoint2 = testContext.checkpoint(6);
-        var routingCheckpoint = testContext.checkpoint(6);
+        // Events counted across the former checkpoints; the assertions run once all have happened.
+        Promise<Void> allEvents = Promise.promise();
+        AtomicInteger remainingEvents = new AtomicInteger();
+        remainingEvents.addAndGet(6);
+        Runnable inputCheckpoint2 = () -> countEvent(testContext, remainingEvents, allEvents);
+        remainingEvents.addAndGet(6);
+        Runnable routingCheckpoint = () -> countEvent(testContext, remainingEvents, allEvents);
 
         // Create producers and consumers
         MessageProducer<OrderMessage> inputProducer = queueFactory.createProducer(inputQueue, OrderMessage.class);
@@ -516,7 +532,7 @@ class EnterpriseIntegrationDemoTest {
             }
 
             messagesRouted.incrementAndGet();
-            inputCheckpoint2.flag();
+            inputCheckpoint2.run();
             return Future.succeededFuture();
         });
 
@@ -525,7 +541,7 @@ class EnterpriseIntegrationDemoTest {
             OrderMessage order = message.getPayload();
             routedMessages.computeIfAbsent("HIGH_PRIORITY", k -> new ArrayList<>()).add(order);
             logger.info("HIGH PRIORITY consumer processed: {}", order.getOrderId());
-            routingCheckpoint.flag();
+            routingCheckpoint.run();
             return Future.succeededFuture();
         });
 
@@ -533,7 +549,7 @@ class EnterpriseIntegrationDemoTest {
             OrderMessage order = message.getPayload();
             routedMessages.computeIfAbsent("NORMAL_PRIORITY", k -> new ArrayList<>()).add(order);
             logger.info("NORMAL PRIORITY consumer processed: {}", order.getOrderId());
-            routingCheckpoint.flag();
+            routingCheckpoint.run();
             return Future.succeededFuture();
         });
 
@@ -541,7 +557,7 @@ class EnterpriseIntegrationDemoTest {
             OrderMessage order = message.getPayload();
             routedMessages.computeIfAbsent("LOW_PRIORITY", k -> new ArrayList<>()).add(order);
             logger.info("LOW PRIORITY consumer processed: {}", order.getOrderId());
-            routingCheckpoint.flag();
+            routingCheckpoint.run();
             return Future.succeededFuture();
         });
         Future<Void> subscriptions = Future.all(
@@ -599,37 +615,39 @@ class EnterpriseIntegrationDemoTest {
         subscriptions.compose(v -> inputProducer.send(lowOrder2))
                 .onFailure(testContext::failNow);
 
-        // Wait for all routing to complete
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Should complete all routing");
+        allEvents.future()
+            .onSuccess(done -> testContext.verify(() -> {
+            // Verify routing results
+            assertEquals(6, messagesRouted.get(), "Should have routed 6 messages");
 
-        // Verify routing results
-        assertEquals(6, messagesRouted.get(), "Should have routed 6 messages");
-
-        logger.info("Content-Based Routing Results:");
-        for (Map.Entry<String, List<OrderMessage>> entry : routedMessages.entrySet()) {
-            logger.info("  {}: {} messages", entry.getKey(), entry.getValue().size());
-            for (OrderMessage order : entry.getValue()) {
-                logger.info("    - {} (${})", order.getOrderId(), order.getTotalAmount());
+            logger.info("Content-Based Routing Results:");
+            for (Map.Entry<String, List<OrderMessage>> entry : routedMessages.entrySet()) {
+                logger.info("  {}: {} messages", entry.getKey(), entry.getValue().size());
+                for (OrderMessage order : entry.getValue()) {
+                    logger.info("    - {} (${})", order.getOrderId(), order.getTotalAmount());
+                }
             }
-        }
 
-        // Verify expected routing
-        assertTrue(routedMessages.containsKey("HIGH_PRIORITY"), "Should have high priority messages");
-        assertTrue(routedMessages.containsKey("NORMAL_PRIORITY"), "Should have normal priority messages");
-        assertTrue(routedMessages.containsKey("LOW_PRIORITY"), "Should have low priority messages");
+            // Verify expected routing
+            assertTrue(routedMessages.containsKey("HIGH_PRIORITY"), "Should have high priority messages");
+            assertTrue(routedMessages.containsKey("NORMAL_PRIORITY"), "Should have normal priority messages");
+            assertTrue(routedMessages.containsKey("LOW_PRIORITY"), "Should have low priority messages");
 
-        assertEquals(2, routedMessages.get("HIGH_PRIORITY").size(), "Should have 2 high priority messages");
-        assertEquals(2, routedMessages.get("NORMAL_PRIORITY").size(), "Should have 2 normal priority messages");
-        assertEquals(2, routedMessages.get("LOW_PRIORITY").size(), "Should have 2 low priority messages");
+            assertEquals(2, routedMessages.get("HIGH_PRIORITY").size(), "Should have 2 high priority messages");
+            assertEquals(2, routedMessages.get("NORMAL_PRIORITY").size(), "Should have 2 normal priority messages");
+            assertEquals(2, routedMessages.get("LOW_PRIORITY").size(), "Should have 2 low priority messages");
 
-        // Cleanup
-        inputConsumer.close();
-        highPriorityConsumer.close();
-        normalPriorityConsumer.close();
-        lowPriorityConsumer.close();
+            // Cleanup
+            inputConsumer.close();
+            highPriorityConsumer.close();
+            normalPriorityConsumer.close();
+            lowPriorityConsumer.close();
 
-        logger.info("Content-Based Routing test completed successfully");
-        logger.info("Total messages routed: {}", messagesRouted.get());
+            logger.info("Content-Based Routing test completed successfully");
+            logger.info("Total messages routed: {}", messagesRouted.get());
+            testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     private String determineRoute(OrderMessage order) {
@@ -676,5 +694,13 @@ class EnterpriseIntegrationDemoTest {
         return "Standard routing criteria";
     }
 
-
+    /** Counts one expected event; completes {@code all} at zero and fails the test on an extra event. */
+    private static void countEvent(VertxTestContext testContext, AtomicInteger remaining, Promise<Void> all) {
+        int left = remaining.decrementAndGet();
+        if (left == 0) {
+            all.tryComplete();
+        } else if (left < 0) {
+            testContext.failNow(new AssertionError("More events than expected: " + (-left) + " extra"));
+        }
+    }
 }

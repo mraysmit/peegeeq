@@ -127,7 +127,7 @@ class PgNativeQueueFactoryIntegrationTest {
                 .onSuccess(browser -> testContext.verify(() -> {
                     assertNotNull(browser);
                     assertInstanceOf(PgNativeQueueBrowser.class, browser);
-                    try { browser.close(); } catch (Exception ignored) { }
+                    try { browser.close(); } catch (Exception e) { logger.warn("Browser close failed: {}", e.getMessage(), e); }
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -160,7 +160,7 @@ class PgNativeQueueFactoryIntegrationTest {
         factory.<String>createBrowser("native-empty-topic", String.class)
                 .compose(browser -> browser.browse(10, 0)
                         .eventually(() -> {
-                            try { browser.close(); } catch (Exception ignored) { }
+                            try { browser.close(); } catch (Exception e) { logger.warn("Browser close failed: {}", e.getMessage(), e); }
                             return Future.succeededFuture();
                         }))
                 .onSuccess(messages -> testContext.verify(() -> {
@@ -181,8 +181,8 @@ class PgNativeQueueFactoryIntegrationTest {
             assertNotNull(b1);
             assertNotNull(b2);
             assertNotSame(b1, b2);
-            try { b1.close(); } catch (Exception ignored) { }
-            try { b2.close(); } catch (Exception ignored) { }
+            try { b1.close(); } catch (Exception e) { logger.warn("Browser close failed: {}", e.getMessage(), e); }
+            try { b2.close(); } catch (Exception e) { logger.warn("Browser close failed: {}", e.getMessage(), e); }
             testContext.completeNow();
         })).onFailure(testContext::failNow);
     }

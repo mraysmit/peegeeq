@@ -16,6 +16,7 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 
@@ -35,7 +36,6 @@ import java.time.Duration;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 
 import io.vertx.core.Future;
 
@@ -111,6 +111,7 @@ class HybridModeEdgeCaseTest {
     }
 
     @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     void testHybridModeListenNotifyPrimary(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info(" Testing HYBRID mode with LISTEN/NOTIFY as primary mechanism");
 
@@ -139,16 +140,10 @@ class HybridModeEdgeCaseTest {
                 .compose(v -> producer.send("HYBRID message 2"))
                 .compose(v -> producer.send("HYBRID message 3"))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive all 3 messages quickly via LISTEN/NOTIFY");
-        assertEquals(3, messageCount.get(), "Should have processed exactly 3 messages");
-
-        consumer.close();
-        producer.close();
-        logger.info("HYBRID mode prioritizes LISTEN/NOTIFY correctly");
     }
 
     @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     void testHybridModePollingFallback(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info(" Testing HYBRID mode polling fallback for existing messages");
 
@@ -175,16 +170,10 @@ class HybridModeEdgeCaseTest {
             messagesReceived.flag();
             return Future.succeededFuture();
         }).onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive existing messages via polling fallback");
-        assertEquals(2, messageCount.get(), "Should have processed exactly 2 existing messages");
-
-        consumer.close();
-        producer.close();
-        logger.info("HYBRID mode polling fallback works correctly");
     }
 
     @Test
+    @Timeout(value = 20, timeUnit = TimeUnit.SECONDS)
     void testHybridModeBothMechanisms(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info(" Testing HYBRID mode with both LISTEN/NOTIFY and polling active");
 
@@ -219,19 +208,11 @@ class HybridModeEdgeCaseTest {
                 .compose(v -> producer.send("New message 2"))
                 .compose(v -> producer.send("New message 3"))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Should receive all 5 messages via both mechanisms");
-        assertEquals(5, messageCount.get(), "Should have processed exactly 5 messages");
-
-        consumer.close();
-        producer.close();
-        logger.info("HYBRID mode handles both mechanisms correctly");
     }
 
     @Test
-    void testHybridModeResourceCleanup(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info(" Testing HYBRID mode resource cleanup");
-
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    void testHybridModeResourceCleanup(Vertx vertx, VertxTestContext testContext) {
         String topicName = "test-hybrid-resource-cleanup";
 
         ConsumerConfig config = ConsumerConfig.builder()
@@ -242,36 +223,22 @@ class HybridModeEdgeCaseTest {
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class, config);
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        AtomicInteger messageCount = new AtomicInteger(0);
-        AtomicReference<String> lastMessage = new AtomicReference<>();
+        // A strict checkpoint: a second delivery fails the test. The teardown closes the consumer
+        // through the factory.
         Checkpoint messageReceived = testContext.checkpoint();
 
-        Future<Void> subscription = consumer.subscribe(message -> {
-            messageCount.incrementAndGet();
-            lastMessage.set(message.getPayload());
-            logger.info(" Received cleanup test message: {}", message.getPayload());
-            messageReceived.flag();
-            return Future.succeededFuture();
-        });
-
-        // Send a message to verify consumer is working
-        subscription
+        consumer.subscribe(message -> {
+                testContext.verify(() -> assertEquals("Cleanup test message", message.getPayload(),
+                    "Should have received correct message"));
+                messageReceived.flag();
+                return Future.succeededFuture();
+            })
             .compose(v -> producer.send("Cleanup test message"))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-
-        assertEquals(1, messageCount.get(), "Should have processed the test message");
-        assertEquals("Cleanup test message", lastMessage.get(), "Should have received correct message");
-
-        // Close consumer and verify graceful shutdown
-        consumer.close();
-        producer.close();
-
-        logger.info("HYBRID mode resource cleanup completed successfully");
     }
 
     @Test
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
     void testHybridModeMessageOrdering(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info(" Testing HYBRID mode message ordering consistency");
 
@@ -301,16 +268,10 @@ class HybridModeEdgeCaseTest {
             sendChain = sendChain.compose(v -> producer.send(payload));
         }
         sendChain.onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive all 6 messages");
-        assertEquals(6, messageCount.get(), "Should have processed exactly 6 messages");
-
-        consumer.close();
-        producer.close();
-        logger.info("HYBRID mode maintains message ordering consistency");
     }
 
     @Test
+    @Timeout(value = 20, timeUnit = TimeUnit.SECONDS)
     void testHybridModePerformanceUnderLoad(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info(" Testing HYBRID mode performance under moderate load");
 
@@ -343,13 +304,6 @@ class HybridModeEdgeCaseTest {
             sendChain = sendChain.compose(v -> producer.send(payload));
         }
         sendChain.onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Should handle moderate load efficiently");
-        assertEquals(15, messageCount.get(), "Should have processed exactly 15 messages");
-
-        consumer.close();
-        producer.close();
-        logger.info("HYBRID mode handles moderate load efficiently");
     }
 }
 

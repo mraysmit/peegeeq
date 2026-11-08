@@ -16,71 +16,48 @@ package dev.mars.peegeeq.db.config;
  * limitations under the License.
  */
 
-
-import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.client.PgClient;
 import dev.mars.peegeeq.db.client.PgClientFactory;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
-import io.vertx.sqlclient.Row;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import dev.mars.peegeeq.db.PgTestImageConstant;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.util.ArrayList;
 import java.util.List;
 
-import io.vertx.core.Future;
-import io.vertx.junit5.VertxTestContext;
-
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * Implementation of PoolingUnderLoadIntegrationTest functionality.
- * 
- * This class is part of the PeeGeeQ message queue system, providing
- * production-ready PostgreSQL-based message queuing capabilities.
- * 
- * @author Mark Andrew Ray-Smith Cityline Ltd
- * @since 2025-07-13
- * @version 1.0
+ * Ten concurrent requests through one {@link PgClient} each borrow a pooled connection, run a
+ * query and hold the connection for 100 ms; all of them complete.
  */
-import dev.mars.peegeeq.test.categories.TestCategories;
-import org.junit.jupiter.api.Tag;
-
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 public class PoolingUnderLoadIntegrationTest {
 
-    private static final Logger logger = LoggerFactory.getLogger(PoolingUnderLoadIntegrationTest.class);
-
     @Container
-    private static final PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PgTestImageConstant.POSTGRES_IMAGE);
-        container.withDatabaseName("testdb");
-        container.withUsername("testuser");
-        container.withPassword("testpass");
-        return container;
-    }
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PgClientFactory clientFactory;
     private PgClient pgClient;
 
     @BeforeEach
-    void setUp() {
-        clientFactory = new PgClientFactory(Vertx.vertx());
+    void setUp(Vertx vertx) {
+        // The factory uses the Vert.x of VertxExtension, which owns and closes it.
+        clientFactory = new PgClientFactory(vertx);
 
-        // Create connection config from TestContainer
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
                 .host(postgres.getHost())
                 .port(postgres.getFirstMappedPort())
@@ -90,41 +67,37 @@ public class PoolingUnderLoadIntegrationTest {
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
 
-        // Create client
         pgClient = clientFactory.createClient("test-client", connectionConfig);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
-        if (clientFactory != null) {
-            clientFactory.close().onFailure(e -> logger.warn("clientFactory.close() failed in tearDown", e));
+    void tearDown(VertxTestContext testContext) {
+        if (clientFactory == null) {
+            testContext.completeNow();
+            return;
         }
+        clientFactory.close().onComplete(testContext.succeedingThenComplete());
     }
 
     @Test
     void testConnectionPoolingUnderLoad(Vertx vertx, VertxTestContext testContext) {
         int numRequests = 10;
-        List<Future<?>> futures = new ArrayList<>();
-        
+        List<Future<Integer>> futures = new ArrayList<>();
+
         for (int i = 0; i < numRequests; i++) {
-            Future<?> requestFuture = pgClient.withReactiveConnectionResult(connection -> 
-                connection.preparedQuery("SELECT 1")
-                    .execute()
-                    .map(rowSet -> {
-                        Row row = rowSet.iterator().next();
-                        int result = row.getInteger(0);
-                        assertEquals(1, result);
-                        return result;
-                    })
-                    .compose(result -> vertx.timer(100).map(result))
-            );
-            futures.add(requestFuture);
+            futures.add(pgClient.withReactiveConnectionResult(connection ->
+                    connection.preparedQuery("SELECT 1")
+                            .execute()
+                            .map(rowSet -> rowSet.iterator().next().getInteger(0))
+                            .compose(result -> vertx.timer(100).map(result))));
         }
-        
+
         Future.all(futures)
-            .onSuccess(v -> testContext.completeNow())
-            .onFailure(testContext::failNow);
+                .onComplete(testContext.succeeding(all -> testContext.verify(() -> {
+                    for (int i = 0; i < numRequests; i++) {
+                        assertEquals(1, all.<Integer>resultAt(i), "request " + i);
+                    }
+                    testContext.completeNow();
+                })));
     }
-
-
 }

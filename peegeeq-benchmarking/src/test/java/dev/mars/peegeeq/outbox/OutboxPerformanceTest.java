@@ -31,8 +31,8 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
@@ -128,50 +128,28 @@ public class OutboxPerformanceTest {
         if (producer != null) {
             try { producer.close(); } catch (Exception e) { logger.warn("Error closing producer: {}", e.getMessage()); }
         }
-        if (outboxFactory != null) {
-            try { outboxFactory.close(); } catch (Exception e) { logger.warn("Error closing factory: {}", e.getMessage()); }
-        }
-        if (manager == null) {
-            testContext.completeNow();
-            return;
-        }
-        manager.closeReactive()
+        // The factory close returns a Future: it is composed, so a failed close fails the test.
+        (outboxFactory != null ? outboxFactory.close() : Future.<Void>succeededFuture())
+                .compose(v -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(err -> {
-                    logger.error("Error during manager cleanup", err);
+                    logger.error("Error during teardown", err);
                     testContext.failNow(err);
                 });
     }
 
-    /**
-     * Surfaces a failed {@link VertxTestContext} as an assertion carrying its cause.
-     *
-     * <p>{@code awaitCompletion} returns true for a context that completed via {@code failNow},
-     * so without this check the test runs on past a failed send and fails later on derived state
-     * — a {@code NullPointerException} inside {@code Duration.between} rather than the send
-     * failure that caused it.
-     */
-    private static void failIfContextFailed(VertxTestContext testContext) {
-        if (testContext.failed()) {
-            throw new AssertionError("Async work failed before metrics could be computed",
-                    testContext.causeOfFailure());
-        }
-    }
-
     @Test
-    void testThroughputPerformance(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @io.vertx.junit5.Timeout(value = 120, timeUnit = TimeUnit.SECONDS)
+    void testThroughputPerformance(Vertx vertx, VertxTestContext testContext) {
         int messageCount = 1000;
-        Checkpoint allProcessed = testContext.checkpoint(messageCount);
+        Promise<Instant> allProcessed = Promise.promise();
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicLong totalProcessingTime = new AtomicLong(0);
+        AtomicReference<Instant> sendCompleteTimeRef = new AtomicReference<>();
+        AtomicReference<Instant> startTimeRef = new AtomicReference<>();
 
-        // Subscribe first; chain the send burst off the subscribe Future so we never race
-        // the consumer start-up. The per-message allProcessed checkpoint plus the
-        // sendsCompleted checkpoint together drive testContext.awaitCompletion.
-        Checkpoint sendsCompleted = testContext.checkpoint(1);
-        final AtomicReference<Instant> sendCompleteTimeRef = new AtomicReference<>();
-        final AtomicReference<Instant> startTimeRef = new AtomicReference<>();
-
+        // Subscribe first; the send burst is chained off the subscribe Future so it never races
+        // the consumer start-up.
         consumer.subscribe(message -> {
             long startNs = System.nanoTime();
             int count = processedCount.incrementAndGet();
@@ -179,9 +157,11 @@ public class OutboxPerformanceTest {
                 logger.info("Processed {} messages...", count);
             }
             totalProcessingTime.addAndGet(System.nanoTime() - startNs);
-            allProcessed.flag();
+            if (count == messageCount) {
+                allProcessed.tryComplete(Instant.now());
+            }
             return Future.succeededFuture();
-        }).onComplete(testContext.succeeding(subscribed -> {
+        }).compose(subscribed -> {
             logger.info("Starting throughput test with {} messages across {} send lanes...",
                     messageCount, THROUGHPUT_SEND_CONCURRENCY);
             startTimeRef.set(Instant.now());
@@ -193,59 +173,49 @@ public class OutboxPerformanceTest {
             for (int lane = 0; lane < THROUGHPUT_SEND_CONCURRENCY; lane++) {
                 sendFutures.add(sendThroughputLane(lane, 0, messagesPerLane));
             }
-            Future.all(sendFutures)
-                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
-                    sendCompleteTimeRef.set(Instant.now());
-                    sendsCompleted.flag();
-                })));
-        }));
+            return Future.all(sendFutures).onSuccess(v -> sendCompleteTimeRef.set(Instant.now()));
+        }).compose(sent -> allProcessed.future())
+        .onSuccess(processCompleteTime -> testContext.verify(() -> {
+            Instant sendCompleteTime = sendCompleteTimeRef.get();
+            Instant startTime = startTimeRef.get();
 
-        // Wait for all messages to be processed (and for sends to have completed)
-        assertTrue(testContext.awaitCompletion(120, TimeUnit.SECONDS),
-            "All messages should be processed within timeout");
-        // awaitCompletion returns true for a context that completed by failNow, so a failed send
-        // would otherwise leave sendCompleteTimeRef null and surface as an NPE in Duration.between,
-        // hiding the real cause.
-        failIfContextFailed(testContext);
-        Instant processCompleteTime = Instant.now();
-        Instant sendCompleteTime = sendCompleteTimeRef.get();
-        Instant startTime = startTimeRef.get();
+            // Calculate performance metrics
+            Duration sendDuration = Duration.between(startTime, sendCompleteTime);
+            Duration totalDuration = Duration.between(startTime, processCompleteTime);
+            Duration processingDuration = Duration.between(sendCompleteTime, processCompleteTime);
 
-        // Calculate performance metrics
-        Duration sendDuration = Duration.between(startTime, sendCompleteTime);
-        Duration totalDuration = Duration.between(startTime, processCompleteTime);
-        Duration processingDuration = Duration.between(sendCompleteTime, processCompleteTime);
+            double sendThroughput = messageCount / (sendDuration.toMillis() / 1000.0);
+            double totalThroughput = messageCount / (totalDuration.toMillis() / 1000.0);
+            double avgProcessingTimeNs = totalProcessingTime.get() / (double) messageCount;
 
-        double sendThroughput = messageCount / (sendDuration.toMillis() / 1000.0);
-        double totalThroughput = messageCount / (totalDuration.toMillis() / 1000.0);
-        double avgProcessingTimeNs = totalProcessingTime.get() / (double) messageCount;
+            logger.info("=== THROUGHPUT PERFORMANCE RESULTS ===");
+            logger.info("Messages: {}", messageCount);
+            logger.info("Send duration: {}ms", sendDuration.toMillis());
+            logger.info("Processing duration: {}ms", processingDuration.toMillis());
+            logger.info("Total duration: {}ms", totalDuration.toMillis());
+            logger.info("Send throughput: {} msg/sec", String.format("%.2f", sendThroughput));
+            logger.info("Total throughput: {} msg/sec", String.format("%.2f", totalThroughput));
+            logger.info("Avg processing time: {}ms", String.format("%.2f", avgProcessingTimeNs / 1_000_000));
 
-        logger.info("=== THROUGHPUT PERFORMANCE RESULTS ===");
-        logger.info("Messages: {}", messageCount);
-        logger.info("Send duration: {}ms", sendDuration.toMillis());
-        logger.info("Processing duration: {}ms", processingDuration.toMillis());
-        logger.info("Total duration: {}ms", totalDuration.toMillis());
-        logger.info("Send throughput: {} msg/sec", String.format("%.2f", sendThroughput));
-        logger.info("Total throughput: {} msg/sec", String.format("%.2f", totalThroughput));
-        logger.info("Avg processing time: {}ms", String.format("%.2f", avgProcessingTimeNs / 1_000_000));
-
-        // Verify all messages were processed
-        assertEquals(messageCount, processedCount.get(), "Should process all messages");
-
-        // Performance assertions (adjust based on expected performance)
-        assertTrue(sendThroughput > 100, "Send throughput should be > 100 msg/sec, was: " + sendThroughput);
-        assertTrue(totalThroughput > 50, "Total throughput should be > 50 msg/sec, was: " + totalThroughput);
+            assertEquals(messageCount, processedCount.get(), "Should process all messages");
+            assertTrue(sendThroughput > 100, "Send throughput should be > 100 msg/sec, was: " + sendThroughput);
+            assertTrue(totalThroughput > 50, "Total throughput should be > 50 msg/sec, was: " + totalThroughput);
+            testContext.completeNow();
+        }))
+        .onFailure(testContext::failNow);
     }
 
     @Test
-    void testLatencyPerformance(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @io.vertx.junit5.Timeout(value = 60, timeUnit = TimeUnit.SECONDS)
+    void testLatencyPerformance(Vertx vertx, VertxTestContext testContext) {
         int messageCount = 100;
-        Checkpoint allProcessed = testContext.checkpoint(messageCount);
+        Promise<Void> allProcessed = Promise.promise();
+        AtomicInteger processedCount = new AtomicInteger(0);
         AtomicLong totalLatency = new AtomicLong(0);
         AtomicLong minLatency = new AtomicLong(Long.MAX_VALUE);
         AtomicLong maxLatency = new AtomicLong(0);
 
-        // Subscribe first; only start sending after subscribe completes so we don't race
+        // Subscribe first; only start sending after subscribe completes so the sends do not race
         // the consumer start-up. Sends are paced 10 ms apart with a Vert.x timer.
         consumer.subscribe(message -> {
             long receiveTime = System.nanoTime();
@@ -254,45 +224,44 @@ public class OutboxPerformanceTest {
             totalLatency.addAndGet(latency);
             minLatency.updateAndGet(current -> Math.min(current, latency));
             maxLatency.updateAndGet(current -> Math.max(current, latency));
-            allProcessed.flag();
+            if (processedCount.incrementAndGet() == messageCount) {
+                allProcessed.tryComplete();
+            }
             return Future.succeededFuture();
-        }).onComplete(testContext.succeeding(subscribed -> {
+        }).compose(subscribed -> {
             logger.info("Starting latency test with {} messages...", messageCount);
-            sendPacedLatency(vertx, 0, messageCount).onFailure(testContext::failNow);
-        }));
+            return sendPacedLatency(vertx, 0, messageCount);
+        }).compose(sent -> allProcessed.future())
+        .onSuccess(processed -> testContext.verify(() -> {
+            double avgLatencyMs = (totalLatency.get() / (double) messageCount) / 1_000_000;
+            double minLatencyMs = minLatency.get() / 1_000_000.0;
+            double maxLatencyMs = maxLatency.get() / 1_000_000.0;
 
-        // Wait for all messages to be processed
-        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS),
-            "All messages should be processed within timeout");
-        failIfContextFailed(testContext);
+            logger.info("=== LATENCY PERFORMANCE RESULTS ===");
+            logger.info("Messages: {}", messageCount);
+            logger.info("Average latency: {}ms", String.format("%.2f", avgLatencyMs));
+            logger.info("Min latency: {}ms", String.format("%.2f", minLatencyMs));
+            logger.info("Max latency: {}ms", String.format("%.2f", maxLatencyMs));
 
-        // Calculate latency metrics
-        double avgLatencyMs = (totalLatency.get() / (double) messageCount) / 1_000_000;
-        double minLatencyMs = minLatency.get() / 1_000_000.0;
-        double maxLatencyMs = maxLatency.get() / 1_000_000.0;
-
-        logger.info("=== LATENCY PERFORMANCE RESULTS ===");
-        logger.info("Messages: {}", messageCount);
-        logger.info("Average latency: {}ms", String.format("%.2f", avgLatencyMs));
-        logger.info("Min latency: {}ms", String.format("%.2f", minLatencyMs));
-        logger.info("Max latency: {}ms", String.format("%.2f", maxLatencyMs));
-
-        // Performance assertions (adjust based on expected performance)
-        assertTrue(avgLatencyMs < 1000, "Average latency should be < 1000ms, was: " + avgLatencyMs);
-        assertTrue(minLatencyMs < 500, "Min latency should be < 500ms, was: " + minLatencyMs);
+            assertEquals(messageCount, processedCount.get(), "Should process every latency message once");
+            assertTrue(avgLatencyMs < 1000, "Average latency should be < 1000ms, was: " + avgLatencyMs);
+            assertTrue(minLatencyMs < 500, "Min latency should be < 500ms, was: " + minLatencyMs);
+            testContext.completeNow();
+        }))
+        .onFailure(testContext::failNow);
     }
 
     @Test
-    void testConcurrentProducerPerformance(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @io.vertx.junit5.Timeout(value = 180, timeUnit = TimeUnit.SECONDS)
+    void testConcurrentProducerPerformance(Vertx vertx, VertxTestContext testContext) {
         int producerCount = 5;
         int messagesPerProducer = 200;
         int totalMessages = producerCount * messagesPerProducer;
 
-        Checkpoint allProcessed = testContext.checkpoint(totalMessages);
+        Promise<Instant> allProcessed = Promise.promise();
         AtomicInteger processedCount = new AtomicInteger(0);
-        Checkpoint sendsCompleted = testContext.checkpoint(1);
-        final AtomicReference<Instant> sendCompleteTimeRef = new AtomicReference<>();
-        final AtomicReference<Instant> startTimeRef = new AtomicReference<>();
+        AtomicReference<Instant> sendCompleteTimeRef = new AtomicReference<>();
+        AtomicReference<Instant> startTimeRef = new AtomicReference<>();
 
         // Subscribe first; only kick off the producer chains after subscribe completes.
         consumer.subscribe(message -> {
@@ -300,14 +269,15 @@ public class OutboxPerformanceTest {
             if (count % 100 == 0) {
                 logger.info("Processed {} concurrent messages...", count);
             }
-            allProcessed.flag();
+            if (count == totalMessages) {
+                allProcessed.tryComplete(Instant.now());
+            }
             return Future.succeededFuture();
-        }).onComplete(testContext.succeeding(subscribed -> {
+        }).compose(subscribed -> {
             logger.info("Starting concurrent producer test: {} producers, {} messages each...",
                 producerCount, messagesPerProducer);
             startTimeRef.set(Instant.now());
 
-            // Drive concurrency through Vert.x reactive chains instead of an ExecutorService.
             // Each producer chain sends its messages serially via composed futures; the chains
             // themselves run in parallel and are aggregated with Future.all.
             List<Future<Void>> producerFutures = new java.util.ArrayList<>(producerCount);
@@ -323,44 +293,33 @@ public class OutboxPerformanceTest {
                     });
                 producerFutures.add(producerFuture);
             }
+            return Future.all(producerFutures).onSuccess(v -> sendCompleteTimeRef.set(Instant.now()));
+        }).compose(sent -> allProcessed.future())
+        .onSuccess(processCompleteTime -> testContext.verify(() -> {
+            Instant sendCompleteTime = sendCompleteTimeRef.get();
+            Instant startTime = startTimeRef.get();
 
-            Future.all(producerFutures)
-                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
-                    sendCompleteTimeRef.set(Instant.now());
-                    sendsCompleted.flag();
-                })));
-        }));
+            Duration sendDuration = Duration.between(startTime, sendCompleteTime);
+            Duration totalDuration = Duration.between(startTime, processCompleteTime);
 
-        // Wait for all messages to be processed (and for all producer chains to finish)
-        assertTrue(testContext.awaitCompletion(180, TimeUnit.SECONDS),
-            "All concurrent messages should be processed within timeout");
-        failIfContextFailed(testContext);
-        Instant processCompleteTime = Instant.now();
-        Instant sendCompleteTime = sendCompleteTimeRef.get();
-        Instant startTime = startTimeRef.get();
+            double sendThroughput = totalMessages / (sendDuration.toMillis() / 1000.0);
+            double totalThroughput = totalMessages / (totalDuration.toMillis() / 1000.0);
 
-        // Calculate performance metrics
-        Duration sendDuration = Duration.between(startTime, sendCompleteTime);
-        Duration totalDuration = Duration.between(startTime, processCompleteTime);
+            logger.info("=== CONCURRENT PRODUCER PERFORMANCE RESULTS ===");
+            logger.info("Producers: {}", producerCount);
+            logger.info("Messages per producer: {}", messagesPerProducer);
+            logger.info("Total messages: {}", totalMessages);
+            logger.info("Send duration: {}ms", sendDuration.toMillis());
+            logger.info("Total duration: {}ms", totalDuration.toMillis());
+            logger.info("Send throughput: {} msg/sec", String.format("%.2f", sendThroughput));
+            logger.info("Total throughput: {} msg/sec", String.format("%.2f", totalThroughput));
 
-        double sendThroughput = totalMessages / (sendDuration.toMillis() / 1000.0);
-        double totalThroughput = totalMessages / (totalDuration.toMillis() / 1000.0);
-
-        logger.info("=== CONCURRENT PRODUCER PERFORMANCE RESULTS ===");
-        logger.info("Producers: {}", producerCount);
-        logger.info("Messages per producer: {}", messagesPerProducer);
-        logger.info("Total messages: {}", totalMessages);
-        logger.info("Send duration: {}ms", sendDuration.toMillis());
-        logger.info("Total duration: {}ms", totalDuration.toMillis());
-        logger.info("Send throughput: {} msg/sec", String.format("%.2f", sendThroughput));
-        logger.info("Total throughput: {} msg/sec", String.format("%.2f", totalThroughput));
-
-        // Verify all messages were processed
-        assertEquals(totalMessages, processedCount.get(), "Should process all concurrent messages");
-
-        // Performance assertions
-        assertTrue(sendThroughput > 50, "Concurrent send throughput should be > 50 msg/sec, was: " + sendThroughput);
-        assertTrue(totalThroughput > 25, "Concurrent total throughput should be > 25 msg/sec, was: " + totalThroughput);
+            assertEquals(totalMessages, processedCount.get(), "Should process all concurrent messages");
+            assertTrue(sendThroughput > 50, "Concurrent send throughput should be > 50 msg/sec, was: " + sendThroughput);
+            assertTrue(totalThroughput > 25, "Concurrent total throughput should be > 25 msg/sec, was: " + totalThroughput);
+            testContext.completeNow();
+        }))
+        .onFailure(testContext::failNow);
     }
 
     /**

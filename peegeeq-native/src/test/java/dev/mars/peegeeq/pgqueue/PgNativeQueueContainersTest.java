@@ -23,6 +23,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.pgclient.PgConnectOptions;
@@ -99,20 +100,24 @@ public class PgNativeQueueContainersTest {
     }
 
     @Test
-    void testSendAndReceiveMessage(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+    void testSendAndReceiveMessage(VertxTestContext testContext) {
         // Arrange
         String messageText = "Test message";
         JsonObject expectedPayload = new JsonObject().put("text", messageText);
 
+        // A strict checkpoint: a second delivery fails the test.
         Checkpoint messageReceived = testContext.checkpoint();
-        AtomicReference<JsonObject> receivedMessage = new AtomicReference<>();
 
         // Act - Get the ReadStream from the queue
         ReadStream<JsonObject> stream = queue.receive();
 
         // Set up handlers for the stream
         stream.handler(message -> {
-            receivedMessage.set(message);
+            testContext.verify(() -> {
+                assertNotNull(message, "Received message should not be null");
+                assertEquals(messageText, message.getString("text"));
+            });
             messageReceived.flag();
         });
 
@@ -123,31 +128,21 @@ public class PgNativeQueueContainersTest {
             queue.send(expectedPayload)
                 .onFailure(testContext::failNow);
         });
-
-        // Wait for the message to be received
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Message was not received within timeout");
-
-        // Verify the received message
-        JsonObject receivedPayload = receivedMessage.get();
-        assertNotNull(receivedPayload, "Received message should not be null");
-        assertEquals(messageText, receivedPayload.getString("text"));
     }
 
     @Test
-    void testSendAndReceiveMultipleMessages(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+    void testSendAndReceiveMultipleMessages(VertxTestContext testContext) {
         // Arrange
         int messageCount = 5;
+        // A strict checkpoint: exactly five deliveries.
         Checkpoint messagesReceived = testContext.checkpoint(messageCount);
-        AtomicReference<Integer> receivedCount = new AtomicReference<>(0);
 
         // Act - Get the ReadStream from the queue
         ReadStream<JsonObject> stream = queue.receive();
 
         // Set up handlers for the stream
-        stream.handler(message -> {
-            receivedCount.updateAndGet(count -> count + 1);
-            messagesReceived.flag();
-        });
+        stream.handler(message -> messagesReceived.flag());
 
         stream.exceptionHandler(testContext::failNow);
 
@@ -161,14 +156,11 @@ public class PgNativeQueueContainersTest {
                     .onFailure(testContext::failNow);
             }
         });
-
-        // Wait for all messages to be received
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Not all messages were received within timeout");
-        assertEquals(messageCount, receivedCount.get(), "Should have received all messages");
     }
 
     @Test
-    void testReceiveFirstMessage(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+    void testReceiveFirstMessage(VertxTestContext testContext) {
         // Arrange
         String messageText = "Test message with first handler";
         JsonObject expectedPayload = new JsonObject().put("text", messageText);
@@ -183,6 +175,7 @@ public class PgNativeQueueContainersTest {
         stream.handler(message -> {
             // Only handle the first message
             if (receivedMessage.compareAndSet(null, message)) {
+                testContext.verify(() -> assertEquals(messageText, message.getString("text")));
                 firstMessageReceived.flag();
                 // Pause the stream after receiving the first message
                 stream.pause();
@@ -196,13 +189,5 @@ public class PgNativeQueueContainersTest {
             queue.send(expectedPayload)
                 .onFailure(testContext::failNow);
         });
-
-        // Wait for the message to be received
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Message was not received within timeout");
-
-        // Verify the received message
-        JsonObject receivedPayload = receivedMessage.get();
-        assertNotNull(receivedPayload, "Received message should not be null");
-        assertEquals(messageText, receivedPayload.getString("text"));
     }
 }

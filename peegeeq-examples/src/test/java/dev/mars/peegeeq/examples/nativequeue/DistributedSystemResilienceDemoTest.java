@@ -20,6 +20,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
@@ -355,7 +356,8 @@ class DistributedSystemResilienceDemoTest {
 
     @Test
     @DisplayName("Circuit Breaker Pattern - Preventing Cascade Failures")
-    void testCircuitBreakerPattern(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    void testCircuitBreakerPattern(Vertx vertx, VertxTestContext testContext) {
         logger.info("Test: circuit breaker pattern");
         logger.info("Testing Circuit Breaker Pattern");
 
@@ -366,8 +368,13 @@ class DistributedSystemResilienceDemoTest {
         ResilientService service = new ResilientService("payment-service", 3, 5000); // 3 failures, 5s timeout
         AtomicInteger requestsProcessed = new AtomicInteger(0);
         AtomicInteger responsesReceived = new AtomicInteger(0);
-        var requestCheckpoint = testContext.checkpoint(10);
-        var responseCheckpoint = testContext.checkpoint(10);
+        // Events counted across the former checkpoints; the assertions run once all have happened.
+        Promise<Void> allEvents = Promise.promise();
+        AtomicInteger remainingEvents = new AtomicInteger();
+        remainingEvents.addAndGet(10);
+        Runnable requestCheckpoint = () -> countEvent(testContext, remainingEvents, allEvents);
+        remainingEvents.addAndGet(10);
+        Runnable responseCheckpoint = () -> countEvent(testContext, remainingEvents, allEvents);
 
         // Set high failure rate to trigger circuit breaker
         service.failureRate = 0.7; // 70% failure rate
@@ -387,7 +394,7 @@ class DistributedSystemResilienceDemoTest {
             return responseProducer.send(response)
                     .onSuccess(v -> {
                         requestsProcessed.incrementAndGet();
-                        requestCheckpoint.flag();
+                        requestCheckpoint.run();
                     });
         });
 
@@ -399,7 +406,7 @@ class DistributedSystemResilienceDemoTest {
 
             responses.put(response.requestId, response);
             responsesReceived.incrementAndGet();
-            responseCheckpoint.flag();
+            responseCheckpoint.run();
             return Future.succeededFuture();
         });
         Future<Void> subscriptions = Future.all(requestSubscription, responseSubscription).mapEmpty();
@@ -428,38 +435,48 @@ class DistributedSystemResilienceDemoTest {
         // Wait for all sends to complete
         Future.all(sendTasks).onFailure(testContext::failNow);
 
-        // Wait for all processing
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Should process all requests and responses");
+        allEvents.future()
+            .onSuccess(done -> testContext.verify(() -> {
+            // Verify circuit breaker behavior
+            assertEquals(10, requestsProcessed.get(), "Should have processed 10 requests");
+            assertEquals(10, responsesReceived.get(), "Should have received 10 responses");
 
-        // Verify circuit breaker behavior
-        assertEquals(10, requestsProcessed.get(), "Should have processed 10 requests");
-        assertEquals(10, responsesReceived.get(), "Should have received 10 responses");
+            // Count successes and failures
+            long successCount = responses.values().stream().mapToLong(r -> r.success ? 1 : 0).sum();
+            long failureCount = responses.values().stream().mapToLong(r -> r.success ? 0 : 1).sum();
+            long circuitBreakerFailures = responses.values().stream()
+                    .mapToLong(r -> r.errorMessage != null && r.errorMessage.contains("Circuit breaker") ? 1 : 0)
+                    .sum();
 
-        // Count successes and failures
-        long successCount = responses.values().stream().mapToLong(r -> r.success ? 1 : 0).sum();
-        long failureCount = responses.values().stream().mapToLong(r -> r.success ? 0 : 1).sum();
-        long circuitBreakerFailures = responses.values().stream()
-                .mapToLong(r -> r.errorMessage != null && r.errorMessage.contains("Circuit breaker") ? 1 : 0)
-                .sum();
+            logger.info("Circuit Breaker Results:");
+            logger.info("  Total requests: {}", requestsProcessed.get());
+            logger.info("  Successful responses: {}", successCount);
+            logger.info("  Failed responses: {}", failureCount);
+            logger.info("  Circuit breaker rejections: {}", circuitBreakerFailures);
+            logger.info("  Final circuit state: {}", service.circuitBreaker.state);
+            logger.info("  Service metrics: {}", service.getMetrics().encodePrettily());
 
-        logger.info("Circuit Breaker Results:");
-        logger.info("  Total requests: {}", requestsProcessed.get());
-        logger.info("  Successful responses: {}", successCount);
-        logger.info("  Failed responses: {}", failureCount);
-        logger.info("  Circuit breaker rejections: {}", circuitBreakerFailures);
-        logger.info("  Final circuit state: {}", service.circuitBreaker.state);
-        logger.info("  Service metrics: {}", service.getMetrics().encodePrettily());
+            // Verify circuit breaker opened
+            assertTrue(circuitBreakerFailures > 0, "Circuit breaker should have rejected some requests");
+            assertTrue(service.circuitBreaker.failureCount.get() >= 3, "Should have recorded failures");
 
-        // Verify circuit breaker opened
-        assertTrue(circuitBreakerFailures > 0, "Circuit breaker should have rejected some requests");
-        assertTrue(service.circuitBreaker.failureCount.get() >= 3, "Should have recorded failures");
+            // Cleanup
+            requestConsumer.close();
+            responseConsumer.close();
 
-        // Cleanup
-        requestConsumer.close();
-        responseConsumer.close();
-
-        logger.info("Circuit Breaker Pattern test completed successfully");
+            logger.info("Circuit Breaker Pattern test completed successfully");
+            testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
-
+    /** Counts one expected event; completes {@code all} at zero and fails the test on an extra event. */
+    private static void countEvent(VertxTestContext testContext, AtomicInteger remaining, Promise<Void> all) {
+        int left = remaining.decrementAndGet();
+        if (left == 0) {
+            all.tryComplete();
+        } else if (left < 0) {
+            testContext.failNow(new AssertionError("More events than expected: " + (-left) + " extra"));
+        }
+    }
 }

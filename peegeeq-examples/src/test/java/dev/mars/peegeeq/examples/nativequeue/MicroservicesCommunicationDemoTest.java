@@ -19,6 +19,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import org.junit.jupiter.api.*;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -29,6 +30,7 @@ import java.time.Instant;
 import java.util.*;
 
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxTestContext;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -336,7 +338,8 @@ class MicroservicesCommunicationDemoTest {
 
     @Test
     @DisplayName("Request-Response Pattern - Synchronous-style Communication Over Async Messaging")
-    void testRequestResponsePattern(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    void testRequestResponsePattern(VertxTestContext testContext) {
         logger.info("Test: request response pattern");
         logger.info("Testing Request-Response Pattern");
 
@@ -347,8 +350,13 @@ class MicroservicesCommunicationDemoTest {
         Map<String, MicroserviceSimulator> services = new HashMap<>();
         AtomicInteger requestsProcessed = new AtomicInteger(0);
         AtomicInteger responsesReceived = new AtomicInteger(0);
-        var requestCheckpoint = testContext.checkpoint(3);
-        var responseCheckpoint = testContext.checkpoint(3);
+        // Events counted across the former checkpoints; the assertions run once all have happened.
+        Promise<Void> allEvents = Promise.promise();
+        AtomicInteger remainingEvents = new AtomicInteger();
+        remainingEvents.addAndGet(3);
+        Runnable requestCheckpoint = () -> countEvent(testContext, remainingEvents, allEvents);
+        remainingEvents.addAndGet(3);
+        Runnable responseCheckpoint = () -> countEvent(testContext, remainingEvents, allEvents);
 
         // Initialize services
         services.put("inventory-service", new MicroserviceSimulator("inventory-service"));
@@ -380,7 +388,7 @@ class MicroservicesCommunicationDemoTest {
                 requestsProcessed.incrementAndGet();
             }
 
-            requestCheckpoint.flag();
+            requestCheckpoint.run();
             return Future.succeededFuture();
         });
 
@@ -392,7 +400,7 @@ class MicroservicesCommunicationDemoTest {
 
             responses.put(response.correlationId, response);
             responsesReceived.incrementAndGet();
-            responseCheckpoint.flag();
+            responseCheckpoint.run();
             return Future.succeededFuture();
         });
         Future<Void> subscriptions = Future.all(requestSubscription, responseSubscription).mapEmpty();
@@ -437,43 +445,54 @@ class MicroservicesCommunicationDemoTest {
         subscriptions.compose(v -> requestProducer.send(shippingRequest))
                 .onFailure(testContext::failNow);
 
-        // Wait for all requests and responses
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Should process all requests and responses");
+        allEvents.future()
+            .onSuccess(done -> testContext.verify(() -> {
+            // Verify request-response pattern
+            assertEquals(3, requestsProcessed.get(), "Should have processed 3 requests");
+            assertEquals(3, responsesReceived.get(), "Should have received 3 responses");
+            assertEquals(3, responses.size(), "Should have 3 responses stored");
 
-        // Verify request-response pattern
-        assertEquals(3, requestsProcessed.get(), "Should have processed 3 requests");
-        assertEquals(3, responsesReceived.get(), "Should have received 3 responses");
-        assertEquals(3, responses.size(), "Should have 3 responses stored");
+            // Verify specific responses
+            assertTrue(responses.containsKey(correlationId1), "Should have inventory response");
+            assertTrue(responses.containsKey(correlationId2), "Should have payment response");
+            assertTrue(responses.containsKey(correlationId3), "Should have shipping response");
 
-        // Verify specific responses
-        assertTrue(responses.containsKey(correlationId1), "Should have inventory response");
-        assertTrue(responses.containsKey(correlationId2), "Should have payment response");
-        assertTrue(responses.containsKey(correlationId3), "Should have shipping response");
+            ServiceMessage inventoryResponse = responses.get(correlationId1);
+            assertEquals("InventoryCheckResponse", inventoryResponse.messageType, "Should be inventory response");
+            assertEquals(true, inventoryResponse.payload.get("available"), "Inventory should be available");
 
-        ServiceMessage inventoryResponse = responses.get(correlationId1);
-        assertEquals("InventoryCheckResponse", inventoryResponse.messageType, "Should be inventory response");
-        assertEquals(true, inventoryResponse.payload.get("available"), "Inventory should be available");
+            ServiceMessage paymentResponse = responses.get(correlationId2);
+            assertEquals("PaymentProcessResponse", paymentResponse.messageType, "Should be payment response");
+            assertEquals(true, paymentResponse.payload.get("success"), "Payment should be successful");
 
-        ServiceMessage paymentResponse = responses.get(correlationId2);
-        assertEquals("PaymentProcessResponse", paymentResponse.messageType, "Should be payment response");
-        assertEquals(true, paymentResponse.payload.get("success"), "Payment should be successful");
+            ServiceMessage shippingResponse = responses.get(correlationId3);
+            assertEquals("ShippingScheduleResponse", shippingResponse.messageType, "Should be shipping response");
+            assertEquals(true, shippingResponse.payload.get("scheduled"), "Shipping should be scheduled");
 
-        ServiceMessage shippingResponse = responses.get(correlationId3);
-        assertEquals("ShippingScheduleResponse", shippingResponse.messageType, "Should be shipping response");
-        assertEquals(true, shippingResponse.payload.get("scheduled"), "Shipping should be scheduled");
+            logger.info("Request-Response Results:");
+            logger.info("  Requests processed: {}", requestsProcessed.get());
+            logger.info("  Responses received: {}", responsesReceived.get());
+            for (MicroserviceSimulator service : services.values()) {
+                logger.info("  {} processed: {} messages", service.serviceName, service.messagesProcessed.get());
+            }
 
-        logger.info("Request-Response Results:");
-        logger.info("  Requests processed: {}", requestsProcessed.get());
-        logger.info("  Responses received: {}", responsesReceived.get());
-        for (MicroserviceSimulator service : services.values()) {
-            logger.info("  {} processed: {} messages", service.serviceName, service.messagesProcessed.get());
+            // Cleanup
+            requestConsumer.close();
+            responseConsumer.close();
+
+            logger.info("Request-Response Pattern test completed successfully");
+            testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+    }
+
+    /** Counts one expected event; completes {@code all} at zero and fails the test on an extra event. */
+    private static void countEvent(VertxTestContext testContext, AtomicInteger remaining, Promise<Void> all) {
+        int left = remaining.decrementAndGet();
+        if (left == 0) {
+            all.tryComplete();
+        } else if (left < 0) {
+            testContext.failNow(new AssertionError("More events than expected: " + (-left) + " extra"));
         }
-
-        // Cleanup
-        requestConsumer.close();
-        responseConsumer.close();
-
-        logger.info("Request-Response Pattern test completed successfully");
     }
 }
-

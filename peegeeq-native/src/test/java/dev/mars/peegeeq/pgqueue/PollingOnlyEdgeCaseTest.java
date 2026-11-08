@@ -17,6 +17,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 
@@ -36,7 +37,6 @@ import java.time.Duration;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -110,6 +110,7 @@ class PollingOnlyEdgeCaseTest {
     }
 
     @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     void testFastPollingInterval(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info(" Testing fast polling interval (100ms)");
 
@@ -142,15 +143,10 @@ class PollingOnlyEdgeCaseTest {
         sendChain.onFailure(testContext::failNow);
 
         // Wait for all messages to be processed
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive all 5 messages with fast polling");
-        assertEquals(5, messageCount.get(), "Should have processed exactly 5 messages");
-
-        consumer.close();
-        producer.close();
-        logger.info("POLLING_ONLY handles fast polling interval correctly");
     }
 
     @Test
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
     void testSlowPollingInterval(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info(" Testing slow polling interval (5 seconds)");
 
@@ -182,15 +178,10 @@ class PollingOnlyEdgeCaseTest {
             .onFailure(testContext::failNow);
 
         // Wait for polling to pick up messages (need to wait longer than polling interval)
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive all 2 messages with slow polling");
-        assertEquals(2, messageCount.get(), "Should have processed exactly 2 messages");
-
-        consumer.close();
-        producer.close();
-        logger.info("POLLING_ONLY handles slow polling interval correctly");
     }
 
     @Test
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
     void testHighConcurrencyPolling(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info(" Testing high concurrency polling");
 
@@ -225,15 +216,10 @@ class PollingOnlyEdgeCaseTest {
         sendChain.onFailure(testContext::failNow);
 
         // Wait for all messages to be processed
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive all 10 messages with high concurrency");
-        assertEquals(10, messageCount.get(), "Should have processed exactly 10 messages");
-
-        consumer.close();
-        producer.close();
-        logger.info("POLLING_ONLY handles high concurrency correctly");
     }
 
     @Test
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
     void testBatchProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info(" Testing batch processing");
 
@@ -268,18 +254,11 @@ class PollingOnlyEdgeCaseTest {
         sendChain.onFailure(testContext::failNow);
 
         // Wait for all messages to be processed in batches
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive all 10 messages in batches");
-        assertEquals(10, messageCount.get(), "Should have processed exactly 10 messages");
-
-        consumer.close();
-        producer.close();
-        logger.info("POLLING_ONLY handles batch processing correctly");
     }
 
     @Test
-    void testEmptyQueuePolling(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info(" Testing empty queue polling behavior");
-
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+    void testEmptyQueuePolling(Vertx vertx, VertxTestContext testContext) {
         String topicName = "test-empty-queue-polling";
 
         // Create POLLING_ONLY consumer for empty queue
@@ -289,47 +268,34 @@ class PollingOnlyEdgeCaseTest {
                 .build();
 
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class, config);
+        MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         AtomicInteger messageCount = new AtomicInteger(0);
-        AtomicReference<String> lastMessage = new AtomicReference<>();
+        // A strict checkpoint: a second delivery fails the test.
         Checkpoint messageReceived = testContext.checkpoint();
 
-        Future<Void> subscription = consumer.subscribe(message -> {
-            messageCount.incrementAndGet();
-            lastMessage.set(message.getPayload());
-            logger.info(" Received message: {}", message.getPayload());
-            messageReceived.flag();
-            return Future.succeededFuture();
-        });
-
-        // Let it poll empty queue for a while, then send a message
-        subscription.compose(v -> vertx.timer(3000)).onSuccess(id -> {
-            // Verify no messages were processed from empty queue
-            if (messageCount.get() != 0) {
-                testContext.failNow(new AssertionError("Should not process any messages from empty queue"));
-                return;
-            }
-
-            // Now send a message and verify it gets processed
-            try {
-                MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-                producer.send("Message after empty polling")
-                    .onSuccess(v -> producer.close())
-                    .onFailure(testContext::failNow);
-            } catch (Exception e) {
-                testContext.failNow(e);
-            }
-        }).onFailure(testContext::failNow);
-
-        // Wait for the message to be processed
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive the message after empty polling");
-        assertEquals("Message after empty polling", lastMessage.get(), "Should receive the correct message");
-
-        consumer.close();
-        logger.info("POLLING_ONLY handles empty queue polling correctly");
+        consumer.subscribe(message -> {
+                messageCount.incrementAndGet();
+                testContext.verify(() -> assertEquals("Message after empty polling", message.getPayload(),
+                    "Should receive the correct message"));
+                messageReceived.flag();
+                return Future.succeededFuture();
+            })
+            // Let it poll the empty queue for 3 s; nothing may be processed in that window.
+            .compose(v -> vertx.timer(3000))
+            .compose(id -> {
+                assertEquals(0, messageCount.get(), "Should not process any messages from empty queue");
+                return producer.send("Message after empty polling");
+            })
+            .eventually(() -> {
+                producer.close();
+                return Future.succeededFuture();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     void testPollingWithDatabaseConnectionIssues(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info(" Testing polling resilience with database connection issues");
 
@@ -362,12 +328,6 @@ class PollingOnlyEdgeCaseTest {
             .onFailure(testContext::failNow);
 
         // Wait for messages to be processed (consumer should handle normal operations)
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive all messages in normal operation");
-        assertEquals(3, messageCount.get(), "Should have processed exactly 3 messages");
-
-        consumer.close();
-        producer.close();
-        logger.info("POLLING_ONLY handles normal database operations correctly");
     }
 }
 

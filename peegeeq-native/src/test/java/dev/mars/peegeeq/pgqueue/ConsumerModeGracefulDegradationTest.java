@@ -139,6 +139,7 @@ class ConsumerModeGracefulDegradationTest {
      */
     @Test
     @Timeout(30)
+    @io.vertx.junit5.Timeout(value = 25, timeUnit = TimeUnit.SECONDS)
     void testHybridModeGracefulDegradationToPolling(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Testing HYBRID mode graceful degradation to polling");
 
@@ -167,10 +168,6 @@ class ConsumerModeGracefulDegradationTest {
             .compose(ignored -> producer.send("Degradation test message 2"))
             .compose(ignored -> producer.send("Degradation test message 3"))
             .onFailure(testContext::failNow);
-
-            assertTrue(testContext.awaitCompletion(25, TimeUnit.SECONDS), "Test timed out");
-        logger.info("HYBRID mode degradation verified - processed: {} messages via polling fallback",
-            processedCount.get());
     }
 
     /**
@@ -180,9 +177,8 @@ class ConsumerModeGracefulDegradationTest {
      */
     @Test
     @Timeout(45)
-    void testGracefulHandlingOfResourceExhaustion(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("Testing graceful handling of resource exhaustion");
-
+    @io.vertx.junit5.Timeout(value = 35, timeUnit = TimeUnit.SECONDS)
+    void testGracefulHandlingOfResourceExhaustion(Vertx vertx, VertxTestContext testContext) {
         String topicName = "test-resource-exhaustion";
 
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
@@ -193,26 +189,27 @@ class ConsumerModeGracefulDegradationTest {
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         AtomicInteger processedCount = new AtomicInteger(0);
+        AtomicInteger successCount = new AtomicInteger(0);
         AtomicInteger errorCount = new AtomicInteger(0);
         AtomicBoolean resourceExhaustionSimulated = new AtomicBoolean(false);
-        // One flag per sent message. The test ends only after all 15 are processed, so no send
-        // is still in flight when teardown closes the pool.
-        Checkpoint processed = testContext.checkpoint(15);
+        // The counts are checked once all 15 messages have succeeded, so no send is still in
+        // flight when teardown closes the pool.
+        Promise<Void> allSucceeded = Promise.promise();
 
-            consumer.subscribe(message -> {
+        consumer.subscribe(message -> {
                 int count = processedCount.incrementAndGet();
 
-                // Simulate resource exhaustion for some messages
+                // Simulate resource exhaustion for one delivery
                 if (count > 5 && count <= 8 && !resourceExhaustionSimulated.get()) {
                     resourceExhaustionSimulated.set(true);
                     errorCount.incrementAndGet();
-                    logger.info("Simulating resource exhaustion for message {}", count);
                     return Future.failedFuture(
                         new RuntimeException("Simulated resource exhaustion"));
                 }
 
-                logger.info("Successfully processed message {}: {}", count, message.getPayload());
-                processed.flag();
+                if (successCount.incrementAndGet() == 15) {
+                    allSucceeded.tryComplete();
+                }
                 return Future.succeededFuture();
             })
             .compose(ignored -> {
@@ -223,14 +220,13 @@ class ConsumerModeGracefulDegradationTest {
                 }
                 return sends;
             })
+            .compose(sent -> allSucceeded.future())
+            .onSuccess(done -> testContext.verify(() -> {
+                assertEquals(1, errorCount.intValue(), "Exactly one delivery should fail with simulated resource exhaustion");
+                assertEquals(16, processedCount.intValue(), "15 messages plus one redelivery of the failed message");
+                testContext.completeNow();
+            }))
             .onFailure(testContext::failNow);
-
-            assertTrue(testContext.awaitCompletion(35, TimeUnit.SECONDS), "Test timed out");
-            assertEquals(1, errorCount.intValue(), "Exactly one delivery should fail with simulated resource exhaustion");
-            assertEquals(16, processedCount.intValue(), "15 messages plus one redelivery of the failed message");
-
-        logger.info("Resource exhaustion handling verified - processed: {}, errors: {}",
-            processedCount.intValue(), errorCount.intValue());
     }
 
     /**
@@ -240,9 +236,8 @@ class ConsumerModeGracefulDegradationTest {
      */
     @Test
     @Timeout(30)
-    void testRecoveryAfterTemporaryDegradation(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("Testing recovery after temporary degradation");
-
+    @io.vertx.junit5.Timeout(value = 25, timeUnit = TimeUnit.SECONDS)
+    void testRecoveryAfterTemporaryDegradation(Vertx vertx, VertxTestContext testContext) {
         String topicName = "test-recovery-after-degradation";
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
             ConsumerConfig.builder()
@@ -252,33 +247,34 @@ class ConsumerModeGracefulDegradationTest {
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         AtomicInteger processedCount = new AtomicInteger(0);
+        AtomicInteger completedCount = new AtomicInteger(0);
         AtomicInteger degradationPhase = new AtomicInteger(0); // 0=normal, 1=degraded, 2=recovered
         AtomicReference<String> lastProcessedMessage = new AtomicReference<>();
-        Checkpoint received = testContext.checkpoint(6);
+        // The phase and the last message are checked once all six have completed.
+        Promise<Void> allCompleted = Promise.promise();
+        Runnable completed = () -> {
+            if (completedCount.incrementAndGet() == 6) {
+                allCompleted.tryComplete();
+            }
+        };
 
-            consumer.subscribe(message -> {
+        consumer.subscribe(message -> {
                 int count = processedCount.incrementAndGet();
                 lastProcessedMessage.set(message.getPayload());
 
                 // Simulate temporary degradation for messages 3-4
                 if (count == 3 || count == 4) {
                     degradationPhase.set(1);
-                    logger.info("Processing message {} during degradation phase: {}", count, message.getPayload());
-                    // Simulate degraded performance using non-blocking Vert.x timer
-                    Promise<Void> promise = Promise.promise();
-                    vertx.setTimer(200, timerId -> {
-                        received.flag();
-                        promise.complete();
+                    // Degraded performance with a non-blocking Vert.x timer
+                    return vertx.timer(200).map(timerId -> {
+                        completed.run();
+                        return (Void) null;
                     });
-                    return promise.future();
                 } else if (count >= 5) {
                     degradationPhase.set(2);
-                    logger.info("Processing message {} after recovery: {}", count, message.getPayload());
-                } else {
-                    logger.info("Processing message {} normally: {}", count, message.getPayload());
                 }
 
-                received.flag();
+                completed.run();
                 return Future.succeededFuture();
             })
             .compose(ignored -> producer.send("Pre-degradation message 1"))
@@ -289,15 +285,14 @@ class ConsumerModeGracefulDegradationTest {
             .compose(ignored -> vertx.timer(500).mapEmpty())
             .compose(ignored -> producer.send("Recovery message 5"))
             .compose(ignored -> producer.send("Recovery message 6"))
+            .compose(sent -> allCompleted.future())
+            .onSuccess(done -> testContext.verify(() -> {
+                assertEquals(6, processedCount.get(), "Should process exactly 6 messages");
+                assertEquals(2, degradationPhase.get(), "Should reach recovery phase");
+                assertTrue(lastProcessedMessage.get().startsWith("Recovery message"),
+                    "Last processed message should be a recovery-phase message");
+                testContext.completeNow();
+            }))
             .onFailure(testContext::failNow);
-
-            assertTrue(testContext.awaitCompletion(25, TimeUnit.SECONDS), "Test timed out");
-            assertEquals(6, processedCount.get(), "Should process exactly 6 messages");
-            assertEquals(2, degradationPhase.get(), "Should reach recovery phase");
-            assertTrue(lastProcessedMessage.get().startsWith("Recovery message"),
-                "Last processed message should be a recovery-phase message");
-
-        logger.info("Recovery after degradation verified - processed: {} messages, final phase: {}",
-            processedCount.get(), degradationPhase.get());
     }
 }

@@ -32,6 +32,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
@@ -132,50 +133,25 @@ public class OutboxExceptionHandlingDemonstrationTest {
     }
 
     @Test
-    void demonstrateDirectExceptionHandlingFix(VertxTestContext testContext) throws Exception {
-        logger.info("=================================================================");
-        logger.info("DEMONSTRATION: Direct Exception Handling Fix");
-        logger.info("=================================================================");
-        logger.info("This test demonstrates that direct exceptions thrown from");
-        logger.info("MessageHandler.handle() are now properly caught and processed");
-        logger.info("through the retry and dead letter queue mechanisms.");
-        logger.info("=================================================================");
-        
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+    void demonstrateDirectExceptionHandlingFix(VertxTestContext testContext) {
+        // Direct exceptions thrown from MessageHandler.handle() must go through the retry and
+        // dead letter path like a failed Future.
         String testMessage = "DEMO: Message that throws direct exception";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        Checkpoint retryCheckpoint = testContext.checkpoint(3); // Initial + 2 retries
+        // Initial + 2 retries; a strict checkpoint, so a fourth attempt fails the test.
+        Checkpoint retryCheckpoint = testContext.checkpoint(3);
 
         // Set up consumer that throws exception DIRECTLY from the handler method
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
-            logger.info("INTENTIONAL FAILURE: Processing attempt {} for message: {}", 
+            logger.info("INTENTIONAL FAILURE: Processing attempt {} for message: {}",
                 attempt, message.getPayload());
             retryCheckpoint.flag();
-            
-            // CRITICAL: This throws directly from the handler method
-            // Before fix: This was not caught by the consumer pipeline.
-            // After fix: This is caught and converted to a failed Vert.x Future.
             throw new RuntimeException("INTENTIONAL FAILURE: Direct exception from handler, attempt " + attempt);
         }).compose(v -> producer.send(testMessage))
           .onSuccess(v -> logger.info("Sent test message: {}", testMessage))
           .onFailure(testContext::failNow);
-
-        logger.info(" Waiting for retry attempts to complete...");
-        
-        // Wait for all retry attempts
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times (initial + 2 retries)");
-        
-        logger.info("=================================================================");
-        logger.info("RESULTS:");
-        logger.info("  Total processing attempts: {}", attemptCount.get());
-        logger.info("  Expected attempts: 3 (initial + 2 retries)");
-        logger.info("=================================================================");
-        
-        // Assertions
-        assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
-        
-        logger.info("DEMONSTRATION TEST COMPLETED SUCCESSFULLY");
-        logger.info("The outbox consumer exception handling bug has been FIXED!");
     }
 
     @Test

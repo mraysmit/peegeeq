@@ -30,8 +30,10 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -140,19 +142,18 @@ public class OutboxParallelProcessingTest {
     }
 
     @Test
-    void testParallelConsumerProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
-        // Use more messages and longer processing time to force parallel execution
-        int messageCount = 20;  // Increased from 12
-        Checkpoint completionCheckpoint = testContext.checkpoint(messageCount);
+    @Timeout(value = 90, timeUnit = TimeUnit.SECONDS)
+    void testParallelConsumerProcessing(Vertx vertx, VertxTestContext testContext) {
+        // Many messages with a long handler, so several handlers must be in flight at once.
+        int messageCount = 20;
+        Promise<Void> allCompleted = Promise.promise();
         Set<String> processingThreads = ConcurrentHashMap.newKeySet();
         AtomicInteger processedCount = new AtomicInteger(0);
+        AtomicInteger completedCount = new AtomicInteger(0);
         AtomicInteger inFlight = new AtomicInteger(0);
         AtomicInteger maxConcurrent = new AtomicInteger(0);
 
-        // Send all messages quickly to create backlog for parallel processing
-        logger.info("Sending {} messages quickly to create processing backlog...", messageCount);
         consumer.subscribe(message -> {
-            logger.info("Test: parallel consumer processing");
             String threadName = Thread.currentThread().getName();
             processingThreads.add(threadName);
 
@@ -163,8 +164,9 @@ public class OutboxParallelProcessingTest {
 
             return vertx.timer(2000).map(id -> {
                 inFlight.decrementAndGet();
-                logger.info("Completed message {} on thread: {}", count, threadName);
-                completionCheckpoint.flag();
+                if (completedCount.incrementAndGet() == messageCount) {
+                    allCompleted.tryComplete();
+                }
                 return null;
             });
         }).compose(v -> {
@@ -174,46 +176,28 @@ public class OutboxParallelProcessingTest {
             }
             return Future.all(sends).mapEmpty();
         })
+          .compose(sent -> allCompleted.future())
+          .onSuccess(done -> testContext.verify(() -> {
+              logger.info("Messages processed: {}, threads: {}, maximum concurrent handlers: {}",
+                  processedCount.get(), processingThreads, maxConcurrent.get());
+              assertEquals(messageCount, processedCount.get(), "Should process every message once");
+              assertTrue(maxConcurrent.get() > 1,
+                  "Multiple message-handler Futures should be in flight concurrently");
+              // In reactive mode, message handlers run on Vert.x event loop threads.
+              assertFalse(processingThreads.isEmpty(), "Should have captured processing thread names");
+              testContext.completeNow();
+          }))
           .onFailure(testContext::failNow);
-        logger.info("All messages sent, waiting for parallel processing...");
-
-        // Wait for all messages to be processed (longer timeout due to longer processing time)
-        assertTrue(testContext.awaitCompletion(90, TimeUnit.SECONDS),  // Increased timeout
-            "All messages should be processed within timeout");
-        assertEquals(messageCount, processedCount.get(),
-            "Should process all messages");
-        assertTrue(maxConcurrent.get() > 1,
-            "Multiple message-handler Futures should be in flight concurrently");
-
-        logger.info("Final thread usage summary:");
-        logger.info("   - Messages processed: {}", processedCount.get());
-        logger.info("   - Processing threads used: {}", processingThreads.size());
-        logger.info("   - Maximum concurrent handlers: {}", maxConcurrent.get());
-        logger.info("   - Thread names: {}", processingThreads);
-
-        // In reactive mode, message handlers run on Vert.x event loop threads,
-        // not on the outbox-processor executor threads. Verify threads were captured.
-        assertFalse(processingThreads.isEmpty(),
-            "Should have captured processing thread names");
-
-        logger.info("Parallel processing test completed successfully!");
     }
 
     @Test
-    void testBatchProcessing(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    void testBatchProcessing(VertxTestContext testContext) {
         int messageCount = 20;
+        // A strict checkpoint: exactly twenty deliveries; a twenty-first fails the test.
         Checkpoint completionCheckpoint = testContext.checkpoint(messageCount);
-        AtomicInteger processedCount = new AtomicInteger(0);
-        Set<String> processingThreads = ConcurrentHashMap.newKeySet();
 
         consumer.subscribe(message -> {
-            logger.info("Test: batch processing");
-            String threadName = Thread.currentThread().getName();
-            processingThreads.add(threadName);
-            
-            int count = processedCount.incrementAndGet();
-            logger.info("Batch processing message {} on thread: {}", count, threadName);
-            
             completionCheckpoint.flag();
             return Future.succeededFuture();
         }).compose(v -> {
@@ -224,58 +208,40 @@ public class OutboxParallelProcessingTest {
             return Future.all(sends).mapEmpty();
         })
           .onFailure(testContext::failNow);
-
-        // Wait for all messages to be processed
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
-            "All batch messages should be processed within timeout");
-        assertEquals(messageCount, processedCount.get(), 
-            "Should process all batch messages");
-
-        logger.info("Batch processing completed:");
-        logger.info("   - Messages processed: {}", processedCount.get());
-        logger.info("   - Processing threads used: {}", processingThreads.size());
     }
 
     @Test
-    void testConcurrentProducers(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 45, timeUnit = TimeUnit.SECONDS)
+    void testConcurrentProducers(VertxTestContext testContext) {
         int producerCount = 3;
         int messagesPerProducer = 5;
         int totalMessages = producerCount * messagesPerProducer;
-        
+
+        // A strict checkpoint: exactly fifteen deliveries; a sixteenth fails the test.
         Checkpoint completionCheckpoint = testContext.checkpoint(totalMessages);
-        AtomicInteger processedCount = new AtomicInteger(0);
-        Set<String> processingThreads = ConcurrentHashMap.newKeySet();
+        List<MessageProducer<String>> concurrentProducers = new ArrayList<>();
 
         consumer.subscribe(message -> {
-            logger.info("Test: concurrent producers");
-            String threadName = Thread.currentThread().getName();
-            processingThreads.add(threadName);
-            
-            int count = processedCount.incrementAndGet();
-            logger.info("Concurrent processing message {} on thread: {}", count, threadName);
-            
             completionCheckpoint.flag();
             return Future.succeededFuture();
         }).compose(v -> {
             List<Future<Void>> sends = new ArrayList<>(totalMessages);
             for (int p = 0; p < producerCount; p++) {
                 MessageProducer<String> concurrentProducer = outboxFactory.createProducer(testTopic, String.class);
+                concurrentProducers.add(concurrentProducer);
                 for (int m = 0; m < messagesPerProducer; m++) {
                     sends.add(concurrentProducer.send("Producer-" + p + "-Message-" + m));
                 }
             }
             return Future.all(sends).mapEmpty();
         })
+          .eventually(() -> {
+              // MessageProducer.close() is synchronous and void.
+              for (MessageProducer<String> concurrentProducer : concurrentProducers) {
+                  try { concurrentProducer.close(); } catch (Exception e) { logger.warn("Producer close failed: {}", e.getMessage()); }
+              }
+              return Future.succeededFuture();
+          })
           .onFailure(testContext::failNow);
-
-        // Wait for all messages to be processed
-        assertTrue(testContext.awaitCompletion(45, TimeUnit.SECONDS), 
-            "All concurrent messages should be processed within timeout");
-        assertEquals(totalMessages, processedCount.get(), 
-            "Should process all concurrent messages");
-
-        logger.info("Concurrent producer test completed:");
-        logger.info("   - Total messages processed: {}", processedCount.get());
-        logger.info("   - Processing threads used: {}", processingThreads.size());
     }
 }
