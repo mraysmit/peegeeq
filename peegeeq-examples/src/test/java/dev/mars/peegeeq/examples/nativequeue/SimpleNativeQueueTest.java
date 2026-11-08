@@ -25,7 +25,6 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
-import dev.mars.peegeeq.examples.shared.CleanupResultSupport;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
@@ -42,6 +41,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.core.Future;
@@ -104,41 +104,27 @@ public class SimpleNativeQueueTest {
 
     @AfterEach
     void tearDown(VertxTestContext ctx) {
-        logger.info("Tearing down: closing resources and manager");
-        logger.info("=== Tearing down SimpleNativeQueueTest ===");
-
-        Future<Void> factoryClose = Future.succeededFuture();
-        if (nativeFactory != null) {
-            try {
-                nativeFactory.close();
-                logger.info("Native factory closed successfully");
-            } catch (Exception e) {
-                logger.error("Error closing native factory", e);
-                factoryClose = Future.failedFuture(e);
-            }
-        }
-
-        Future<Void> managerClose = Future.succeededFuture();
-        if (manager != null) {
-            logger.info("Closing PeeGeeQ manager...");
-            managerClose = manager.closeReactive();
-        }
-
-        CleanupResultSupport.merge(factoryClose, managerClose)
-            .onSuccess(v -> {
-                if (manager != null) {
-                    logger.info("PeeGeeQ manager closed successfully");
-                }
-                logger.info("Simple native queue test teardown completed");
-                ctx.completeNow();
-            })
+        // The factory close returns a Future: it is awaited before the manager closes, and the
+        // manager closes whatever its outcome; the first failure fails the teardown.
+        (nativeFactory != null ? nativeFactory.close() : Future.<Void>succeededFuture())
+            .transform(factoryResult -> (manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+                .transform(managerResult -> {
+                    if (factoryResult.failed()) {
+                        return Future.<Void>failedFuture(factoryResult.cause());
+                    }
+                    return managerResult.failed()
+                        ? Future.<Void>failedFuture(managerResult.cause())
+                        : Future.<Void>succeededFuture();
+                }))
+            .onSuccess(v -> ctx.completeNow())
             .onFailure(err -> {
-                logger.error("Error during simple native queue test cleanup", err);
+                logger.error("Teardown failed", err);
                 ctx.failNow(err);
             });
     }
 
     @Test
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
     void testSingleMessageSendAndReceive(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Single Message Send and Receive ===");
 
@@ -166,27 +152,11 @@ public class SimpleNativeQueueTest {
 
         // Wait for message to be processed
         logger.info("Waiting for message to be received...");
-        Assertions.assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS),
-            "Message was not received within timeout");
-
-        // Verify results
-        logger.info("Processed count: {}", processedCount.get());
-        Assertions.assertEquals(1, processedCount.get(), "Exactly one message should be processed");
-
-        // Clean up with debug logging
-        logger.info("Closing producer...");
-        producer.close();
-        logger.info("Producer closed");
-
-        logger.info("Closing consumer...");
-        consumer.close();
-        logger.info("Consumer closed");
-
-        logger.info("Single message test passed");
     }
 
     @Test
-    void testConcurrentMessageProcessing(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    void testConcurrentMessageProcessing(VertxTestContext testContext) {
         logger.info("=== Testing Concurrent Message Processing ===");
 
         // Create producer and consumer
@@ -221,22 +191,5 @@ public class SimpleNativeQueueTest {
                 .onFailure(testContext::failNow);
         }).onFailure(testContext::failNow);
 
-        // Wait for all messages to be processed
-        logger.info("Waiting for all {} messages to be received...", messageCount);
-        boolean allReceived = testContext.awaitCompletion(30, TimeUnit.SECONDS);
-
-        // Verify results
-        logger.info("All received: {}, Processed count: {}, Expected: {}", allReceived, processedCount.get(), messageCount);
-        logger.info("Received messages: {}", receivedMessages);
-
-        Assertions.assertTrue(allReceived, "All messages should be received within timeout");
-        Assertions.assertEquals(messageCount, processedCount.get(), "All messages should be processed");
-        Assertions.assertEquals(messageCount, receivedMessages.size(), "All messages should be in received list");
-
-        // Clean up
-        producer.close();
-        consumer.close();
-
-        logger.info("Concurrent message test passed");
     }
 }

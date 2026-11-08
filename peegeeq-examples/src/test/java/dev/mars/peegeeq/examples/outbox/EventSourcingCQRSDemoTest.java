@@ -18,6 +18,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
@@ -575,7 +576,8 @@ class EventSourcingCQRSDemoTest {
      */
     @Test
     @DisplayName("Event Sourcing - Storing State Changes as Events")
-    void testEventSourcing(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    void testEventSourcing(Vertx vertx, VertxTestContext testContext) {
         logger.info("Test: event sourcing");
         logger.info("=== TEST METHOD STARTED: testEventSourcing ===");
         System.err.flush();
@@ -594,8 +596,13 @@ class EventSourcingCQRSDemoTest {
         //  TEST-ONLY: These are test-specific constructs for synchronization
         AtomicInteger commandsProcessed = new AtomicInteger(0);
         AtomicInteger eventsStored = new AtomicInteger(0);
-        Checkpoint commandCheckpoint = testContext.checkpoint(5);  // Expecting 5 commands
-        Checkpoint eventCheckpoint = testContext.checkpoint(5);    // Expecting 5 events
+        // Events counted across the former checkpoints; the assertions run once all have happened.
+        Promise<Void> allEvents = Promise.promise();
+        AtomicInteger remainingEvents = new AtomicInteger();
+        remainingEvents.addAndGet(5);
+        Runnable commandCheckpoint = () -> countEvent(testContext, remainingEvents, allEvents);
+        remainingEvents.addAndGet(5);
+        Runnable eventCheckpoint = () -> countEvent(testContext, remainingEvents, allEvents);
 
         // Create producers and consumers
         MessageProducer<Command> commandProducer = queueFactory.createProducer(commandQueue, Command.class);
@@ -677,7 +684,7 @@ class EventSourcingCQRSDemoTest {
             }
 
             //  TEST-ONLY: Flag checkpoint for test synchronization
-            commandCheckpoint.flag();
+            commandCheckpoint.run();
             return Future.succeededFuture();
         });
 
@@ -698,7 +705,7 @@ class EventSourcingCQRSDemoTest {
 
             eventsStored.incrementAndGet();
             //  TEST-ONLY: Flag checkpoint for test synchronization
-            eventCheckpoint.flag();
+            eventCheckpoint.run();
             return Future.succeededFuture();
         });
         Future<Void> subscriptions = Future.all(commandSubscription, eventSubscription).mapEmpty();
@@ -777,61 +784,63 @@ class EventSourcingCQRSDemoTest {
             .compose(v -> vertx.timer(700)).compose(v -> commandProducer.send(freezeAccount))
             .onFailure(testContext::failNow);
 
-        // Wait for all commands and events to be processed
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Should process all commands and events");
+        allEvents.future()
+            .onSuccess(done -> testContext.verify(() -> {
+            // Verify event sourcing metrics
+            assertEquals(5, commandsProcessed.get(), "Should have processed 5 commands");
+            assertEquals(5, eventsStored.get(), "Should have stored 5 events");
 
-        // Verify event sourcing metrics
-        assertEquals(5, commandsProcessed.get(), "Should have processed 5 commands");
-        assertEquals(5, eventsStored.get(), "Should have stored 5 events");
+            // Retrieve events from the event store for verification
+            List<DomainEvent> accountEvents = eventStore.get(accountId);
+            assertNotNull(accountEvents, "Should have events for account");
+            assertEquals(5, accountEvents.size(), "Should have 5 events stored");
 
-        // Retrieve events from the event store for verification
-        List<DomainEvent> accountEvents = eventStore.get(accountId);
-        assertNotNull(accountEvents, "Should have events for account");
-        assertEquals(5, accountEvents.size(), "Should have 5 events stored");
+            //  WORKAROUND: Sort events by version to ensure correct order
+            // PRODUCTION NOTE: Real event stores guarantee ordering automatically
+            // through sequence numbers, timestamps, or append-only logs
+            accountEvents.sort((e1, e2) -> Long.compare(e1.version, e2.version));
 
-        //  WORKAROUND: Sort events by version to ensure correct order
-        // PRODUCTION NOTE: Real event stores guarantee ordering automatically
-        // through sequence numbers, timestamps, or append-only logs
-        accountEvents.sort((e1, e2) -> Long.compare(e1.version, e2.version));
+            // Verify event sequence matches the expected business flow
+            // This demonstrates that events capture the complete history of state changes
+            assertEquals(EventType.ACCOUNT_OPENED, accountEvents.get(0).eventType, "First event should be AccountOpened");
+            assertEquals(EventType.MONEY_DEPOSITED, accountEvents.get(1).eventType, "Second event should be MoneyDeposited");
+            assertEquals(EventType.MONEY_WITHDRAWN, accountEvents.get(2).eventType, "Third event should be MoneyWithdrawn");
+            assertEquals(EventType.MONEY_DEPOSITED, accountEvents.get(3).eventType, "Fourth event should be MoneyDeposited");
+            assertEquals(EventType.ACCOUNT_FROZEN, accountEvents.get(4).eventType, "Fifth event should be AccountFrozen");
 
-        // Verify event sequence matches the expected business flow
-        // This demonstrates that events capture the complete history of state changes
-        assertEquals(EventType.ACCOUNT_OPENED, accountEvents.get(0).eventType, "First event should be AccountOpened");
-        assertEquals(EventType.MONEY_DEPOSITED, accountEvents.get(1).eventType, "Second event should be MoneyDeposited");
-        assertEquals(EventType.MONEY_WITHDRAWN, accountEvents.get(2).eventType, "Third event should be MoneyWithdrawn");
-        assertEquals(EventType.MONEY_DEPOSITED, accountEvents.get(3).eventType, "Fourth event should be MoneyDeposited");
-        assertEquals(EventType.ACCOUNT_FROZEN, accountEvents.get(4).eventType, "Fifth event should be AccountFrozen");
+            // Test event replay - the core benefit of event sourcing
+            // This demonstrates how we can reconstruct aggregate state from events
+            logger.info("Testing event replay...");
+            BankAccountAggregate replayedAggregate = BankAccountAggregate.fromEvents(accountId, accountEvents);
 
-        // Test event replay - the core benefit of event sourcing
-        // This demonstrates how we can reconstruct aggregate state from events
-        logger.info("Testing event replay...");
-        BankAccountAggregate replayedAggregate = BankAccountAggregate.fromEvents(accountId, accountEvents);
+            // Verify that replaying events produces the same final state
+            // This proves that events contain all necessary information to reconstruct state
+            assertEquals(2050.0, replayedAggregate.balance, 0.01, "Replayed balance should be correct");
+            assertTrue(replayedAggregate.isFrozen, "Replayed account should be frozen");
+            assertEquals(5, replayedAggregate.version, "Replayed version should be 5");
 
-        // Verify that replaying events produces the same final state
-        // This proves that events contain all necessary information to reconstruct state
-        assertEquals(2050.0, replayedAggregate.balance, 0.01, "Replayed balance should be correct");
-        assertTrue(replayedAggregate.isFrozen, "Replayed account should be frozen");
-        assertEquals(5, replayedAggregate.version, "Replayed version should be 5");
+            // Display results to show the complete event sourcing flow
+            logger.info("Event Sourcing Results:");
+            logger.info("  Commands processed: {}", commandsProcessed.get());
+            logger.info("  Events stored: {}", eventsStored.get());
+            logger.info("  Final balance: ${}", replayedAggregate.balance);
+            logger.info("  Account frozen: {}", replayedAggregate.isFrozen);
 
-        // Display results to show the complete event sourcing flow
-        logger.info("Event Sourcing Results:");
-        logger.info("  Commands processed: {}", commandsProcessed.get());
-        logger.info("  Events stored: {}", eventsStored.get());
-        logger.info("  Final balance: ${}", replayedAggregate.balance);
-        logger.info("  Account frozen: {}", replayedAggregate.isFrozen);
+            // Cleanup resources
+            commandConsumer.close();
+            eventConsumer.close();
 
-        // Cleanup resources
-        commandConsumer.close();
-        eventConsumer.close();
+            logger.info("Event Sourcing test completed successfully");
 
-        logger.info("Event Sourcing test completed successfully");
-
-        //  KEY BENEFITS DEMONSTRATED:
-        // 1. Complete audit trail - every state change is recorded as an event
-        // 2. Time travel - can reconstruct state at any point in time by replaying events
-        // 3. Debugging - can replay events to understand exactly what happened
-        // 4. Analytics - can analyze historical patterns and trends from event history
-        // 5. Scalability - events can be processed by multiple read models independently
+            //  KEY BENEFITS DEMONSTRATED:
+            // 1. Complete audit trail - every state change is recorded as an event
+            // 2. Time travel - can reconstruct state at any point in time by replaying events
+            // 3. Debugging - can replay events to understand exactly what happened
+            // 4. Analytics - can analyze historical patterns and trends from event history
+            // 5. Scalability - events can be processed by multiple read models independently
+            testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     /**
@@ -1337,4 +1346,13 @@ class EventSourcingCQRSDemoTest {
                         .mapEmpty());
     }
 
+    /** Counts one expected event; completes {@code all} at zero and fails the test on an extra event. */
+    private static void countEvent(VertxTestContext testContext, AtomicInteger remaining, Promise<Void> all) {
+        int left = remaining.decrementAndGet();
+        if (left == 0) {
+            all.tryComplete();
+        } else if (left < 0) {
+            testContext.failNow(new AssertionError("More events than expected: " + (-left) + " extra"));
+        }
+    }
 }

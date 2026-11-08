@@ -36,6 +36,7 @@ import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Tuple;
@@ -145,28 +146,24 @@ class NativeQueueIntegrationTest {
 
 
     @Test
-    void testBasicNativeQueueProducerAndConsumer(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    void testBasicNativeQueueProducerAndConsumer(VertxTestContext testContext) {
         String testMessage = "Hello, Native Queue!";
+        // A strict checkpoint: a second delivery fails the test.
         Checkpoint received = testContext.checkpoint(1);
-        AtomicInteger receivedCount = new AtomicInteger(0);
-        List<String> receivedMessages = new ArrayList<>();
 
         consumer.subscribe(message -> {
-            receivedMessages.add(message.getPayload());
-            receivedCount.incrementAndGet();
+            testContext.verify(() -> assertEquals(testMessage, message.getPayload()));
             received.flag();
             return Future.succeededFuture();
-        }).onFailure(testContext::failNow);
-
-        producer.send(testMessage).onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        assertEquals(1, receivedCount.get());
-        assertEquals(testMessage, receivedMessages.get(0));
+        })
+            .compose(v -> producer.send(testMessage))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testNativeQueueWithHeaders(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    void testNativeQueueWithHeaders(VertxTestContext testContext) {
         String testMessage = "Native queue message with headers";
         Map<String, String> headers = Map.of(
             "content-type", "text/plain",
@@ -174,44 +171,38 @@ class NativeQueueIntegrationTest {
             "source", "native-test"
         );
 
+        // A strict checkpoint: a second delivery fails the test.
         Checkpoint received = testContext.checkpoint(1);
-        List<Message<String>> receivedMessages = new ArrayList<>();
 
         consumer.subscribe(message -> {
-            receivedMessages.add(message);
+            testContext.verify(() -> {
+                assertEquals(testMessage, message.getPayload());
+                assertEquals("text/plain", message.getHeaders().get("content-type"));
+                assertEquals("high", message.getHeaders().get("priority"));
+                assertEquals("native-test", message.getHeaders().get("source"));
+            });
             received.flag();
             return Future.succeededFuture();
-        }).onFailure(testContext::failNow);
-
-        producer.send(testMessage, headers).onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        assertEquals(1, receivedMessages.size());
-
-        Message<String> receivedMessage = receivedMessages.get(0);
-        assertEquals(testMessage, receivedMessage.getPayload());
-        assertEquals("text/plain", receivedMessage.getHeaders().get("content-type"));
-        assertEquals("high", receivedMessage.getHeaders().get("priority"));
-        assertEquals("native-test", receivedMessage.getHeaders().get("source"));
+        })
+            .compose(v -> producer.send(testMessage, headers))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testNativeQueueListenNotify(VertxTestContext testContext) throws Exception {
-        // This test verifies that LISTEN/NOTIFY works for real-time message delivery
+    @Timeout(value = 5, timeUnit = TimeUnit.SECONDS)
+    void testNativeQueueListenNotify(VertxTestContext testContext) {
+        // LISTEN/NOTIFY delivers the message in real time, inside the 5 s bound.
         String testMessage = "Real-time notification test";
+        // A strict checkpoint: a second delivery fails the test.
         Checkpoint received = testContext.checkpoint(1);
-        List<String> receivedMessages = new ArrayList<>();
 
         consumer.subscribe(message -> {
-            receivedMessages.add(message.getPayload());
+            testContext.verify(() -> assertEquals(testMessage, message.getPayload()));
             received.flag();
             return Future.succeededFuture();
-        }).onFailure(testContext::failNow);
-
-        producer.send(testMessage).onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
-        assertEquals(testMessage, receivedMessages.get(0));
+        })
+            .compose(v -> producer.send(testMessage))
+            .onFailure(testContext::failNow);
     }
 
     @Test
@@ -249,10 +240,11 @@ class NativeQueueIntegrationTest {
     }
 
     @Test
-    void testNativeQueueMultipleConsumers(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    void testNativeQueueMultipleConsumers(VertxTestContext testContext) {
         int messageCount = 10;
         int consumerCount = 3;
-        
+
         // Create additional consumers
         List<MessageConsumer<String>> consumers = new ArrayList<>();
         consumers.add(consumer); // Add the existing consumer
@@ -264,31 +256,26 @@ class NativeQueueIntegrationTest {
             consumers.add(additionalFactory.createConsumer("test-native-topic", String.class));
         }
 
+        // A strict checkpoint across all consumers: exactly ten deliveries in total.
         Checkpoint allReceived = testContext.checkpoint(messageCount);
-        AtomicInteger totalReceived = new AtomicInteger(0);
-        List<String> allReceivedMessages = new ArrayList<>();
 
-        // Set up all consumers
+        List<Future<Void>> subscriptions = new ArrayList<>();
         for (MessageConsumer<String> cons : consumers) {
-            cons.subscribe(message -> {
-                synchronized (allReceivedMessages) {
-                    allReceivedMessages.add(message.getPayload());
-                }
-                totalReceived.incrementAndGet();
+            subscriptions.add(cons.subscribe(message -> {
                 allReceived.flag();
                 return Future.succeededFuture();
-            }).onFailure(testContext::failNow);
+            }));
         }
 
-        // Send multiple messages
-        for (int i = 0; i < messageCount; i++) {
-            producer.send("Message " + i).onFailure(testContext::failNow);
-        }
-
-        // Wait for all messages to be processed
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        assertEquals(messageCount, totalReceived.get());
-        assertEquals(messageCount, allReceivedMessages.size());
+        Future.all(subscriptions)
+            .compose(v -> {
+                List<Future<Void>> sends = new ArrayList<>();
+                for (int i = 0; i < messageCount; i++) {
+                    sends.add(producer.send("Message " + i));
+                }
+                return Future.all(sends);
+            })
+            .onFailure(testContext::failNow);
     }
 
     @Test
@@ -579,35 +566,29 @@ class NativeQueueIntegrationTest {
     }
 
     @Test
-    void testNativeQueueConcurrentProducers(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    void testNativeQueueConcurrentProducers(VertxTestContext testContext) {
         int producerCount = 3;
         int messagesPerProducer = 5;
         int totalMessages = producerCount * messagesPerProducer;
 
+        // A strict checkpoint: exactly fifteen deliveries.
         Checkpoint allReceived = testContext.checkpoint(totalMessages);
-        List<String> receivedMessages = new ArrayList<>();
 
-        // Set up consumer
         consumer.subscribe(message -> {
-            synchronized (receivedMessages) {
-                receivedMessages.add(message.getPayload());
-            }
             allReceived.flag();
             return Future.succeededFuture();
-        }).onFailure(testContext::failNow);
-
-        // Create multiple producers sending concurrently
-        for (int p = 0; p < producerCount; p++) {
-            final int producerId = p;
-            for (int m = 0; m < messagesPerProducer; m++) {
-                final int messageId = m;
-                String message = "Native-Producer-" + producerId + "-Message-" + messageId;
-                producer.send(message).onFailure(testContext::failNow);
-            }
-        }
-
-        // Wait for all messages to be received
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        assertEquals(totalMessages, receivedMessages.size());
+        })
+            .compose(v -> {
+                // Sends from every producer lane run concurrently.
+                List<Future<Void>> sends = new ArrayList<>();
+                for (int p = 0; p < producerCount; p++) {
+                    for (int m = 0; m < messagesPerProducer; m++) {
+                        sends.add(producer.send("Native-Producer-" + p + "-Message-" + m));
+                    }
+                }
+                return Future.all(sends);
+            })
+            .onFailure(testContext::failNow);
     }
 }

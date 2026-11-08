@@ -37,8 +37,10 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
@@ -53,6 +55,7 @@ import java.util.Properties;
 import java.util.Set;
 
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -131,7 +134,8 @@ public class ServerSideFilteringTest {
     }
 
     @Test
-    void testServerSideFilterEquals(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+    void testServerSideFilterEquals(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Server-Side Filter EQUALS ===");
         String topic = "filter-equals-test-" + System.currentTimeMillis();
 
@@ -147,12 +151,16 @@ public class ServerSideFilteringTest {
         MessageConsumer<String> consumer = nativeFactory.createConsumer(topic, String.class, config);
 
         List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
-        Checkpoint checkpoint = testContext.checkpoint(2);
+        // Events counted across the former checkpoints; the assertions run once all have happened.
+        Promise<Void> allEvents = Promise.promise();
+        AtomicInteger remainingEvents = new AtomicInteger();
+        remainingEvents.addAndGet(2);
+        Runnable checkpoint = () -> countEvent(testContext, remainingEvents, allEvents);
 
         consumer.subscribe(message -> {
             logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
             receivedMessages.add(message.getPayload());
-            checkpoint.flag();
+            checkpoint.run();
             return Future.succeededFuture();
         }).onSuccess(ready -> {
             // Send messages with different types
@@ -163,23 +171,26 @@ public class ServerSideFilteringTest {
             logger.info("Sent 4 messages: 2 ORDER, 2 PAYMENT");
         }).onFailure(testContext::failNow);
 
-        // Wait for filtered messages
-        boolean received = testContext.awaitCompletion(15, TimeUnit.SECONDS);
+        allEvents.future()
+            .onSuccess(done -> testContext.verify(() -> {
+            // Verify only ORDER messages were true
 
-        // Verify only ORDER messages were received
-        Assertions.assertTrue(received, "Should receive filtered messages");
-        Assertions.assertEquals(2, receivedMessages.size(), "Should receive exactly 2 ORDER messages");
-        Assertions.assertTrue(receivedMessages.stream().allMatch(m -> m.startsWith("Order")),
-            "All received messages should be ORDER type");
+            Assertions.assertEquals(2, receivedMessages.size(), "Should receive exactly 2 ORDER messages");
+            Assertions.assertTrue(receivedMessages.stream().allMatch(m -> m.startsWith("Order")),
+                "All true messages should be ORDER type");
 
-        logger.info("Server-side filter EQUALS test passed: received {} ORDER messages", receivedMessages.size());
+            logger.info("Server-side filter EQUALS test passed: true {} ORDER messages", receivedMessages.size());
 
-        consumer.close();
-        producer.close();
+            consumer.close();
+            producer.close();
+            testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testServerSideFilterIn(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+    void testServerSideFilterIn(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Server-Side Filter IN ===");
         String topic = "filter-in-test-" + System.currentTimeMillis();
 
@@ -194,12 +205,16 @@ public class ServerSideFilteringTest {
         MessageConsumer<String> consumer = nativeFactory.createConsumer(topic, String.class, config);
 
         List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
-        Checkpoint checkpoint = testContext.checkpoint(3);
+        // Events counted across the former checkpoints; the assertions run once all have happened.
+        Promise<Void> allEvents = Promise.promise();
+        AtomicInteger remainingEvents = new AtomicInteger();
+        remainingEvents.addAndGet(3);
+        Runnable checkpoint = () -> countEvent(testContext, remainingEvents, allEvents);
 
         consumer.subscribe(message -> {
             logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
             receivedMessages.add(message.getPayload());
-            checkpoint.flag();
+            checkpoint.run();
             return Future.succeededFuture();
         }).onSuccess(ready -> {
             // Send messages with different types
@@ -210,19 +225,28 @@ public class ServerSideFilteringTest {
             logger.info("Sent 4 messages: 2 ORDER, 1 PAYMENT, 1 REFUND");
         }).onFailure(testContext::failNow);
 
-        boolean received = testContext.awaitCompletion(15, TimeUnit.SECONDS);
 
-        Assertions.assertTrue(received, "Should receive filtered messages");
-        Assertions.assertEquals(3, receivedMessages.size(), "Should receive exactly 3 messages (ORDER + REFUND)");
+        allEvents.future()
 
-        logger.info("Server-side filter IN test passed: received {} messages", receivedMessages.size());
+            .onSuccess(done -> testContext.verify(() -> {
 
-        consumer.close();
-        producer.close();
+            Assertions.assertEquals(3, receivedMessages.size(), "Should receive exactly 3 messages (ORDER + REFUND)");
+
+            logger.info("Server-side filter IN test passed: true {} messages", receivedMessages.size());
+
+            consumer.close();
+            producer.close();
+
+            testContext.completeNow();
+
+            }))
+
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testServerSideFilterAnd(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+    void testServerSideFilterAnd(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Server-Side Filter AND ===");
         String topic = "filter-and-test-" + System.currentTimeMillis();
 
@@ -240,12 +264,16 @@ public class ServerSideFilteringTest {
         MessageConsumer<String> consumer = nativeFactory.createConsumer(topic, String.class, config);
 
         List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
-        Checkpoint checkpoint = testContext.checkpoint(1);
+        // Events counted across the former checkpoints; the assertions run once all have happened.
+        Promise<Void> allEvents = Promise.promise();
+        AtomicInteger remainingEvents = new AtomicInteger();
+        remainingEvents.addAndGet(1);
+        Runnable checkpoint = () -> countEvent(testContext, remainingEvents, allEvents);
 
         consumer.subscribe(message -> {
             logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
             receivedMessages.add(message.getPayload());
-            checkpoint.flag();
+            checkpoint.run();
             return Future.succeededFuture();
         }).onSuccess(ready -> {
             // Send messages with different combinations
@@ -255,20 +283,29 @@ public class ServerSideFilteringTest {
             logger.info("Sent 3 messages with different type/priority combinations");
         }).onFailure(testContext::failNow);
 
-        boolean received = testContext.awaitCompletion(15, TimeUnit.SECONDS);
 
-        Assertions.assertTrue(received, "Should receive filtered message");
-        Assertions.assertEquals(1, receivedMessages.size(), "Should receive exactly 1 message (ORDER + HIGH)");
-        Assertions.assertEquals("Order High", receivedMessages.get(0));
+        allEvents.future()
 
-        logger.info("Server-side filter AND test passed");
+            .onSuccess(done -> testContext.verify(() -> {
 
-        consumer.close();
-        producer.close();
+            Assertions.assertEquals(1, receivedMessages.size(), "Should receive exactly 1 message (ORDER + HIGH)");
+            Assertions.assertEquals("Order High", receivedMessages.get(0));
+
+            logger.info("Server-side filter AND test passed");
+
+            consumer.close();
+            producer.close();
+
+            testContext.completeNow();
+
+            }))
+
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testServerSideFilterNotEquals(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+    void testServerSideFilterNotEquals(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Server-Side Filter NOT_EQUALS ===");
         String topic = "filter-not-equals-test-" + System.currentTimeMillis();
 
@@ -283,12 +320,16 @@ public class ServerSideFilteringTest {
         MessageConsumer<String> consumer = nativeFactory.createConsumer(topic, String.class, config);
 
         List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
-        Checkpoint checkpoint = testContext.checkpoint(2);
+        // Events counted across the former checkpoints; the assertions run once all have happened.
+        Promise<Void> allEvents = Promise.promise();
+        AtomicInteger remainingEvents = new AtomicInteger();
+        remainingEvents.addAndGet(2);
+        Runnable checkpoint = () -> countEvent(testContext, remainingEvents, allEvents);
 
         consumer.subscribe(message -> {
             logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
             receivedMessages.add(message.getPayload());
-            checkpoint.flag();
+            checkpoint.run();
             return Future.succeededFuture();
         }).onSuccess(ready -> {
             // Send messages with different statuses
@@ -298,22 +339,31 @@ public class ServerSideFilteringTest {
             logger.info("Sent 3 messages: ACTIVE, CANCELLED, PENDING");
         }).onFailure(testContext::failNow);
 
-        boolean received = testContext.awaitCompletion(15, TimeUnit.SECONDS);
 
-        Assertions.assertTrue(received, "Should receive filtered messages");
-        Assertions.assertEquals(2, receivedMessages.size(), "Should receive 2 non-CANCELLED messages");
-        Assertions.assertTrue(receivedMessages.contains("Order Active"));
-        Assertions.assertTrue(receivedMessages.contains("Order Pending"));
-        Assertions.assertFalse(receivedMessages.contains("Order Cancelled"));
+        allEvents.future()
 
-        logger.info("Server-side filter NOT_EQUALS test passed");
+            .onSuccess(done -> testContext.verify(() -> {
 
-        consumer.close();
-        producer.close();
+            Assertions.assertEquals(2, receivedMessages.size(), "Should receive 2 non-CANCELLED messages");
+            Assertions.assertTrue(receivedMessages.contains("Order Active"));
+            Assertions.assertTrue(receivedMessages.contains("Order Pending"));
+            Assertions.assertFalse(receivedMessages.contains("Order Cancelled"));
+
+            logger.info("Server-side filter NOT_EQUALS test passed");
+
+            consumer.close();
+            producer.close();
+
+            testContext.completeNow();
+
+            }))
+
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testServerSideFilterOr(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+    void testServerSideFilterOr(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Server-Side Filter OR ===");
         String topic = "filter-or-test-" + System.currentTimeMillis();
 
@@ -331,12 +381,16 @@ public class ServerSideFilteringTest {
         MessageConsumer<String> consumer = nativeFactory.createConsumer(topic, String.class, config);
 
         List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
-        Checkpoint checkpoint = testContext.checkpoint(3);
+        // Events counted across the former checkpoints; the assertions run once all have happened.
+        Promise<Void> allEvents = Promise.promise();
+        AtomicInteger remainingEvents = new AtomicInteger();
+        remainingEvents.addAndGet(3);
+        Runnable checkpoint = () -> countEvent(testContext, remainingEvents, allEvents);
 
         consumer.subscribe(message -> {
             logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
             receivedMessages.add(message.getPayload());
-            checkpoint.flag();
+            checkpoint.run();
             return Future.succeededFuture();
         }).onSuccess(ready -> {
             // Send messages
@@ -347,20 +401,29 @@ public class ServerSideFilteringTest {
             logger.info("Sent 4 messages with different type/priority combinations");
         }).onFailure(testContext::failNow);
 
-        boolean received = testContext.awaitCompletion(15, TimeUnit.SECONDS);
 
-        Assertions.assertTrue(received, "Should receive filtered messages");
-        Assertions.assertEquals(3, receivedMessages.size(), "Should receive 3 messages (ORDER or URGENT)");
-        Assertions.assertFalse(receivedMessages.contains("Payment Normal"), "Should not receive PAYMENT+NORMAL");
+        allEvents.future()
 
-        logger.info("Server-side filter OR test passed");
+            .onSuccess(done -> testContext.verify(() -> {
 
-        consumer.close();
-        producer.close();
+            Assertions.assertEquals(3, receivedMessages.size(), "Should receive 3 messages (ORDER or URGENT)");
+            Assertions.assertFalse(receivedMessages.contains("Payment Normal"), "Should not receive PAYMENT+NORMAL");
+
+            logger.info("Server-side filter OR test passed");
+
+            consumer.close();
+            producer.close();
+
+            testContext.completeNow();
+
+            }))
+
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testServerSideFilterLike(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+    void testServerSideFilterLike(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Server-Side Filter LIKE ===");
         String topic = "filter-like-test-" + System.currentTimeMillis();
 
@@ -375,12 +438,16 @@ public class ServerSideFilteringTest {
         MessageConsumer<String> consumer = nativeFactory.createConsumer(topic, String.class, config);
 
         List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
-        Checkpoint checkpoint = testContext.checkpoint(2);
+        // Events counted across the former checkpoints; the assertions run once all have happened.
+        Promise<Void> allEvents = Promise.promise();
+        AtomicInteger remainingEvents = new AtomicInteger();
+        remainingEvents.addAndGet(2);
+        Runnable checkpoint = () -> countEvent(testContext, remainingEvents, allEvents);
 
         consumer.subscribe(message -> {
             logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
             receivedMessages.add(message.getPayload());
-            checkpoint.flag();
+            checkpoint.run();
             return Future.succeededFuture();
         }).onSuccess(ready -> {
             // Send messages with different event types
@@ -390,21 +457,30 @@ public class ServerSideFilteringTest {
             logger.info("Sent 3 messages with different eventType patterns");
         }).onFailure(testContext::failNow);
 
-        boolean received = testContext.awaitCompletion(15, TimeUnit.SECONDS);
 
-        Assertions.assertTrue(received, "Should receive filtered messages");
-        Assertions.assertEquals(2, receivedMessages.size(), "Should receive 2 order-* messages");
-        Assertions.assertTrue(receivedMessages.contains("Order Created"));
-        Assertions.assertTrue(receivedMessages.contains("Order Shipped"));
+        allEvents.future()
 
-        logger.info("Server-side filter LIKE test passed");
+            .onSuccess(done -> testContext.verify(() -> {
 
-        consumer.close();
-        producer.close();
+            Assertions.assertEquals(2, receivedMessages.size(), "Should receive 2 order-* messages");
+            Assertions.assertTrue(receivedMessages.contains("Order Created"));
+            Assertions.assertTrue(receivedMessages.contains("Order Shipped"));
+
+            logger.info("Server-side filter LIKE test passed");
+
+            consumer.close();
+            producer.close();
+
+            testContext.completeNow();
+
+            }))
+
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testServerSideFilterMissingHeader(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+    void testServerSideFilterMissingHeader(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Server-Side Filter with Missing Headers ===");
         String topic = "filter-missing-header-test-" + System.currentTimeMillis();
 
@@ -419,12 +495,16 @@ public class ServerSideFilteringTest {
         MessageConsumer<String> consumer = nativeFactory.createConsumer(topic, String.class, config);
 
         List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
-        Checkpoint checkpoint = testContext.checkpoint(1);
+        // Events counted across the former checkpoints; the assertions run once all have happened.
+        Promise<Void> allEvents = Promise.promise();
+        AtomicInteger remainingEvents = new AtomicInteger();
+        remainingEvents.addAndGet(1);
+        Runnable checkpoint = () -> countEvent(testContext, remainingEvents, allEvents);
 
         consumer.subscribe(message -> {
             logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
             receivedMessages.add(message.getPayload());
-            checkpoint.flag();
+            checkpoint.run();
             return Future.succeededFuture();
         }).onSuccess(ready -> {
             // Send messages - some without the 'type' header
@@ -434,15 +514,33 @@ public class ServerSideFilteringTest {
             logger.info("Sent 3 messages: 1 with type=ORDER, 2 without type header");
         }).onFailure(testContext::failNow);
 
-        boolean received = testContext.awaitCompletion(15, TimeUnit.SECONDS);
 
-        Assertions.assertTrue(received, "Should receive the ORDER message");
-        Assertions.assertEquals(1, receivedMessages.size(), "Should receive only 1 message with type=ORDER");
-        Assertions.assertEquals("Order With Type", receivedMessages.get(0));
+        allEvents.future()
 
-        logger.info("Server-side filter missing header test passed - NULL-safe filtering works");
+            .onSuccess(done -> testContext.verify(() -> {
 
-        consumer.close();
-        producer.close();
+            Assertions.assertEquals(1, receivedMessages.size(), "Should receive only 1 message with type=ORDER");
+            Assertions.assertEquals("Order With Type", receivedMessages.get(0));
+
+            logger.info("Server-side filter missing header test passed - NULL-safe filtering works");
+
+            consumer.close();
+            producer.close();
+
+            testContext.completeNow();
+
+            }))
+
+            .onFailure(testContext::failNow);
+    }
+
+    /** Counts one expected event; completes {@code all} at zero and fails the test on an extra event. */
+    private static void countEvent(VertxTestContext testContext, AtomicInteger remaining, Promise<Void> all) {
+        int left = remaining.decrementAndGet();
+        if (left == 0) {
+            all.tryComplete();
+        } else if (left < 0) {
+            testContext.failNow(new AssertionError("More events than expected: " + (-left) + " extra"));
+        }
     }
 }

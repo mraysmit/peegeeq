@@ -17,6 +17,7 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
@@ -123,6 +124,7 @@ class ConsumerModeResourceManagementTest {
     }
 
     @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     void testConnectionPoolUsageAcrossConsumerModes(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Test: connection pool usage across consumer modes");
         String topicName = "test-connection-pool-usage";
@@ -164,12 +166,10 @@ class ConsumerModeResourceManagementTest {
                 }
                 chain.onFailure(testContext::failNow);
             }).onFailure(testContext::failNow);
-
-            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive all messages across different consumer modes");
-        assertEquals(3, messageCount.get(), "Should process exactly 3 messages");
     }
 
     @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     void testSchedulerResourceManagement(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Test: scheduler resource management");
 
@@ -214,12 +214,10 @@ class ConsumerModeResourceManagementTest {
                     })
                     .onFailure(testContext::failNow);
             }).onFailure(testContext::failNow);
-
-            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive messages via polling mechanism");
-        assertEquals(3, messageCount.get(), "Should process exactly 3 messages");
     }
 
     @Test
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
     void testMemoryUsagePatterns(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Test: memory usage patterns");
         String topicName = "test-memory-usage";
@@ -245,12 +243,10 @@ class ConsumerModeResourceManagementTest {
                 chain.onFailure(testContext::failNow);
             })
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should process all messages without memory issues");
-        assertEquals(10, processedCount.get(), "Should process exactly 10 messages");
     }
 
     @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     void testGracefulShutdownResourceCleanup(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Test: graceful shutdown resource cleanup");
         String topicName = "test-graceful-shutdown";
@@ -271,8 +267,5 @@ class ConsumerModeResourceManagementTest {
                     .compose(v -> producer.send("Shutdown test message 2"))
                     .onFailure(testContext::failNow))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process messages before shutdown");
-        assertEquals(2, processedCount.get(), "Should process exactly 2 messages");
     }
 }

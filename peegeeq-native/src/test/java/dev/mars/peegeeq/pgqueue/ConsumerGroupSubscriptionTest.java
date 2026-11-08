@@ -50,6 +50,7 @@ import java.util.List;
 import java.util.Properties;
 import java.util.Set;
 
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -629,19 +630,23 @@ class ConsumerGroupSubscriptionTest {
 
         @Test
         @DisplayName("should work with start() method")
-        void testSetMessageHandler_IntegrationWithStart(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("Test: set message handler  integration with start");
-            // Arrange
+        @io.vertx.junit5.Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+        void testSetMessageHandler_IntegrationWithStart(Vertx vertx, VertxTestContext testContext) {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
-            AtomicInteger count = new AtomicInteger(0);
-            List<String> receivedPayloads = Collections.synchronizedList(new ArrayList<>());
-            Checkpoint messageReceived = testContext.checkpoint();
+            // Both messages must arrive once each: a strict two-pass checkpoint, and every payload
+            // is one of the two sent and not seen before.
+            List<String> expectedPayloads = List.of("Test-1", "Test-2");
+            Set<String> receivedPayloads = ConcurrentHashMap.newKeySet();
+            Checkpoint messagesReceived = testContext.checkpoint(2);
             group.setMessageHandler(msg -> {
-                count.incrementAndGet();
-                receivedPayloads.add(msg.getPayload());
-                messageReceived.flag();
+                testContext.verify(() -> {
+                    assertTrue(group.isActive());
+                    assertTrue(expectedPayloads.contains(msg.getPayload()), "Unexpected payload: " + msg.getPayload());
+                    assertTrue(receivedPayloads.add(msg.getPayload()), "Delivered twice: " + msg.getPayload());
+                });
+                messagesReceived.flag();
                 return Future.succeededFuture();
             });
 
@@ -650,19 +655,6 @@ class ConsumerGroupSubscriptionTest {
                     producer.send("Test-1"),
                     producer.send("Test-2")))
                 .onFailure(testContext::failNow);
-
-            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
-
-            // Assert: checkpoint() gates on first arrival; verify content of what arrived.
-            assertTrue(group.isActive());
-            assertEquals(count.get(), receivedPayloads.size(),
-                "Counter and received-list must agree");
-            List<String> expectedPayloads = List.of("Test-1", "Test-2");
-            assertTrue(expectedPayloads.containsAll(receivedPayloads),
-                "Received payloads must be a subset of sent payloads; got: " + receivedPayloads);
-            assertEquals(receivedPayloads.size(), receivedPayloads.stream().distinct().count(),
-                "Received payloads must not contain duplicates; got: " + receivedPayloads);
-
         }
 
         @Test
@@ -705,18 +697,17 @@ class ConsumerGroupSubscriptionTest {
 
         @Test
         @DisplayName("should track statistics correctly")
-        void testSetMessageHandler_Statistics(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("Test: set message handler  statistics");
-            // Arrange
+        @io.vertx.junit5.Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+        void testSetMessageHandler_Statistics(Vertx vertx, VertxTestContext testContext) {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
+            // The statistics are read once all five messages have been handled.
             AtomicInteger count = new AtomicInteger(0);
-            Checkpoint messagesReceived = testContext.checkpoint(3);
+            Promise<Void> allHandled = Promise.promise();
             ConsumerGroupMember<String> member = group.setMessageHandler(msg -> {
-                int c = count.incrementAndGet();
-                if (c <= 3) {
-                    messagesReceived.flag();
+                if (count.incrementAndGet() == 5) {
+                    allHandled.tryComplete();
                 }
                 return Future.succeededFuture();
             });
@@ -726,21 +717,20 @@ class ConsumerGroupSubscriptionTest {
                 String payload = "Message-" + i;
                 sends = sends.compose(v -> producer.send(payload));
             }
-            sends.onFailure(testContext::failNow);
+            sends.compose(sent -> allHandled.future())
+                .onSuccess(done -> testContext.verify(() -> {
+                    ConsumerGroupStats groupStats = group.getStats();
+                    assertNotNull(groupStats);
+                    assertEquals("test-group", groupStats.getGroupName());
+                    assertEquals(1, groupStats.getActiveConsumerCount());
 
-            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
-
-            // Assert
-            ConsumerGroupStats groupStats = group.getStats();
-            assertNotNull(groupStats);
-            assertEquals("test-group", groupStats.getGroupName());
-            assertEquals(1, groupStats.getActiveConsumerCount());
-
-            ConsumerMemberStats memberStats = member.getStats();
-            assertNotNull(memberStats);
-            assertEquals("test-group-default-consumer", memberStats.getConsumerId());
-            assertTrue(memberStats.isActive());
-
+                    ConsumerMemberStats memberStats = member.getStats();
+                    assertNotNull(memberStats);
+                    assertEquals("test-group-default-consumer", memberStats.getConsumerId());
+                    assertTrue(memberStats.isActive());
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
         }
 
         @Test

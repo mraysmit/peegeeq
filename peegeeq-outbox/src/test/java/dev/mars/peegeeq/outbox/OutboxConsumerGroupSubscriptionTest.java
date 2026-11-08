@@ -34,6 +34,7 @@ import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Tuple;
@@ -150,13 +151,14 @@ class OutboxConsumerGroupSubscriptionTest {
 
         @Test
         @DisplayName("should start with FROM_NOW position")
-        void testStartWithOptions_FromNow(VertxTestContext testContext) throws Exception {
+        @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+        void testStartWithOptions_FromNow(VertxTestContext testContext) {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
+            // A strict checkpoint: a second delivery fails the test.
             Checkpoint messageCheckpoint = testContext.checkpoint();
             group.addConsumer("consumer-1", msg -> {
-        logger.info("Test: start with options  from now");
                 messageCheckpoint.flag();
                 return Future.succeededFuture();
             });
@@ -174,8 +176,6 @@ class OutboxConsumerGroupSubscriptionTest {
                     return producer.send("Message 1");
                 })
                 .onFailure(testContext::failNow);
-
-            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         }
 
         @Test
@@ -206,12 +206,15 @@ class OutboxConsumerGroupSubscriptionTest {
 
         @Test
         @DisplayName("should start with FROM_BEGINNING position")
-        void testStartWithOptions_FromBeginning(Vertx vertx, VertxTestContext testContext) throws Exception {
+        @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+        void testStartWithOptions_FromBeginning(Vertx vertx, VertxTestContext testContext) {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
+            // A strict checkpoint: the five historical messages and no more.
             Checkpoint messageCheckpoint = testContext.checkpoint(5);
             group.addConsumer("consumer-1", msg -> {
+                testContext.verify(() -> assertTrue(group.isActive()));
                 messageCheckpoint.flag();
                 return Future.succeededFuture();
             });
@@ -223,9 +226,6 @@ class OutboxConsumerGroupSubscriptionTest {
             sendBatch("Historical-", 5)
                 .compose(v -> group.start(options))
                 .onFailure(testContext::failNow);
-
-            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-            assertTrue(group.isActive());
         }
 
         @Test
@@ -324,13 +324,14 @@ class OutboxConsumerGroupSubscriptionTest {
 
         @Test
         @DisplayName("should delegate to standard start()")
-        void testStartWithOptions_DelegatesToStandardStart(VertxTestContext testContext) throws Exception {
+        @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+        void testStartWithOptions_DelegatesToStandardStart(VertxTestContext testContext) {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
+            // A strict checkpoint: a second delivery fails the test.
             Checkpoint messageCheckpoint = testContext.checkpoint();
             group.addConsumer("consumer-1", msg -> {
-        logger.info("Test: start with options  delegates to standard start");
                 messageCheckpoint.flag();
                 return Future.succeededFuture();
             });
@@ -345,8 +346,6 @@ class OutboxConsumerGroupSubscriptionTest {
                     return producer.send("Test");
                 })
                 .onFailure(testContext::failNow);
-
-            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         }
 
         @Test
@@ -435,14 +434,15 @@ class OutboxConsumerGroupSubscriptionTest {
 
         @Test
         @DisplayName("should process messages in outbox pattern")
-        void testSetMessageHandler_ProcessesMessages(VertxTestContext testContext) throws Exception {
+        @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+        void testSetMessageHandler_ProcessesMessages(VertxTestContext testContext) {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
+            // A strict checkpoint: exactly three deliveries.
             Checkpoint messageCheckpoint = testContext.checkpoint(3);
 
             group.setMessageHandler(msg -> {
-        logger.info("Test: set message handler  processes messages");
                 messageCheckpoint.flag();
                 return Future.succeededFuture();
             });
@@ -453,8 +453,6 @@ class OutboxConsumerGroupSubscriptionTest {
                     producer.send("Message-2"),
                     producer.send("Message-3")))
                 .onFailure(testContext::failNow);
-
-            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         }
 
         @Test
@@ -497,13 +495,15 @@ class OutboxConsumerGroupSubscriptionTest {
 
         @Test
         @DisplayName("should work with start()")
-        void testSetMessageHandler_IntegrationWithStart(VertxTestContext testContext) throws Exception {
-        logger.info("Test: set message handler  after close");
+        @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+        void testSetMessageHandler_IntegrationWithStart(VertxTestContext testContext) {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
+            // A strict checkpoint: exactly two deliveries.
             Checkpoint messageCheckpoint = testContext.checkpoint(2);
             group.setMessageHandler(msg -> {
+                testContext.verify(() -> assertTrue(group.isActive()));
                 messageCheckpoint.flag();
                 return Future.succeededFuture();
             });
@@ -513,19 +513,19 @@ class OutboxConsumerGroupSubscriptionTest {
                     producer.send("Test-1"),
                     producer.send("Test-2")))
                 .onFailure(testContext::failNow);
-
-            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-            assertTrue(group.isActive());
         }
 
         @Test
         @DisplayName("should work with start(SubscriptionOptions)")
-        void testSetMessageHandler_IntegrationWithStartOptions(Vertx vertx, VertxTestContext testContext) throws Exception {
+        @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+        void testSetMessageHandler_IntegrationWithStartOptions(Vertx vertx, VertxTestContext testContext) {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
+            // A strict checkpoint: the three historical messages and no more.
             Checkpoint messageCheckpoint = testContext.checkpoint(3);
             group.setMessageHandler(msg -> {
+                testContext.verify(() -> assertTrue(group.isActive()));
                 messageCheckpoint.flag();
                 return Future.succeededFuture();
             });
@@ -537,39 +537,41 @@ class OutboxConsumerGroupSubscriptionTest {
             sendBatch("Historical-", 3)
                 .compose(v -> group.start(options))
                 .onFailure(testContext::failNow);
-
-            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-            assertTrue(group.isActive());
         }
 
         @Test
         @DisplayName("should track statistics")
-        void testSetMessageHandler_Statistics(VertxTestContext testContext) throws Exception {
+        @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+        void testSetMessageHandler_Statistics(VertxTestContext testContext) {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
-            Checkpoint messageCheckpoint = testContext.checkpoint(5);
+            // The statistics are read once all five messages have been handled.
+            Promise<Void> allHandled = Promise.promise();
+            AtomicInteger handled = new AtomicInteger(0);
             ConsumerGroupMember<String> member = group.setMessageHandler(msg -> {
-        logger.info("Test: set message handler  statistics");
-                messageCheckpoint.flag();
+                if (handled.incrementAndGet() == 5) {
+                    allHandled.tryComplete();
+                }
                 return Future.succeededFuture();
             });
 
             group.start()
                 .compose(v -> sendBatch("Message-", 5))
+                .compose(sent -> allHandled.future())
+                .onSuccess(done -> testContext.verify(() -> {
+                    ConsumerGroupStats groupStats = group.getStats();
+                    assertNotNull(groupStats);
+                    assertEquals("test-group", groupStats.getGroupName());
+                    assertEquals(1, groupStats.getActiveConsumerCount());
+
+                    ConsumerMemberStats memberStats = member.getStats();
+                    assertNotNull(memberStats);
+                    assertEquals("test-group-default-consumer", memberStats.getConsumerId());
+                    assertTrue(memberStats.isActive());
+                    testContext.completeNow();
+                }))
                 .onFailure(testContext::failNow);
-
-            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-
-            ConsumerGroupStats groupStats = group.getStats();
-            assertNotNull(groupStats);
-            assertEquals("test-group", groupStats.getGroupName());
-            assertEquals(1, groupStats.getActiveConsumerCount());
-
-            ConsumerMemberStats memberStats = member.getStats();
-            assertNotNull(memberStats);
-            assertEquals("test-group-default-consumer", memberStats.getConsumerId());
-            assertTrue(memberStats.isActive());
         }
 
         @Test

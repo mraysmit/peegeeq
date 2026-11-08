@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.examples.springboot.outbox;
 
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.api.messaging.DurationPercentiles;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.db.PeeGeeQManager;
@@ -31,8 +32,8 @@ import org.testcontainers.junit.jupiter.Container;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -41,6 +42,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BooleanSupplier;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -120,7 +122,8 @@ class OutboxMetricsSpringBootTest {
     @Test
     @Order(1)
     @DisplayName("Test 1: Message Count Metrics - Verify sent/received/processed counts")
-    void testMessageCountMetrics(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    void testMessageCountMetrics(Vertx vertx, VertxTestContext testContext) {
         logger.info("\n=== TEST 1: Message Count Metrics ===");
         
         String topicName = "metrics-count-topic";
@@ -142,38 +145,51 @@ class OutboxMetricsSpringBootTest {
             initialSent, initialReceived, initialProcessed);
         
         // Set up consumer
-        Checkpoint checkpoint = testContext.checkpoint(messageCount);
+        // Events counted across the former checkpoints; the assertions run once all have happened.
+        Promise<Void> allEvents = Promise.promise();
+        AtomicInteger remainingEvents = new AtomicInteger();
+        remainingEvents.addAndGet(messageCount);
+        Runnable checkpoint = () -> countEvent(testContext, remainingEvents, allEvents);
         Future<Void> subscription = consumer.subscribe(message -> {
             logger.debug("Processing message: {}", message.getPayload());
-            checkpoint.flag();
+            checkpoint.run();
             return Future.succeededFuture(null);
         });
         
         // Send messages
         subscription.compose(v -> sendMessages(producer, "Metrics test message ", messageCount))
             .onFailure(testContext::failNow);
-        
-        // Wait for processing
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
-            "All messages should be processed within timeout");
-        
-        // Verify metrics increased
-        PeeGeeQMetrics.MetricsSummary finalMetrics = manager.getMetrics().getSummary();
-        double finalSent = finalMetrics.getMessagesSent();
-        double finalReceived = finalMetrics.getMessagesReceived();
-        double finalProcessed = finalMetrics.getMessagesProcessed();
-        
-        logger.info("Final metrics - Sent: {}, Received: {}, Processed: {}", 
-            finalSent, finalReceived, finalProcessed);
-        
-        assertTrue(finalSent >= initialSent + messageCount, 
-            "Sent count should increase by at least " + messageCount);
-        assertTrue(finalReceived >= initialReceived + messageCount, 
-            "Received count should increase by at least " + messageCount);
-        assertTrue(finalProcessed >= initialProcessed + messageCount, 
-            "Processed count should increase by at least " + messageCount);
-        
-        logger.info("Message count metrics verified successfully");
+
+        // The consumer records the received and processed counts after the handler's Future
+        // completes, so the counts are polled once the last message has reached the handler.
+        allEvents.future()
+            .compose(done -> awaitMetrics(vertx, () -> {
+                PeeGeeQMetrics.MetricsSummary current = manager.getMetrics().getSummary();
+                return current.getMessagesSent() >= initialSent + messageCount
+                    && current.getMessagesReceived() >= initialReceived + messageCount
+                    && current.getMessagesProcessed() >= initialProcessed + messageCount;
+            }, System.nanoTime() + TimeUnit.SECONDS.toNanos(5)))
+            .onSuccess(done -> testContext.verify(() -> {
+            // Verify metrics increased
+            PeeGeeQMetrics.MetricsSummary finalMetrics = manager.getMetrics().getSummary();
+            double finalSent = finalMetrics.getMessagesSent();
+            double finalReceived = finalMetrics.getMessagesReceived();
+            double finalProcessed = finalMetrics.getMessagesProcessed();
+
+            logger.info("Final metrics - Sent: {}, Received: {}, Processed: {}", 
+                finalSent, finalReceived, finalProcessed);
+
+            assertTrue(finalSent >= initialSent + messageCount, 
+                "Sent count should increase by at least " + messageCount);
+            assertTrue(finalReceived >= initialReceived + messageCount, 
+                "Received count should increase by at least " + messageCount);
+            assertTrue(finalProcessed >= initialProcessed + messageCount, 
+                "Processed count should increase by at least " + messageCount);
+
+            logger.info("Message count metrics verified successfully");
+            testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
@@ -217,8 +233,11 @@ class OutboxMetricsSpringBootTest {
 
         // Wait for the first errorCount errors, then poll the observable metric until it changes.
         errorsComplete.future()
-            .compose(v -> awaitFailedMetricIncrease(vertx, initialErrors, System.nanoTime() + TimeUnit.SECONDS.toNanos(5)))
-            .onSuccess(finalErrors -> testContext.verify(() -> {
+            .compose(v -> awaitMetrics(vertx,
+                () -> manager.getMetrics().getSummary().getMessagesFailed() > initialErrors,
+                System.nanoTime() + TimeUnit.SECONDS.toNanos(5)))
+            .onSuccess(done -> testContext.verify(() -> {
+                double finalErrors = manager.getMetrics().getSummary().getMessagesFailed();
                 logger.info("Final error count: {}", finalErrors);
 
                 assertTrue(finalErrors > initialErrors, 
@@ -236,7 +255,8 @@ class OutboxMetricsSpringBootTest {
     @Test
     @Order(3)
     @DisplayName("Test 3: Processing Time Metrics - Verify timing measurements")
-    void testProcessingTimeMetrics(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    void testProcessingTimeMetrics(Vertx vertx, VertxTestContext testContext) {
         logger.info("\n=== TEST 3: Processing Time Metrics ===");
         
         String topicName = "metrics-timing-topic";
@@ -250,13 +270,17 @@ class OutboxMetricsSpringBootTest {
         activeConsumers.add(consumer);
         
         // Set up consumer with deliberate processing delay
-        Checkpoint checkpoint = testContext.checkpoint(messageCount);
+        // Events counted across the former checkpoints; the assertions run once all have happened.
+        Promise<Void> allEvents = Promise.promise();
+        AtomicInteger remainingEvents = new AtomicInteger();
+        remainingEvents.addAndGet(messageCount);
+        Runnable checkpoint = () -> countEvent(testContext, remainingEvents, allEvents);
         Future<Void> subscription = consumer.subscribe(message -> {
             Promise<Void> result = Promise.promise();
             vertx.setTimer(processingDelayMs, id -> {
                 logger.debug("Processing message with {}ms delay: {}", 
                     processingDelayMs, message.getPayload());
-                checkpoint.flag();
+                checkpoint.run();
                 result.complete(null);
             });
             return result.future();
@@ -265,17 +289,30 @@ class OutboxMetricsSpringBootTest {
         // Send messages
         subscription.compose(v -> sendMessages(producer, "Timing test message ", messageCount))
             .onFailure(testContext::failNow);
-        
-        // Wait for processing
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
-            "All messages should be processed within timeout");
-        
-        // Verify metrics were collected (we can't easily verify exact timing in integration test)
-        PeeGeeQMetrics.MetricsSummary metrics = manager.getMetrics().getSummary();
-        assertTrue(metrics.getMessagesProcessed() > 0, 
-            "Should have processed messages with timing metrics");
-        
-        logger.info("Processing time metrics collected successfully");
+
+        // The consumer records the processing time after the handler's Future completes, so the
+        // topic's distribution is polled once the last message has reached the handler.
+        allEvents.future()
+            .compose(done -> awaitMetrics(vertx, () -> {
+                DurationPercentiles current = manager.getMetrics().getProcessingTimePercentiles(topicName);
+                return current != null && current.sampleCount() >= messageCount;
+            }, System.nanoTime() + TimeUnit.SECONDS.toNanos(5)))
+            .onSuccess(done -> testContext.verify(() -> {
+            // The topic is used only by this test, so its distribution holds exactly these messages.
+            DurationPercentiles timing = manager.getMetrics().getProcessingTimePercentiles(topicName);
+            assertNotNull(timing, "A processing-time distribution should exist for topic " + topicName);
+            logger.info("Processing time for {}: mean {} ms, p50 {} ms, p99 {} ms over {} samples",
+                topicName, timing.meanMs(), timing.p50Ms(), timing.p99Ms(), timing.sampleCount());
+            assertEquals(messageCount, timing.sampleCount(),
+                "The distribution should cover each processed message once");
+            assertTrue(timing.meanMs() >= processingDelayMs,
+                "Mean processing time should include the " + processingDelayMs + " ms handler delay, was "
+                    + timing.meanMs() + " ms");
+
+            logger.info("Processing time metrics collected successfully");
+            testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     private Future<Void> sendMessages(MessageProducer<String> producer, String prefix, int count) {
@@ -286,20 +323,40 @@ class OutboxMetricsSpringBootTest {
         return Future.all(sends).mapEmpty();
     }
 
-    private Future<Double> awaitFailedMetricIncrease(Vertx vertx, double initialErrors, long deadlineNanos) {
-        Promise<Double> result = Promise.promise();
-        pollFailedMetric(vertx, initialErrors, deadlineNanos, result);
+    /**
+     * Polls every 50 ms until {@code reached} holds or the deadline passes, and completes either way,
+     * so the caller's assertions read the metrics and report any gap. A failure while reading the
+     * metrics fails the returned Future.
+     */
+    private Future<Void> awaitMetrics(Vertx vertx, BooleanSupplier reached, long deadlineNanos) {
+        Promise<Void> result = Promise.promise();
+        pollMetrics(vertx, reached, deadlineNanos, result);
         return result.future();
     }
 
-    private void pollFailedMetric(Vertx vertx, double initialErrors, long deadlineNanos, Promise<Double> result) {
-        double currentErrors = manager.getMetrics().getSummary().getMessagesFailed();
-        if (currentErrors > initialErrors) {
-            result.complete(currentErrors);
-        } else if (System.nanoTime() >= deadlineNanos) {
-            result.fail("Timed out waiting for the failed-message metric to increase from " + initialErrors);
+    private void pollMetrics(Vertx vertx, BooleanSupplier reached, long deadlineNanos, Promise<Void> result) {
+        boolean done;
+        try {
+            done = reached.getAsBoolean();
+        } catch (RuntimeException readFailure) {
+            logger.error("Failed to read metrics while polling", readFailure);
+            result.fail(readFailure);
+            return;
+        }
+        if (done || System.nanoTime() >= deadlineNanos) {
+            result.complete();
         } else {
-            vertx.setTimer(50, id -> pollFailedMetric(vertx, initialErrors, deadlineNanos, result));
+            vertx.setTimer(50, id -> pollMetrics(vertx, reached, deadlineNanos, result));
+        }
+    }
+
+    /** Counts one expected event; completes {@code all} at zero and fails the test on an extra event. */
+    private static void countEvent(VertxTestContext testContext, AtomicInteger remaining, Promise<Void> all) {
+        int left = remaining.decrementAndGet();
+        if (left == 0) {
+            all.tryComplete();
+        } else if (left < 0) {
+            testContext.failNow(new AssertionError("More events than expected: " + (-left) + " extra"));
         }
     }
 }

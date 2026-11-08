@@ -14,6 +14,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
@@ -28,7 +29,6 @@ import java.util.Properties;
 import java.util.UUID;
 
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -126,7 +126,8 @@ class DistributedTracingTest {
     }
 
     @Test
-    void testDistributedTracingWithW3CTraceContext(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    void testDistributedTracingWithW3CTraceContext(VertxTestContext testContext) {
         logger.info("Test: distributed tracing with w3 c trace context");
         // Generate W3C Trace Context IDs
         String traceId = generateTraceId();
@@ -143,52 +144,41 @@ class DistributedTracingTest {
             "source", "distributed-tracing-test"
         );
 
-        // Capture trace context from consumer
-        AtomicReference<String> consumerTraceId = new AtomicReference<>();
-        AtomicReference<String> consumerSpanId = new AtomicReference<>();
-        AtomicReference<String> consumerCorrelationId = new AtomicReference<>();
+        // A strict checkpoint: a second delivery fails the test.
         Checkpoint messageReceived = testContext.checkpoint();
 
-        // Subscribe consumer
+        // The trace context is in the MDC while the handler runs.
         consumer.subscribe(message -> {
-                    consumerTraceId.set(MDC.get("traceId"));
-                    consumerSpanId.set(MDC.get("spanId"));
-                    consumerCorrelationId.set(MDC.get("correlationId"));
-
+                    testContext.verify(() -> {
+                        assertEquals(traceId, MDC.get("traceId"), "Trace ID should be propagated to consumer");
+                        assertEquals(spanId, MDC.get("spanId"), "Span ID should be propagated to consumer");
+                        assertEquals(correlationId, MDC.get("correlationId"), "Correlation ID should be propagated to consumer");
+                    });
                     messageReceived.flag();
                     return Future.succeededFuture();
                 })
                 .compose(v -> producer.send("test-payload-with-tracing", headers, correlationId).mapEmpty())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Consumer should receive message");
-
-        // Verify trace context was propagated
-        assertEquals(traceId, consumerTraceId.get(), "Trace ID should be propagated to consumer");
-        assertEquals(spanId, consumerSpanId.get(), "Span ID should be propagated to consumer");
-        assertEquals(correlationId, consumerCorrelationId.get(), "Correlation ID should be propagated to consumer");
     }
 
     @Test
-    void testAutomaticTraceGenerationForMissingHeaders(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    void testAutomaticTraceGenerationForMissingHeaders(VertxTestContext testContext) {
         logger.info("Test: automatic trace generation for missing headers");
-        AtomicReference<String> consumerTraceId = new AtomicReference<>();
+        // A strict checkpoint: a second delivery fails the test.
         Checkpoint messageReceived = testContext.checkpoint();
 
-        // Subscribe consumer
         consumer.subscribe(message -> {
-                    consumerTraceId.set(MDC.get("traceId"));
-
+                    String traceId = MDC.get("traceId");
+                    testContext.verify(() -> {
+                        assertNotNull(traceId, "Trace ID should be automatically generated");
+                        assertFalse(traceId.isEmpty(), "Trace ID should not be empty");
+                    });
                     messageReceived.flag();
                     return Future.succeededFuture();
                 })
                 .compose(v -> producer.send("payload-with-no-headers").mapEmpty())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Consumer should receive message");
-
-        assertNotNull(consumerTraceId.get(), "Trace ID should be automatically generated");
-        assertFalse(consumerTraceId.get().isEmpty(), "Trace ID should not be empty");
     }
 
     /**

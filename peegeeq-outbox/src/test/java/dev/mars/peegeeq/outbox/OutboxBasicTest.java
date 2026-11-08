@@ -17,7 +17,6 @@ package dev.mars.peegeeq.outbox;
  */
 
 import dev.mars.peegeeq.api.database.DatabaseService;
-import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.db.PeeGeeQManager;
@@ -30,6 +29,7 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
@@ -45,9 +45,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import static org.junit.jupiter.api.Assertions.*;
@@ -120,25 +121,22 @@ class OutboxBasicTest {
     }
 
     @Test
-    void testBasicMessageProducerAndConsumer(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    void testBasicMessageProducerAndConsumer(VertxTestContext testContext) {
         logger.info("Test: basic message producer and consumer");
         String testMessage = "Hello, Basic Outbox Test!";
 
+        // A strict checkpoint: a second delivery fails the test.
         Checkpoint messageReceived = testContext.checkpoint();
-        AtomicInteger receivedCount = new AtomicInteger(0);
-        List<String> receivedMessages = new ArrayList<>();
 
         consumer.subscribe(message -> {
-            receivedMessages.add(message.getPayload());
-            receivedCount.incrementAndGet();
+            testContext.verify(() ->
+                assertEquals(testMessage, message.getPayload(), "Should receive the correct message"));
             messageReceived.flag();
             return Future.succeededFuture();
         })
             .compose(v -> producer.send(testMessage))
             .onFailure(testContext::failNow);
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received within timeout");
-        assertEquals(1, receivedCount.get(), "Should receive exactly one message");
-        assertEquals(testMessage, receivedMessages.get(0), "Should receive the correct message");
     }
 
     @Test
@@ -210,7 +208,8 @@ class OutboxBasicTest {
     }
 
     @Test
-    void testMessageWithHeaders(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    void testMessageWithHeaders(VertxTestContext testContext) {
         logger.info("Test: message with headers");
         String testMessage = "Message with headers test";
         Map<String, String> headers = Map.of(
@@ -219,39 +218,39 @@ class OutboxBasicTest {
             "version", "1.0"
         );
 
-        // Set up consumer
+        // A strict checkpoint: a second delivery fails the test.
         Checkpoint messageReceived = testContext.checkpoint();
-        List<Message<String>> receivedMessages = new ArrayList<>();
 
         consumer.subscribe(message -> {
-            receivedMessages.add(message);
+            testContext.verify(() -> {
+                assertEquals(testMessage, message.getPayload(), "Should receive correct payload");
+                assertEquals("text/plain", message.getHeaders().get("content-type"), "Should preserve content-type header");
+                assertEquals("basic-test", message.getHeaders().get("source"), "Should preserve source header");
+                assertEquals("1.0", message.getHeaders().get("version"), "Should preserve version header");
+            });
             messageReceived.flag();
             return Future.succeededFuture();
         })
             .compose(v -> producer.send(testMessage, headers))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received within timeout");
-        assertEquals(1, receivedMessages.size(), "Should receive exactly one message");
-
-        Message<String> receivedMessage = receivedMessages.get(0);
-        assertEquals(testMessage, receivedMessage.getPayload(), "Should receive correct payload");
-        assertEquals("text/plain", receivedMessage.getHeaders().get("content-type"), "Should preserve content-type header");
-        assertEquals("basic-test", receivedMessage.getHeaders().get("source"), "Should preserve source header");
-        assertEquals("1.0", receivedMessage.getHeaders().get("version"), "Should preserve version header");
     }
 
     @Test
-    void testMultipleMessages(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+    void testMultipleMessages(VertxTestContext testContext) {
         logger.info("Test: multiple messages");
         int messageCount = 5;
+        // A strict checkpoint: a sixth delivery fails the test; a repeated payload fails it too.
         Checkpoint messagesReceived = testContext.checkpoint(messageCount);
-        List<String> receivedMessages = new ArrayList<>();
+        Set<String> receivedMessages = ConcurrentHashMap.newKeySet();
 
         consumer.subscribe(message -> {
-            synchronized (receivedMessages) {
-                receivedMessages.add(message.getPayload());
-            }
+            testContext.verify(() -> {
+                assertTrue(message.getPayload().startsWith("Basic Test Message "),
+                    "Unexpected payload: " + message.getPayload());
+                assertTrue(receivedMessages.add(message.getPayload()),
+                    "Delivered twice: " + message.getPayload());
+            });
             messagesReceived.flag();
             return Future.succeededFuture();
         })
@@ -263,61 +262,50 @@ class OutboxBasicTest {
                 return Future.all(sends).mapEmpty();
             })
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "All messages should be received within timeout");
-        assertEquals(messageCount, receivedMessages.size(), "Should receive all sent messages");
     }
 
     @Test
-    void testCorrelationId(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    void testCorrelationId(VertxTestContext testContext) {
         logger.info("Test: correlation id");
         String testMessage = "Correlation ID test";
         String correlationId = "test-correlation-" + UUID.randomUUID();
 
-        // Set up consumer
+        // A strict checkpoint: a second delivery fails the test.
         Checkpoint messageReceived = testContext.checkpoint();
-        List<Message<String>> receivedMessages = new ArrayList<>();
 
         consumer.subscribe(message -> {
-            receivedMessages.add(message);
+            testContext.verify(() -> {
+                assertEquals(testMessage, message.getPayload(), "Should receive correct payload");
+                // OutboxConsumer stores correlationId in message headers, not the OutboxMessage field
+                assertEquals(correlationId, message.getHeaders().get("correlationId"),
+                    "Should preserve correlation ID in headers");
+            });
             messageReceived.flag();
             return Future.succeededFuture();
         })
             .compose(v -> producer.send(testMessage, Map.of(), correlationId))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received within timeout");
-        assertEquals(1, receivedMessages.size(), "Should receive exactly one message");
-
-        Message<String> receivedMessage = receivedMessages.get(0);
-        assertEquals(testMessage, receivedMessage.getPayload(), "Should receive correct payload");
-
-        // OutboxConsumer stores correlationId in message headers, not the OutboxMessage field
-        assertEquals(correlationId, receivedMessage.getHeaders().get("correlationId"),
-            "Should preserve correlation ID in headers");
     }
 
     @Test
-    void testMessageGroup(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    void testMessageGroup(VertxTestContext testContext) {
         logger.info("Test: message group");
         String testMessage = "Message group test";
         String messageGroup = "test-group-" + UUID.randomUUID();
 
-        // Set up consumer
+        // A strict checkpoint: a second delivery fails the test.
         Checkpoint messageReceived = testContext.checkpoint();
-        List<String> receivedMessages = new ArrayList<>();
 
         consumer.subscribe(message -> {
-            receivedMessages.add(message.getPayload());
+            testContext.verify(() ->
+                assertEquals(testMessage, message.getPayload(), "Should receive correct message"));
             messageReceived.flag();
             return Future.succeededFuture();
         })
             .compose(v -> producer.send(testMessage, Map.of(), null, messageGroup))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received within timeout");
-        assertEquals(1, receivedMessages.size(), "Should receive exactly one message");
-        assertEquals(testMessage, receivedMessages.get(0), "Should receive correct message");
     }
 }
 

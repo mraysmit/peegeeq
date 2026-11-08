@@ -240,7 +240,8 @@ class ConsumerGroupLoadBalancingDemoTest {
      */
     @Test
     @DisplayName("Round Robin Load Balancing - Even Distribution Across Consumers")
-    void testRoundRobinLoadBalancing(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @Timeout(value = 60, timeUnit = TimeUnit.SECONDS)
+    void testRoundRobinLoadBalancing(Vertx vertx, VertxTestContext testContext) {
         logger.info("Test: round robin load balancing");
         logger.info("Testing Round Robin Load Balancing");
 
@@ -249,7 +250,11 @@ class ConsumerGroupLoadBalancingDemoTest {
         int numMessages = 15; // Should distribute 5 messages per consumer
 
         List<ConsumerMetrics> consumerMetrics = new ArrayList<>();
-        var processedCheckpoint = testContext.checkpoint(numMessages);
+        // Events counted across the former checkpoints; the assertions run once all have happened.
+        Promise<Void> allEvents = Promise.promise();
+        AtomicInteger remainingEvents = new AtomicInteger();
+        remainingEvents.addAndGet(numMessages);
+        Runnable processedCheckpoint = () -> countEvent(testContext, remainingEvents, allEvents);
 
         // Create producer
         MessageProducer<WorkItem> producer = queueFactory.createProducer(queueName, WorkItem.class);
@@ -278,7 +283,7 @@ class ConsumerGroupLoadBalancingDemoTest {
 
                     logger.debug("{} processed work: {} (processing time: {}ms)", consumerId, work.workId, processingTime);
 
-                    processedCheckpoint.flag();
+                    processedCheckpoint.run();
                     return null;
                 });
             };
@@ -306,37 +311,40 @@ class ConsumerGroupLoadBalancingDemoTest {
                 }
             });
 
-        // Wait for all work items to be processed
-        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Should process all work items");
+        allEvents.future()
+            .onSuccess(done -> testContext.verify(() -> {
+            // Verify round-robin distribution
+            logger.info("Round Robin Distribution Results:");
+            int totalProcessed = 0;
+            for (ConsumerMetrics metrics : consumerMetrics) {
+                int processed = metrics.processedCount.get();
+                totalProcessed += processed;
+                logger.info("  {}: {} items processed", metrics.consumerId, processed);
+            }
 
-        // Verify round-robin distribution
-        logger.info("Round Robin Distribution Results:");
-        int totalProcessed = 0;
-        for (ConsumerMetrics metrics : consumerMetrics) {
-            int processed = metrics.processedCount.get();
-            totalProcessed += processed;
-            logger.info("  {}: {} items processed", metrics.consumerId, processed);
-        }
+            assertEquals(numMessages, totalProcessed, "Should process all messages");
 
-        assertEquals(numMessages, totalProcessed, "Should process all messages");
+            // Verify even distribution (within tolerance)
+            int expectedPerConsumer = numMessages / numConsumers;
+            for (ConsumerMetrics metrics : consumerMetrics) {
+                int processed = metrics.processedCount.get();
+                assertTrue(Math.abs(processed - expectedPerConsumer) <= 1,
+                          "Round-robin should distribute evenly: " + metrics.consumerId +
+                          " processed " + processed + ", expected ~" + expectedPerConsumer);
+            }
 
-        // Verify even distribution (within tolerance)
-        int expectedPerConsumer = numMessages / numConsumers;
-        for (ConsumerMetrics metrics : consumerMetrics) {
-            int processed = metrics.processedCount.get();
-            assertTrue(Math.abs(processed - expectedPerConsumer) <= 1,
-                      "Round-robin should distribute evenly: " + metrics.consumerId +
-                      " processed " + processed + ", expected ~" + expectedPerConsumer);
-        }
-
-        //  Cleanup is handled in tearDown to ensure it completes before manager.closeReactive().
-        logger.info("Round Robin Load Balancing test completed successfully");
-        logger.info("Total work items processed: {}", totalProcessed);
+            //  Cleanup is handled in tearDown to ensure it completes before manager.closeReactive().
+            logger.info("Round Robin Load Balancing test completed successfully");
+            logger.info("Total work items processed: {}", totalProcessed);
+            testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
     @DisplayName("Weighted Load Balancing - Distribution Based on Consumer Capacity")
-    void testWeightedLoadBalancing(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @Timeout(value = 45, timeUnit = TimeUnit.SECONDS)
+    void testWeightedLoadBalancing(Vertx vertx, VertxTestContext testContext) {
         logger.info("Test: weighted load balancing");
         logger.info("Testing Weighted Load Balancing");
 
@@ -346,7 +354,11 @@ class ConsumerGroupLoadBalancingDemoTest {
         // Consumer weights: 1:2:3 ratio (total weight = 6)
         int[] weights = {1, 2, 3};
         List<ConsumerMetrics> consumerMetrics = new ArrayList<>();
-        var processedCheckpoint = testContext.checkpoint(numMessages);
+        // Events counted across the former checkpoints; the assertions run once all have happened.
+        Promise<Void> allEvents = Promise.promise();
+        AtomicInteger remainingEvents = new AtomicInteger();
+        remainingEvents.addAndGet(numMessages);
+        Runnable processedCheckpoint = () -> countEvent(testContext, remainingEvents, allEvents);
 
         // Create producer
         MessageProducer<WorkItem> producer = queueFactory.createProducer(queueName, WorkItem.class);
@@ -377,7 +389,7 @@ class ConsumerGroupLoadBalancingDemoTest {
 
                     logger.debug("{} (weight={}) processed work: {} (processing time: {}ms)", consumerId, weights[consumerIndex], work.workId, actualProcessingTime);
 
-                    processedCheckpoint.flag();
+                    processedCheckpoint.run();
                     return null;
                 });
             }));
@@ -401,32 +413,34 @@ class ConsumerGroupLoadBalancingDemoTest {
             })
             .onFailure(testContext::failNow);
 
-        // Wait for all work items to be processed
-        assertTrue(testContext.awaitCompletion(45, TimeUnit.SECONDS), "Should process all work items");
+        allEvents.future()
+            .onSuccess(done -> testContext.verify(() -> {
+            // Verify weighted distribution
+            logger.info("Weighted Distribution Results:");
+            int totalProcessed = 0;
+            int totalWeight = Arrays.stream(weights).sum();
 
-        // Verify weighted distribution
-        logger.info("Weighted Distribution Results:");
-        int totalProcessed = 0;
-        int totalWeight = Arrays.stream(weights).sum();
+            for (int i = 0; i < consumerMetrics.size(); i++) {
+                ConsumerMetrics metrics = consumerMetrics.get(i);
+                int processed = metrics.processedCount.get();
+                totalProcessed += processed;
 
-        for (int i = 0; i < consumerMetrics.size(); i++) {
-            ConsumerMetrics metrics = consumerMetrics.get(i);
-            int processed = metrics.processedCount.get();
-            totalProcessed += processed;
+                int expectedProcessed = (numMessages * weights[i]) / totalWeight;
+                double avgProcessingTime = metrics.getAverageProcessingTime();
 
-            int expectedProcessed = (numMessages * weights[i]) / totalWeight;
-            double avgProcessingTime = metrics.getAverageProcessingTime();
+                logger.info("  {} (weight={}): {} items processed (expected ~{}), avg processing time: {}ms", metrics.consumerId, weights[i], processed, expectedProcessed, String.format("%.1f", avgProcessingTime));
+            }
 
-            logger.info("  {} (weight={}): {} items processed (expected ~{}), avg processing time: {}ms", metrics.consumerId, weights[i], processed, expectedProcessed, String.format("%.1f", avgProcessingTime));
-        }
+            assertEquals(numMessages, totalProcessed, "Should process all messages");
 
-        assertEquals(numMessages, totalProcessed, "Should process all messages");
+            // Cleanup consumers
+            consumers.forEach(MessageConsumer::close);
 
-        // Cleanup consumers
-        consumers.forEach(MessageConsumer::close);
-
-        logger.info("Weighted Load Balancing test completed successfully");
-        logger.info("Total work items processed: {}", totalProcessed);
+            logger.info("Weighted Load Balancing test completed successfully");
+            logger.info("Total work items processed: {}", totalProcessed);
+            testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     /**
@@ -450,7 +464,8 @@ class ConsumerGroupLoadBalancingDemoTest {
      */
     @Test
     @DisplayName("Sticky Session Load Balancing - Session Affinity for Stateful Processing")
-    void testStickySessionLoadBalancing(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @Timeout(value = 60, timeUnit = TimeUnit.SECONDS)
+    void testStickySessionLoadBalancing(Vertx vertx, VertxTestContext testContext) {
         logger.info("Test: sticky session load balancing");
         logger.info("Testing Sticky Session Load Balancing");
 
@@ -467,7 +482,11 @@ class ConsumerGroupLoadBalancingDemoTest {
         sessionToConsumerMapping.put("session-3", "sticky-consumer-3");
 
         Map<String, ConsumerMetrics> consumerMetricsMap = new HashMap<>();
-        var processedCheckpoint = testContext.checkpoint(totalMessages);
+        // Events counted across the former checkpoints; the assertions run once all have happened.
+        Promise<Void> allEvents = Promise.promise();
+        AtomicInteger remainingEvents = new AtomicInteger();
+        remainingEvents.addAndGet(totalMessages);
+        Runnable processedCheckpoint = () -> countEvent(testContext, remainingEvents, allEvents);
 
         // Create producer
         MessageProducer<WorkItem> producer = queueFactory.createProducer(queueName, WorkItem.class);
@@ -498,7 +517,7 @@ class ConsumerGroupLoadBalancingDemoTest {
 
                     logger.debug("{} processed work: {} for session: {} (processing time: {}ms)", consumerId, work.workId, work.sessionId, processingTime);
 
-                    processedCheckpoint.flag();
+                    processedCheckpoint.run();
                     return null;
                 });
             };
@@ -543,37 +562,42 @@ class ConsumerGroupLoadBalancingDemoTest {
 
         // Wait for all work items to be processed
         // Each message takes 150ms + network overhead, so 15 messages * 200ms + buffer = ~5 seconds minimum
-        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Should process all work items");
 
-        // Verify sticky session behavior
-        logger.info("Sticky Session Distribution Results:");
-        int totalProcessed = 0;
+        allEvents.future()
+            .onSuccess(done -> testContext.verify(() -> {
+            // Verify sticky session behavior
+            logger.info("Sticky Session Distribution Results:");
+            int totalProcessed = 0;
 
-        for (ConsumerMetrics metrics : consumerMetricsMap.values()) {
-            int processed = metrics.processedCount.get();
-            totalProcessed += processed;
-            logger.info("  {}: {} items processed", metrics.consumerId, processed);
-        }
+            for (ConsumerMetrics metrics : consumerMetricsMap.values()) {
+                int processed = metrics.processedCount.get();
+                totalProcessed += processed;
+                logger.info("  {}: {} items processed", metrics.consumerId, processed);
+            }
 
-        assertEquals(totalMessages, totalProcessed, "Should process all messages");
+            assertEquals(totalMessages, totalProcessed, "Should process all messages");
 
-        // Verify session affinity
-        logger.info("Session to Consumer Mapping:");
-        for (Map.Entry<String, String> entry : sessionToConsumerMapping.entrySet()) {
-            logger.info("  {} -> {}", entry.getKey(), entry.getValue());
-        }
+            // Verify session affinity
+            logger.info("Session to Consumer Mapping:");
+            for (Map.Entry<String, String> entry : sessionToConsumerMapping.entrySet()) {
+                logger.info("  {} -> {}", entry.getKey(), entry.getValue());
+            }
 
-        assertEquals(numSessions, sessionToConsumerMapping.size(),
-                    "Should have mapping for all sessions");
+            assertEquals(numSessions, sessionToConsumerMapping.size(),
+                        "Should have mapping for all sessions");
 
-        // ConsumerGroup cleanup is handled deterministically by tearDown via consumerGroupToCleanup.
-        logger.info("Sticky Session Load Balancing test completed successfully");
-        logger.info("Total work items processed: {}", totalProcessed);
+            // ConsumerGroup cleanup is handled deterministically by tearDown via consumerGroupToCleanup.
+            logger.info("Sticky Session Load Balancing test completed successfully");
+            logger.info("Total work items processed: {}", totalProcessed);
+            testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
     @DisplayName("Dynamic Load Balancing - Adaptive Distribution Based on Performance")
-    void testDynamicLoadBalancing(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @Timeout(value = 45, timeUnit = TimeUnit.SECONDS)
+    void testDynamicLoadBalancing(Vertx vertx, VertxTestContext testContext) {
         logger.info("Test: dynamic load balancing");
         logger.info("Testing Dynamic Load Balancing");
 
@@ -582,7 +606,11 @@ class ConsumerGroupLoadBalancingDemoTest {
         int numMessages = 18;
 
         List<ConsumerMetrics> consumerMetrics = new ArrayList<>();
-        var processedCheckpoint = testContext.checkpoint(numMessages);
+        // Events counted across the former checkpoints; the assertions run once all have happened.
+        Promise<Void> allEvents = Promise.promise();
+        AtomicInteger remainingEvents = new AtomicInteger();
+        remainingEvents.addAndGet(numMessages);
+        Runnable processedCheckpoint = () -> countEvent(testContext, remainingEvents, allEvents);
 
         // Create producer
         MessageProducer<WorkItem> producer = queueFactory.createProducer(queueName, WorkItem.class);
@@ -621,7 +649,7 @@ class ConsumerGroupLoadBalancingDemoTest {
 
                     logger.debug("{} ({}) processed work: {} (processing time: {}ms, avg: {}ms)", consumerId, performanceLevel, work.workId, processingTime, String.format("%.1f", avgTime));
 
-                    processedCheckpoint.flag();
+                    processedCheckpoint.run();
                     return null;
                 });
             }));
@@ -645,41 +673,52 @@ class ConsumerGroupLoadBalancingDemoTest {
             })
             .onFailure(testContext::failNow);
 
-        // Wait for all work items to be processed
-        assertTrue(testContext.awaitCompletion(45, TimeUnit.SECONDS), "Should process all work items");
+        allEvents.future()
+            .onSuccess(done -> testContext.verify(() -> {
+            // Analyze dynamic distribution results
+            logger.info("Dynamic Load Balancing Results:");
+            int totalProcessed = 0;
 
-        // Analyze dynamic distribution results
-        logger.info("Dynamic Load Balancing Results:");
-        int totalProcessed = 0;
+            for (int i = 0; i < consumerMetrics.size(); i++) {
+                ConsumerMetrics metrics = consumerMetrics.get(i);
+                int processed = metrics.processedCount.get();
+                totalProcessed += processed;
 
-        for (int i = 0; i < consumerMetrics.size(); i++) {
-            ConsumerMetrics metrics = consumerMetrics.get(i);
-            int processed = metrics.processedCount.get();
-            totalProcessed += processed;
+                double avgProcessingTime = metrics.getAverageProcessingTime();
+                double successRate = metrics.getSuccessRate();
+                String performanceLevel = processingDelays[i] <= 100 ? "FAST" :
+                                        processingDelays[i] <= 200 ? "MEDIUM" : "SLOW";
 
-            double avgProcessingTime = metrics.getAverageProcessingTime();
-            double successRate = metrics.getSuccessRate();
-            String performanceLevel = processingDelays[i] <= 100 ? "FAST" :
-                                    processingDelays[i] <= 200 ? "MEDIUM" : "SLOW";
+                logger.info("  {} ({}): {} items processed, avg time: {}ms, success rate: {}%, healthy: {}", metrics.consumerId, performanceLevel, processed, String.format("%.1f", avgProcessingTime), String.format("%.1f", successRate * 100), metrics.isHealthy);
+            }
 
-            logger.info("  {} ({}): {} items processed, avg time: {}ms, success rate: {}%, healthy: {}", metrics.consumerId, performanceLevel, processed, String.format("%.1f", avgProcessingTime), String.format("%.1f", successRate * 100), metrics.isHealthy);
+            assertEquals(numMessages, totalProcessed, "Should process all messages");
+
+            // Verify that faster consumers processed more messages (in ideal dynamic balancing)
+            ConsumerMetrics fastConsumer = consumerMetrics.get(0);
+            ConsumerMetrics slowConsumer = consumerMetrics.get(2);
+
+            logger.info("Performance comparison:");
+            logger.info("  Fast consumer avg time: {}ms", String.format("%.1f", fastConsumer.getAverageProcessingTime()));
+            logger.info("  Slow consumer avg time: {}ms", String.format("%.1f", slowConsumer.getAverageProcessingTime()));
+
+            // Cleanup consumers
+            consumers.forEach(MessageConsumer::close);
+
+            logger.info("Dynamic Load Balancing test completed successfully");
+            logger.info("Total work items processed: {}", totalProcessed);
+            testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+    }
+
+    /** Counts one expected event; completes {@code all} at zero and fails the test on an extra event. */
+    private static void countEvent(VertxTestContext testContext, AtomicInteger remaining, Promise<Void> all) {
+        int left = remaining.decrementAndGet();
+        if (left == 0) {
+            all.tryComplete();
+        } else if (left < 0) {
+            testContext.failNow(new AssertionError("More events than expected: " + (-left) + " extra"));
         }
-
-        assertEquals(numMessages, totalProcessed, "Should process all messages");
-
-        // Verify that faster consumers processed more messages (in ideal dynamic balancing)
-        ConsumerMetrics fastConsumer = consumerMetrics.get(0);
-        ConsumerMetrics slowConsumer = consumerMetrics.get(2);
-
-        logger.info("Performance comparison:");
-        logger.info("  Fast consumer avg time: {}ms", String.format("%.1f", fastConsumer.getAverageProcessingTime()));
-        logger.info("  Slow consumer avg time: {}ms", String.format("%.1f", slowConsumer.getAverageProcessingTime()));
-
-        // Cleanup consumers
-        consumers.forEach(MessageConsumer::close);
-
-        logger.info("Dynamic Load Balancing test completed successfully");
-        logger.info("Total work items processed: {}", totalProcessed);
     }
 }
-

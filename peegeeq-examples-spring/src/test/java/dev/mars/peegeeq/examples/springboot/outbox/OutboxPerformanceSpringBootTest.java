@@ -23,8 +23,9 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import io.vertx.core.Future;
-import io.vertx.junit5.Checkpoint;
+import io.vertx.core.Promise;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -114,7 +115,8 @@ public class OutboxPerformanceSpringBootTest {
      * Measures throughput and ensures all messages are processed successfully.
      */
     @Test
-    void testHighVolumeProcessing(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 150, timeUnit = TimeUnit.SECONDS)
+    void testHighVolumeProcessing(VertxTestContext testContext) {
         logger.info("=== Testing High-Volume Message Processing ===");
         logger.info("This test processes 200 messages and measures throughput");
 
@@ -123,7 +125,11 @@ public class OutboxPerformanceSpringBootTest {
         
         // Track processing
         AtomicInteger processedCount = new AtomicInteger(0);
-        Checkpoint checkpoint = testContext.checkpoint(messageCount);
+        // Events counted across the former checkpoints; the assertions run once all have happened.
+        Promise<Void> allEvents = Promise.promise();
+        AtomicInteger remainingEvents = new AtomicInteger();
+        remainingEvents.addAndGet(messageCount);
+        Runnable checkpoint = () -> countEvent(testContext, remainingEvents, allEvents);
         AtomicLong totalProcessingTime = new AtomicLong(0);
         
         // Create consumer
@@ -139,7 +145,7 @@ public class OutboxPerformanceSpringBootTest {
             if (count % 100 == 0) {
                 logger.info(" Processed {} messages", count);
             }
-            checkpoint.flag();
+            checkpoint.run();
             return Future.succeededFuture();
         });
         
@@ -159,41 +165,46 @@ public class OutboxPerformanceSpringBootTest {
                     (messageCount * 1000L) / Math.max(1, sendDuration));
             })
             .onFailure(testContext::failNow);
-        
-        // Wait for all messages to be processed (allow 0.5 sec per message + overhead)
-        boolean completed = testContext.awaitCompletion(150, TimeUnit.SECONDS);
-        Instant processEnd = Instant.now();
 
-        assertTrue(completed, "All messages should be processed within 150 seconds");
-        
-        // Calculate metrics
-        long totalDuration = Duration.between(sendStart, processEnd).toMillis();
-        long avgProcessingTime = totalProcessingTime.get() / messageCount;
-        long throughput = (messageCount * 1000L) / totalDuration;
-        
-        logger.info(" High-Volume Processing Results:");
-        logger.info("   Total messages: {}", messageCount);
-        logger.info("   Messages processed: {}", processedCount.get());
-        logger.info("   Total duration: {} ms", totalDuration);
-        logger.info("   Average processing time: {} ms", avgProcessingTime);
-        logger.info("   Throughput: {} msg/sec", throughput);
-        
-        assertEquals(messageCount, processedCount.get(), "Should have processed all messages");
-        assertTrue(throughput > 0, "Throughput should be greater than 0 msg/sec");
+        allEvents.future()
+            .onSuccess(done -> testContext.verify(() -> {
+            Instant processEnd = Instant.now();
 
-        logger.info("High-Volume Processing test passed");
-        logger.info("Successfully processed {} messages at {} msg/sec", messageCount, throughput);
-        logger.info("   Note: Actual throughput depends on polling interval (500ms) and batch size");
+            // Calculate metrics
+            long totalDuration = Duration.between(sendStart, processEnd).toMillis();
+            long avgProcessingTime = totalProcessingTime.get() / messageCount;
+            long throughput = (messageCount * 1000L) / totalDuration;
+
+            logger.info(" High-Volume Processing Results:");
+            logger.info("   Total messages: {}", messageCount);
+            logger.info("   Messages processed: {}", processedCount.get());
+            logger.info("   Total duration: {} ms", totalDuration);
+            logger.info("   Average processing time: {} ms", avgProcessingTime);
+            logger.info("   Throughput: {} msg/sec", throughput);
+
+            assertEquals(messageCount, processedCount.get(), "Should have processed all messages");
+            assertTrue(throughput > 0, "Throughput should be greater than 0 msg/sec");
+
+            logger.info("High-Volume Processing test passed");
+            logger.info("Successfully processed {} messages at {} msg/sec", messageCount, throughput);
+            logger.info("   Note: Actual throughput depends on polling interval (500ms) and batch size");
+            testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     /**
      * Test 2: Concurrent Consumer Performance
      *
      * Verifies multiple consumers can process messages concurrently from the same topic.
-     * Tests load distribution and concurrent processing capabilities.
+     * The consumers compete for rows: each poll claims up to a batch with
+     * {@code FOR UPDATE SKIP LOCKED} on its own timer, and nothing divides the rows evenly.
+     * One consumer can therefore receive no message. The test asserts that every message is
+     * processed exactly once across the consumers and logs the distribution.
      */
     @Test
-    void testConcurrentConsumerPerformance(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 120, timeUnit = TimeUnit.SECONDS)
+    void testConcurrentConsumerPerformance(VertxTestContext testContext) {
         logger.info("=== Testing Concurrent Consumer Performance ===");
         logger.info("This test uses multiple consumers to process messages concurrently");
 
@@ -203,8 +214,13 @@ public class OutboxPerformanceSpringBootTest {
         
         // Track processing per consumer
         Map<String, AtomicInteger> consumerCounts = new java.util.concurrent.ConcurrentHashMap<>();
+        Set<String> processedIds = java.util.concurrent.ConcurrentHashMap.newKeySet();
         AtomicInteger totalProcessed = new AtomicInteger(0);
-        Checkpoint checkpoint = testContext.checkpoint(messageCount);
+        // Events counted across the former checkpoints; the assertions run once all have happened.
+        Promise<Void> allEvents = Promise.promise();
+        AtomicInteger remainingEvents = new AtomicInteger();
+        remainingEvents.addAndGet(messageCount);
+        Runnable checkpoint = () -> countEvent(testContext, remainingEvents, allEvents);
         
         // Create multiple consumers
         logger.info(" Creating {} consumers", consumerCount);
@@ -217,12 +233,17 @@ public class OutboxPerformanceSpringBootTest {
             activeConsumers.add(consumer);
             
             subscriptions.add(consumer.subscribe(message -> {
+                String messageId = message.getPayload().getMessageId();
+                if (!processedIds.add(messageId)) {
+                    testContext.failNow(new AssertionError(
+                        consumerId + " received " + messageId + " after another delivery of it"));
+                }
                 consumerCounts.get(consumerId).incrementAndGet();
                 int count = totalProcessed.incrementAndGet();
                 if (count % 50 == 0) {
                     logger.info(" Total processed: {}", count);
                 }
-                checkpoint.flag();
+                checkpoint.run();
                 return Future.succeededFuture();
             }));
             
@@ -240,43 +261,42 @@ public class OutboxPerformanceSpringBootTest {
         Future.all(subscriptions)
             .compose(v -> sendPerformanceMessages(producer, messageCount, "Concurrent test message "))
             .onFailure(testContext::failNow);
-        
-        // Wait for all messages to be processed (allow 0.5 sec per message + overhead)
-        boolean completed = testContext.awaitCompletion(120, TimeUnit.SECONDS);
-        Instant end = Instant.now();
 
-        assertTrue(completed, "All messages should be processed within 120 seconds");
-        
-        // Calculate metrics
-        long duration = Duration.between(start, end).toMillis();
-        long throughput = (messageCount * 1000L) / duration;
-        
-        logger.info(" Concurrent Consumer Performance Results:");
-        logger.info("   Total messages: {}", messageCount);
-        logger.info("   Number of consumers: {}", consumerCount);
-        logger.info("   Total processed: {}", totalProcessed.get());
-        logger.info("   Duration: {} ms", duration);
-        logger.info("   Throughput: {} msg/sec", throughput);
-        
-        // Show distribution across consumers
-        logger.info("   Message distribution:");
-        for (Map.Entry<String, AtomicInteger> entry : consumerCounts.entrySet()) {
-            int count = entry.getValue().get();
-            double percentage = (count * 100.0) / messageCount;
-            logger.info("     {}: {} messages ({:.1f}%)", entry.getKey(), count, percentage);
-        }
-        
-        assertEquals(messageCount, totalProcessed.get(), "Should have processed all messages");
-        
-        // Verify all consumers processed at least some messages
-        for (Map.Entry<String, AtomicInteger> entry : consumerCounts.entrySet()) {
-            assertTrue(entry.getValue().get() > 0, 
-                entry.getKey() + " should have processed at least one message");
-        }
-        
-        logger.info("Concurrent Consumer Performance test passed");
-        logger.info("{} consumers processed {} messages at {} msg/sec", 
-            consumerCount, messageCount, throughput);
+        allEvents.future()
+            .onSuccess(done -> testContext.verify(() -> {
+            Instant end = Instant.now();
+
+            // Calculate metrics
+            long duration = Duration.between(start, end).toMillis();
+            long throughput = (messageCount * 1000L) / duration;
+
+            logger.info(" Concurrent Consumer Performance Results:");
+            logger.info("   Total messages: {}", messageCount);
+            logger.info("   Number of consumers: {}", consumerCount);
+            logger.info("   Total processed: {}", totalProcessed.get());
+            logger.info("   Duration: {} ms", duration);
+            logger.info("   Throughput: {} msg/sec", throughput);
+
+            // Show distribution across consumers
+            logger.info("   Message distribution:");
+            for (Map.Entry<String, AtomicInteger> entry : consumerCounts.entrySet()) {
+                int count = entry.getValue().get();
+                double percentage = (count * 100.0) / messageCount;
+                logger.info("     {}: {} messages ({}%)", entry.getKey(), count, String.format("%.1f", percentage));
+            }
+
+            assertEquals(messageCount, totalProcessed.get(), "Should have processed all messages");
+            assertEquals(messageCount, processedIds.size(), "Each message should be processed exactly once");
+            assertEquals(messageCount,
+                consumerCounts.values().stream().mapToInt(AtomicInteger::get).sum(),
+                "The per-consumer counts should add up to the messages sent");
+
+            logger.info("Concurrent Consumer Performance test passed");
+            logger.info("{} consumers processed {} messages at {} msg/sec", 
+                consumerCount, messageCount, throughput);
+            testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     /**
@@ -286,7 +306,8 @@ public class OutboxPerformanceSpringBootTest {
      * Tests the efficiency of processing messages in batches.
      */
     @Test
-    void testBatchProcessingEfficiency(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 90, timeUnit = TimeUnit.SECONDS)
+    void testBatchProcessingEfficiency(VertxTestContext testContext) {
         logger.info("=== Testing Batch Processing Efficiency ===");
         logger.info("This test measures batch processing performance");
 
@@ -296,7 +317,11 @@ public class OutboxPerformanceSpringBootTest {
         // Track batch processing
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicInteger batchCount = new AtomicInteger(0);
-        Checkpoint checkpoint = testContext.checkpoint(messageCount);
+        // Events counted across the former checkpoints; the assertions run once all have happened.
+        Promise<Void> allEvents = Promise.promise();
+        AtomicInteger remainingEvents = new AtomicInteger();
+        remainingEvents.addAndGet(messageCount);
+        Runnable checkpoint = () -> countEvent(testContext, remainingEvents, allEvents);
         List<Integer> batchSizes = Collections.synchronizedList(new ArrayList<>());
         
         // Create consumer
@@ -313,7 +338,7 @@ public class OutboxPerformanceSpringBootTest {
                 logger.info(" Processed batch {} (total: {})", batch / 10, count);
             }
             
-            checkpoint.flag();
+            checkpoint.run();
             return Future.succeededFuture();
         });
         
@@ -327,30 +352,31 @@ public class OutboxPerformanceSpringBootTest {
         
         subscription.compose(v -> sendPerformanceMessages(producer, messageCount, "Batch test message "))
             .onFailure(testContext::failNow);
-        
-        // Wait for all messages to be processed (allow 0.5 sec per message + overhead)
-        boolean completed = testContext.awaitCompletion(90, TimeUnit.SECONDS);
-        Instant end = Instant.now();
 
-        assertTrue(completed, "All messages should be processed within 90 seconds");
-        
-        // Calculate metrics
-        long duration = Duration.between(start, end).toMillis();
-        long throughput = (messageCount * 1000L) / duration;
-        
-        logger.info(" Batch Processing Efficiency Results:");
-        logger.info("   Total messages: {}", messageCount);
-        logger.info("   Messages processed: {}", processedCount.get());
-        logger.info("   Duration: {} ms", duration);
-        logger.info("   Throughput: {} msg/sec", throughput);
-        logger.info("   Estimated batches: {}", batchSizes.size());
-        
-        assertEquals(messageCount, processedCount.get(), "Should have processed all messages");
-        assertTrue(throughput > 0, "Batch processing throughput should be greater than 0 msg/sec");
+        allEvents.future()
+            .onSuccess(done -> testContext.verify(() -> {
+            Instant end = Instant.now();
 
-        logger.info("Batch Processing Efficiency test passed");
-        logger.info("Processed {} messages at {} msg/sec", messageCount, throughput);
-        logger.info("   Note: Actual throughput depends on polling interval (500ms) and batch size");
+            // Calculate metrics
+            long duration = Duration.between(start, end).toMillis();
+            long throughput = (messageCount * 1000L) / duration;
+
+            logger.info(" Batch Processing Efficiency Results:");
+            logger.info("   Total messages: {}", messageCount);
+            logger.info("   Messages processed: {}", processedCount.get());
+            logger.info("   Duration: {} ms", duration);
+            logger.info("   Throughput: {} msg/sec", throughput);
+            logger.info("   Estimated batches: {}", batchSizes.size());
+
+            assertEquals(messageCount, processedCount.get(), "Should have processed all messages");
+            assertTrue(throughput > 0, "Batch processing throughput should be greater than 0 msg/sec");
+
+            logger.info("Batch Processing Efficiency test passed");
+            logger.info("Processed {} messages at {} msg/sec", messageCount, throughput);
+            logger.info("   Note: Actual throughput depends on polling interval (500ms) and batch size");
+            testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     /**
@@ -389,5 +415,15 @@ public class OutboxPerformanceSpringBootTest {
         
         public long getSentAt() { return sentAt; }
         public void setSentAt(long sentAt) { this.sentAt = sentAt; }
+    }
+
+    /** Counts one expected event; completes {@code all} at zero and fails the test on an extra event. */
+    private static void countEvent(VertxTestContext testContext, AtomicInteger remaining, Promise<Void> all) {
+        int left = remaining.decrementAndGet();
+        if (left == 0) {
+            all.tryComplete();
+        } else if (left < 0) {
+            testContext.failNow(new AssertionError("More events than expected: " + (-left) + " extra"));
+        }
     }
 }

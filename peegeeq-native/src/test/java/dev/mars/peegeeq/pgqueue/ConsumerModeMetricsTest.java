@@ -19,6 +19,7 @@ import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
@@ -37,6 +38,7 @@ import java.time.Duration;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
@@ -167,52 +169,62 @@ public class ConsumerModeMetricsTest {
     }
 
     @Test
-    void testQueueDepthMetrics(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info(" Testing queue depth metrics");
-
+    @Timeout(value = 20, timeUnit = TimeUnit.SECONDS)
+    void testQueueDepthMetrics(Vertx vertx, VertxTestContext testContext) {
         String topicName = "test-queue-depth-metrics";
-        
-        // Get initial queue depth
+
         Gauge queueDepthGauge = meterRegistry.find("peegeeq.queue.depth.native").gauge();
         assertNotNull(queueDepthGauge, "Queue depth gauge should be registered");
-        
-        double initialDepth = queueDepthGauge.value();
-        logger.info(" Initial queue depth: {}", initialDepth);
 
-        // Send messages to increase queue depth
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-        for (int i = 0; i < 3; i++) {
-            producer.send("Queue depth test message " + i)
-                .onFailure(err -> logger.error("Send failed", err));
-        }
-
-        // Create consumer to process messages
-        Checkpoint processedAll = testContext.checkpoint(3);
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
             ConsumerConfig.builder()
                 .mode(ConsumerMode.HYBRID)
                 .pollingInterval(Duration.ofMillis(100))
                 .build());
 
-        // After 3s, check depth and subscribe consumer
-        vertx.timer(3000).compose(v -> {
-            double newDepth = queueDepthGauge.value();
-            logger.info(" Queue depth after sending messages: {}", newDepth);
-            return consumer.subscribe(message -> {
-                processedAll.flag();
-                return Future.succeededFuture();
-            });
-        }).onFailure(testContext::failNow);
+        // The gauge reads a cache; refreshDepthCache() updates it, so each reading is current.
+        AtomicReference<Double> initialDepth = new AtomicReference<>();
+        AtomicInteger processed = new AtomicInteger(0);
+        Promise<Void> allProcessed = Promise.promise();
 
-        assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "All messages should be processed");
+        manager.getMetrics().refreshDepthCache()
+            .compose(v -> {
+                initialDepth.set(queueDepthGauge.value());
+                return producer.send("Queue depth test message 0");
+            })
+            .compose(v -> producer.send("Queue depth test message 1"))
+            .compose(v -> producer.send("Queue depth test message 2"))
+            .compose(v -> manager.getMetrics().refreshDepthCache())
+            .compose(v -> {
+                // A throw in compose fails the chain and the test.
+                assertEquals(initialDepth.get() + 3, queueDepthGauge.value(),
+                    "The three sent messages must be counted as available");
+                return consumer.subscribe(message -> {
+                    if (processed.incrementAndGet() == 3) {
+                        allProcessed.tryComplete();
+                    }
+                    return Future.succeededFuture();
+                });
+            })
+            .compose(v -> allProcessed.future())
+            .compose(v -> awaitDepth(vertx, queueDepthGauge, initialDepth.get(), System.currentTimeMillis() + 10_000))
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
+    }
 
-        double finalDepth = queueDepthGauge.value();
-        logger.info(" Final queue depth after processing: {}", finalDepth);
-
-        consumer.close();
-        producer.close();
-        
-        logger.info("Queue depth metrics test completed successfully");
+    /** Refreshes the depth cache until the gauge is back at {@code expected}; fails after the deadline. */
+    private Future<Void> awaitDepth(Vertx vertx, Gauge gauge, double expected, long deadlineMillis) {
+        return manager.getMetrics().refreshDepthCache().compose(v -> {
+            if (gauge.value() <= expected) {
+                return Future.<Void>succeededFuture();
+            }
+            if (System.currentTimeMillis() >= deadlineMillis) {
+                return Future.<Void>failedFuture(new AssertionError(
+                    "Queue depth stayed at " + gauge.value() + " after processing; expected " + expected));
+            }
+            return vertx.timer(100).compose(tick -> awaitDepth(vertx, gauge, expected, deadlineMillis));
+        });
     }
 
     private Future<Void> testMessageCountMetricsForMode(String topicName, ConsumerMode mode, int messageCount, Vertx vertx) {

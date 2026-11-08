@@ -23,6 +23,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -34,7 +35,6 @@ import java.util.UUID;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -120,7 +120,8 @@ class OutboxConsumerSurgicalCoverageTest {
      * OutboxConsumer constructor uses configuration.getQueueConfig().getConsumerThreads().
      */
     @Test
-    void testConsumerWithMultipleThreads(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    void testConsumerWithMultipleThreads(VertxTestContext testContext) {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.consumer.threads", "4")
@@ -130,12 +131,11 @@ class OutboxConsumerSurgicalCoverageTest {
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         assertEquals(4, config.getQueueConfig().getConsumerThreads(),
                 "The canonical global consumer-thread property must be applied");
+        // A strict checkpoint: exactly three deliveries; a fourth fails the test.
         Checkpoint checkpoint = testContext.checkpoint(3);
-        AtomicInteger receivedCount = new AtomicInteger(0);
 
         startManager(config, true)
                 .compose(v -> consumer.subscribe(message -> {
-                    receivedCount.incrementAndGet();
                     checkpoint.flag();
                     return Future.succeededFuture();
                 }))
@@ -144,9 +144,6 @@ class OutboxConsumerSurgicalCoverageTest {
                         producer.send("msg2"),
                         producer.send("msg3")).mapEmpty())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process all messages with multi-threaded executor");
-        assertEquals(3, receivedCount.get(), "Should process exactly 3 messages");
     }
 
     /**
@@ -154,7 +151,8 @@ class OutboxConsumerSurgicalCoverageTest {
      * processAvailableMessages() uses configuration.getQueueConfig().getBatchSize().
      */
     @Test
-    void testConsumerWithCustomBatchSize(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    void testConsumerWithCustomBatchSize(VertxTestContext testContext) {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.batch-size", "5")
@@ -162,12 +160,11 @@ class OutboxConsumerSurgicalCoverageTest {
                 .build();
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
+        // A strict checkpoint: exactly five deliveries; a sixth fails the test.
         Checkpoint checkpoint = testContext.checkpoint(5);
-        AtomicInteger receivedCount = new AtomicInteger(0);
 
         startManager(config, true)
                 .compose(v -> consumer.subscribe(message -> {
-                    receivedCount.incrementAndGet();
                     checkpoint.flag();
                     return Future.succeededFuture();
                 }))
@@ -178,9 +175,6 @@ class OutboxConsumerSurgicalCoverageTest {
                         producer.send("batch-msg-3"),
                         producer.send("batch-msg-4")).mapEmpty())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process batch of messages");
-        assertEquals(5, receivedCount.get(), "Should process all batch messages");
     }
 
     /**
@@ -188,7 +182,8 @@ class OutboxConsumerSurgicalCoverageTest {
      * handleMessageFailureWithRetry() checks configuration.getQueueConfig().getMaxRetries().
      */
     @Test
-    void testRetryWithConfiguredMaxRetries(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+    void testRetryWithConfiguredMaxRetries(VertxTestContext testContext) {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.max-retries", "1")
@@ -196,27 +191,25 @@ class OutboxConsumerSurgicalCoverageTest {
                 .build();
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
-        AtomicInteger attemptCount = new AtomicInteger(0);
-        Checkpoint firstAttemptCheckpoint = testContext.checkpoint();
+        // max-retries 1: the first attempt and one retry. A strict two-pass checkpoint, so a
+        // third attempt fails the test.
+        Checkpoint attempts = testContext.checkpoint(2);
 
         startManager(config, true)
                 .compose(v -> consumer.subscribe(message -> {
-                    attemptCount.incrementAndGet();
-                    firstAttemptCheckpoint.flag();
+                    attempts.flag();
                     throw new RuntimeException("Intentional failure for retry test");
                 }))
                 .compose(v -> producer.send("retry-msg"))
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should attempt message processing");
-        assertTrue(attemptCount.get() >= 1);
     }
 
     /**
      * Test setConsumerGroupName() to cover consumer group tracking branch.
      */
     @Test
-    void testSetConsumerGroupName(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    void testSetConsumerGroupName(VertxTestContext testContext) {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
@@ -235,8 +228,6 @@ class OutboxConsumerSurgicalCoverageTest {
                 })
                 .compose(v -> producer.send("group-msg"))
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process message with consumer group name set");
     }
 
     /**
@@ -281,7 +272,8 @@ class OutboxConsumerSurgicalCoverageTest {
      * processRow() adds correlationId to headers if present.
      */
     @Test
-    void testMessageWithCorrelationId(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    void testMessageWithCorrelationId(VertxTestContext testContext) {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
@@ -289,7 +281,6 @@ class OutboxConsumerSurgicalCoverageTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         Checkpoint checkpoint = testContext.checkpoint();
-        AtomicReference<Map<String, String>> receivedHeaders = new AtomicReference<>();
 
         Map<String, String> headers = new HashMap<>();
         headers.put("key1", "value1");
@@ -297,16 +288,16 @@ class OutboxConsumerSurgicalCoverageTest {
 
         startManager(config, true)
                 .compose(v -> consumer.subscribe(message -> {
-                    receivedHeaders.set(message.getHeaders());
+                    testContext.verify(() -> {
+                        assertNotNull(message.getHeaders(), "Should have headers");
+                        assertEquals(correlationId, message.getHeaders().get("correlationId"),
+                                "Should have correlation ID in headers");
+                    });
                     checkpoint.flag();
                     return Future.succeededFuture();
                 }))
                 .compose(v -> producer.send("correlation-msg", headers, correlationId))
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message");
-        assertNotNull(receivedHeaders.get(), "Should have headers");
-        assertEquals(correlationId, receivedHeaders.get().get("correlationId"), "Should have correlation ID in headers");
     }
 
     /**
@@ -376,7 +367,8 @@ class OutboxConsumerSurgicalCoverageTest {
      * Test message with null headers to cover header parsing edge case.
      */
     @Test
-    void testMessageWithNullHeaders(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    void testMessageWithNullHeaders(VertxTestContext testContext) {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
@@ -384,26 +376,24 @@ class OutboxConsumerSurgicalCoverageTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         Checkpoint checkpoint = testContext.checkpoint();
-        AtomicReference<Map<String, String>> receivedHeaders = new AtomicReference<>();
 
         startManager(config, true)
                 .compose(v -> consumer.subscribe(message -> {
-                    receivedHeaders.set(message.getHeaders());
+                    testContext.verify(() ->
+                        assertNotNull(message.getHeaders(), "Headers map should not be null (should be empty map)"));
                     checkpoint.flag();
                     return Future.succeededFuture();
                 }))
                 .compose(v -> producer.send("null-header-msg", null))
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message");
-        assertNotNull(receivedHeaders.get(), "Headers map should not be null (should be empty map)");
     }
 
     /**
      * Test message with empty headers to cover parseHeadersFromJsonObject empty case.
      */
     @Test
-    void testMessageWithEmptyHeaders(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    void testMessageWithEmptyHeaders(VertxTestContext testContext) {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
@@ -411,21 +401,19 @@ class OutboxConsumerSurgicalCoverageTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         Checkpoint checkpoint = testContext.checkpoint();
-        AtomicReference<Map<String, String>> receivedHeaders = new AtomicReference<>();
 
         startManager(config, true)
                 .compose(v -> consumer.subscribe(message -> {
-                    receivedHeaders.set(message.getHeaders());
+                    testContext.verify(() -> {
+                        assertNotNull(message.getHeaders(), "Headers should not be null");
+                        assertTrue(message.getHeaders().size() <= 1,
+                            "Headers should be empty or contain only system headers: " + message.getHeaders());
+                    });
                     checkpoint.flag();
                     return Future.succeededFuture();
                 }))
                 .compose(v -> producer.send("empty-header-msg", new HashMap<>()))
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message");
-        assertNotNull(receivedHeaders.get(), "Headers should not be null");
-        assertTrue(receivedHeaders.get().isEmpty() || receivedHeaders.get().size() <= 1, 
-            "Headers should be empty or contain only system headers");
     }
 
     /**

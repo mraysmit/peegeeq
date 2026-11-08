@@ -577,9 +577,16 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
             // Capture and stop the partitioned engine if active
             Future<Void> engineStop;
             if (partitionedEngine != null) {
+                // A failed leave keeps this instance's partitions assigned until a rebalance, so
+                // their messages wait: ERROR, as in OutboxConsumerGroup. andThen logs before the
+                // returned Future completes.
                 engineStop = partitionedEngine.stop()
-                        .onFailure(err -> logger.warn("Error stopping partitioned engine for group '{}': {}",
-                                groupName, err.getMessage()));
+                        .andThen(outcome -> {
+                            if (outcome.failed()) {
+                                logger.error("Error stopping partitioned engine for group '{}': {}",
+                                        groupName, outcome.cause().getMessage(), outcome.cause());
+                            }
+                        });
                 partitionedEngine = null;
             } else {
                 engineStop = Future.succeededFuture();

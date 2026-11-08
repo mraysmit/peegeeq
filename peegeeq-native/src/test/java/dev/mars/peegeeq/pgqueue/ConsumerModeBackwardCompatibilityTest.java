@@ -17,6 +17,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
 import io.vertx.core.Promise;
 import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 
@@ -126,43 +127,30 @@ class ConsumerModeBackwardCompatibilityTest {
     }
 
     @Test
-    void testLegacyApiWithoutConsumerConfig(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info(" Testing legacy API without ConsumerConfig (should default to HYBRID)");
-
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+    void testLegacyApiWithoutConsumerConfig(Vertx vertx, VertxTestContext testContext) {
         String topicName = "test-legacy-api";
 
         // Use old API without ConsumerConfig - should default to HYBRID mode
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class);
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        AtomicInteger processedCount = new AtomicInteger(0);
+        // A strict checkpoint: exactly three deliveries.
         Checkpoint messagesReceived = testContext.checkpoint(3);
 
-            consumer.subscribe(message -> {
-                processedCount.incrementAndGet();
-                logger.info(" Legacy API processed message: {}", message.getPayload());
+        consumer.subscribe(message -> {
                 messagesReceived.flag();
                 return Future.succeededFuture();
             })
-            .onSuccess(ignored -> producer.send("Legacy message 1")
-                    .compose(v -> producer.send("Legacy message 2"))
-                    .compose(v -> producer.send("Legacy message 3"))
-                    .onFailure(testContext::failNow))
+            .compose(ignored -> producer.send("Legacy message 1"))
+            .compose(v -> producer.send("Legacy message 2"))
+            .compose(v -> producer.send("Legacy message 3"))
             .onFailure(testContext::failNow);
-
-            // Wait for message processing
-            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Legacy API should process messages successfully");
-            assertEquals(3, processedCount.get(), "Should process exactly 3 messages with legacy API");
-
-        logger.info("Legacy API compatibility verified - processed: {} messages", processedCount.get());
-
-        logger.info("Legacy API without ConsumerConfig test completed successfully");
     }
 
     @Test
-    void testMixedApiUsage(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info(" Testing mixed API usage (legacy and new API together)");
-
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+    void testMixedApiUsage(Vertx vertx, VertxTestContext testContext) {
         String legacyTopic = "test-mixed-legacy";
         String newTopic = "test-mixed-new";
 
@@ -176,44 +164,29 @@ class ConsumerModeBackwardCompatibilityTest {
         MessageProducer<String> legacyProducer = factory.createProducer(legacyTopic, String.class);
         MessageProducer<String> newProducer = factory.createProducer(newTopic, String.class);
 
-        AtomicInteger legacyCount = new AtomicInteger(0);
-        AtomicInteger newCount = new AtomicInteger(0);
-        Checkpoint messagesReceived = testContext.checkpoint(4); // 2 messages each
+        // One strict two-pass checkpoint per consumer: each processes exactly its two messages.
+        Checkpoint legacyReceived = testContext.checkpoint(2);
+        Checkpoint newApiReceived = testContext.checkpoint(2);
 
-            Future.all(
+        Future.all(
                 legacyConsumer.subscribe(message -> {
-                    legacyCount.incrementAndGet();
-                    logger.info(" Legacy consumer processed: {}", message.getPayload());
-                    messagesReceived.flag();
+                    legacyReceived.flag();
                     return Future.succeededFuture();
                 }),
                 newConsumer.subscribe(message -> {
-                    newCount.incrementAndGet();
-                    logger.info(" New consumer processed: {}", message.getPayload());
-                    messagesReceived.flag();
+                    newApiReceived.flag();
                     return Future.succeededFuture();
-                })
-            ).onSuccess(ignored -> legacyProducer.send("Mixed legacy message 1")
-                    .compose(v -> newProducer.send("Mixed new message 1"))
-                    .compose(v -> legacyProducer.send("Mixed legacy message 2"))
-                    .compose(v -> newProducer.send("Mixed new message 2"))
-                    .onFailure(testContext::failNow))
+                }))
+            .compose(ignored -> legacyProducer.send("Mixed legacy message 1"))
+            .compose(v -> newProducer.send("Mixed new message 1"))
+            .compose(v -> legacyProducer.send("Mixed legacy message 2"))
+            .compose(v -> newProducer.send("Mixed new message 2"))
             .onFailure(testContext::failNow);
-
-            // Wait for message processing
-            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Mixed API usage should process all messages");
-            assertEquals(2, legacyCount.get(), "Legacy consumer should process 2 messages");
-            assertEquals(2, newCount.get(), "New consumer should process 2 messages");
-
-        logger.info("Mixed API usage verified - legacy: {}, new: {}", legacyCount.get(), newCount.get());
-
-        logger.info("Mixed API usage test completed successfully");
     }
 
     @Test
-    void testLegacyApiDefaultBehavior(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info(" Testing legacy API default behavior matches HYBRID mode");
-
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+    void testLegacyApiDefaultBehavior(Vertx vertx, VertxTestContext testContext) {
         String legacyTopic = "test-legacy-default";
         String hybridTopic = "test-hybrid-explicit";
 
@@ -227,39 +200,24 @@ class ConsumerModeBackwardCompatibilityTest {
         MessageProducer<String> legacyProducer = factory.createProducer(legacyTopic, String.class);
         MessageProducer<String> hybridProducer = factory.createProducer(hybridTopic, String.class);
 
-        AtomicInteger legacyCount = new AtomicInteger(0);
-        AtomicInteger hybridCount = new AtomicInteger(0);
-        Checkpoint messagesReceived = testContext.checkpoint(4); // 2 messages each
+        // One strict two-pass checkpoint per consumer: each processes exactly its two messages.
+        Checkpoint legacyReceived = testContext.checkpoint(2);
+        Checkpoint hybridReceived = testContext.checkpoint(2);
 
-            Future.all(
+        Future.all(
                 legacyConsumer.subscribe(message -> {
-                    legacyCount.incrementAndGet();
-                    logger.info(" Legacy default processed: {}", message.getPayload());
-                    messagesReceived.flag();
+                    legacyReceived.flag();
                     return Future.succeededFuture();
                 }),
                 hybridConsumer.subscribe(message -> {
-                    hybridCount.incrementAndGet();
-                    logger.info(" Explicit HYBRID processed: {}", message.getPayload());
-                    messagesReceived.flag();
+                    hybridReceived.flag();
                     return Future.succeededFuture();
-                })
-            ).onSuccess(ignored -> legacyProducer.send("Legacy default message 1")
-                    .compose(v -> hybridProducer.send("Explicit hybrid message 1"))
-                    .compose(v -> legacyProducer.send("Legacy default message 2"))
-                    .compose(v -> hybridProducer.send("Explicit hybrid message 2"))
-                    .onFailure(testContext::failNow))
+                }))
+            .compose(ignored -> legacyProducer.send("Legacy default message 1"))
+            .compose(v -> hybridProducer.send("Explicit hybrid message 1"))
+            .compose(v -> legacyProducer.send("Legacy default message 2"))
+            .compose(v -> hybridProducer.send("Explicit hybrid message 2"))
             .onFailure(testContext::failNow);
-
-            // Wait for message processing
-            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Both legacy and explicit HYBRID should process messages");
-            assertEquals(2, legacyCount.get(), "Legacy default should process 2 messages");
-            assertEquals(2, hybridCount.get(), "Explicit HYBRID should process 2 messages");
-
-        logger.info("Legacy API default behavior verified - legacy: {}, hybrid: {}",
-            legacyCount.get(), hybridCount.get());
-
-        logger.info("Legacy API default behavior test completed successfully");
     }
 
     @Test
@@ -319,9 +277,8 @@ class ConsumerModeBackwardCompatibilityTest {
     }
 
     @Test
-    void testLegacyApiPerformanceConsistency(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info(" Testing legacy API performance consistency");
-
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+    void testLegacyApiPerformanceConsistency(Vertx vertx, VertxTestContext testContext) {
         String topicName = "test-legacy-performance";
 
         // Use legacy API for performance test
@@ -329,38 +286,30 @@ class ConsumerModeBackwardCompatibilityTest {
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         AtomicInteger processedCount = new AtomicInteger(0);
-        Checkpoint messagesReceived = testContext.checkpoint(5);
+        Promise<Void> allProcessed = Promise.promise();
+        long startTime = System.currentTimeMillis();
 
-            long startTime = System.currentTimeMillis();
-
-            consumer.subscribe(message -> {
-                processedCount.incrementAndGet();
-                logger.debug(" Performance test processed: {}", message.getPayload());
-                messagesReceived.flag();
+        consumer.subscribe(message -> {
+                if (processedCount.incrementAndGet() == 5) {
+                    allProcessed.tryComplete();
+                }
                 return Future.succeededFuture();
             })
-            .onSuccess(ignored -> {
-                io.vertx.core.Future<Void> chain = Future.succeededFuture();
+            .compose(ignored -> {
+                Future<Void> chain = Future.succeededFuture();
                 for (int i = 1; i <= 5; i++) {
                     final int msgNum = i;
                     chain = chain.compose(v -> producer.send("Performance message " + msgNum));
                 }
-                chain.onFailure(testContext::failNow);
+                return chain;
             })
+            .compose(sent -> allProcessed.future())
+            .onSuccess(done -> testContext.verify(() -> {
+                long duration = System.currentTimeMillis() - startTime;
+                assertEquals(5, processedCount.get(), "Should process exactly 5 messages");
+                assertTrue(duration < 10000, "Processing should complete within reasonable time (10s), took " + duration + " ms");
+                testContext.completeNow();
+            }))
             .onFailure(testContext::failNow);
-
-            // Wait for message processing
-            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Legacy API should handle performance test messages");
-
-            long endTime = System.currentTimeMillis();
-            long duration = endTime - startTime;
-
-            assertEquals(5, processedCount.get(), "Should process exactly 5 messages");
-            assertTrue(duration < 10000, "Processing should complete within reasonable time (10s)");
-
-        logger.info("Legacy API performance verified - processed: {} messages in {}ms",
-            processedCount.get(), duration);
-
-        logger.info("Legacy API performance consistency test completed successfully");
     }
 }

@@ -1853,10 +1853,11 @@ Continued on 2026-11-08, third round:
 | Surefire misattribution (SUREFIRE-1643) | Fixed in surefire 3.5.3. One `surefire.version` (3.5.6) in the root pom for every surefire and failsafe declaration; the root plugin management had 3.1.2 and 14 modules 3.2.5. | db core on 3.2.5: 97 of 371 test cases filed under another class, 30 class counts wrong. On 3.5.6: 0 (a class with `@DisplayName` is reported under its display name). Autodetected extensions still load (`UnexpectedErrorLogPackagedIntegrationTest`) |
 | 18 test classes selected by no build | No module binds failsafe, and surefire's default includes do not match `*IT`. Root surefire includes now add `**/*IT.java` (10 classes: native 7, outbox 1, REST 1). Five classes whose names match no pattern are renamed: `PoolingUnderLoadIntegrationTest`, `PgNotificationStreamContainersIntegrationTest`, `ZombieVertxReproA/BIntegrationTest`, `ZombieReproA/BIntegrationTest` (Spring). | native integration 221 before, 236 after, all green; outbox 5/5, db 55/55 with `PoolingUnderLoadIntegrationTest` 1/1, REST `QueuePauseResumeIT` 1/1, Spring zombie pair 2/2 |
 | `BiTemporalTxConfigTest` order dependence | Every Spring class declares the shared container as `@Container`, so it is stopped after each class and the next class starts an empty database. 32 of 33 classes initialize their schema in `@BeforeAll`; this one did not and failed whenever it was not the first class in the JVM. It now initializes like its siblings. | Failed after the zombie pair (tables missing), passed alone with and without the `stop()` change; green 3/3 after the zombie pair |
-| Finding 6 consequence: aggregated closes | `Future.all` fails on the first failure while the sibling closes still run, so the next shutdown step starts early. Changed to `Future.join` in `PgConnectionManager.close`, `PartitionedConsumerEngine` teardown, `PgNativeQueueFactory.closeManagedResources` and the Spring `BiTemporalTxConfig` stop. The other callers of the changed closes (`PeeGeeQDatabaseSetupService.destroySetup` and `close`) already run every close and return the first failure. `PgDatabaseService.close()` logged "closed successfully" after starting a close it does not wait for; it now says the close started. | Static: a failing close next to a slow one cannot be produced without a mock. Regression: native integration 236/236, db connection-manager classes 54/54, Spring `BiTemporalTxConfigTest` |
+| Finding 6 consequence: aggregated closes | `Future.all` fails on the first failure while the sibling closes still run, so the next shutdown step starts early. Changed to `Future.join` in `PgConnectionManager.close`, `PartitionedConsumerEngine` teardown, `PgNativeQueueFactory.closeManagedResources` and the Spring `BiTemporalTxConfig` stop. The other callers of the changed closes (`PeeGeeQDatabaseSetupService.destroySetup` and `close`) already run every close and return the first failure. `PgDatabaseService.close()` logged "closed successfully" after starting a close it does not wait for; it now says the close started. | Native factory: `PgNativeQueueFactoryCloseIntegrationTest`, real faults (a held handler keeps one consumer's close open; the other consumer's claim waits on a table lock and is cancelled, 57014). Red with `Future.all` ("settled while a managed consumer was still closing"), green with `join`; the manager close reports the same failure through the factory's close hook. `PgConnectionManager.close`: no red test is possible on Vert.x 5.0.4, because `CloseFuture.close()` completes its promise whatever its children report, so `Pool.close()` never fails (static, from the vertx-core source). Engine teardown: `PartitionedNativeConsumerIntegrationTest.testTeardown_waitsForInFlightSweep_whenLeaveFails`. The first sweep runs at start; a held lock on `outbox_topic_watermarks` stops it at its upsert, an `EXCLUSIVE` lock on `outbox_topic_subscriptions` stops the leave at its generation bump, and only that query is cancelled. Red with `Future.all` ("stop settled while a watermark sweep was in flight"), green with `join`; the stop reports the 57014 leave failure. `PgNativeConsumerGroup` now logs an engine stop failure at ERROR, as `OutboxConsumerGroup` does, through `andThen` so the declared line precedes completion. Spring `BiTemporalTxConfig`: a store close can fail (a failed `UNLISTEN`), but no store close has a step a test can hold open (handler `UNLISTEN` and connection close, pool close, client close), so `all` and `join` cannot be told apart from outside; static. `join` is kept as the coding-principles form for parallel closes. Regression: native integration 236/236, db connection-manager classes 54/54. An earlier version of this row said the case "cannot be produced without a mock"; that was not checked and was wrong. |
 | `QueueBrowser.close()` | Not changed. Both implementations observe the asynchronous observer stop and log its failure. No caller has to wait for it, and the server stop closes the setup Vert.x, which closes the dedicated connections. | Static |
 
-vertx-junit5 5.1 migration (investigated 2026-11-08; not started):
+vertx-junit5 5.1 migration (investigated 2026-11-08; test conversion done the same day; the
+version is not raised):
 
 - What changes. 5.1 creates every context with a hidden invocation checkpoint and flags it only
   after the method returns. A context completed by checkpoints therefore cannot complete while the
@@ -1877,6 +1878,56 @@ vertx-junit5 5.1 migration (investigated 2026-11-08; not started):
 - Not recommended. `Checkpoint.await(Duration)` (new in 5.1) is flagged by guard Tier 4, and the
   `CancellationException` it throws on a failed context hides the cause. `asLatch(n)` drops
   strict over-count detection.
+- Where a test asserts over all deliveries (distribution, stage consistency, metrics), the
+  handler completes a Promise at the last delivery and the assertions run in the chain before
+  `completeNow()`.
+- Progress (2026-11-08): bitemporal 1 file, benchmarking 2, outbox 18 converted; the scan finds
+  none left in those modules. Runs on 5.0.4: bitemporal 4/4, benchmarking 6/6 (performance
+  profile), outbox converted classes 15 + 15 + 14 + 11 + 13 + 12 + 36. The conversion also fixed
+  what the files held besides the wait: teardowns that discarded the factory close Future or
+  turned a failed close into success, fixed delays followed by percentage thresholds
+  (`HighFrequencyProducerConsumerTest` now waits for exact counts), a blocking
+  `CountDownLatch.await` used as a sleep, strict single checkpoints that a retry or a second
+  message flagged again, assertions that could not fail, and unclosed consumers and producers.
+  Native 18 files converted the same day: full native integration 238/238 (236 + the two new
+  close tests), guards 64/64. Of the 76 native methods, 31 were converted by a script that
+  accepts one shape only (one strict checkpoint, one in-body await, after it nothing but logging,
+  `close()` of factory-created resources and an `assertEquals` of the same count); the others by
+  hand. Native fixes beside the wait: sends started before `subscribe` completed now chain on it;
+  `try`/`finally` and try-with-resources blocks that would close consumers at once are removed
+  (the factory closes them in teardown); `testQueueDepthMetrics` asserted nothing about depth
+  and now asserts the depth rises by three and returns; `PostgreSQLErrorHandlingTest` logged send
+  failures at WARN and had `if (completed) ... else ...` branches that passed either way; strict
+  single checkpoints that a second message over-flagged (`ConsumerGroupSubscriptionTest`).
+  Not changed: `PgNativeQueueContainers*Test` send after a fixed `setTimer(1000)` because
+  `OutboxQueue`-style `receive()` returns a `ReadStream` with no readiness Future; native
+  producers closed in the removed tails are no longer closed (`PgNativeQueueProducer.close()`
+  only sets a flag); the `PostgreSQLErrorHandlingTest` methods do not force the errors their
+  names describe (their own comments say so).
+  Examples 10 files and Spring 4 files converted the same day; the scan now finds 0 files and
+  0 methods in the repository. Runs on 5.0.4 after installing the changed upstream modules:
+  examples 35/35 (`-Pintegration-tests`, the 10 classes 4 + 1 + 2 + 1 + 6 + 7 + 2 + 5 + 3 + 4),
+  Spring 12/12 (`-Dtest.groups=integration,performance`, 3 per class). Examples fixes beside
+  the wait: `NativeQueueFeatureTest`, `SimpleNativeQueueTest` and
+  `AdvancedProducerConsumerGroupTest` teardowns discarded the factory close Future; they now
+  await it, then close the manager, and fail on the first failure.
+  `OutboxServerSideFilteringTest` closed resources in `try`/`finally`; the closes now run in
+  the chain. Spring fixes beside the wait:
+  - `OutboxMetricsSpringBootTest.testMessageCountMetrics` failed after the conversion
+    (received count short). `OutboxConsumer` records the received and processed counts after
+    the handler's Future completes, and the converted assertion ran inside the last handler
+    call. The old main-thread assertion had the same race and woke later. The three metrics
+    tests now poll the metric with one helper (the failed-metric helper is deleted).
+    `testProcessingTimeMetrics` asserted `getMessagesProcessed() > 0`, which test 1 already
+    made true; it now asserts the topic's processing-time distribution has 3 samples and a
+    mean at or above the 100 ms handler delay (run: mean 103.6 ms).
+  - `OutboxPerformanceSpringBootTest.testConcurrentConsumerPerformance` asserted that each of
+    three competing consumers processed at least one message. Each consumer claims with
+    `LIMIT n FOR UPDATE SKIP LOCKED` on its own timer, and nothing divides rows between them.
+    Two runs gave 76/74/0 and 75/75/0. The test now asserts exactly-once delivery by message
+    id and logs the distribution. Its SLF4J `{:.1f}` placeholder printed literally; fixed.
+  `OutboxProducerPoolThresholdTest` keeps an in-body `awaitCompletion` that ends with
+  `completeNow()` and no checkpoint; the 5.1.6 probe above showed that form still completes.
 - Order. Convert the 53 files module by module, each module green on 5.0.4. Then raise the
   vertx-junit5 version. Keep `VertxTeardownAfterFailureExtension`: on 5.1.6 an `@AfterEach`
   receives a context that a throwing test method left behind, and that teardown is not awaited
@@ -1890,8 +1941,25 @@ Found and not corrected on 2026-11-08, third round:
   `peegeeq-production.properties` in peegeeq-db names all database coordinates that way, so
   removing it breaks the production profile. It reads only variables a profile names, but it is
   still an environment channel under the project rule. Owner decision.
-- `PoolingUnderLoadIntegrationTest` builds its own `PostgreSQLContainer`; it now runs and passes
-  but does not use `PostgreSQLTestConstants.createStandardContainer()`.
+- Corrected later the same day: `PoolingUnderLoadIntegrationTest` now uses the standard
+  container and the extension's Vert.x, and its teardown fails on a failed close (it created a
+  second Vert.x and never closed it). `PartitionedNativeConsumerIntegrationTest` replaces its ten
+  fixed delays (2 to 5 s) with bounded polls on the condition each one stood for (assignments,
+  deliveries, every partition committed to its last message id) and drops `@Order`; 14/14.
+  `PgNativeQueueFactoryIntegrationTest` had four empty catch blocks; they log.
+- `OutboxConsumerGroupFaultToleranceTest` still waits fixed delays in its chains
+  (`vertx.timer(500)` at lines 177, 309, 413, 513; `vertx.timer(2000)` at 197 and 335;
+  `vertx.timer(10000)` at 423) instead of polling the condition each stands for.
+- `OutboxConsumerGroupSubscriptionTest` line 611 calls `future.get(5, TimeUnit.SECONDS)`, a
+  blocking bridge the project bans.
+- The 2026-10 ruling on test cleanup ("Both standards documents are corrected") is not carried
+  out. `pgq-coding-principles.md` line 208 still says a failure in either step of
+  `closeReactive().eventually(() -> vertx.close())` fails the test, and lines 329 and 556 and
+  the testing standard (lines 461-472, 583-590, Rule 7) still prescribe
+  `.eventually(() -> resource.close())` for cleanup. `Future.eventually` discards the supplied
+  Future's failure (probe 2026-10-12, `logs/f20-p1a-probe-eventually-20261012.log`). The
+  approved helper exists only as `CleanupResultSupport` in `peegeeq-examples` test sources.
+  Test sources hold 344 `.eventually(` calls; they were not classified.
 
 #### Finding 20 implementation tasks
 

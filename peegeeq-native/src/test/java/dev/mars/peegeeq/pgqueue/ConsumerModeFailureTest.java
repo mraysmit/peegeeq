@@ -17,6 +17,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Tuple;
@@ -43,7 +44,6 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -226,9 +226,8 @@ class ConsumerModeFailureTest {
     }
 
     @Test
-    void testChannelNameCollisionHandling(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info(" Testing channel name collision handling");
-
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    void testChannelNameCollisionHandling(Vertx vertx, VertxTestContext testContext) {
         String topicName = "test-channel-collision";
 
         MessageConsumer<String> consumer1 = factory.createConsumer(topicName, String.class,
@@ -237,149 +236,98 @@ class ConsumerModeFailureTest {
             ConsumerConfig.builder().mode(ConsumerMode.LISTEN_NOTIFY_ONLY).build());
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        AtomicInteger consumer1Count = new AtomicInteger(0);
-        AtomicInteger consumer2Count = new AtomicInteger(0);
-        // One flag per sent message. The test ends only after all three are processed, so no
-        // send is still in flight when teardown closes the pool.
+        // One strict checkpoint across both consumers: each of the three messages is processed
+        // once; a fourth delivery fails the test.
         Checkpoint messagesProcessed = testContext.checkpoint(3);
 
-            Future.all(
+        Future.all(
                 consumer1.subscribe(message -> {
-                    consumer1Count.incrementAndGet();
-                    logger.info(" Consumer 1 received message: {}", message.getPayload());
                     messagesProcessed.flag();
                     return Future.succeededFuture();
                 }),
                 consumer2.subscribe(message -> {
-                    consumer2Count.incrementAndGet();
-                    logger.info(" Consumer 2 received message: {}", message.getPayload());
                     messagesProcessed.flag();
                     return Future.succeededFuture();
-                })
-            ).onSuccess(ignored -> producer.send("Collision test message 1")
-                    .compose(v -> producer.send("Collision test message 2"))
-                    .compose(v -> producer.send("Collision test message 3"))
-                    .onFailure(testContext::failNow))
+                }))
+            .compose(ignored -> producer.send("Collision test message 1"))
+            .compose(v -> producer.send("Collision test message 2"))
+            .compose(v -> producer.send("Collision test message 3"))
             .onFailure(testContext::failNow);
-
-            // Wait for message processing
-            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process messages despite channel name collision");
-
-            int totalProcessed = consumer1Count.intValue() + consumer2Count.intValue();
-            assertEquals(3, totalProcessed, "Each of the 3 messages should be processed once across both consumers");
-
-        logger.info("Channel collision handling verified - consumer1: {}, consumer2: {}, total: {}",
-            consumer1Count.intValue(), consumer2Count.intValue(), totalProcessed);
-
-        logger.info("Channel name collision handling test completed successfully");
     }
 
     @Test
-    void testPartialModeFailureRecovery(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info(" Testing partial mode failure recovery");
-
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+    void testPartialModeFailureRecovery(Vertx vertx, VertxTestContext testContext) {
         String topicName = "test-partial-failure-recovery";
 
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
             ConsumerConfig.builder().mode(ConsumerMode.HYBRID).pollingInterval(Duration.ofSeconds(1)).build());
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        AtomicInteger processedCount = new AtomicInteger(0);
+        // A strict checkpoint: exactly three deliveries.
         Checkpoint messagesReceived = testContext.checkpoint(3);
 
-            consumer.subscribe(message -> {
-                processedCount.incrementAndGet();
-                logger.info(" Processed message during partial failure test: {}", message.getPayload());
+        consumer.subscribe(message -> {
                 messagesReceived.flag();
                 return Future.succeededFuture();
             })
-            .onSuccess(ignored -> producer.send("Recovery test message 1")
-                    .compose(v -> producer.send("Recovery test message 2"))
-                    .compose(v -> producer.send("Recovery test message 3"))
-                    .onFailure(testContext::failNow))
+            .compose(ignored -> producer.send("Recovery test message 1"))
+            .compose(v -> producer.send("Recovery test message 2"))
+            .compose(v -> producer.send("Recovery test message 3"))
             .onFailure(testContext::failNow);
-
-            // Wait for message processing
-            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should process messages even with potential partial failures");
-            assertEquals(3, processedCount.get(), "Should process exactly 3 messages");
-
-        logger.info("Partial failure recovery verified - processed: {} messages", processedCount.get());
-
-        logger.info("Partial mode failure recovery test completed successfully");
     }
 
     @Test
-    void testRecoveryAfterTemporaryFailure(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info(" Testing recovery after temporary failure");
-
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+    void testRecoveryAfterTemporaryFailure(Vertx vertx, VertxTestContext testContext) {
         String topicName = "test-recovery-after-failure";
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
             ConsumerConfig.builder().mode(ConsumerMode.HYBRID).pollingInterval(Duration.ofSeconds(1)).build());
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
+        // A strict checkpoint: exactly two deliveries; the second must be the message sent after
+        // the pause.
         AtomicInteger processedCount = new AtomicInteger(0);
-        AtomicReference<String> lastProcessedMessage = new AtomicReference<>();
         Checkpoint messagesReceived = testContext.checkpoint(2);
 
-            consumer.subscribe(message -> {
-                processedCount.incrementAndGet();
-                lastProcessedMessage.set(message.getPayload());
-                logger.info(" Processed message during recovery test: {}", message.getPayload());
+        consumer.subscribe(message -> {
+                if (processedCount.incrementAndGet() == 2) {
+                    testContext.verify(() -> assertEquals("After recovery message", message.getPayload(),
+                        "Should process the recovery message last"));
+                }
                 messagesReceived.flag();
                 return Future.succeededFuture();
             })
-            .onSuccess(ignored -> {
-                producer.send("Before failure message").onFailure(testContext::failNow);
-                // Send second message after a delay to simulate recovery
-                vertx.setTimer(2000, id2 -> producer.send("After recovery message").onFailure(testContext::failNow));
-            })
+            .compose(ignored -> producer.send("Before failure message"))
+            // Send the second message after a pause to simulate recovery
+            .compose(v -> vertx.timer(2000))
+            .compose(v -> producer.send("After recovery message"))
             .onFailure(testContext::failNow);
-
-            // Wait for message processing
-            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should recover and process messages after temporary failure");
-            assertEquals(2, processedCount.get(), "Should process exactly 2 messages");
-            assertEquals("After recovery message", lastProcessedMessage.get(),
-                "Should process the recovery message last");
-
-        logger.info("Recovery after failure verified - processed: {} messages", processedCount.get());
-
-        logger.info("Recovery after temporary failure test completed successfully");
     }
 
     @Test
-    void testConsumerModeRobustnessUnderLoad(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info(" Testing consumer mode robustness under moderate load");
-
+    @Timeout(value = 20, timeUnit = TimeUnit.SECONDS)
+    void testConsumerModeRobustnessUnderLoad(Vertx vertx, VertxTestContext testContext) {
         String topicName = "test-robustness-under-load";
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
             ConsumerConfig.builder().mode(ConsumerMode.HYBRID).pollingInterval(Duration.ofSeconds(1)).build());
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        AtomicInteger processedCount = new AtomicInteger(0);
+        // A strict checkpoint: exactly ten deliveries.
         Checkpoint messagesReceived = testContext.checkpoint(10);
 
-            consumer.subscribe(message -> {
-                int count = processedCount.incrementAndGet();
-                logger.debug(" Processed load test message {}: {}", count, message.getPayload());
+        consumer.subscribe(message -> {
                 messagesReceived.flag();
                 return Future.succeededFuture();
             })
-            .onSuccess(ignored -> {
+            .compose(ignored -> {
                 Future<Void> chain = Future.succeededFuture();
                 for (int i = 1; i <= 10; i++) {
                     final int idx = i;
                     chain = chain.compose(v -> producer.send("Load test message " + idx));
                 }
-                chain.onFailure(testContext::failNow);
+                return chain;
             })
             .onFailure(testContext::failNow);
-
-            // Wait for message processing
-            assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Should handle moderate load without failures");
-            assertEquals(10, processedCount.get(), "Should process exactly 10 messages under load");
-
-        logger.info("Robustness under load verified - processed: {} messages", processedCount.get());
-
-        logger.info("Consumer mode robustness under load test completed successfully");
     }
 }

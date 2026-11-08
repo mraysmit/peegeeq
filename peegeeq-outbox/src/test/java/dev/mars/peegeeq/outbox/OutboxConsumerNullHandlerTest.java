@@ -14,6 +14,7 @@ import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
@@ -95,7 +96,8 @@ public class OutboxConsumerNullHandlerTest {
     }
 
     @Test
-    void testNullHandlerReturn(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+    void testNullHandlerReturn(VertxTestContext testContext) {
         // Verify the null-return error path by confirming the message is retried:
         // null return  IllegalStateException  incrementRetryAndReset  retry_count incremented,
         // status reset to PENDING  message re-delivered on next poll.
@@ -110,9 +112,6 @@ public class OutboxConsumerNullHandlerTest {
             return null; // Triggers null check  IllegalStateException  retry path
         }).compose(v -> producer.send("Test null return"))
           .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS),
-                "Handler should be invoked twice: once initially, once after null-return retry cycle");
     }
 }
 

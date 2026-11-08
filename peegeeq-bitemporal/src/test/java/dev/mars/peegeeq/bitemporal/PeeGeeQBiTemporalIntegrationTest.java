@@ -192,7 +192,8 @@ class PeeGeeQBiTemporalIntegrationTest {
     
     @Test
     @DisplayName("Basic Producer-Consumer Integration with Bi-temporal Store")
-    void testBasicProducerConsumerIntegration(Vertx vertx, VertxTestContext ctx) throws Exception {
+    @io.vertx.junit5.Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    void testBasicProducerConsumerIntegration(Vertx vertx, VertxTestContext ctx) {
         logger.info("Starting basic producer-consumer integration test...");
 
         // Test data
@@ -205,15 +206,13 @@ class PeeGeeQBiTemporalIntegrationTest {
             "version", "1.0"
         );
 
-        // Set up message tracking
-        List<Message<OrderEvent>> receivedMessages = Collections.synchronizedList(new ArrayList<>());
+        // A strict checkpoint: a second delivery fails the test.
         Checkpoint messageReceived = ctx.checkpoint();
 
         // Subscribe to messages
         consumer.subscribe(message -> {
             logger.info("Received message: {}", message.getPayload());
             IntegrationTestUtils.logMessage(message, "RECEIVED");
-            receivedMessages.add(message);
             ctx.verify(() -> {
                 assertEquals(orderEvent, message.getPayload(), "Received payload should match sent payload");
             });
@@ -226,23 +225,12 @@ class PeeGeeQBiTemporalIntegrationTest {
             })
             .onSuccess(v -> logger.info("Message sent successfully"))
             .onFailure(ctx::failNow);
-
-        assertTrue(ctx.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received within 10 seconds");
-        if (ctx.failed()) fail(ctx.causeOfFailure());
-
-        // Verify message was received
-        assertEquals(1, receivedMessages.size(), "Should receive exactly one message");
-        Message<OrderEvent> receivedMessage = receivedMessages.get(0);
-        // Note: PeeGeeQ native doesn't preserve correlation IDs in messages - this is a known limitation
-        logger.info("Correlation ID sent: {}, received: {} (PeeGeeQ native limitation)",
-                   correlationId, IntegrationTestUtils.getCorrelationId(receivedMessage));
-
-        logger.info("Basic producer-consumer integration test completed successfully");
     }
 
     @Test
     @DisplayName("PeeGeeQ Messages with Bi-temporal Store Persistence")
-    void testPeeGeeQWithBiTemporalStorePersistence(Vertx vertx, VertxTestContext ctx) throws Exception {
+    @io.vertx.junit5.Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    void testPeeGeeQWithBiTemporalStorePersistence(Vertx vertx, VertxTestContext ctx) {
         logger.info("Starting PeeGeeQ with bi-temporal store persistence test...");
 
         // Test data
@@ -263,8 +251,8 @@ class PeeGeeQBiTemporalIntegrationTest {
             "version", "1.0"
         );
 
-        // Set up message tracking
-        List<Message<OrderEvent>> receivedMessages = Collections.synchronizedList(new ArrayList<>());
+        // The store holds exactly two events when the second message is processed; the strict
+        // checkpoint fails the test if a third delivery reaches that point again.
         AtomicInteger processedCount = new AtomicInteger(0);
         Checkpoint allVerified = ctx.checkpoint();
 
@@ -272,7 +260,6 @@ class PeeGeeQBiTemporalIntegrationTest {
         consumer.subscribe(message -> {
             logger.info("Received PeeGeeQ message: {}", message.getPayload());
             IntegrationTestUtils.logMessage(message, "PEEGEEQ_RECEIVED");
-            receivedMessages.add(message);
 
             Instant validTime = message.getPayload().getOrderTimeAsInstant();
             String orderId = message.getPayload().getOrderId();
@@ -330,27 +317,15 @@ class PeeGeeQBiTemporalIntegrationTest {
                 });
         })
             .compose(v -> producer.send(orderEvent1, headers, correlationId1))
-            .compose(v -> {
-                logger.info("Sent first message: {}", orderEvent1.getOrderId());
-                Promise<Void> delay = Promise.promise();
-                vertx.setTimer(1000, id -> delay.complete());
-                return delay.future();
-            })
             .compose(v -> producer.send(orderEvent2, headers, correlationId2))
-            .onSuccess(v -> logger.info("Sent second message: {}", orderEvent2.getOrderId()))
+            .onSuccess(v -> logger.info("Sent both messages"))
             .onFailure(ctx::failNow);
-
-        assertTrue(ctx.awaitCompletion(30, TimeUnit.SECONDS),
-                  "Messages should be received and persisted within 30 seconds");
-        if (ctx.failed()) fail(ctx.causeOfFailure());
-
-        assertEquals(2, receivedMessages.size(), "Should receive exactly two messages");
-        logger.info("PeeGeeQ with bi-temporal store persistence test completed successfully");
     }
 
     @Test
     @DisplayName("Real-time Event Subscriptions and Notifications")
-    void testRealTimeEventSubscriptions(Vertx vertx, VertxTestContext ctx) throws Exception {
+    @io.vertx.junit5.Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    void testRealTimeEventSubscriptions(Vertx vertx, VertxTestContext ctx) {
         logger.info("Starting real-time event subscriptions test...");
 
         // Test data
@@ -360,8 +335,7 @@ class PeeGeeQBiTemporalIntegrationTest {
         String correlationId = "corr-201";
         String aggregateId = "ORDER-201";
 
-        // Set up bi-temporal event subscription tracking
-        List<BiTemporalEvent<OrderEvent>> subscribedEvents = Collections.synchronizedList(new ArrayList<>());
+        // A strict checkpoint: a second notification fails the test.
         AtomicReference<BiTemporalEvent<OrderEvent>> appendedEventRef = new AtomicReference<>();
         Checkpoint eventReceived = ctx.checkpoint();
 
@@ -371,7 +345,6 @@ class PeeGeeQBiTemporalIntegrationTest {
             BiTemporalEvent<OrderEvent> event = message.getPayload();
             logger.info("Received bi-temporal event subscription: {}", event.getEventId());
             IntegrationTestUtils.logBiTemporalEvent(event, "SUBSCRIPTION_RECEIVED");
-            subscribedEvents.add(event);
             ctx.verify(() -> {
                 assertNotNull(appendedEventRef.get(), "Appended event should be set before subscription fires");
                 assertEquals(appendedEventRef.get().getEventId(), event.getEventId(), "Event IDs should match");
@@ -400,18 +373,12 @@ class PeeGeeQBiTemporalIntegrationTest {
             logger.info("Event appended with ID: {}", appendedEvent.getEventId());
         })
         .onFailure(ctx::failNow);
-
-        assertTrue(ctx.awaitCompletion(10, TimeUnit.SECONDS),
-                  "Bi-temporal event subscription should be triggered within 10 seconds");
-        if (ctx.failed()) fail(ctx.causeOfFailure());
-
-        assertEquals(1, subscribedEvents.size(), "Should receive exactly one subscribed event");
-        logger.info("Real-time event subscriptions test completed successfully");
     }
 
     @Test
     @DisplayName("End-to-End Integration: PeeGeeQ  Consumer  Bi-temporal Store  Subscription")
-    void testEndToEndIntegration(Vertx vertx, VertxTestContext ctx) throws Exception {
+    @io.vertx.junit5.Timeout(value = 20, timeUnit = TimeUnit.SECONDS)
+    void testEndToEndIntegration(Vertx vertx, VertxTestContext ctx) {
         logger.info("Starting end-to-end integration test...");
 
         // Test data
@@ -428,8 +395,10 @@ class PeeGeeQBiTemporalIntegrationTest {
         List<BiTemporalEvent<OrderEvent>> persistedEvents = Collections.synchronizedList(new ArrayList<>());
         List<BiTemporalEvent<OrderEvent>> subscribedEvents = Collections.synchronizedList(new ArrayList<>());
 
-        Checkpoint persistedCp = ctx.checkpoint(expectedEventCount);
-        Checkpoint subscribedCp = ctx.checkpoint(expectedEventCount);
+        // The cross-stage checks need every stage complete, so the test completes through
+        // completeNow() after both promises, not through checkpoints.
+        Promise<Void> allPersisted = Promise.promise();
+        Promise<Void> allSubscribed = Promise.promise();
 
         // Set up bi-temporal event subscription, then consumer, then send
         eventStore.subscribe(null, message -> { // Subscribe to all event types
@@ -437,7 +406,9 @@ class PeeGeeQBiTemporalIntegrationTest {
             logger.info("Subscription received event: {}", event.getEventId());
             IntegrationTestUtils.logBiTemporalEvent(event, "END_TO_END_SUBSCRIPTION");
             subscribedEvents.add(event);
-            subscribedCp.flag();
+            if (subscribedEvents.size() == expectedEventCount) {
+                allSubscribed.tryComplete();
+            }
             return Future.succeededFuture();
         })
         .compose(v -> {
@@ -464,7 +435,9 @@ class PeeGeeQBiTemporalIntegrationTest {
                     .map(event -> {
                         persistedEvents.add(event);
                         logger.info("Persisted event to bi-temporal store: {}", event.getEventId());
-                        persistedCp.flag();
+                        if (persistedEvents.size() == expectedEventCount) {
+                            allPersisted.tryComplete();
+                        }
                         return (Void) null;
                     })
                     .transform(ar -> {
@@ -494,57 +467,55 @@ class PeeGeeQBiTemporalIntegrationTest {
                 return sendChain;
                 });
         })
+        .compose(sent -> Future.all(allPersisted.future(), allSubscribed.future()))
+        .onSuccess(stagesComplete -> ctx.verify(() -> {
+            // Verify all stages completed successfully
+            assertEquals(expectedEventCount, peeGeeQMessages.size(), "Should receive all PeeGeeQ messages");
+            assertEquals(expectedEventCount, persistedEvents.size(), "Should persist all events to bi-temporal store");
+            assertEquals(expectedEventCount, subscribedEvents.size(), "Should receive all subscription notifications");
+
+            // Verify data consistency across all stages
+            for (int i = 0; i < expectedEventCount; i++) {
+                OrderEvent originalOrder = testOrders.get(i);
+                Message<OrderEvent> peeGeeQMessage = peeGeeQMessages.stream()
+                    .filter(message -> originalOrder.getOrderId().equals(message.getPayload().getOrderId()))
+                    .findFirst()
+                    .orElse(null);
+
+                // Find corresponding subscribed event by correlation ID
+                String expectedCorrelationId = "end-to-end-" + (i + 1);
+                BiTemporalEvent<OrderEvent> persistedEvent = persistedEvents.stream()
+                    .filter(event -> expectedCorrelationId.equals(event.getCorrelationId()))
+                    .findFirst()
+                    .orElse(null);
+                BiTemporalEvent<OrderEvent> subscribedEvent = subscribedEvents.stream()
+                    .filter(event -> expectedCorrelationId.equals(event.getCorrelationId()))
+                    .findFirst()
+                    .orElse(null);
+
+                assertNotNull(peeGeeQMessage, "Should find PeeGeeQ message for order ID: " + originalOrder.getOrderId());
+                assertNotNull(persistedEvent, "Should find persisted event for correlation ID: " + expectedCorrelationId);
+                assertNotNull(subscribedEvent, "Should find subscribed event for correlation ID: " + expectedCorrelationId);
+
+                // Verify data consistency
+                assertEquals(originalOrder, peeGeeQMessage.getPayload(), "PeeGeeQ message payload should match original");
+                assertEquals(originalOrder, persistedEvent.getPayload(), "Persisted event payload should match original");
+                assertEquals(originalOrder, subscribedEvent.getPayload(), "Subscribed event payload should match original");
+
+                // Note: PeeGeeQ native doesn't preserve correlation IDs in messages - this is a known limitation
+                logger.info("Correlation ID sent: {}, PeeGeeQ received: {} (PeeGeeQ native limitation)",
+                           expectedCorrelationId, IntegrationTestUtils.getCorrelationId(peeGeeQMessage));
+                assertEquals(expectedCorrelationId, persistedEvent.getCorrelationId(), "Persisted correlation ID should match");
+                assertEquals(expectedCorrelationId, subscribedEvent.getCorrelationId(), "Subscribed correlation ID should match");
+
+                assertEquals(originalOrder.getOrderId(), persistedEvent.getAggregateId(), "Aggregate ID should match order ID");
+                assertEquals(originalOrder.getOrderId(), subscribedEvent.getAggregateId(), "Subscribed aggregate ID should match order ID");
+            }
+
+            logger.info("Summary: {} PeeGeeQ messages  {} persisted events  {} subscription notifications",
+                       peeGeeQMessages.size(), persistedEvents.size(), subscribedEvents.size());
+            ctx.completeNow();
+        }))
         .onFailure(ctx::failNow);
-
-        assertTrue(ctx.awaitCompletion(20, TimeUnit.SECONDS),
-                  "All stages should complete within 20 seconds");
-        if (ctx.failed()) fail(ctx.causeOfFailure());
-
-        // Verify all stages completed successfully
-        assertEquals(expectedEventCount, peeGeeQMessages.size(), "Should receive all PeeGeeQ messages");
-        assertEquals(expectedEventCount, persistedEvents.size(), "Should persist all events to bi-temporal store");
-        assertEquals(expectedEventCount, subscribedEvents.size(), "Should receive all subscription notifications");
-
-        // Verify data consistency across all stages
-        for (int i = 0; i < expectedEventCount; i++) {
-            OrderEvent originalOrder = testOrders.get(i);
-            Message<OrderEvent> peeGeeQMessage = peeGeeQMessages.stream()
-                .filter(message -> originalOrder.getOrderId().equals(message.getPayload().getOrderId()))
-                .findFirst()
-                .orElse(null);
-
-            // Find corresponding subscribed event by correlation ID
-            String expectedCorrelationId = "end-to-end-" + (i + 1);
-            BiTemporalEvent<OrderEvent> persistedEvent = persistedEvents.stream()
-                .filter(event -> expectedCorrelationId.equals(event.getCorrelationId()))
-                .findFirst()
-                .orElse(null);
-            BiTemporalEvent<OrderEvent> subscribedEvent = subscribedEvents.stream()
-                .filter(event -> expectedCorrelationId.equals(event.getCorrelationId()))
-                .findFirst()
-                .orElse(null);
-
-            assertNotNull(peeGeeQMessage, "Should find PeeGeeQ message for order ID: " + originalOrder.getOrderId());
-            assertNotNull(persistedEvent, "Should find persisted event for correlation ID: " + expectedCorrelationId);
-            assertNotNull(subscribedEvent, "Should find subscribed event for correlation ID: " + expectedCorrelationId);
-
-            // Verify data consistency
-            assertEquals(originalOrder, peeGeeQMessage.getPayload(), "PeeGeeQ message payload should match original");
-            assertEquals(originalOrder, persistedEvent.getPayload(), "Persisted event payload should match original");
-            assertEquals(originalOrder, subscribedEvent.getPayload(), "Subscribed event payload should match original");
-
-            // Note: PeeGeeQ native doesn't preserve correlation IDs in messages - this is a known limitation
-            logger.info("Correlation ID sent: {}, PeeGeeQ received: {} (PeeGeeQ native limitation)",
-                       expectedCorrelationId, IntegrationTestUtils.getCorrelationId(peeGeeQMessage));
-            assertEquals(expectedCorrelationId, persistedEvent.getCorrelationId(), "Persisted correlation ID should match");
-            assertEquals(expectedCorrelationId, subscribedEvent.getCorrelationId(), "Subscribed correlation ID should match");
-
-            assertEquals(originalOrder.getOrderId(), persistedEvent.getAggregateId(), "Aggregate ID should match order ID");
-            assertEquals(originalOrder.getOrderId(), subscribedEvent.getAggregateId(), "Subscribed aggregate ID should match order ID");
-        }
-
-        logger.info("End-to-end integration test completed successfully");
-        logger.info("Summary: {} PeeGeeQ messages  {} persisted events  {} subscription notifications",
-                   peeGeeQMessages.size(), persistedEvents.size(), subscribedEvents.size());
     }
 }

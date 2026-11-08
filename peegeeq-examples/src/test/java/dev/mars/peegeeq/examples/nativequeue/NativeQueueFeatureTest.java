@@ -34,6 +34,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
@@ -122,32 +123,24 @@ class NativeQueueFeatureTest {
     
     @AfterEach
     void tearDown(VertxTestContext testContext) {
-        logger.info("Tearing down: closing resources and manager");
-        if (nativeFactory != null) {
-            try {
-                nativeFactory.close();
-            } catch (Exception e) {
-                logger.error("Error closing native factory", e);
-            }
-        }
-        if (outboxFactory != null) {
-            try {
-                outboxFactory.close();
-            } catch (Exception e) {
-                logger.error("Error closing outbox factory", e);
-            }
-        }
-        if (manager == null) {
-            testContext.completeNow();
-            return;
-        }
-        manager.closeReactive()
-            .onSuccess(v -> {
-                logger.info("Native queue feature test teardown completed");
-                testContext.completeNow();
-            })
+        // The factory closes return Futures: both are awaited, then the manager closes whatever
+        // their outcome; the first failure fails the teardown.
+        Future.join(
+                nativeFactory != null ? nativeFactory.close() : Future.<Void>succeededFuture(),
+                outboxFactory != null ? outboxFactory.close() : Future.<Void>succeededFuture())
+            .<Void>mapEmpty()
+            .transform(factoryResult -> (manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+                .transform(managerResult -> {
+                    if (factoryResult.failed()) {
+                        return Future.<Void>failedFuture(factoryResult.cause());
+                    }
+                    return managerResult.failed()
+                        ? Future.<Void>failedFuture(managerResult.cause())
+                        : Future.<Void>succeededFuture();
+                }))
+            .onSuccess(v -> testContext.completeNow())
             .onFailure(err -> {
-                logger.error("Error during manager cleanup", err);
+                logger.error("Teardown failed", err);
                 testContext.failNow(err);
             });
     }
@@ -174,6 +167,7 @@ class NativeQueueFeatureTest {
     }
     
     @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     void testNativeRealTimeMessaging(VertxTestContext testContext) throws Exception {
         // Test that native queue provides real-time messaging capabilities
         MessageProducer<String> producer = nativeFactory.createProducer("realtime-test", String.class);
@@ -203,14 +197,6 @@ class NativeQueueFeatureTest {
         // Send message
         subscription.compose(v -> producer.send("Real-time test message"))
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received within 10 seconds");
-        assertEquals(1, receivedMessages.size());
-
-        producer.close();
-        consumer.close();
-
-        logger.info("Native real-time messaging test passed");
     }
     
     @Test
@@ -294,6 +280,7 @@ class NativeQueueFeatureTest {
     }
 
     @Test
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
     void testNativeMessageConcurrency(VertxTestContext testContext) throws Exception {
         // Test that native queue handles concurrent message processing correctly
         MessageProducer<String> producer = nativeFactory.createProducer("concurrency-test", String.class);
@@ -329,14 +316,6 @@ class NativeQueueFeatureTest {
         Future.all(futures).onFailure(testContext::failNow);
 
         // Wait for all messages to be processed
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "All messages should be processed");
-        assertEquals(messageCount, processedCount.get());
-        assertEquals(messageCount, receivedMessages.size());
-
-        producer.close();
-        consumer.close();
-
-        logger.info("Native message concurrency test passed");
     }
     
     @Test

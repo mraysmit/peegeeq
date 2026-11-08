@@ -23,6 +23,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -60,6 +61,8 @@ class OutboxConsumerCoverageTest {
     private String testTopic;
     private ObjectMapper objectMapper;
     private SimpleMeterRegistry meterRegistry;
+    private MessageConsumer<?> extraConsumer;
+    private MessageProducer<?> extraProducer;
 
     @BeforeEach
     void setup(VertxTestContext testContext) throws Exception {
@@ -93,6 +96,12 @@ class OutboxConsumerCoverageTest {
         if (producer != null) {
             producer.close();
         }
+        if (extraConsumer != null) {
+            extraConsumer.close();
+        }
+        if (extraProducer != null) {
+            extraProducer.close();
+        }
         Future<Void> factoryClose = outboxFactory != null
                 ? outboxFactory.close()
                 : Future.succeededFuture();
@@ -115,7 +124,8 @@ class OutboxConsumerCoverageTest {
     }
 
     @Test
-    void testHandlerReturnsNull(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    void testHandlerReturnsNull(VertxTestContext testContext) {
         consumer = outboxFactory.createConsumer(testTopic, String.class);
         // Verify the null-return error path by confirming the message is retried:
         // null return  IllegalStateException  incrementRetryAndReset  status reset to PENDING
@@ -130,13 +140,11 @@ class OutboxConsumerCoverageTest {
             return null; // Return null to trigger error handling
         }).compose(v -> producer.send("test-null-return"))
           .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS),
-                "Handler should be invoked twice: once initially, once after null-return retry");
     }
 
     @Test
-    void testHandlerThrowsDirectException(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    void testHandlerThrowsDirectException(VertxTestContext testContext) {
         consumer = outboxFactory.createConsumer(testTopic, String.class);
         // Verify the thrown-exception error path by confirming the message is retried:
         // thrown exception  Future.failedFuture(e)  incrementRetryAndReset  status reset to PENDING
@@ -151,9 +159,6 @@ class OutboxConsumerCoverageTest {
             throw new RuntimeException("Direct exception");
         }).compose(v -> producer.send("test-exception"))
           .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS),
-                "Handler should be invoked twice: once initially, once after exception-based retry");
     }
 
     @Test
@@ -195,40 +200,42 @@ class OutboxConsumerCoverageTest {
     }
 
     @Test
-    void testConfigurationNull(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 5, timeUnit = TimeUnit.SECONDS)
+    void testConfigurationNull(VertxTestContext testContext) {
         // Manually create consumer without configuration
         DatabaseService databaseService = new PgDatabaseService(manager);
-        
+
         consumer = new OutboxConsumer<>(databaseService, objectMapper, testTopic, String.class, null, null);
-        
-        Checkpoint latch = testContext.checkpoint();
+
+        // A strict checkpoint: a second delivery fails the test.
+        Checkpoint received = testContext.checkpoint();
         consumer.subscribe(message -> {
-            latch.flag();
+            received.flag();
             return Future.succeededFuture();
         }).compose(v -> producer.send("test-no-config"))
           .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should process message without config");
     }
 
     @Test
-    void testComplexPayloadParsing(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 5, timeUnit = TimeUnit.SECONDS)
+    void testComplexPayloadParsing(VertxTestContext testContext) {
         MessageConsumer<ComplexPayload> complexConsumer = outboxFactory.createConsumer(testTopic, ComplexPayload.class);
         MessageProducer<ComplexPayload> complexProducer = outboxFactory.createProducer(testTopic, ComplexPayload.class);
-        Checkpoint latch = testContext.checkpoint();
-        AtomicReference<ComplexPayload> received = new AtomicReference<>();
+        extraConsumer = complexConsumer;
+        extraProducer = complexProducer;
+        // A strict checkpoint: a second delivery fails the test.
+        Checkpoint received = testContext.checkpoint();
 
         ComplexPayload payload = new ComplexPayload("test", 123);
         complexConsumer.subscribe(message -> {
-            received.set(message.getPayload());
-            latch.flag();
+            testContext.verify(() -> {
+                assertEquals("test", message.getPayload().getName());
+                assertEquals(123, message.getPayload().getValue());
+            });
+            received.flag();
             return Future.succeededFuture();
         }).compose(v -> complexProducer.send(payload))
           .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should process complex payload");
-        assertEquals("test", received.get().getName());
-        assertEquals(123, received.get().getValue());
     }
 
     @Test
@@ -289,25 +296,25 @@ class OutboxConsumerCoverageTest {
     }
     
     @Test
-    void testHeadersParsing(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 5, timeUnit = TimeUnit.SECONDS)
+    void testHeadersParsing(VertxTestContext testContext) {
         consumer = outboxFactory.createConsumer(testTopic, String.class);
-        Checkpoint latch = testContext.checkpoint();
-        AtomicReference<Map<String, String>> receivedHeaders = new AtomicReference<>();
+        // A strict checkpoint: a second delivery fails the test.
+        Checkpoint received = testContext.checkpoint();
 
         Map<String, String> headers = new HashMap<>();
         headers.put("key1", "value1");
         headers.put("key2", "value2");
 
         consumer.subscribe(message -> {
-            receivedHeaders.set(message.getHeaders());
-            latch.flag();
+            testContext.verify(() -> {
+                assertEquals("value1", message.getHeaders().get("key1"));
+                assertEquals("value2", message.getHeaders().get("key2"));
+            });
+            received.flag();
             return Future.succeededFuture();
         }).compose(v -> producer.send("test-headers", headers))
           .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should process message with headers");
-        assertEquals("value1", receivedHeaders.get().get("key1"));
-        assertEquals("value2", receivedHeaders.get().get("key2"));
     }
 
     private Future<Double> awaitCounter(Vertx vertx, String meterName, long deadline) {

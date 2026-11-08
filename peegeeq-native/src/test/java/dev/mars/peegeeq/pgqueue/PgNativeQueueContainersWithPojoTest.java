@@ -22,6 +22,7 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.pgclient.PgConnectOptions;
@@ -98,20 +99,24 @@ public class PgNativeQueueContainersWithPojoTest {
     }
 
     @Test
-    void testSendAndReceiveMessage(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+    void testSendAndReceiveMessage(VertxTestContext testContext) {
         // Arrange
         String messageText = "Test message";
         TestMessage expectedMessage = new TestMessage(messageText);
 
+        // A strict checkpoint: a second delivery fails the test.
         Checkpoint messageReceived = testContext.checkpoint();
-        AtomicReference<TestMessage> receivedMessage = new AtomicReference<>();
 
         // Act - Get the ReadStream from the queue
         ReadStream<TestMessage> stream = queue.receive();
 
         // Set up handlers for the stream
         stream.handler(message -> {
-            receivedMessage.set(message);
+            testContext.verify(() -> {
+                assertNotNull(message, "Received message should not be null");
+                assertEquals(messageText, message.getText());
+            });
             messageReceived.flag();
         });
 
@@ -122,31 +127,21 @@ public class PgNativeQueueContainersWithPojoTest {
             queue.send(expectedMessage)
                 .onFailure(testContext::failNow);
         });
-
-        // Wait for the message to be received
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Message was not received within timeout");
-
-        // Verify the received message
-        TestMessage receivedTestMessage = receivedMessage.get();
-        assertNotNull(receivedTestMessage, "Received message should not be null");
-        assertEquals(messageText, receivedTestMessage.getText());
     }
 
     @Test
-    void testSendAndReceiveMultipleMessages(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+    void testSendAndReceiveMultipleMessages(VertxTestContext testContext) {
         // Arrange
         int messageCount = 5;
+        // A strict checkpoint: exactly five deliveries.
         Checkpoint messagesReceived = testContext.checkpoint(messageCount);
-        AtomicReference<Integer> receivedCount = new AtomicReference<>(0);
 
         // Act - Get the ReadStream from the queue
         ReadStream<TestMessage> stream = queue.receive();
 
         // Set up handlers for the stream
-        stream.handler(message -> {
-            receivedCount.updateAndGet(count -> count + 1);
-            messagesReceived.flag();
-        });
+        stream.handler(message -> messagesReceived.flag());
 
         stream.exceptionHandler(testContext::failNow);
 
@@ -158,14 +153,11 @@ public class PgNativeQueueContainersWithPojoTest {
                     .onFailure(testContext::failNow);
             }
         });
-
-        // Wait for all messages to be received
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Not all messages were received within timeout");
-        assertEquals(messageCount, receivedCount.get(), "Should have received all messages");
     }
 
     @Test
-    void testReceiveFirstMessage(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+    void testReceiveFirstMessage(VertxTestContext testContext) {
         // Arrange
         String messageText = "Test message with first handler";
         TestMessage expectedMessage = new TestMessage(messageText);
@@ -180,6 +172,7 @@ public class PgNativeQueueContainersWithPojoTest {
         stream.handler(message -> {
             // Only handle the first message
             if (receivedMessage.compareAndSet(null, message)) {
+                testContext.verify(() -> assertEquals(messageText, message.getText()));
                 firstMessageReceived.flag();
                 // Pause the stream after receiving the first message
                 stream.pause();
@@ -193,13 +186,5 @@ public class PgNativeQueueContainersWithPojoTest {
             queue.send(expectedMessage)
                 .onFailure(testContext::failNow);
         });
-
-        // Wait for the message to be received
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Message was not received within timeout");
-
-        // Verify the received message
-        TestMessage receivedTestMessage = receivedMessage.get();
-        assertNotNull(receivedTestMessage, "Received message should not be null");
-        assertEquals(messageText, receivedTestMessage.getText());
     }
 }

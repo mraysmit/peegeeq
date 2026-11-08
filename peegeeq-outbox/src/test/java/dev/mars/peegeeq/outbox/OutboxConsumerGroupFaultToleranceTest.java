@@ -36,7 +36,6 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Pool;
@@ -232,13 +231,15 @@ class OutboxConsumerGroupFaultToleranceTest {
 
         @Test
         @DisplayName("batch continues after individual handler failure")
-        void batchContinuesAfterHandlerFailure(VertxTestContext testContext) throws Exception {
+        @io.vertx.junit5.Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+        void batchContinuesAfterHandlerFailure(VertxTestContext testContext) {
             int totalMessages = 10;
             Map<String, AtomicInteger> attempts = new ConcurrentHashMap<>();
             List<String> successfullyProcessed = Collections.synchronizedList(new ArrayList<>());
 
-            // Expect ~half to succeed on first pass; failed ones get retried
-            Checkpoint allDone = testContext.checkpoint(totalMessages);
+            // Half succeed on the first pass; the failed ones are retried. The per-message
+            // attempt counts are checked once every message has succeeded.
+            Promise<Void> allDone = Promise.promise();
 
             consumerGroup = outboxFactory.createConsumerGroup("mid-batch-group", testTopic, String.class);
             consumerGroup.addConsumer("c1", message -> {
@@ -250,7 +251,9 @@ class OutboxConsumerGroupFaultToleranceTest {
                     return Future.failedFuture(new RuntimeException("Simulated mid-batch failure for " + payload));
                 }
                 successfullyProcessed.add(payload);
-                allDone.flag();
+                if (successfullyProcessed.size() == totalMessages) {
+                    allDone.tryComplete();
+                }
                 return Future.succeededFuture();
             });
             // Wait for group to start, then send mix of messages
@@ -264,19 +267,19 @@ class OutboxConsumerGroupFaultToleranceTest {
                     }
                     return sends;
                 })
+                .compose(sent -> allDone.future())
+                .onSuccess(done -> testContext.verify(() -> {
+                    assertEquals(totalMessages, successfullyProcessed.size(),
+                            "All messages should be successfully processed after retries");
+                    for (int i = 0; i < totalMessages; i++) {
+                        String payload = (i % 2 == 0 ? "even" : "odd") + "-" + i;
+                        assertNotNull(attempts.get(payload), "Every message must reach the handler");
+                        assertEquals(i % 2 == 0 ? 1 : 2, attempts.get(payload).intValue(),
+                                "Only the first attempt of each odd message should fail: " + payload);
+                    }
+                    testContext.completeNow();
+                }))
                 .onFailure(testContext::failNow);
-
-            assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
-                    "All messages should eventually be processed (failures retried)");
-
-            assertEquals(totalMessages, successfullyProcessed.size(),
-                    "All messages should be successfully processed after retries");
-            for (int i = 0; i < totalMessages; i++) {
-                String payload = (i % 2 == 0 ? "even" : "odd") + "-" + i;
-                assertNotNull(attempts.get(payload), "Every message must reach the handler");
-                assertEquals(i % 2 == 0 ? 1 : 2, attempts.get(payload).intValue(),
-                        "Only the first attempt of each odd message should fail: " + payload);
-            }
         }
     }
 

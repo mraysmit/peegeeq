@@ -24,8 +24,8 @@ import org.testcontainers.junit.jupiter.Container;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -112,7 +112,8 @@ public class OutboxMessageOrderingSpringBootTest {
      * The outbox consumer orders by created_at ASC, ensuring first-in-first-out processing.
      */
     @Test
-    void testFIFOMessageOrdering(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+    void testFIFOMessageOrdering(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing FIFO Message Ordering ===");
         logger.info("This test verifies messages are processed in creation order (FIFO)");
 
@@ -120,7 +121,11 @@ public class OutboxMessageOrderingSpringBootTest {
         
         // Track processing order
         List<Integer> processedOrder = Collections.synchronizedList(new ArrayList<>());
-        Checkpoint checkpoint = testContext.checkpoint(10);
+        // Events counted across the former checkpoints; the assertions run once all have happened.
+        Promise<Void> allEvents = Promise.promise();
+        AtomicInteger remainingEvents = new AtomicInteger();
+        remainingEvents.addAndGet(10);
+        Runnable checkpoint = () -> countEvent(testContext, remainingEvents, allEvents);
         
         // Create consumer
         MessageConsumer<OrderMessage> consumer = outboxFactory.createConsumer(topic, OrderMessage.class);
@@ -130,7 +135,7 @@ public class OutboxMessageOrderingSpringBootTest {
             OrderMessage order = message.getPayload();
             processedOrder.add(order.getSequence());
             logger.info(" Processed message sequence: {}", order.getSequence());
-            checkpoint.flag();
+            checkpoint.run();
             return Future.succeededFuture();
         });
         
@@ -152,25 +157,27 @@ public class OutboxMessageOrderingSpringBootTest {
             });
         }
         sendChain.onFailure(testContext::failNow);
-        
-        // Wait for all messages to be processed
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "All messages should be processed within 15 seconds");
-        
-        // Verify FIFO ordering
-        logger.info(" FIFO Ordering Results:");
-        logger.info("   Expected order: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]");
-        logger.info("   Actual order:   {}", processedOrder);
-        
-        assertEquals(10, processedOrder.size(), "Should have processed 10 messages");
-        
-        // Verify messages were processed in order
-        for (int i = 0; i < processedOrder.size(); i++) {
-            assertEquals(i + 1, processedOrder.get(i), 
-                "Message at position " + i + " should have sequence " + (i + 1));
-        }
-        
-        logger.info("FIFO Message Ordering test passed");
-        logger.info("Messages processed in correct FIFO order");
+
+        allEvents.future()
+            .onSuccess(done -> testContext.verify(() -> {
+            // Verify FIFO ordering
+            logger.info(" FIFO Ordering Results:");
+            logger.info("   Expected order: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]");
+            logger.info("   Actual order:   {}", processedOrder);
+
+            assertEquals(10, processedOrder.size(), "Should have processed 10 messages");
+
+            // Verify messages were processed in order
+            for (int i = 0; i < processedOrder.size(); i++) {
+                assertEquals(i + 1, processedOrder.get(i), 
+                    "Message at position " + i + " should have sequence " + (i + 1));
+            }
+
+            logger.info("FIFO Message Ordering test passed");
+            logger.info("Messages processed in correct FIFO order");
+            testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     /**
@@ -180,7 +187,8 @@ public class OutboxMessageOrderingSpringBootTest {
      * Messages are sent with message_group parameter to test group-based ordering.
      */
     @Test
-    void testMessageGroupOrdering(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @Timeout(value = 20, timeUnit = TimeUnit.SECONDS)
+    void testMessageGroupOrdering(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Message Group Ordering ===");
         logger.info("This test verifies messages within same group maintain FIFO order");
 
@@ -188,7 +196,11 @@ public class OutboxMessageOrderingSpringBootTest {
         
         // Track processing order per group
         Map<String, List<Integer>> groupOrders = new ConcurrentHashMap<>();
-        Checkpoint checkpoint = testContext.checkpoint(15);
+        // Events counted across the former checkpoints; the assertions run once all have happened.
+        Promise<Void> allEvents = Promise.promise();
+        AtomicInteger remainingEvents = new AtomicInteger();
+        remainingEvents.addAndGet(15);
+        Runnable checkpoint = () -> countEvent(testContext, remainingEvents, allEvents);
         
         // Create consumer
         MessageConsumer<OrderMessage> consumer = outboxFactory.createConsumer(topic, OrderMessage.class);
@@ -200,7 +212,7 @@ public class OutboxMessageOrderingSpringBootTest {
             groupOrders.computeIfAbsent(group, k -> Collections.synchronizedList(new ArrayList<>()))
                 .add(order.getSequence());
             logger.info(" Processed message sequence: {} for group: {}", order.getSequence(), group);
-            checkpoint.flag();
+            checkpoint.run();
             return Future.succeededFuture();
         });
         
@@ -228,28 +240,30 @@ public class OutboxMessageOrderingSpringBootTest {
             }
         }
         sendChain.onFailure(testContext::failNow);
-        
-        // Wait for all messages to be processed
-        assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "All messages should be processed within 20 seconds");
-        
-        // Verify ordering within each group
-        logger.info(" Message Group Ordering Results:");
-        for (String customer : customers) {
-            List<Integer> order = groupOrders.get(customer);
-            logger.info("   Group {}: {}", customer, order);
-            
-            assertNotNull(order, "Group " + customer + " should have messages");
-            assertEquals(5, order.size(), "Group " + customer + " should have 5 messages");
-            
-            // Verify messages within group are in order
-            for (int i = 1; i < order.size(); i++) {
-                assertTrue(order.get(i) > order.get(i - 1), 
-                    "Messages in group " + customer + " should be in ascending order");
+
+        allEvents.future()
+            .onSuccess(done -> testContext.verify(() -> {
+            // Verify ordering within each group
+            logger.info(" Message Group Ordering Results:");
+            for (String customer : customers) {
+                List<Integer> order = groupOrders.get(customer);
+                logger.info("   Group {}: {}", customer, order);
+
+                assertNotNull(order, "Group " + customer + " should have messages");
+                assertEquals(5, order.size(), "Group " + customer + " should have 5 messages");
+
+                // Verify messages within group are in order
+                for (int i = 1; i < order.size(); i++) {
+                    assertTrue(order.get(i) > order.get(i - 1), 
+                        "Messages in group " + customer + " should be in ascending order");
+                }
             }
-        }
-        
-        logger.info("Message Group Ordering test passed");
-        logger.info("Messages within each group maintained FIFO order");
+
+            logger.info("Message Group Ordering test passed");
+            logger.info("Messages within each group maintained FIFO order");
+            testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     /**
@@ -259,7 +273,8 @@ public class OutboxMessageOrderingSpringBootTest {
      * without strict ordering guarantees across groups (only within groups).
      */
     @Test
-    void testConcurrentGroupProcessing(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 20, timeUnit = TimeUnit.SECONDS)
+    void testConcurrentGroupProcessing(VertxTestContext testContext) {
         logger.info("=== Testing Concurrent Processing of Different Message Groups ===");
         logger.info("This test verifies different groups can be processed concurrently");
 
@@ -268,7 +283,11 @@ public class OutboxMessageOrderingSpringBootTest {
         // Track processing
         AtomicInteger totalProcessed = new AtomicInteger(0);
         Map<String, AtomicInteger> groupCounts = new ConcurrentHashMap<>();
-        Checkpoint checkpoint = testContext.checkpoint(20);
+        // Events counted across the former checkpoints; the assertions run once all have happened.
+        Promise<Void> allEvents = Promise.promise();
+        AtomicInteger remainingEvents = new AtomicInteger();
+        remainingEvents.addAndGet(20);
+        Runnable checkpoint = () -> countEvent(testContext, remainingEvents, allEvents);
         
         // Create consumer
         MessageConsumer<OrderMessage> consumer = outboxFactory.createConsumer(topic, OrderMessage.class);
@@ -280,7 +299,7 @@ public class OutboxMessageOrderingSpringBootTest {
             groupCounts.computeIfAbsent(group, k -> new AtomicInteger(0)).incrementAndGet();
             totalProcessed.incrementAndGet();
             logger.info(" Processed message for group: {} (total: {})", group, totalProcessed.get());
-            checkpoint.flag();
+            checkpoint.run();
             return Future.succeededFuture();
         });
         
@@ -302,24 +321,26 @@ public class OutboxMessageOrderingSpringBootTest {
             }
             return Future.all(sends).mapEmpty();
         }).onFailure(testContext::failNow);
-        
-        // Wait for all messages to be processed
-        assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "All messages should be processed within 20 seconds");
-        
-        // Verify all messages were processed
-        logger.info(" Concurrent Processing Results:");
-        logger.info("   Total messages processed: {}", totalProcessed.get());
-        assertEquals(20, totalProcessed.get(), "Should have processed 20 messages");
-        
-        // Verify each group got its messages
-        for (String group : groups) {
-            int count = groupCounts.get(group).get();
-            logger.info("   Group {}: {} messages", group, count);
-            assertEquals(5, count, "Each group should have processed 5 messages");
-        }
-        
-        logger.info("Concurrent Group Processing test passed");
-        logger.info("All groups processed their messages successfully");
+
+        allEvents.future()
+            .onSuccess(done -> testContext.verify(() -> {
+            // Verify all messages were processed
+            logger.info(" Concurrent Processing Results:");
+            logger.info("   Total messages processed: {}", totalProcessed.get());
+            assertEquals(20, totalProcessed.get(), "Should have processed 20 messages");
+
+            // Verify each group got its messages
+            for (String group : groups) {
+                int count = groupCounts.get(group).get();
+                logger.info("   Group {}: {} messages", group, count);
+                assertEquals(5, count, "Each group should have processed 5 messages");
+            }
+
+            logger.info("Concurrent Group Processing test passed");
+            logger.info("All groups processed their messages successfully");
+            testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     /**
@@ -350,5 +371,15 @@ public class OutboxMessageOrderingSpringBootTest {
         
         public String getCustomerId() { return customerId; }
         public void setCustomerId(String customerId) { this.customerId = customerId; }
+    }
+
+    /** Counts one expected event; completes {@code all} at zero and fails the test on an extra event. */
+    private static void countEvent(VertxTestContext testContext, AtomicInteger remaining, Promise<Void> all) {
+        int left = remaining.decrementAndGet();
+        if (left == 0) {
+            all.tryComplete();
+        } else if (left < 0) {
+            testContext.failNow(new AssertionError("More events than expected: " + (-left) + " extra"));
+        }
     }
 }

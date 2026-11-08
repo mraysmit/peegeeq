@@ -18,6 +18,7 @@ import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 
@@ -123,75 +124,60 @@ class MultiConsumerModeTest {
     }
 
     @Test
-    void testMultipleConsumersSameMode(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info(" Testing multiple consumers with same mode (HYBRID)");
-
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+    void testMultipleConsumersSameMode(Vertx vertx, VertxTestContext testContext) {
         String topicName = "test-multi-same-mode";
         int consumerCount = 3;
         int messagesPerConsumer = 2;
         int totalMessages = consumerCount * messagesPerConsumer;
 
-        List<MessageConsumer<String>> consumers = new ArrayList<>();
+        // A strict checkpoint across the competing consumers: every message is processed once.
+        // The teardown closes the consumers through the factory.
         List<Future<Void>> subscriptions = new ArrayList<>();
         Checkpoint messagesReceived = testContext.checkpoint(totalMessages);
-        AtomicInteger totalProcessed = new AtomicInteger(0);
 
-        try {
-            for (int i = 0; i < consumerCount; i++) {
-                final int consumerId = i;
-                MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
-                    ConsumerConfig.builder()
-                        .mode(ConsumerMode.HYBRID)
-                        .pollingInterval(Duration.ofSeconds(1))
-                        .build());
-
-                subscriptions.add(consumer.subscribe(message -> {
-                    int processed = totalProcessed.incrementAndGet();
-                    logger.info(" Consumer {} processed message: {} (Total: {})",
-                        consumerId, message.getPayload(), processed);
-                    messagesReceived.flag();
-                    return Future.succeededFuture();
-                }));
-
-                consumers.add(consumer);
-            }
-
-            // Send messages after consumer setup
-            Future.all(subscriptions).onSuccess(v -> testContext.verify(() -> {
-                MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-                for (int i = 0; i < totalMessages; i++) {
-                    producer.send("Multi-same-mode message " + (i + 1))
-                        .onFailure(testContext::failNow);
-                }
-                producer.close();
-            })).onFailure(testContext::failNow);
-
-            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "All messages should be processed by multiple consumers with same mode");
-            assertEquals(totalMessages, totalProcessed.get(), "Should process exactly " + totalMessages + " messages");
-
-            logger.info("Multiple consumers same mode test verified - processed: {} messages",
-                totalProcessed.get());
-
-        } finally {
-            for (MessageConsumer<String> consumer : consumers) {
-                consumer.close();
-            }
+        for (int i = 0; i < consumerCount; i++) {
+            MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
+                ConsumerConfig.builder()
+                    .mode(ConsumerMode.HYBRID)
+                    .pollingInterval(Duration.ofSeconds(1))
+                    .build());
+            subscriptions.add(consumer.subscribe(message -> {
+                messagesReceived.flag();
+                return Future.succeededFuture();
+            }));
         }
 
-        logger.info("Multiple consumers same mode test completed successfully");
+        List<MessageProducer<String>> producers = new ArrayList<>();
+        Future.all(subscriptions)
+            .compose(v -> {
+                MessageProducer<String> producer = factory.createProducer(topicName, String.class);
+                producers.add(producer);
+                List<Future<Void>> sends = new ArrayList<>();
+                for (int i = 0; i < totalMessages; i++) {
+                    sends.add(producer.send("Multi-same-mode message " + (i + 1)));
+                }
+                return Future.all(sends);
+            })
+            .eventually(() -> {
+                // MessageProducer.close() is synchronous and void.
+                for (MessageProducer<String> p : producers) {
+                    try { p.close(); } catch (Exception e) { logger.warn("Producer close failed: {}", e.getMessage()); }
+                }
+                return Future.succeededFuture();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testMultipleConsumersDifferentModes(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info(" Testing multiple consumers with different modes");
-
+    @Timeout(value = 20, timeUnit = TimeUnit.SECONDS)
+    void testMultipleConsumersDifferentModes(Vertx vertx, VertxTestContext testContext) {
         String topicName = "test-multi-different-modes";
-        int totalMessages = 6;
 
-        Checkpoint messagesReceived = testContext.checkpoint(totalMessages);
-        AtomicInteger listenNotifyProcessed = new AtomicInteger(0);
-        AtomicInteger pollingProcessed = new AtomicInteger(0);
-        AtomicInteger hybridProcessed = new AtomicInteger(0);
+        // One strict two-pass checkpoint per consumer: each processes exactly its two messages.
+        Checkpoint listenReceived = testContext.checkpoint(2);
+        Checkpoint pollingReceived = testContext.checkpoint(2);
+        Checkpoint hybridReceived = testContext.checkpoint(2);
 
         // Create consumers with different modes
         MessageConsumer<String> listenConsumer = factory.createConsumer(topicName + "-listen", String.class,
@@ -211,77 +197,53 @@ class MultiConsumerModeTest {
                 .pollingInterval(Duration.ofSeconds(1))
                 .build());
 
-        try {
-            // Setup message handlers
-            Future<Void> listenSubscription = listenConsumer.subscribe(message -> {
-                int processed = listenNotifyProcessed.incrementAndGet();
-                logger.info(" LISTEN_NOTIFY consumer processed: {} (Count: {})", message.getPayload(), processed);
-                messagesReceived.flag();
-                return Future.succeededFuture();
-            });
-
-            Future<Void> pollingSubscription = pollingConsumer.subscribe(message -> {
-                int processed = pollingProcessed.incrementAndGet();
-                logger.info(" POLLING consumer processed: {} (Count: {})", message.getPayload(), processed);
-                messagesReceived.flag();
-                return Future.succeededFuture();
-            });
-
-            Future<Void> hybridSubscription = hybridConsumer.subscribe(message -> {
-                int processed = hybridProcessed.incrementAndGet();
-                logger.info(" HYBRID consumer processed: {} (Count: {})", message.getPayload(), processed);
-                messagesReceived.flag();
-                return Future.succeededFuture();
-            });
-
-            // Send messages after consumer setup
-            Future.all(List.of(listenSubscription, pollingSubscription, hybridSubscription))
-                .onSuccess(v -> testContext.verify(() -> {
+        List<MessageProducer<String>> producers = new ArrayList<>();
+        Future.all(List.of(
+                listenConsumer.subscribe(message -> {
+                    listenReceived.flag();
+                    return Future.succeededFuture();
+                }),
+                pollingConsumer.subscribe(message -> {
+                    pollingReceived.flag();
+                    return Future.succeededFuture();
+                }),
+                hybridConsumer.subscribe(message -> {
+                    hybridReceived.flag();
+                    return Future.succeededFuture();
+                })))
+            .compose(v -> {
                 MessageProducer<String> listenProducer = factory.createProducer(topicName + "-listen", String.class);
                 MessageProducer<String> pollingProducer = factory.createProducer(topicName + "-polling", String.class);
                 MessageProducer<String> hybridProducer = factory.createProducer(topicName + "-hybrid", String.class);
+                producers.addAll(List.of(listenProducer, pollingProducer, hybridProducer));
+                List<Future<Void>> sends = new ArrayList<>();
                 for (int i = 0; i < 2; i++) {
-                    listenProducer.send("Listen message " + (i + 1)).onFailure(testContext::failNow);
-                    pollingProducer.send("Polling message " + (i + 1)).onFailure(testContext::failNow);
-                    hybridProducer.send("Hybrid message " + (i + 1)).onFailure(testContext::failNow);
+                    sends.add(listenProducer.send("Listen message " + (i + 1)));
+                    sends.add(pollingProducer.send("Polling message " + (i + 1)));
+                    sends.add(hybridProducer.send("Hybrid message " + (i + 1)));
                 }
-                listenProducer.close();
-                pollingProducer.close();
-                hybridProducer.close();
-                })).onFailure(testContext::failNow);
-
-            assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "All messages should be processed by consumers with different modes");
-
-            // Verify each consumer processed its messages
-            assertEquals(2, listenNotifyProcessed.get(), "LISTEN_NOTIFY consumer should process 2 messages");
-            assertEquals(2, pollingProcessed.get(), "POLLING consumer should process 2 messages");
-            assertEquals(2, hybridProcessed.get(), "HYBRID consumer should process 2 messages");
-
-            logger.info("Multiple consumers different modes test verified - Listen: {}, Polling: {}, Hybrid: {}",
-                listenNotifyProcessed.get(), pollingProcessed.get(), hybridProcessed.get());
-
-        } finally {
-            listenConsumer.close();
-            pollingConsumer.close();
-            hybridConsumer.close();
-        }
-
-        logger.info("Multiple consumers different modes test completed successfully");
+                return Future.all(sends);
+            })
+            .eventually(() -> {
+                // MessageProducer.close() is synchronous and void.
+                for (MessageProducer<String> p : producers) {
+                    try { p.close(); } catch (Exception e) { logger.warn("Producer close failed: {}", e.getMessage()); }
+                }
+                return Future.succeededFuture();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testConsumerModeIsolation(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info(" Testing consumer mode isolation");
-
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+    void testConsumerModeIsolation(Vertx vertx, VertxTestContext testContext) {
         String topicName = "test-mode-isolation";
         int messagesPerMode = 3;
 
+        // Two competing consumers on one topic: a strict checkpoint across both, so every message
+        // is processed once and none twice.
         Checkpoint messagesReceived = testContext.checkpoint(messagesPerMode);
-        AtomicInteger pollingProcessed = new AtomicInteger(0);
-        AtomicInteger hybridProcessed = new AtomicInteger(0);
-        AtomicInteger listenProcessed = new AtomicInteger(0);
 
-        // Create consumers with different modes for the same topic
         MessageConsumer<String> pollingConsumer = factory.createConsumer(topicName, String.class,
             ConsumerConfig.builder()
                 .mode(ConsumerMode.POLLING_ONLY)
@@ -294,132 +256,97 @@ class MultiConsumerModeTest {
                 .pollingInterval(Duration.ofSeconds(1))
                 .build());
 
-        try {
-            // Setup message handlers
-            Future<Void> pollingSubscription = pollingConsumer.subscribe(message -> {
-                int processed = pollingProcessed.incrementAndGet();
-                logger.info(" POLLING consumer processed: {} (Count: {})", message.getPayload(), processed);
-                messagesReceived.flag();
-                return Future.succeededFuture();
-            });
-
-            Future<Void> hybridSubscription = hybridConsumer.subscribe(message -> {
-                int processed = hybridProcessed.incrementAndGet();
-                logger.info(" HYBRID consumer processed: {} (Count: {})", message.getPayload(), processed);
-                messagesReceived.flag();
-                return Future.succeededFuture();
-            });
-
-            // Send messages after consumer setup
-            Future.all(List.of(pollingSubscription, hybridSubscription))
-                .onSuccess(v -> testContext.verify(() -> {
+        List<MessageProducer<String>> producers = new ArrayList<>();
+        Future.all(List.of(
+                pollingConsumer.subscribe(message -> {
+                    messagesReceived.flag();
+                    return Future.succeededFuture();
+                }),
+                hybridConsumer.subscribe(message -> {
+                    messagesReceived.flag();
+                    return Future.succeededFuture();
+                })))
+            .compose(v -> {
                 MessageProducer<String> producer = factory.createProducer(topicName, String.class);
+                producers.add(producer);
+                List<Future<Void>> sends = new ArrayList<>();
                 for (int i = 0; i < messagesPerMode; i++) {
-                    producer.send("Isolation test message " + (i + 1))
-                        .onFailure(testContext::failNow);
+                    sends.add(producer.send("Isolation test message " + (i + 1)));
                 }
-                producer.close();
-                })).onFailure(testContext::failNow);
-
-            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Messages should be processed by competing consumers");
-
-            // Verify that messages were distributed between consumers (not duplicated)
-            int totalProcessed = pollingProcessed.get() + hybridProcessed.get();
-            assertEquals(messagesPerMode, totalProcessed, "Total processed should equal messages sent (no duplication)");
-            assertEquals(0, listenProcessed.get(), "LISTEN_NOTIFY consumer should not process any messages");
-
-            logger.info("Consumer mode isolation test verified - Polling: {}, Hybrid: {}, Total: {}",
-                pollingProcessed.get(), hybridProcessed.get(), totalProcessed);
-
-        } finally {
-            pollingConsumer.close();
-            hybridConsumer.close();
-        }
-
-        logger.info("Consumer mode isolation test completed successfully");
+                return Future.all(sends);
+            })
+            .eventually(() -> {
+                // MessageProducer.close() is synchronous and void.
+                for (MessageProducer<String> p : producers) {
+                    try { p.close(); } catch (Exception e) { logger.warn("Producer close failed: {}", e.getMessage()); }
+                }
+                return Future.succeededFuture();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testThreadSafetyAcrossModes(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info(" Testing thread safety across consumer modes");
-
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    void testThreadSafetyAcrossModes(Vertx vertx, VertxTestContext testContext) {
         String topicName = "test-thread-safety";
         int consumerCount = 4;
         int messagesPerConsumer = 5;
         int totalMessages = consumerCount * messagesPerConsumer;
 
-        List<MessageConsumer<String>> consumers = new ArrayList<>();
+        // A strict checkpoint: exactly twenty deliveries across the four topics.
         List<Future<Void>> subscriptions = new ArrayList<>();
         Checkpoint messagesReceived = testContext.checkpoint(totalMessages);
-        AtomicInteger totalProcessed = new AtomicInteger(0);
+        ConsumerMode[] modes = {ConsumerMode.POLLING_ONLY, ConsumerMode.HYBRID, ConsumerMode.POLLING_ONLY, ConsumerMode.HYBRID};
 
-        try {
-            ConsumerMode[] modes = {ConsumerMode.POLLING_ONLY, ConsumerMode.HYBRID, ConsumerMode.POLLING_ONLY, ConsumerMode.HYBRID};
+        for (int i = 0; i < consumerCount; i++) {
+            MessageConsumer<String> consumer = factory.createConsumer(topicName + "-" + i, String.class,
+                ConsumerConfig.builder()
+                    .mode(modes[i])
+                    .pollingInterval(Duration.ofMillis(200 + (i * 100)))
+                    .consumerThreads(1 + (i % 2))
+                    .build());
 
-            for (int i = 0; i < consumerCount; i++) {
-                final int consumerId = i;
-                MessageConsumer<String> consumer = factory.createConsumer(topicName + "-" + i, String.class,
-                    ConsumerConfig.builder()
-                        .mode(modes[i])
-                        .pollingInterval(Duration.ofMillis(200 + (i * 100)))
-                        .consumerThreads(1 + (i % 2))
-                        .build());
-
-                subscriptions.add(consumer.subscribe(message -> {
-                    // Simulate some processing time to test thread safety
-                    Promise<Void> promise = Promise.promise();
-                    vertx.setTimer(50 + (int)(Math.random() * 100), tid -> {
-                        int processed = totalProcessed.incrementAndGet();
-                        logger.info(" Consumer {} (Mode: {}) processed: {} (Total: {})",
-                            consumerId, modes[consumerId], message.getPayload(), processed);
-                        messagesReceived.flag();
-                        promise.complete();
-                    });
-                    return promise.future();
-                }));
-
-                consumers.add(consumer);
-            }
-
-            // Send messages to each consumer's topic after setup
-            Future.all(subscriptions).onSuccess(v -> {
-                for (int i = 0; i < consumerCount; i++) {
-                    MessageProducer<String> producer = factory.createProducer(topicName + "-" + i, String.class);
-                    for (int j = 0; j < messagesPerConsumer; j++) {
-                        producer.send("Thread-safety message " + i + "-" + (j + 1))
-                            .onFailure(testContext::failNow);
-                    }
-                    producer.close();
-                }
-            }).onFailure(testContext::failNow);
-
-            assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "All messages should be processed safely across different consumer modes");
-            assertEquals(totalMessages, totalProcessed.get(), "Should process exactly " + totalMessages + " messages");
-
-            logger.info("Thread safety across modes test verified - processed: {} messages",
-                totalProcessed.get());
-
-        } finally {
-            for (MessageConsumer<String> consumer : consumers) {
-                consumer.close();
-            }
+            subscriptions.add(consumer.subscribe(message ->
+                // Simulated processing time, so handlers of different modes overlap.
+                vertx.timer(50 + (int) (Math.random() * 100)).map(tid -> {
+                    messagesReceived.flag();
+                    return (Void) null;
+                })));
         }
 
-        logger.info("Thread safety across modes test completed successfully");
+        List<MessageProducer<String>> producers = new ArrayList<>();
+        Future.all(subscriptions)
+            .compose(v -> {
+                List<Future<Void>> sends = new ArrayList<>();
+                for (int i = 0; i < consumerCount; i++) {
+                    MessageProducer<String> producer = factory.createProducer(topicName + "-" + i, String.class);
+                    producers.add(producer);
+                    for (int j = 0; j < messagesPerConsumer; j++) {
+                        sends.add(producer.send("Thread-safety message " + i + "-" + (j + 1)));
+                    }
+                }
+                return Future.all(sends);
+            })
+            .eventually(() -> {
+                // MessageProducer.close() is synchronous and void.
+                for (MessageProducer<String> p : producers) {
+                    try { p.close(); } catch (Exception e) { logger.warn("Producer close failed: {}", e.getMessage()); }
+                }
+                return Future.succeededFuture();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testConsumerModePerformanceIsolation(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info(" Testing consumer mode performance isolation");
-
+    @Timeout(value = 25, timeUnit = TimeUnit.SECONDS)
+    void testConsumerModePerformanceIsolation(Vertx vertx, VertxTestContext testContext) {
         String topicName = "test-performance-isolation";
         int fastMessages = 10;
         int slowMessages = 5;
-        int totalMessages = fastMessages + slowMessages;
 
-        Checkpoint allMessagesReceived = testContext.checkpoint(totalMessages);
-        AtomicInteger fastProcessed = new AtomicInteger(0);
-        AtomicInteger slowProcessed = new AtomicInteger(0);
+        // One strict checkpoint per consumer: each processes exactly its own messages.
+        Checkpoint fastReceived = testContext.checkpoint(fastMessages);
+        Checkpoint slowReceived = testContext.checkpoint(slowMessages);
 
         // Create fast consumer (LISTEN_NOTIFY_ONLY for immediate processing)
         MessageConsumer<String> fastConsumer = factory.createConsumer(topicName + "-fast", String.class,
@@ -431,53 +358,40 @@ class MultiConsumerModeTest {
         MessageConsumer<String> slowConsumer = factory.createConsumer(topicName + "-slow", String.class,
             ConsumerConfig.builder()
                 .mode(ConsumerMode.POLLING_ONLY)
-                .pollingInterval(Duration.ofSeconds(2)) // Slower polling
+                .pollingInterval(Duration.ofSeconds(2))
                 .build());
 
-        try {
-            // Setup fast message handler
-            Future<Void> fastSubscription = fastConsumer.subscribe(message -> {
-                int processed = fastProcessed.incrementAndGet();
-                logger.info(" FAST consumer processed: {} (Count: {})", message.getPayload(), processed);
-                allMessagesReceived.flag();
-                return Future.succeededFuture();
-            });
-
-            // Setup slow message handler
-            Future<Void> slowSubscription = slowConsumer.subscribe(message -> {
-                int processed = slowProcessed.incrementAndGet();
-                logger.info(" SLOW consumer processed: {} (Count: {})", message.getPayload(), processed);
-                allMessagesReceived.flag();
-                return Future.succeededFuture();
-            });
-
-            // Send messages after consumer setup
-            Future.all(List.of(fastSubscription, slowSubscription))
-                .onSuccess(v -> testContext.verify(() -> {
+        List<MessageProducer<String>> producers = new ArrayList<>();
+        Future.all(List.of(
+                fastConsumer.subscribe(message -> {
+                    fastReceived.flag();
+                    return Future.succeededFuture();
+                }),
+                slowConsumer.subscribe(message -> {
+                    slowReceived.flag();
+                    return Future.succeededFuture();
+                })))
+            .compose(v -> {
                 MessageProducer<String> fastProducer = factory.createProducer(topicName + "-fast", String.class);
                 MessageProducer<String> slowProducer = factory.createProducer(topicName + "-slow", String.class);
+                producers.addAll(List.of(fastProducer, slowProducer));
+                List<Future<Void>> sends = new ArrayList<>();
                 for (int i = 0; i < fastMessages; i++) {
-                    fastProducer.send("Fast message " + (i + 1))
-                        .onFailure(testContext::failNow);
+                    sends.add(fastProducer.send("Fast message " + (i + 1)));
                 }
                 for (int i = 0; i < slowMessages; i++) {
-                    slowProducer.send("Slow message " + (i + 1))
-                        .onFailure(testContext::failNow);
+                    sends.add(slowProducer.send("Slow message " + (i + 1)));
                 }
-                fastProducer.close();
-                slowProducer.close();
-                })).onFailure(testContext::failNow);
-
-            assertTrue(testContext.awaitCompletion(25, TimeUnit.SECONDS));
-            assertEquals(fastMessages, fastProcessed.get(), "Fast consumer should process all fast messages");
-            assertEquals(slowMessages, slowProcessed.get(), "Slow consumer should process all slow messages");
-
-        } finally {
-            fastConsumer.close();
-            slowConsumer.close();
-        }
-
-        logger.info("Consumer mode performance isolation test completed successfully");
+                return Future.all(sends);
+            })
+            .eventually(() -> {
+                // MessageProducer.close() is synchronous and void.
+                for (MessageProducer<String> p : producers) {
+                    try { p.close(); } catch (Exception e) { logger.warn("Producer close failed: {}", e.getMessage()); }
+                }
+                return Future.succeededFuture();
+            })
+            .onFailure(testContext::failNow);
     }
 }
 

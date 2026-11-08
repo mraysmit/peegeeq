@@ -17,6 +17,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 
@@ -112,6 +113,7 @@ class ConsumerModePropertyIntegrationTest {
     }
 
     @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     void testPollingIntervalPropertyIntegration(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info(" Testing polling interval property integration");
 
@@ -146,15 +148,10 @@ class ConsumerModePropertyIntegrationTest {
                 .onFailure(testContext::failNow);
             })
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process messages with custom polling interval");
-        assertEquals(2, processedCount.get(), "Should process exactly 2 messages");
-        logger.info("Polling interval property integration verified - processed: {} messages", processedCount.get());
-
-        logger.info("Polling interval property integration test completed successfully");
     }
 
     @Test
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
     void testBatchSizePropertyIntegration(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info(" Testing batch size property integration");
 
@@ -195,15 +192,10 @@ class ConsumerModePropertyIntegrationTest {
                 .onFailure(testContext::failNow);
             })
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should process messages with custom batch size");
-        assertEquals(5, processedCount.get(), "Should process exactly 5 messages");
-        logger.info("Batch size property integration verified - processed: {} messages", processedCount.get());
-
-        logger.info("Batch size property integration test completed successfully");
     }
 
     @Test
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
     void testVisibilityTimeoutPropertyIntegration(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info(" Testing visibility timeout property integration");
 
@@ -238,15 +230,10 @@ class ConsumerModePropertyIntegrationTest {
                 .onFailure(testContext::failNow);
             })
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should process messages with custom visibility timeout");
-        assertEquals(2, processedCount.get(), "Should process exactly 2 messages");
-        logger.info("Visibility timeout property integration verified - processed: {} messages", processedCount.get());
-
-        logger.info("Visibility timeout property integration test completed successfully");
     }
 
     @Test
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
     void testMultiplePropertyCombinations(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info(" Testing multiple property combinations");
 
@@ -287,15 +274,10 @@ class ConsumerModePropertyIntegrationTest {
                 .onFailure(testContext::failNow);
             })
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should process messages with multiple property combinations");
-        assertEquals(4, processedCount.get(), "Should process exactly 4 messages");
-        logger.info("Multiple property combinations verified - processed: {} messages", processedCount.get());
-
-        logger.info("Multiple property combinations test completed successfully");
     }
 
     @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     void testPropertyOverrideScenarios(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info(" Testing property override scenarios");
 
@@ -335,11 +317,5 @@ class ConsumerModePropertyIntegrationTest {
                 .onFailure(testContext::failNow);
             })
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process messages with overridden properties");
-        assertEquals(3, processedCount.get(), "Should process exactly 3 messages");
-        logger.info("Property override scenarios verified - processed: {} messages", processedCount.get());
-
-        logger.info("Property override scenarios test completed successfully");
     }
 }

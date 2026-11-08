@@ -35,6 +35,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
@@ -159,7 +160,8 @@ public class MessagePriorityExampleTest {
      * Validates that higher priority messages are processed first
      */
     @Test
-    void testBasicPriorityOrdering(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    void testBasicPriorityOrdering(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Basic Priority Ordering ===");
         
         // Create producer and consumer for priority queue
@@ -168,7 +170,7 @@ public class MessagePriorityExampleTest {
         
         // Track processing order
         AtomicInteger processedCount = new AtomicInteger(0);
-        Checkpoint latch = testContext.checkpoint(5);
+        Checkpoint latch = testContext.checkpoint(5); // strict: one more delivery fails the test
         
         // Set up consumer to track processing order
         consumer.subscribe(message -> {
@@ -188,15 +190,6 @@ public class MessagePriorityExampleTest {
             .compose(v -> sendPriorityMessage(producer, "msg-4", "HIGH", "Important notification", PRIORITY_HIGH))
             .compose(v -> sendPriorityMessage(producer, "msg-5", "CRITICAL", "Security alert", PRIORITY_CRITICAL))
             .onFailure(testContext::failNow);
-        
-        // Wait for processing
-        boolean completed = testContext.awaitCompletion(30, TimeUnit.SECONDS);
-        assertTrue(completed, "All messages should be processed within timeout");
-        
-        // Verify all messages were processed
-        assertEquals(5, processedCount.get(), "Should have processed 5 messages");
-        
-        logger.info("Basic priority ordering validated successfully");
     }
 
     /**
@@ -204,14 +197,15 @@ public class MessagePriorityExampleTest {
      * Validates different priority levels and their use cases
      */
     @Test
-    void testPriorityLevels(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    void testPriorityLevels(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Priority Levels ===");
         
         MessageProducer<PriorityMessage> producer = factory.createProducer("priority-levels", PriorityMessage.class);
         MessageConsumer<PriorityMessage> consumer = factory.createConsumer("priority-levels", PriorityMessage.class);
         
         AtomicInteger processedCount = new AtomicInteger(0);
-        Checkpoint latch = testContext.checkpoint(5);
+        Checkpoint latch = testContext.checkpoint(5); // strict: one more delivery fails the test
         
         // Consumer that shows priority level handling
         consumer.subscribe(message -> {
@@ -234,15 +228,6 @@ public class MessagePriorityExampleTest {
             .compose(v -> sendPriorityMessage(producer, "low-1", "MAINTENANCE", "Scheduled cleanup", PRIORITY_LOW))
             .compose(v -> sendPriorityMessage(producer, "bulk-1", "ANALYTICS", "Daily report generation", PRIORITY_BULK))
             .onFailure(testContext::failNow);
-        
-        // Wait for processing
-        boolean completed = testContext.awaitCompletion(30, TimeUnit.SECONDS);
-        assertTrue(completed, "All messages should be processed within timeout");
-        
-        // Verify all messages were processed
-        assertEquals(5, processedCount.get(), "Should have processed 5 messages");
-        
-        logger.info("Priority levels validated successfully");
     }
 
     /**
@@ -250,14 +235,15 @@ public class MessagePriorityExampleTest {
      * Validates priority-based message handling and ordering
      */
     @Test
-    void testMessageProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    void testMessageProcessing(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Message Processing ===");
         
         MessageProducer<PriorityMessage> producer = factory.createProducer("priority-processing", PriorityMessage.class);
         MessageConsumer<PriorityMessage> consumer = factory.createConsumer("priority-processing", PriorityMessage.class);
         
         AtomicInteger processedCount = new AtomicInteger(0);
-        Checkpoint latch = testContext.checkpoint(3);
+        Checkpoint latch = testContext.checkpoint(3); // strict: one more delivery fails the test
         
         // Send messages with metadata
         Map<String, String> metadata = new HashMap<>();
@@ -287,15 +273,6 @@ public class MessagePriorityExampleTest {
             .compose(v -> sendPriorityMessageWithMetadata(producer, "proc-2", "PROCESS", "Process validation", PRIORITY_NORMAL, metadata))
             .compose(v -> sendPriorityMessageWithMetadata(producer, "proc-3", "PROCESS", "Process cleanup", PRIORITY_LOW, metadata))
             .onFailure(testContext::failNow);
-        
-        // Wait for processing
-        boolean completed = testContext.awaitCompletion(30, TimeUnit.SECONDS);
-        assertTrue(completed, "All messages should be processed within timeout");
-        
-        // Verify all messages were processed
-        assertEquals(3, processedCount.get(), "Should have processed 3 messages");
-        
-        logger.info("Message processing validated successfully");
     }
 
     // Helper methods

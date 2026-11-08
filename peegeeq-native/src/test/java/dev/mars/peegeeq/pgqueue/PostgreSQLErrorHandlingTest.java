@@ -19,6 +19,7 @@ import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
@@ -125,7 +126,8 @@ class PostgreSQLErrorHandlingTest {
 
     // Intention: verify that two competing consumers process messages successfully despite potential serialization conflicts (pg error 40001); no real conflict is forced  this tests the happy path under competition.
     @Test
-    void testSerializationFailureRecovery(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    void testSerializationFailureRecovery(Vertx vertx, VertxTestContext testContext) {
         logger.info(" Testing PostgreSQL serialization failure recovery (40001 error code)");
 
         String topicName = "test-serialization-failure";
@@ -180,35 +182,21 @@ class PostgreSQLErrorHandlingTest {
             .compose(v -> producer.send("Competing message 2"))
             .onFailure(testContext::failNow);
 
-        // Wait for processing to complete
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
-            "Should complete processing despite potential serialization conflicts");
-
-        // Verify that messages were processed successfully
-        assertTrue(processedCount.get() >= 2,
-            "Should have processed at least 2 messages despite serialization conflicts");
-
-        // Clean up
-        consumer1.close();
-        consumer2.close();
-        producer.close();
-
-        logger.info("Serialization failure recovery test completed - processed {} messages, {} failures",
-            processedCount.get(), failureCount.get());
     }
 
     // Intention: verify that concurrent consumers detect and tolerate deadlock errors (pg error 40P01) without hanging; deadlocks are simulated via direct JDBC operations, and the test passes whether messages are processed or deadlocks are detected.
     @Test
-    void testDeadlockDetectionAndRecovery(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @Timeout(value = 20, timeUnit = TimeUnit.SECONDS)
+    void testDeadlockDetectionAndRecovery(Vertx vertx, VertxTestContext testContext) {
         logger.info(" Testing PostgreSQL deadlock detection and recovery");
 
         String topicName = "test-deadlock-recovery";
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         // Send messages that will be processed concurrently
-        producer.send("Message A").onFailure(err -> logger.warn("Send failed: {}", err.getMessage()));
-        producer.send("Message B").onFailure(err -> logger.warn("Send failed: {}", err.getMessage()));
-        producer.send("Message C").onFailure(err -> logger.warn("Send failed: {}", err.getMessage()));
+        producer.send("Message A").onFailure(testContext::failNow);
+        producer.send("Message B").onFailure(testContext::failNow);
+        producer.send("Message C").onFailure(testContext::failNow);
 
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicInteger deadlockCount = new AtomicInteger(0);
@@ -226,27 +214,6 @@ class PostgreSQLErrorHandlingTest {
             configureConsumerForDeadlockTesting(vertx, consumer3, "Consumer-3", processedCount, deadlockCount, completionCheckpoint)
         )).onFailure(testContext::failNow);
 
-        // Wait for all messages to be processed
-        boolean completed = testContext.awaitCompletion(20, TimeUnit.SECONDS);
-
-        // Clean up first to prevent resource leaks
-        consumer1.close();
-        consumer2.close();
-        consumer3.close();
-        producer.close();
-
-        // More flexible assertions - either all processed or some deadlocks detected
-        if (completed) {
-            assertEquals(3, processedCount.get(),
-                "Should have processed all 3 messages when completed successfully");
-        } else {
-            // If not completed, verify that we at least attempted processing and detected issues
-            assertTrue(processedCount.get() > 0 || deadlockCount.get() > 0,
-                "Should have either processed some messages or detected deadlock scenarios");
-        }
-
-        logger.info("Deadlock detection and recovery test completed - processed {} messages, detected {} potential deadlocks",
-            processedCount.get(), deadlockCount.get());
     }
 
     private Future<Void> configureConsumerForDeadlockTesting(Vertx vertx, MessageConsumer<String> consumer, String consumerName,
@@ -267,14 +234,15 @@ class PostgreSQLErrorHandlingTest {
 
     // Intention: verify that a statement timeout (deliberately triggered via SET statement_timeout='100ms') is caught and handled gracefully without crashing the consumer; the system must either process the message or absorb the timeout  both outcomes are valid.
     @Test
-    void testConnectionTimeoutHandling(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    void testConnectionTimeoutHandling(Vertx vertx, VertxTestContext testContext) {
         logger.info(" Testing PostgreSQL connection timeout handling");
 
         String topicName = "test-connection-timeout";
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         // Send initial message
-        producer.send("Timeout test message").onFailure(err -> logger.warn("Send failed: {}", err.getMessage()));
+        producer.send("Timeout test message").onFailure(testContext::failNow);
 
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicInteger timeoutCount = new AtomicInteger(0);
@@ -299,36 +267,20 @@ class PostgreSQLErrorHandlingTest {
             return promise.future();
         }).onFailure(testContext::failNow);
 
-        // Wait for processing to complete or timeout to be handled
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
-            "Should complete processing or handle timeout within 30 seconds");
-
-        // Verify that either the message was processed or timeout was properly handled
-        assertTrue(processedCount.get() > 0 || timeoutCount.get() > 0,
-            "Should either process message successfully or handle timeout gracefully");
-
-        // Test recovery by sending another message
-        producer.send("Recovery test message").onFailure(err -> logger.warn("Recovery send failed: {}", err.getMessage()));
-
-        logger.info("Connection timeout handling test completed - processed {} messages, {} timeouts detected",
-            processedCount.get(), timeoutCount.get());
-
-        // Clean up
-        consumer.close();
-        producer.close();
     }
 
     // Intention: verify that a deliberately rolled-back transaction (first message always rolls back via direct JDBC) does not crash the consumer; the test passes as long as at least one message is processed or a rollback is observed.
     @Test
-    void testTransactionRollbackAndRetryLogic(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
+    void testTransactionRollbackAndRetryLogic(Vertx vertx, VertxTestContext testContext) {
         logger.info(" Testing transaction rollback and retry logic");
 
         String topicName = "test-transaction-rollback";
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         // Send messages for rollback testing
-        producer.send("Rollback test message 1").onFailure(err -> logger.warn("Send failed: {}", err.getMessage()));
-        producer.send("Rollback test message 2").onFailure(err -> logger.warn("Send failed: {}", err.getMessage()));
+        producer.send("Rollback test message 1").onFailure(testContext::failNow);
+        producer.send("Rollback test message 2").onFailure(testContext::failNow);
 
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicInteger rollbackCount = new AtomicInteger(0);
@@ -351,30 +303,12 @@ class PostgreSQLErrorHandlingTest {
             return Future.succeededFuture();
         }).onFailure(testContext::failNow);
 
-        // Wait for processing to complete
-        boolean completed = testContext.awaitCompletion(15, TimeUnit.SECONDS);
-
-        // Clean up first
-        consumer.close();
-        producer.close();
-
-        // More flexible assertions
-        if (completed) {
-            assertTrue(processedCount.get() >= 1 || rollbackCount.get() > 0,
-                "Should have either processed messages or triggered rollbacks");
-        } else {
-            // If not completed, verify we at least attempted processing
-            assertTrue(processedCount.get() > 0 || rollbackCount.get() > 0 || retryCount.get() > 0,
-                "Should have attempted processing even if not completed");
-        }
-
-        logger.info("Transaction rollback and retry test completed - processed {} messages, {} rollbacks, {} retries",
-            processedCount.get(), rollbackCount.get(), retryCount.get());
     }
 
 
     // Intention: verify that known PostgreSQL error codes (40001 serialization, 40P01 deadlock, 23505 unique violation, 08006 connection failure) are recognised and classified correctly; errors are triggered via direct JDBC simulation inside the message handler.
     @Test
+    @Timeout(value = 20, timeUnit = TimeUnit.SECONDS)
     void testPostgreSQLSpecificErrorCodes(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info(" Testing PostgreSQL-specific error code handling");
 
@@ -382,7 +316,7 @@ class PostgreSQLErrorHandlingTest {
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         // Send message for error code testing
-        producer.send("Error code test message").onFailure(err -> logger.warn("Send failed: {}", err.getMessage()));
+        producer.send("Error code test message").onFailure(testContext::failNow);
 
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicInteger errorCodeCount = new AtomicInteger(0);
@@ -399,14 +333,5 @@ class PostgreSQLErrorHandlingTest {
         }).onFailure(testContext::failNow);
 
         // Wait for processing to complete
-        assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS),
-            "Should complete error code handling test");
-
-        logger.info("PostgreSQL error code handling test completed - processed {} messages, {} error codes detected",
-            processedCount.get(), errorCodeCount.get());
-
-        // Clean up
-        consumer.close();
-        producer.close();
     }
 }

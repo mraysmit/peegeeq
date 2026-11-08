@@ -20,8 +20,9 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import io.vertx.core.Future;
-import io.vertx.junit5.Checkpoint;
+import io.vertx.core.Promise;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -107,7 +108,8 @@ class OutboxErrorHandlingSpringBootTest {
     @Test
     @Order(1)
     @DisplayName("Test 1: Transient Error Recovery - Automatic retry succeeds")
-    void testTransientErrorRecovery(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    void testTransientErrorRecovery(VertxTestContext testContext) {
         logger.info("\n=== TEST 1: Transient Error Recovery ===");
         
         String topicName = "error-transient-topic";
@@ -120,7 +122,11 @@ class OutboxErrorHandlingSpringBootTest {
         
         // Track attempts
         AtomicInteger attemptCount = new AtomicInteger(0);
-        Checkpoint successCheckpoint = testContext.checkpoint(1);
+        // Events counted across the former checkpoints; the assertions run once all have happened.
+        Promise<Void> allEvents = Promise.promise();
+        AtomicInteger remainingEvents = new AtomicInteger();
+        remainingEvents.addAndGet(1);
+        Runnable successCheckpoint = () -> countEvent(testContext, remainingEvents, allEvents);
         
         // Set up consumer that fails first 2 times, then succeeds
         consumer.subscribe(message -> {
@@ -135,28 +141,30 @@ class OutboxErrorHandlingSpringBootTest {
             } else {
                 // Succeed on the 3rd attempt
                 logger.info("SUCCESS: Processing succeeded on attempt {}", attempt);
-                successCheckpoint.flag();
+                successCheckpoint.run();
                 return Future.succeededFuture();
             }
         }).compose(v -> producer.send("Transient error test message"))
           .onFailure(testContext::failNow);
-        
-        // Wait for eventual success
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
-            "Message should eventually succeed after retries");
-        
-        // Verify retry attempts
-        assertTrue(attemptCount.get() >= 3, 
-            "Should have at least 3 attempts (was " + attemptCount.get() + ")");
-        
-        logger.info("Transient error recovery verified - succeeded after {} attempts", 
-            attemptCount.get());
+
+        allEvents.future()
+            .onSuccess(done -> testContext.verify(() -> {
+            // Verify retry attempts
+            assertTrue(attemptCount.get() >= 3, 
+                "Should have at least 3 attempts (was " + attemptCount.get() + ")");
+
+            logger.info("Transient error recovery verified - succeeded after {} attempts", 
+                attemptCount.get());
+            testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
     @Order(2)
     @DisplayName("Test 2: Permanent Error Handling - Fails after max retries")
-    void testPermanentErrorHandling(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    void testPermanentErrorHandling(VertxTestContext testContext) {
         logger.info("\n=== TEST 2: Permanent Error Handling ===");
         
         String topicName = "error-permanent-topic";
@@ -169,35 +177,41 @@ class OutboxErrorHandlingSpringBootTest {
         
         // Track attempts
         AtomicInteger attemptCount = new AtomicInteger(0);
-        Checkpoint attemptCheckpoint = testContext.checkpoint(4); // Initial + 3 retries
+        // Events counted across the former checkpoints; the assertions run once all have happened.
+        Promise<Void> allEvents = Promise.promise();
+        AtomicInteger remainingEvents = new AtomicInteger();
+        remainingEvents.addAndGet(4);
+        Runnable attemptCheckpoint = () -> countEvent(testContext, remainingEvents, allEvents);
         
         // Set up consumer that always fails (simulating permanent error)
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: Processing attempt {} - permanent error", attempt);
-            attemptCheckpoint.flag();
+            attemptCheckpoint.run();
             return Future.failedFuture(
                 new RuntimeException("Simulated permanent error"));
         }).compose(v -> producer.send("Permanent error test message"))
           .onFailure(testContext::failNow);
 
-        // Wait for all retry attempts
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
-            "Should attempt processing multiple times");
+        allEvents.future()
+            .onSuccess(done -> testContext.verify(() -> {
+            // Verify max retries were attempted
+            int finalAttempts = attemptCount.get();
+            assertTrue(finalAttempts >= 4, 
+                "Should have at least 4 attempts (initial + 3 retries), was " + finalAttempts);
 
-        // Verify max retries were attempted
-        int finalAttempts = attemptCount.get();
-        assertTrue(finalAttempts >= 4, 
-            "Should have at least 4 attempts (initial + 3 retries), was " + finalAttempts);
-        
-        logger.info("Permanent error handling verified - failed after {} attempts", 
-            finalAttempts);
+            logger.info("Permanent error handling verified - failed after {} attempts", 
+                finalAttempts);
+            testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
     @Order(3)
     @DisplayName("Test 3: Mixed Error Scenarios - Handle both transient and permanent errors")
-    void testMixedErrorScenarios(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    void testMixedErrorScenarios(VertxTestContext testContext) {
         logger.info("\n=== TEST 3: Mixed Error Scenarios ===");
         
         String topicName = "error-mixed-topic";
@@ -211,8 +225,13 @@ class OutboxErrorHandlingSpringBootTest {
         // Track processing
         AtomicInteger transientAttempts = new AtomicInteger(0);
         AtomicInteger permanentAttempts = new AtomicInteger(0);
-        Checkpoint transientCheckpoint = testContext.checkpoint(1);
-        Checkpoint permanentCheckpoint = testContext.checkpoint(4); // Initial + 3 retries
+        // Events counted across the former checkpoints; the assertions run once all have happened.
+        Promise<Void> allEvents = Promise.promise();
+        AtomicInteger remainingEvents = new AtomicInteger();
+        remainingEvents.addAndGet(1);
+        Runnable transientCheckpoint = () -> countEvent(testContext, remainingEvents, allEvents);
+        remainingEvents.addAndGet(4);
+        Runnable permanentCheckpoint = () -> countEvent(testContext, remainingEvents, allEvents);
         
         // Set up consumer with different behavior based on message content
         consumer.subscribe(message -> {
@@ -228,13 +247,13 @@ class OutboxErrorHandlingSpringBootTest {
                         new RuntimeException("Transient error"));
                 } else {
                     logger.info("SUCCESS: Transient message succeeded on attempt {}", attempt);
-                    transientCheckpoint.flag();
+                    transientCheckpoint.run();
                     return Future.succeededFuture();
                 }
             } else {
                 int attempt = permanentAttempts.incrementAndGet();
                 logger.info("INTENTIONAL FAILURE: Permanent error on attempt {}", attempt);
-                permanentCheckpoint.flag();
+                permanentCheckpoint.run();
                 return Future.failedFuture(
                     new RuntimeException("Permanent error"));
             }
@@ -242,18 +261,29 @@ class OutboxErrorHandlingSpringBootTest {
                 producer.send("transient error message"),
                 producer.send("permanent error message")))
           .onFailure(testContext::failNow);
-        
-        // Wait for outcomes
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
-            "All messages should be processed within timeout");
-        
-        // Verify behavior
-        assertTrue(transientAttempts.get() >= 2, 
-            "Transient message should have at least 2 attempts");
-        assertTrue(permanentAttempts.get() >= 4, 
-            "Permanent error message should have at least 4 attempts");
-        
-        logger.info("Mixed error scenarios verified - transient: {} attempts, permanent: {} attempts", 
-            transientAttempts.get(), permanentAttempts.get());
+
+        allEvents.future()
+            .onSuccess(done -> testContext.verify(() -> {
+            // Verify behavior
+            assertTrue(transientAttempts.get() >= 2, 
+                "Transient message should have at least 2 attempts");
+            assertTrue(permanentAttempts.get() >= 4, 
+                "Permanent error message should have at least 4 attempts");
+
+            logger.info("Mixed error scenarios verified - transient: {} attempts, permanent: {} attempts", 
+                transientAttempts.get(), permanentAttempts.get());
+            testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+    }
+
+    /** Counts one expected event; completes {@code all} at zero and fails the test on an extra event. */
+    private static void countEvent(VertxTestContext testContext, AtomicInteger remaining, Promise<Void> all) {
+        int left = remaining.decrementAndGet();
+        if (left == 0) {
+            all.tryComplete();
+        } else if (left < 0) {
+            testContext.failNow(new AssertionError("More events than expected: " + (-left) + " extra"));
+        }
     }
 }

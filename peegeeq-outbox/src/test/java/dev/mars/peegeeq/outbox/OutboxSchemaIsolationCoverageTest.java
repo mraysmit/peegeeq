@@ -20,6 +20,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Pool;
@@ -42,7 +43,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -373,7 +373,8 @@ public class OutboxSchemaIsolationCoverageTest {
 
     @Test
     @DisplayName("TC-S5: producer+consumer roundtrip works with explicit schema end-to-end")
-    void tcS5_producerConsumerRoundtripWithExplicitSchema(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    void tcS5_producerConsumerRoundtripWithExplicitSchema(VertxTestContext testContext) {
         String schema = "tc_s5_schema";
         String suffix = UUID.randomUUID().toString().substring(0, 8);
         String topic  = "tc_s5_" + suffix;
@@ -386,7 +387,7 @@ public class OutboxSchemaIsolationCoverageTest {
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", props);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
 
-        List<String> receivedPayloads = new CopyOnWriteArrayList<>();
+        // A strict checkpoint: a second delivery fails the test.
         Checkpoint received = testContext.checkpoint();
 
         manager.start()
@@ -395,7 +396,7 @@ public class OutboxSchemaIsolationCoverageTest {
                     MessageProducer<String> producer = factory.createProducer(topic, String.class);
                     return factory.createConsumer(topic, String.class)
                             .subscribe(msg -> {
-                                receivedPayloads.add(msg.getPayload());
+                                testContext.verify(() -> assertEquals("roundtrip-payload", msg.getPayload()));
                                 received.flag();
                                 return Future.succeededFuture();
                             })
@@ -403,10 +404,6 @@ public class OutboxSchemaIsolationCoverageTest {
                 })
                 .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
-                "TC-S5 producer+consumer roundtrip should complete within 30 seconds");
-        assertEquals(1, receivedPayloads.size(), "Should receive exactly 1 message");
-        assertEquals("roundtrip-payload", receivedPayloads.get(0));
     }
 
     // -----------------------------------------------------------------------
@@ -521,7 +518,8 @@ public class OutboxSchemaIsolationCoverageTest {
 
     @Test
     @DisplayName("TC-S8: consumer group processes messages in the correct schema")
-    void tcS8_consumerGroupUsesCorrectSchema(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    void tcS8_consumerGroupUsesCorrectSchema(VertxTestContext testContext) {
         String schema = "tc_s8_schema";
         String suffix = UUID.randomUUID().toString().substring(0, 8);
         String topic  = "tc_s8_" + suffix;
@@ -554,9 +552,6 @@ public class OutboxSchemaIsolationCoverageTest {
                             .compose(ignored -> producer.send("group-msg-2"));
                 })
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
-                "TC-S8: consumer group should process 2 messages in schema " + schema + " within 30 seconds");
     }
 
     // -----------------------------------------------------------------------
@@ -632,7 +627,8 @@ public class OutboxSchemaIsolationCoverageTest {
 
     @Test
     @DisplayName("TC-S10: message filtered by exception resets to PENDING in the correct schema")
-    void tcS10_resetFilteredMessageToPendingUsesCorrectSchema(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    void tcS10_resetFilteredMessageToPendingUsesCorrectSchema(VertxTestContext testContext) {
         String schema = "tc_s10_schema";
         String suffix = UUID.randomUUID().toString().substring(0, 8);
         String topic  = "tc_s10_" + suffix;
@@ -673,9 +669,6 @@ public class OutboxSchemaIsolationCoverageTest {
                 })
                 .compose(v -> factory.createProducer(topic, String.class).send("filter-reset-msg"))
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
-                "TC-S10: message should reset to PENDING after filter exception and then complete within 30 seconds");
     }
 
     // -----------------------------------------------------------------------
@@ -684,7 +677,8 @@ public class OutboxSchemaIsolationCoverageTest {
 
     @Test
     @DisplayName("TC-S11: server-side filter code path uses schema-qualified SQL")
-    void tcS11_serverSideFilterPathUsesCorrectSchema(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    void tcS11_serverSideFilterPathUsesCorrectSchema(VertxTestContext testContext) {
         String schema = "tc_s11_schema";
         String suffix = UUID.randomUUID().toString().substring(0, 8);
         String topic  = "tc_s11_" + suffix;
@@ -727,10 +721,6 @@ public class OutboxSchemaIsolationCoverageTest {
                             .compose(ignored -> producer.send("no-match-2"));
                 })
                 .onFailure(testContext::failNow);
-
-        // checkpoint(3) is satisfied only when all 3 matching messages are received
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
-                "TC-S11: consumer with server-side filter should receive exactly 3 matching messages within 30 seconds");
     }
 
     // -----------------------------------------------------------------------
