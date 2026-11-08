@@ -53,6 +53,7 @@ import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Tests for complex PgBiTemporalEventStore functionality:
@@ -168,7 +169,7 @@ class PgBiTemporalEventStoreComplexTest {
         Pool setupPool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
 
         setupPool.query("TRUNCATE TABLE " + schema + ".bitemporal_event_log CASCADE").execute()
-            .eventually(setupPool::close)
+            .transform(TestCleanup.cleanup(setupPool::close))
             .compose(v -> manager.start())
             .onSuccess(v -> {
                 factory = new BiTemporalEventStoreFactory(vertx, manager);
@@ -364,7 +365,7 @@ class PgBiTemporalEventStoreComplexTest {
                         if (ar.failed()) return tx.rollback().compose(v -> Future.failedFuture(ar.cause()));
                         return Future.succeededFuture(ar.result());
                     })
-                    .eventually(() -> conn.close());
+                    .transform(TestCleanup.cleanup(() -> conn.close()));
                 })
             )
             .compose(event -> {
@@ -409,7 +410,7 @@ class PgBiTemporalEventStoreComplexTest {
                     )
                     .map(event -> event != null ? event.getEventId() : null)
                     .compose(eventId -> tx.rollback().map(eventId))
-                    .eventually(() -> conn.close());
+                    .transform(TestCleanup.cleanup(() -> conn.close()));
                 })
             )
             .compose(eventId -> {
@@ -424,7 +425,7 @@ class PgBiTemporalEventStoreComplexTest {
                 }
                 return Future.succeededFuture();
             })
-            .eventually(pool::close)
+            .transform(TestCleanup.cleanup(pool::close))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
 
@@ -728,7 +729,7 @@ class PgBiTemporalEventStoreComplexTest {
                 assertTrue(fetched.getPayload() instanceof String,
                     "Object payload should unwrap to scalar value, not a wrapper map");
             }))
-            .eventually(objectStore::close)
+            .transform(TestCleanup.cleanup(objectStore::close))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
 
@@ -762,7 +763,7 @@ class PgBiTemporalEventStoreComplexTest {
                 assertTrue(boolFetched.getPayload() instanceof Boolean,
                     "Boolean Object payload should unwrap to Boolean scalar");
             }))
-            .eventually(objectStore::close)
+            .transform(TestCleanup.cleanup(objectStore::close))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
 
@@ -801,14 +802,14 @@ class PgBiTemporalEventStoreComplexTest {
                 eventId, "LegacyScalar",
                 validTime.atOffset(ZoneOffset.UTC),
                 "\"legacy-scalar\"", "{}", eventId, null, null))
-            .eventually(pool::close)
+            .transform(TestCleanup.cleanup(pool::close))
             .compose(v -> objectStore.getById(eventId))
             .onSuccess(fetched -> testContext.verify(() -> {
                 assertNotNull(fetched);
                 assertEquals("legacy-scalar", fetched.getPayload());
                 assertTrue(fetched.getPayload() instanceof String);
             }))
-            .eventually(objectStore::close)
+            .transform(TestCleanup.cleanup(objectStore::close))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
 
@@ -847,14 +848,14 @@ class PgBiTemporalEventStoreComplexTest {
                 eventId, "LegacyArray",
                 validTime.atOffset(ZoneOffset.UTC),
                 "[1,2,3]", "{}", eventId, null, null))
-            .eventually(pool::close)
+            .transform(TestCleanup.cleanup(pool::close))
             .compose(v -> objectStore.getById(eventId))
             .onSuccess(fetched -> testContext.verify(() -> {
                 assertNotNull(fetched);
                 assertTrue(fetched.getPayload() instanceof List, "Array JSON should deserialize to List for Object payload");
                 assertEquals(List.of(1, 2, 3), fetched.getPayload());
             }))
-            .eventually(objectStore::close)
+            .transform(TestCleanup.cleanup(objectStore::close))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
 
@@ -2743,14 +2744,14 @@ class PgBiTemporalEventStoreComplexTest {
 
         pool.preparedQuery(insertSql)
             .execute(io.vertx.sqlclient.Tuple.of(eventId, "NullHeaders", eventId))
-            .eventually(pool::close)
+            .transform(TestCleanup.cleanup(pool::close))
             .compose(v -> objectStore.getById(eventId))
             .onSuccess(fetched -> testContext.verify(() -> {
                 assertNotNull(fetched);
                 assertNotNull(fetched.getHeaders(), "Null headers column should produce empty map, not null");
                 assertTrue(fetched.getHeaders().isEmpty(), "Null headers column should produce empty map");
             }))
-            .eventually(objectStore::close)
+            .transform(TestCleanup.cleanup(objectStore::close))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
 
@@ -2783,7 +2784,7 @@ class PgBiTemporalEventStoreComplexTest {
 
         pool.preparedQuery(insertSql)
             .execute(io.vertx.sqlclient.Tuple.of(eventId, "NullValueHeaders", eventId))
-            .eventually(pool::close)
+            .transform(TestCleanup.cleanup(pool::close))
             .compose(v -> objectStore.getById(eventId))
             .onSuccess(fetched -> testContext.verify(() -> {
                 assertNotNull(fetched);
@@ -2791,7 +2792,7 @@ class PgBiTemporalEventStoreComplexTest {
                 assertFalse(fetched.getHeaders().containsKey("absent"),
                     "Null-valued JSONB header entry should be skipped");
             }))
-            .eventually(objectStore::close)
+            .transform(TestCleanup.cleanup(objectStore::close))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
 
@@ -2822,7 +2823,7 @@ class PgBiTemporalEventStoreComplexTest {
 
         pool.preparedQuery(insertSql)
             .execute(io.vertx.sqlclient.Tuple.of(eventId, "LegacyNumber", eventId))
-            .eventually(pool::close)
+            .transform(TestCleanup.cleanup(pool::close))
             .compose(v -> objectStore.getById(eventId))
             .onSuccess(fetched -> testContext.verify(() -> {
                 assertNotNull(fetched);
@@ -2831,7 +2832,7 @@ class PgBiTemporalEventStoreComplexTest {
                     + fetched.getPayload().getClass().getSimpleName());
                 assertEquals(42, ((Number) fetched.getPayload()).intValue());
             }))
-            .eventually(objectStore::close)
+            .transform(TestCleanup.cleanup(objectStore::close))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
 
@@ -2862,7 +2863,7 @@ class PgBiTemporalEventStoreComplexTest {
 
         pool.preparedQuery(insertSql)
             .execute(io.vertx.sqlclient.Tuple.of(eventId, "LegacyBool", eventId))
-            .eventually(pool::close)
+            .transform(TestCleanup.cleanup(pool::close))
             .compose(v -> objectStore.getById(eventId))
             .onSuccess(fetched -> testContext.verify(() -> {
                 assertNotNull(fetched);
@@ -2871,7 +2872,7 @@ class PgBiTemporalEventStoreComplexTest {
                     + fetched.getPayload().getClass().getSimpleName());
                 assertEquals(true, fetched.getPayload());
             }))
-            .eventually(objectStore::close)
+            .transform(TestCleanup.cleanup(objectStore::close))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
 

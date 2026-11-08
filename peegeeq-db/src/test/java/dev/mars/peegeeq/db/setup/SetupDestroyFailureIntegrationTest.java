@@ -26,6 +26,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests for {@link PeeGeeQDatabaseSetupService#destroySetup} when a setup-owned
@@ -91,8 +92,8 @@ class SetupDestroyFailureIntegrationTest extends BaseIntegrationTest {
                             "the manager must be closed even though a queue factory close threw");
                     return Future.succeededFuture();
                 })
-                .eventually(() -> setupManager.closeReactive())
-                .eventually(() -> service.close())
+                .transform(TestCleanup.cleanup(() -> setupManager.closeReactive()))
+                .transform(TestCleanup.cleanup(() -> service.close()))
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
     }
@@ -125,8 +126,8 @@ class SetupDestroyFailureIntegrationTest extends BaseIntegrationTest {
                             "the manager must be closed even though a queue factory entry was null");
                     return Future.succeededFuture();
                 })
-                .eventually(() -> setupManager.closeReactive())
-                .eventually(() -> service.close())
+                .transform(TestCleanup.cleanup(() -> setupManager.closeReactive()))
+                .transform(TestCleanup.cleanup(() -> service.close()))
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
     }
@@ -160,8 +161,8 @@ class SetupDestroyFailureIntegrationTest extends BaseIntegrationTest {
                             "the manager must be closed even though a queue factory close returned null");
                     return Future.succeededFuture();
                 })
-                .eventually(() -> setupManager.closeReactive())
-                .eventually(() -> service.close())
+                .transform(TestCleanup.cleanup(() -> setupManager.closeReactive()))
+                .transform(TestCleanup.cleanup(() -> service.close()))
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
     }

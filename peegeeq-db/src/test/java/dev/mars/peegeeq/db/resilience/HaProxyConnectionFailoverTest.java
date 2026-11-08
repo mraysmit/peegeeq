@@ -55,6 +55,7 @@ import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Realistic HAProxy TCP failover integration test for PeeGeeQ database connections.
@@ -639,7 +640,7 @@ class HaProxyConnectionFailoverTest {
             serviceId, connectionConfig(host, port), probePoolConfig);
         return probePool.query(NODE_IDENTITY_SQL).execute()
             .map(rows -> rows.iterator().next().getString("node_id"))
-            .eventually(() -> connectionManager.closePool(serviceId));
+            .transform(TestCleanup.cleanup(() -> connectionManager.closePool(serviceId)));
     }
 
     /**

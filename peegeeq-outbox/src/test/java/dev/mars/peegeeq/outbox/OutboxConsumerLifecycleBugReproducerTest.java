@@ -49,6 +49,7 @@ import java.util.UUID;
 
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Regression test for consumer lifecycle during manager shutdown.
@@ -139,9 +140,9 @@ public class OutboxConsumerLifecycleBugReproducerTest {
                 ? outboxFactory.close()
                 : Future.succeededFuture();
         closeFactory
-                .eventually(() -> manager != null
+                .transform(TestCleanup.cleanup(() -> manager != null
                         ? manager.closeReactive()
-                        : Future.succeededFuture())
+                        : Future.succeededFuture()))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }

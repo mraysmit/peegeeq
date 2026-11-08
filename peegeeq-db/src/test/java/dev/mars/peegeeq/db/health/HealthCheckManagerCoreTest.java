@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * CORE tests for HealthCheckManager using TestContainers.
@@ -150,11 +151,11 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
 
         healthCheckManager.start()
                 .compose(v -> pollForEvent(appender, "refused-db", System.currentTimeMillis() + 5_000))
-                .eventually(() -> {
+                .transform(TestCleanup.cleanup(() -> {
                     hcmLogger.detachAppender(appender);
                     hcmLogger.setLevel(previousLevel);
                     return Future.succeededFuture();
-                })
+                }))
                 .onSuccess(event -> testContext.verify(() -> {
                     assertEquals(ch.qos.logback.classic.Level.WARN, event.getLevel(),
                             "a running manager's refused connection must be a WARN: " + event.getFormattedMessage());

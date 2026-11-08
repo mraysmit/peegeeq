@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -149,6 +150,54 @@ class VertxAsyncForbiddenPatternsGuardTest {
         fail(sb.toString());
     }
 
+    /** {@code Future.eventually} discards a failed cleanup; tests use {@code TestCleanup} instead. */
+    private static final Pattern EVENTUALLY = Pattern.compile("\\.eventually\\s*\\(");
+
+    /**
+     * Test sources must not call {@code .eventually(}. It runs a cleanup and discards the cleanup's
+     * failure, so a test passes when the close or stop it ran failed (probe 2026-10-12). Tests use
+     * {@code dev.mars.peegeeq.test.vertx.TestCleanup}, which reports the first failure. Production
+     * code is not scanned: there {@code eventually} remains allowed (ruling of the 1b review). The
+     * count has no baseline: every test call site was migrated, so any occurrence is a regression.
+     */
+    @Test
+    void testSourcesUseTheCleanupHelperInsteadOfEventually() throws IOException {
+        Path workspaceRoot = locateWorkspaceRoot();
+        List<String> offenders = new ArrayList<>();
+        try (Stream<Path> modules = Files.list(workspaceRoot)) {
+            List<Path> testRoots = modules
+                    .filter(Files::isDirectory)
+                    .filter(p -> p.getFileName().toString().startsWith("peegeeq-"))
+                    .map(p -> p.resolve("src").resolve("test").resolve("java"))
+                    .filter(Files::isDirectory)
+                    .toList();
+            for (Path testRoot : testRoots) {
+                try (Stream<Path> files = Files.walk(testRoot)) {
+                    for (Path file : files
+                            .filter(Files::isRegularFile)
+                            .filter(p -> p.getFileName().toString().endsWith(".java"))
+                            .filter(p -> !EXCLUDED_FILE_NAMES.contains(p.getFileName().toString()))
+                            .filter(p -> !p.toString().replace('\\', '/').contains("/.history/"))
+                            .filter(p -> !p.toString().replace('\\', '/').contains("/target/"))
+                            .toList()) {
+                        int count = 0;
+                        Matcher m = EVENTUALLY.matcher(maskNonCode(Files.readString(file, StandardCharsets.UTF_8)));
+                        while (m.find()) count++;
+                        if (count > 0) {
+                            offenders.add("  " + workspaceRoot.relativize(file).toString().replace('\\', '/')
+                                    + "  .eventually( x" + count);
+                        }
+                    }
+                }
+            }
+        }
+        if (!offenders.isEmpty()) {
+            fail("Test sources call .eventually(, which discards a failed cleanup. Use\n"
+                    + ".transform(TestCleanup.cleanup(...)) or TestCleanup.run(...) from peegeeq-test-support.\n"
+                    + String.join("\n", offenders));
+        }
+    }
+
     // ---------------------------------------------------------------------
     // Scan
     // ---------------------------------------------------------------------
@@ -189,7 +238,8 @@ class VertxAsyncForbiddenPatternsGuardTest {
         try {
             content = Files.readString(file, StandardCharsets.UTF_8);
         } catch (IOException e) {
-            return;
+            // An unreadable file would hide its violations; the scan fails instead.
+            throw new UncheckedIOException("Cannot read " + file, e);
         }
         String masked = maskNonCode(content);
         String rel = workspaceRoot.relativize(file).toString().replace('\\', '/');

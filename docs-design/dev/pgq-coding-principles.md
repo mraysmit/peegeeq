@@ -136,7 +136,8 @@ prevents.
 9. **Read logs carefully.** `UnknownHostException: test-host` means the test needs a real
    host from a container. It does not mean the environment is wrong.
 10. **Use Vert.x 5 composable Futures.** `.compose()`, `.onSuccess()`, `.onFailure()`,
-    `.eventually()`, `.transform()`. Never callbacks.
+    `.transform()`. Never callbacks. Test cleanup uses `TestCleanup` (see "Pattern: cleanup
+    that must run regardless of outcome").
 
 Additional mandatory rules:
 
@@ -199,13 +200,27 @@ return registerSelfWithConsul()
 
 ### Pattern: cleanup that must run regardless of outcome
 
-`.eventually(Supplier<Future<U>>)` runs the supplier on success and on failure. The
-supplier's outcome does not change the outer Future's outcome. `.compose()` skips
-downstream stages after a failure, so it is wrong for teardown.
+`.eventually(Supplier<Future<U>>)` runs the supplier on success and on failure, and
+discards the supplier's outcome. A close that fails, or a supplier that throws, leaves the
+chain successful (probe on Vert.x 5.0.4, 2026-10-12, `logs/f20-p1a-probe-eventually-20261012.log`).
+`.compose()` skips downstream stages after a failure, so it is wrong for teardown too.
+
+In tests, cleanup uses `TestCleanup` from `peegeeq-test-support`
+(`dev.mars.peegeeq.test.vertx.TestCleanup`). `.transform(TestCleanup.cleanup(steps...))` runs
+the steps in order once the chain has settled. Every step runs exactly once. The result is the
+chain's outcome unless a step failed: a step failure fails a successful chain, and is added as a
+suppressed exception to a failed one. A step that throws or returns `null` is a step failure.
+`TestCleanup.run(steps...)` is the teardown form. The guard in
+`VertxAsyncForbiddenPatternsGuardTest` rejects `.eventually(` in test sources.
 
 ```java
 // CORRECT: vertx.close() runs even if manager.closeReactive() fails,
 // and a failure in either step fails the test.
+TestCleanup.run(() -> manager.closeReactive(), () -> vertx.close())
+    .onSuccess(v -> testContext.completeNow())
+    .onFailure(testContext::failNow);
+
+// WRONG: a failed vertx.close() is discarded, and the test passes
 manager.closeReactive()
     .eventually(() -> vertx.close())
     .onComplete(testContext.succeedingThenComplete());
@@ -218,6 +233,11 @@ manager.closeReactive()
 
 `BaseIntegrationTest.tearDownBaseIntegration` in `peegeeq-db` is the reference
 implementation of this pattern. Its chain ends with `.onFailure(testContext::failNow)`.
+
+In production code `.eventually(...)` is allowed only where the cleanup's failure must not
+change the outcome, and the supplier then logs that failure itself. When a close failure must
+reach the caller, use `CloseSteps` (`peegeeq-api`, `api.lifecycle`): every step runs, a failed
+step is logged at ERROR, and the first failure is the result.
 
 ### Pattern: test assertions on asynchronous results
 
@@ -261,7 +281,7 @@ list as `.claude/CLAUDE.md` Step 5.
 
 | Pattern | Rule | Replacement |
 |---|---|---|
-| `.recover(` | Banned everywhere, no exceptions. | `.transform()` for optional steps; `.compose()` with explicit failure mapping; `.eventually()` for cleanup. See section 5. |
+| `.recover(` | Banned everywhere, no exceptions. | `.transform()` for optional steps; `.compose()` with explicit failure mapping; `TestCleanup` for test cleanup and `CloseSteps` for production closes. See section 5. |
 | `.otherwise(` | Banned everywhere, no exceptions. | Same as `.recover(`. |
 | `.await(` on a `Future` | Banned in production and tests. | `.onSuccess(...).onFailure(testContext::failNow)` and `testContext.awaitCompletion(timeout, unit)` at the test boundary. A bounded `CountDownLatch.await(timeout, TimeUnit.X)` is allowed. |
 | `CompletableFuture`, `toCompletionStage`, `toCompletableFuture`, `.join()`, `.get()` | Blocking bridges. Banned. | Stay on `Future<T>`. |
@@ -326,7 +346,8 @@ correct replacement:
 | Intent | Correct API |
 |---|---|
 | Log an error without changing the outcome | `.onFailure(e -> logger.warn(...))` |
-| Cleanup that must run regardless of outcome | `.eventually(() -> resource.close())` |
+| Cleanup that must run regardless of outcome (test) | `.transform(TestCleanup.cleanup(() -> resource.close()))` |
+| Close steps whose failure must reach the caller (production) | `CloseSteps` |
 | Optional step; warn on failure and continue | `.onFailure(e -> log).transform(ar -> Future.succeededFuture())` |
 | Convert an error to a domain status (health check) | Let the Future fail; the caller renders the failure. |
 | Idempotent insert or create | SQL-level `ON CONFLICT DO NOTHING` / `IF NOT EXISTS`. |
@@ -552,12 +573,16 @@ completed fails the run intermittently. The reason and an example are in
 ### 3. Cleanup that must run regardless of outcome
 
 ```java
+// Test code
 return doWork()
-  .eventually(() -> resource.close());
+  .transform(TestCleanup.cleanup(() -> resource.close()));
 ```
 
-`.eventually()` is `finally`. The supplier runs on success and on failure and does not
-change the outer outcome.
+`TestCleanup.cleanup` runs the close on success and on failure. A failed close fails a
+successful chain and is suppressed onto a failed one. `.eventually()` also runs the supplier
+on both paths, but it discards the supplier's outcome: a failed close is lost. Production code
+uses `.eventually()` only for a cleanup whose failure the supplier logs and that must not change
+the outcome, and `CloseSteps` when the failure must reach the caller.
 
 ### 4. Optional step
 
@@ -628,7 +653,8 @@ Thrown exceptions fail the returned Future. Handle them in the normal chain.
 1. Use `compose(...)` for the normal path.
 2. Let failures propagate by default.
 3. Use `onFailure(...)` for side effects only.
-4. Use `eventually(...)` for cleanup.
+4. Use `TestCleanup` for test cleanup and `CloseSteps` for production closes; `eventually(...)`
+   discards a cleanup failure.
 5. Use `transform(...)` only for a genuinely optional step.
 6. In Vert.x Web, convert async failure to `ctx.fail(...)`.
 7. Use `executeBlocking(...)` for blocking code.

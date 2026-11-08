@@ -62,6 +62,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Core verification tests for OFFSET_WATERMARK partitioned consumption in the outbox subsystem.
@@ -148,7 +149,7 @@ class OutboxOffsetWatermarkOrderingTest {
                     });
                 })
                 // Brief settle so connection pools fully release before the next test.
-                .eventually(() -> vertx.timer(500).mapEmpty())
+                .transform(TestCleanup.cleanup(() -> vertx.timer(500).mapEmpty()))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }
@@ -214,7 +215,7 @@ class OutboxOffsetWatermarkOrderingTest {
                     }
                     return (Void) null;
                 })
-                .eventually(() -> group.stopGracefully())
+                .transform(TestCleanup.cleanup(() -> group.stopGracefully()))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
 
@@ -281,7 +282,7 @@ class OutboxOffsetWatermarkOrderingTest {
                     }
                     return (Void) null;
                 })
-                .eventually(() -> group.stopGracefully())
+                .transform(TestCleanup.cleanup(() -> group.stopGracefully()))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
 
@@ -339,7 +340,7 @@ class OutboxOffsetWatermarkOrderingTest {
                     }
                     return (Void) null;
                 })
-                .eventually(() -> group.stopGracefully())
+                .transform(TestCleanup.cleanup(() -> group.stopGracefully()))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
 

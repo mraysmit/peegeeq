@@ -31,6 +31,7 @@ import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertSame;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Regression contracts for settlement of the manager-owned Vert.x close boundary.
@@ -48,7 +49,7 @@ class PeeGeeQManagerCloseSettlementTest {
 
         manager.getVertx().executeBlocking(() -> null)
                 .compose(ignored -> manager.closeReactive())
-                .eventually(() -> Future.succeededFuture())
+                .transform(TestCleanup.cleanup(() -> Future.succeededFuture()))
                 .compose(ignored -> Future.succeededFuture())
                 .onSuccess(ignored -> testContext.completeNow())
                 .onFailure(testContext::failNow);

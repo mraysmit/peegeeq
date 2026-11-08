@@ -58,6 +58,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests for consumer groups functionality.
@@ -219,7 +220,7 @@ class ConsumerGroupTest {
                 assertEquals(3, stats.getTotalMessagesProcessed());
                 return (Void) null;
             })
-            .eventually(consumerGroup::stopGracefully)
+            .transform(TestCleanup.cleanup(consumerGroup::stopGracefully))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
 
@@ -275,7 +276,7 @@ class ConsumerGroupTest {
                 assertEquals(3, allCount.get());
                 return (Void) null;
             })
-            .eventually(consumerGroup::stopGracefully)
+            .transform(TestCleanup.cleanup(consumerGroup::stopGracefully))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
 
@@ -315,7 +316,7 @@ class ConsumerGroupTest {
                 assertEquals(3, processedCount.get());
                 return (Void) null;
             })
-            .eventually(consumerGroup::stopGracefully)
+            .transform(TestCleanup.cleanup(consumerGroup::stopGracefully))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
 
@@ -366,7 +367,7 @@ class ConsumerGroupTest {
                     "Group and member statistics should match for single-member group");
                 return (Void) null;
             })
-            .eventually(consumerGroup::stopGracefully)
+            .transform(TestCleanup.cleanup(consumerGroup::stopGracefully))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
 
@@ -413,10 +414,10 @@ class ConsumerGroupTest {
                 assertFalse(consumerGroup.isActive());
                 return (Void) null;
             })
-            .eventually(() -> {
+            .transform(TestCleanup.cleanup(() -> {
                 releaseHandler.tryComplete();
                 return consumerGroup.close();
-            })
+            }))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
 
@@ -466,10 +467,10 @@ class ConsumerGroupTest {
                 assertFalse(consumerGroup.isActive());
                 return (Void) null;
             })
-            .eventually(() -> {
+            .transform(TestCleanup.cleanup(() -> {
                 handlerOutcome.tryFail(new IllegalStateException("test cleanup"));
                 return consumerGroup.close();
-            })
+            }))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
 

@@ -65,6 +65,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 import static org.junit.jupiter.api.Assertions.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests for consumer group subscription lifecycle paths.
@@ -152,7 +153,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
         if (connectionManager != null) {
             teardown = cleanupTestData()
                     .onFailure(err -> logger.error("Failed to clean subscription test data", err))
-                    .eventually(connectionManager::close);
+                    .transform(TestCleanup.cleanup(connectionManager::close));
         }
         teardown
                 .onSuccess(v -> finishManagerClose(testContext, null))
@@ -219,7 +220,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
                                         "Subscription should be persisted as ACTIVE after startup");
                                 return (Void) null;
                             })
-                            .eventually(() -> group.close());
+                            .transform(TestCleanup.cleanup(() -> group.close()));
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
@@ -269,7 +270,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
                                         "A start should make the stopped subscription ACTIVE");
                                 return (Void) null;
                             })
-                            .eventually(() -> group.close());
+                            .transform(TestCleanup.cleanup(() -> group.close()));
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
@@ -312,10 +313,10 @@ class ConsumerGroupSubscriptionIntegrationTest {
                                 assertEquals("sent-while-stopped", payload);
                                 return (Void) null;
                             })
-                            .eventually(() -> {
+                            .transform(TestCleanup.cleanup(() -> {
                                 producer.close();
                                 return group.close();
-                            });
+                            }));
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
@@ -356,7 +357,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
                                         "The consumer must start from the stored start bound");
                                 return (Void) null;
                             })
-                            .eventually(() -> group.close());
+                            .transform(TestCleanup.cleanup(() -> group.close()));
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
@@ -387,7 +388,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
                                         "The consumer must start from the stored start bound");
                                 return (Void) null;
                             })
-                            .eventually(() -> group.close());
+                            .transform(TestCleanup.cleanup(() -> group.close()));
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
@@ -426,7 +427,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
                                 assertNull(subscription, "A failed start must create no subscription");
                                 return (Void) null;
                             })
-                            .eventually(() -> group.close());
+                            .transform(TestCleanup.cleanup(() -> group.close()));
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
@@ -466,7 +467,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
                                         "A failed start must leave the group in NEW");
                                 return Future.<Void>succeededFuture();
                             })
-                            .eventually(() -> group.close());
+                            .transform(TestCleanup.cleanup(() -> group.close()));
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
@@ -507,7 +508,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
                                         "The subscribe ran before the read of the stored start bound");
                                 return (Void) null;
                             })
-                            .eventually(() -> group.close());
+                            .transform(TestCleanup.cleanup(() -> group.close()));
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
@@ -538,7 +539,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
                                         "A failed start must leave the group in NEW");
                                 return Future.<Void>succeededFuture();
                             })
-                            .eventually(() -> group.close());
+                            .transform(TestCleanup.cleanup(() -> group.close()));
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
@@ -568,7 +569,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
                             "Group should be ACTIVE via reference counting fallback");
                     return (Void) null;
                 })
-                .eventually(() -> group.close())
+                .transform(TestCleanup.cleanup(() -> group.close()))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }
@@ -599,7 +600,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
                                         "Group should be ACTIVE in reference counting mode for PUB_SUB topic");
                                 return (Void) null;
                             })
-                            .eventually(() -> group.close());
+                            .transform(TestCleanup.cleanup(() -> group.close()));
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
@@ -639,7 +640,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
                             "The test must exercise absent topic metadata");
                     return (Void) null;
                 })
-                .eventually(() -> group.close())
+                .transform(TestCleanup.cleanup(() -> group.close()))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }

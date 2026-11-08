@@ -22,6 +22,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 @ExtendWith(VertxExtension.class)
 @DisplayName("Transactional Integrity Tests")
@@ -147,9 +148,9 @@ public class TransactionalIntegrityTest extends SmokeTestBase {
                                     logger.info("Confirmed: rolled-back row is absent from DB (count=0)");
                                     return Future.<Void>succeededFuture();
                                 })
-                                .eventually(() -> conn.close());
+                                .transform(TestCleanup.cleanup(() -> conn.close()));
                         })
-                        .eventually(() -> pool.close());
+                        .transform(TestCleanup.cleanup(() -> pool.close()));
                 } catch (Exception e) {
                     return Future.failedFuture(e);
                 }
@@ -273,9 +274,9 @@ public class TransactionalIntegrityTest extends SmokeTestBase {
                                 logger.info("Confirmed: committed row is present in DB (count=1)");
                                 return Future.<Void>succeededFuture();
                             })
-                            .eventually(() -> conn.close());
+                            .transform(TestCleanup.cleanup(() -> conn.close()));
                     })
-                    .eventually(() -> pool.close());
+                    .transform(TestCleanup.cleanup(() -> pool.close()));
             })
             .onSuccess(v -> {
                 // Row committed poll the webhook until the outbox poller delivers it

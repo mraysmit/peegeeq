@@ -45,6 +45,7 @@ import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Comprehensive tests for PeeGeeQMetrics.
@@ -111,10 +112,10 @@ class PeeGeeQMetricsTest {
             : Future.succeededFuture();
 
         cleanup
-            .eventually(() -> connectionManager != null
+            .transform(TestCleanup.cleanup(() -> connectionManager != null
                 ? connectionManager.close()
                     .onFailure(e -> logger.debug("Connection manager close (may already be closed): {}", e.getMessage()))
-                : Future.succeededFuture())
+                : Future.succeededFuture()))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
     }

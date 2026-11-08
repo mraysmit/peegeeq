@@ -40,6 +40,7 @@ import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Resource leak detection tests for Outbox module.
@@ -111,9 +112,9 @@ public class OutboxResourceLeakDetectionTest {
                 ? queueFactory.close()
                 : Future.succeededFuture();
         closeFactory
-            .eventually(() -> manager != null
+            .transform(TestCleanup.cleanup(() -> manager != null
                     ? manager.closeReactive()
-                    : Future.succeededFuture())
+                    : Future.succeededFuture()))
             .onSuccess(v -> {
                 logger.info("=== OutboxResourceLeakDetectionTest.tearDown() COMPLETED ===");
                 testContext.completeNow();

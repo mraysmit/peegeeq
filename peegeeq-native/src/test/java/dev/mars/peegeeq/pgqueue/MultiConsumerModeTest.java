@@ -42,6 +42,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Multi-consumer mode integration tests for PeeGeeQ Native Queue.
@@ -159,13 +160,13 @@ class MultiConsumerModeTest {
                 }
                 return Future.all(sends);
             })
-            .eventually(() -> {
+            .transform(TestCleanup.cleanup(() -> {
                 // MessageProducer.close() is synchronous and void.
                 for (MessageProducer<String> p : producers) {
                     try { p.close(); } catch (Exception e) { logger.warn("Producer close failed: {}", e.getMessage()); }
                 }
                 return Future.succeededFuture();
-            })
+            }))
             .onFailure(testContext::failNow);
     }
 
@@ -224,13 +225,13 @@ class MultiConsumerModeTest {
                 }
                 return Future.all(sends);
             })
-            .eventually(() -> {
+            .transform(TestCleanup.cleanup(() -> {
                 // MessageProducer.close() is synchronous and void.
                 for (MessageProducer<String> p : producers) {
                     try { p.close(); } catch (Exception e) { logger.warn("Producer close failed: {}", e.getMessage()); }
                 }
                 return Future.succeededFuture();
-            })
+            }))
             .onFailure(testContext::failNow);
     }
 
@@ -275,13 +276,13 @@ class MultiConsumerModeTest {
                 }
                 return Future.all(sends);
             })
-            .eventually(() -> {
+            .transform(TestCleanup.cleanup(() -> {
                 // MessageProducer.close() is synchronous and void.
                 for (MessageProducer<String> p : producers) {
                     try { p.close(); } catch (Exception e) { logger.warn("Producer close failed: {}", e.getMessage()); }
                 }
                 return Future.succeededFuture();
-            })
+            }))
             .onFailure(testContext::failNow);
     }
 
@@ -327,13 +328,13 @@ class MultiConsumerModeTest {
                 }
                 return Future.all(sends);
             })
-            .eventually(() -> {
+            .transform(TestCleanup.cleanup(() -> {
                 // MessageProducer.close() is synchronous and void.
                 for (MessageProducer<String> p : producers) {
                     try { p.close(); } catch (Exception e) { logger.warn("Producer close failed: {}", e.getMessage()); }
                 }
                 return Future.succeededFuture();
-            })
+            }))
             .onFailure(testContext::failNow);
     }
 
@@ -384,13 +385,13 @@ class MultiConsumerModeTest {
                 }
                 return Future.all(sends);
             })
-            .eventually(() -> {
+            .transform(TestCleanup.cleanup(() -> {
                 // MessageProducer.close() is synchronous and void.
                 for (MessageProducer<String> p : producers) {
                     try { p.close(); } catch (Exception e) { logger.warn("Producer close failed: {}", e.getMessage()); }
                 }
                 return Future.succeededFuture();
-            })
+            }))
             .onFailure(testContext::failNow);
     }
 }

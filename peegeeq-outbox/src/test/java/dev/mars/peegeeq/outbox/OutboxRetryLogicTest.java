@@ -54,6 +54,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Test suite for verifying retry logic behavior with direct exceptions.
@@ -104,9 +105,9 @@ public class OutboxRetryLogicTest {
                 ? factory.close()
                 : Future.succeededFuture();
         closeFactory
-                .eventually(() -> manager != null
+                .transform(TestCleanup.cleanup(() -> manager != null
                         ? manager.closeReactive()
-                        : Future.succeededFuture())
+                        : Future.succeededFuture()))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }
@@ -247,11 +248,11 @@ public class OutboxRetryLogicTest {
                 return (Void) null;
             });
 
-        return scenario.eventually(() -> {
+        return scenario.transform(TestCleanup.cleanup(() -> {
                 consumer.close();
                 producer.close();
                 return Future.succeededFuture();
-            });
+            }));
     }
 
     private Future<Row> awaitTerminalState(

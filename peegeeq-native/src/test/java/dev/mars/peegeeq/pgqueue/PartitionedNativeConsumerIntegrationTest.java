@@ -47,6 +47,7 @@ import java.util.function.Supplier;
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent.*;
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Phase 6 integration tests: Native consumer auto-detection and use of
@@ -127,7 +128,7 @@ class PartitionedNativeConsumerIntegrationTest {
         logger.info("Tearing down: closing resources and manager");
         Future<Void> cleanup = connectionManager == null
                 ? Future.succeededFuture()
-                : cleanupTestData().eventually(() -> connectionManager.close());
+                : cleanupTestData().transform(TestCleanup.cleanup(() -> connectionManager.close()));
         cleanup
                 .onSuccess(v -> finishManagerClose(testContext, null))
                 .onFailure(e -> finishManagerClose(testContext, e));
@@ -215,7 +216,7 @@ class PartitionedNativeConsumerIntegrationTest {
                                             "Should have at least 3 partition assignments (one per message_group), got: " + count);
                                     logger.info("TEST 6.1 PASSED: {} partition assignments created", count);
                                     return (Void) null;
-                                }).eventually(group::stopGracefully);
+                                }).transform(TestCleanup.cleanup(group::stopGracefully));
                             });
                 })
                 .onSuccess(v -> testContext.completeNow())
@@ -445,7 +446,7 @@ class PartitionedNativeConsumerIntegrationTest {
                                                     });
                                         });
                             })
-                            .eventually(group1::stopGracefully);
+                            .transform(TestCleanup.cleanup(group1::stopGracefully));
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
@@ -561,11 +562,11 @@ class PartitionedNativeConsumerIntegrationTest {
                                 logger.info("TEST 6.7: received {} messages via REFERENCE_COUNTING", receivedIds.size());
                                 return (Void) null;
                             })
-                            .eventually(group::stopGracefully)
-                            .eventually(() -> {
+                            .transform(TestCleanup.cleanup(group::stopGracefully))
+                            .transform(TestCleanup.cleanup(() -> {
                                 producer.close();
                                 return Future.succeededFuture();
-                            })
+                            }))
                             .compose(v2 -> countPartitionAssignments(topic, groupName))
                             .map(count -> {
                                 assertEquals(0, count,
@@ -628,7 +629,7 @@ class PartitionedNativeConsumerIntegrationTest {
                                     return (Void) null;
                                 });
                             })
-                            .eventually(group::stopGracefully);
+                            .transform(TestCleanup.cleanup(group::stopGracefully));
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
@@ -916,11 +917,11 @@ class PartitionedNativeConsumerIntegrationTest {
                                                                 })
                                                         );
                                                     })
-                                                    .eventually(group3::stopGracefully);
+                                                    .transform(TestCleanup.cleanup(group3::stopGracefully));
                                         })
-                                        .eventually(group2::stopGracefully);
+                                        .transform(TestCleanup.cleanup(group2::stopGracefully));
                             })
-                            .eventually(group1::stopGracefully);
+                            .transform(TestCleanup.cleanup(group1::stopGracefully));
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);

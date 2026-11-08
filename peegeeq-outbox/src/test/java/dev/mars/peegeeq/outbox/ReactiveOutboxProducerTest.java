@@ -31,6 +31,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests for the reactive OutboxProducer implementation.
@@ -111,8 +112,8 @@ public class ReactiveOutboxProducerTest {
             }
         }
         producerClose
-            .eventually(() -> connectionManager != null ? connectionManager.close() : Future.<Void>succeededFuture())
-            .eventually(() -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+            .transform(TestCleanup.cleanup(() -> connectionManager != null ? connectionManager.close() : Future.<Void>succeededFuture()))
+            .transform(TestCleanup.cleanup(() -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture()))
             .onSuccess(v -> ctx.completeNow())
             .onFailure(ctx::failNow);
         assertTrue(ctx.awaitCompletion(15, TimeUnit.SECONDS), "Teardown should complete within 15s");

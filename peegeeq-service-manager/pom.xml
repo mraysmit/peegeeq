@@ -145,6 +145,11 @@
                     <trimStackTrace>false</trimStackTrace>
                     <useFile>true</useFile>
                     <printSummary>true</printSummary>
+                    <!-- Probe for ServiceManagerConfigTest: a JVM system property of the same name
+                         as a configuration key must not be read as configuration. -->
+                    <systemPropertyVariables>
+                        <consul.host>from-system-property</consul.host>
+                    </systemPropertyVariables>
                 </configuration>
             </plugin>
 

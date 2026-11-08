@@ -44,6 +44,7 @@ import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests for {@link PgNativeQueueFactory#createBrowser(String, Class)}.
@@ -159,10 +160,10 @@ class PgNativeQueueFactoryIntegrationTest {
     void testCreateBrowser_BrowseReturnsList(VertxTestContext testContext) {
         factory.<String>createBrowser("native-empty-topic", String.class)
                 .compose(browser -> browser.browse(10, 0)
-                        .eventually(() -> {
+                        .transform(TestCleanup.cleanup(() -> {
                             try { browser.close(); } catch (Exception e) { logger.warn("Browser close failed: {}", e.getMessage(), e); }
                             return Future.succeededFuture();
-                        }))
+                        })))
                 .onSuccess(messages -> testContext.verify(() -> {
                     assertNotNull(messages);
                     testContext.completeNow();

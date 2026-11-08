@@ -21,6 +21,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Tests for tracing in ConsumerGroupFetcher and CompletionTracker.
@@ -177,7 +178,7 @@ public class ConsumerTracingTest extends BaseIntegrationTest {
                 "Caller's spanId should be preserved on the calling thread");
 
         tracker.markCompleted(999L, "nonexistent-group", "nonexistent-topic")
-                .eventually(() -> {
+                .transform(TestCleanup.cleanup(() -> {
                     testContext.verify(() -> {
                         // Callback runs on Vert.x event loop MDC is thread-local,
                         // so caller MDC won't be here. Verify no internal trace leaked.
@@ -187,7 +188,7 @@ public class ConsumerTracingTest extends BaseIntegrationTest {
                     });
                     testContext.completeNow();
                     return io.vertx.core.Future.succeededFuture();
-                });
+                }));
 
         MDC.clear();
     }
@@ -203,7 +204,7 @@ public class ConsumerTracingTest extends BaseIntegrationTest {
                 "Caller's spanId should be preserved on the calling thread");
 
         tracker.markFailed(999L, "nonexistent-group", "nonexistent-topic", "err")
-                .eventually(() -> {
+                .transform(TestCleanup.cleanup(() -> {
                     testContext.verify(() -> {
                         // Callback runs on Vert.x event loop MDC is thread-local,
                         // so caller MDC won't be here. Verify no internal trace leaked.
@@ -213,7 +214,7 @@ public class ConsumerTracingTest extends BaseIntegrationTest {
                     });
                     testContext.completeNow();
                     return io.vertx.core.Future.succeededFuture();
-                });
+                }));
 
         MDC.clear();
     }
@@ -229,7 +230,7 @@ public class ConsumerTracingTest extends BaseIntegrationTest {
         // When markCompleted is called with a parent trace, it should succeed
         // (will fail with subscription validation, but we verify the method signature works)
         tracker.markCompleted(999L, "nonexistent-group", "nonexistent-topic", parentTrace)
-                .eventually(() -> {
+                .transform(TestCleanup.cleanup(() -> {
                     testContext.verify(() -> {
                         // MDC should be clean after operation (regardless of success/failure)
                         assertNull(MDC.get("traceId"),
@@ -239,7 +240,7 @@ public class ConsumerTracingTest extends BaseIntegrationTest {
                     });
                     testContext.completeNow();
                     return io.vertx.core.Future.succeededFuture();
-                });
+                }));
     }
 
     @Test
@@ -250,7 +251,7 @@ public class ConsumerTracingTest extends BaseIntegrationTest {
 
         // When markFailed is called with a parent trace
         tracker.markFailed(999L, "nonexistent-group", "nonexistent-topic", "test error", parentTrace)
-                .eventually(() -> {
+                .transform(TestCleanup.cleanup(() -> {
                     testContext.verify(() -> {
                         assertNull(MDC.get("traceId"),
                                 "traceId should not leak after markFailed with parent trace");
@@ -259,7 +260,7 @@ public class ConsumerTracingTest extends BaseIntegrationTest {
                     });
                     testContext.completeNow();
                     return io.vertx.core.Future.succeededFuture();
-                });
+                }));
     }
 
     @Test
@@ -286,13 +287,13 @@ public class ConsumerTracingTest extends BaseIntegrationTest {
     void markCompleted_withoutParentTrace_backwardCompatible(VertxTestContext testContext) {
         // The original 3-parameter method must still work
         tracker.markCompleted(999L, "nonexistent-group", "nonexistent-topic")
-                .eventually(() -> {
+                .transform(TestCleanup.cleanup(() -> {
                     testContext.verify(() ->
                         assertNull(MDC.get("traceId"),
                                 "traceId should not leak after markCompleted (no parent)"));
                     testContext.completeNow();
                     return io.vertx.core.Future.succeededFuture();
-                });
+                }));
     }
 
     // ---- ConsumerGroupFetcher child span propagation ----

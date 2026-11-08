@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * A service manager that cannot reach Consul says so (finding 11).
@@ -52,11 +53,11 @@ class PeeGeeQServiceManagerConsulUnavailableTest {
                 .compose(closedPort -> vertx.deployVerticle(
                         new PeeGeeQServiceManager(SERVICE_PORT, "localhost", closedPort)))
                 .compose(deploymentId -> client.get(SERVICE_PORT, "localhost", "/health").send()
-                        .eventually(() -> vertx.undeploy(deploymentId)))
-                .eventually(() -> {
+                        .transform(TestCleanup.cleanup(() -> vertx.undeploy(deploymentId))))
+                .transform(TestCleanup.cleanup(() -> {
                     client.close();
                     return Future.succeededFuture();
-                })
+                }))
                 .onSuccess(response -> testContext.verify(() -> {
                     assertEquals(200, response.statusCode());
                     JsonObject health = response.bodyAsJsonObject();

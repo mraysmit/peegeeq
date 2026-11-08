@@ -33,6 +33,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Tests the null handler return path in OutboxConsumer.processMessageWithCompletion.
@@ -86,7 +87,7 @@ public class OutboxConsumerNullHandlerTest {
         }
         if (manager != null) {
             (outboxFactory != null ? outboxFactory.close() : Future.succeededFuture())
-                    .eventually(() -> manager.closeReactive())
+                    .transform(TestCleanup.cleanup(() -> manager.closeReactive()))
                     .onSuccess(v -> tearDownContext.completeNow())
                     .onFailure(tearDownContext::failNow);
             assertTrue(tearDownContext.awaitCompletion(10, TimeUnit.SECONDS));

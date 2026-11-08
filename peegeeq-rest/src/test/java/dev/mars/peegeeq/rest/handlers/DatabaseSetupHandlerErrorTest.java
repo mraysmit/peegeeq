@@ -21,6 +21,7 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * TDD error-path tests for DatabaseSetupHandler.
@@ -114,7 +115,7 @@ class DatabaseSetupHandlerErrorTest {
                 .compose(auxId ->
                         webClient.get(AUX_PORT, "localhost", "/api/v1/setups/bad-id/status")
                                 .send()
-                                .eventually(() -> vertx.undeploy(auxId)))
+                                .transform(TestCleanup.cleanup(() -> vertx.undeploy(auxId))))
                 .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     assertEquals(404, response.statusCode());
                     assertNotNull(response.bodyAsJsonObject().getString("error"));
@@ -150,7 +151,7 @@ class DatabaseSetupHandlerErrorTest {
                 .compose(auxId ->
                         webClient.get(AUX_PORT, "localhost", "/api/v1/setups/any-id/status")
                                 .send()
-                                .eventually(() -> vertx.undeploy(auxId)))
+                                .transform(TestCleanup.cleanup(() -> vertx.undeploy(auxId))))
                 .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     assertEquals(503, response.statusCode());
                     assertNotNull(response.bodyAsJsonObject().getString("error"));
@@ -176,7 +177,7 @@ class DatabaseSetupHandlerErrorTest {
                 .compose(auxId ->
                         webClient.get(AUX_PORT, "localhost", "/api/v1/setups/bad-id")
                                 .send()
-                                .eventually(() -> vertx.undeploy(auxId)))
+                                .transform(TestCleanup.cleanup(() -> vertx.undeploy(auxId))))
                 .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     assertEquals(404, response.statusCode());
                     assertNotNull(response.bodyAsJsonObject().getString("error"));
@@ -209,7 +210,7 @@ class DatabaseSetupHandlerErrorTest {
                         webClient.post(AUX_PORT, "localhost", "/api/v1/setups/bad-id/queues")
                                 .putHeader("Content-Type", "application/json")
                                 .sendJsonObject(io.vertx.core.json.JsonObject.of("queueName", "test-q"))
-                                .eventually(() -> vertx.undeploy(auxId)))
+                                .transform(TestCleanup.cleanup(() -> vertx.undeploy(auxId))))
                 .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     assertEquals(404, response.statusCode());
                     assertNotNull(response.bodyAsJsonObject().getString("error"));
@@ -281,7 +282,7 @@ class DatabaseSetupHandlerErrorTest {
                         webClient.post(AUX_PORT, "localhost", "/api/v1/setups")
                                 .putHeader("Content-Type", "application/json")
                                 .sendJsonObject(body)
-                                .eventually(() -> vertx.undeploy(auxId)))
+                                .transform(TestCleanup.cleanup(() -> vertx.undeploy(auxId))))
                 .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     assertEquals(503, response.statusCode());
                     assertNotNull(response.bodyAsJsonObject().getString("error"));
@@ -327,7 +328,7 @@ class DatabaseSetupHandlerErrorTest {
                         webClient.post(AUX_PORT, "localhost", "/api/v1/setups")
                                 .putHeader("Content-Type", "application/json")
                                 .sendJsonObject(body)
-                                .eventually(() -> vertx.undeploy(auxId)))
+                                .transform(TestCleanup.cleanup(() -> vertx.undeploy(auxId))))
                 .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     assertEquals(409, response.statusCode());
                     assertNotNull(response.bodyAsJsonObject().getString("error"));

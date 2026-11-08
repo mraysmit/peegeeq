@@ -58,6 +58,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Test class to analyze transactional behavior of the outbox pattern.
@@ -209,11 +210,11 @@ public class TransactionalOutboxAnalysisTest {
             testContext.completeNow();
         }))
         .onFailure(testContext::failNow)
-        .eventually(() -> {
+        .transform(TestCleanup.cleanup(() -> {
             try { consumer.close(); } catch (Exception e) { logger.warn("Error closing consumer: {}", e.getMessage()); }
             try { producer.close(); } catch (Exception e) { logger.warn("Error closing producer: {}", e.getMessage()); }
             return Future.<Void>succeededFuture();
-        });
+        }));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
     }

@@ -32,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests for the non-destructive connect endpoint (Phase S.3):
@@ -135,9 +136,9 @@ public class DatabaseSetupConnectIntegrationTest {
                 : Future.succeededFuture();
 
         undeploy
-                .eventually(() -> provisioningService != null
+                .transform(TestCleanup.cleanup(() -> provisioningService != null
                         ? provisioningService.close()
-                        : Future.<Void>succeededFuture())
+                        : Future.<Void>succeededFuture()))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }

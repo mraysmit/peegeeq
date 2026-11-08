@@ -78,7 +78,7 @@ public class PeeGeeQConfiguration {
         normalizedOverrides.putAll(overrides);
         promoteCompatibilityAliasesInSource(normalizedOverrides);
         normalizedOverrides.forEach((key, value) -> properties.setProperty(key.toString(), value.toString()));
-        resolvePlaceholders(this.properties);
+        resolvePlaceholders(this.properties, normalizedOverrides);
         this.instanceId = getString("peegeeq.metrics.instance-id",
             "peegeeq-" + UUID.randomUUID().toString().substring(0, 8));
         validateConfiguration();
@@ -123,7 +123,8 @@ public class PeeGeeQConfiguration {
         properties.setProperty("peegeeq.database.username", dbUsername);
         properties.setProperty("peegeeq.database.password", dbPassword);
         properties.setProperty("peegeeq.database.schema", dbSchema);
-        resolvePlaceholders(this.properties);
+        // No overrides: a profile placeholder outside the database keys resolves only to its default.
+        resolvePlaceholders(this.properties, new Properties());
         this.instanceId = getString("peegeeq.metrics.instance-id", 
             "peegeeq-" + UUID.randomUUID().toString().substring(0, 8));
         validateConfiguration();
@@ -168,22 +169,25 @@ public class PeeGeeQConfiguration {
     }
     
     /**
-     * Resolves {@code ${VAR}} and {@code ${VAR:default}} placeholders in all
-     * property values against environment variables.
+     * Resolves {@code ${NAME}} and {@code ${NAME:default}} placeholders in all property values
+     * against the overrides passed to the constructor. The process environment and system
+     * properties are not read: they are ambient state, not PeeGeeQ configuration. An application
+     * that keeps deployment values in environment variables copies them into the overrides at its
+     * bootstrap boundary.
      *
      * <ul>
-     *   <li>{@code ${VAR}}  replaced by the value of env var {@code VAR};
-     *       startup FAILS (IllegalStateException) if the variable is not set —
-     *       a required variable must never flow downstream as a literal.</li>
-     *   <li>{@code ${VAR:default}}  replaced by {@code VAR} when set,
-     *       otherwise replaced by {@code default} (which may be empty).</li>
+     *   <li>{@code ${NAME}}  replaced by override {@code NAME}; construction FAILS
+     *       (IllegalStateException) if the overrides do not define it — a required value must
+     *       never flow downstream as a literal.</li>
+     *   <li>{@code ${NAME:default}}  replaced by override {@code NAME} when defined,
+     *       otherwise by {@code default} (which may be empty).</li>
      * </ul>
      *
      * <p>This is called after all property sources (resource files and programmatic
      * overrides) have been merged, so that placeholders in any source are resolved
      * uniformly.</p>
      */
-    private static void resolvePlaceholders(Properties props) {
+    private static void resolvePlaceholders(Properties props, Properties overrides) {
         Pattern pattern = Pattern.compile("\\$\\{([^}:]+)(?::([^}]*))?\\}");
         for (String key : props.stringPropertyNames()) {
             String value = props.getProperty(key);
@@ -195,18 +199,18 @@ public class PeeGeeQConfiguration {
             while (matcher.find()) {
                 String varName = matcher.group(1);
                 String defaultVal = matcher.group(2); // null when no ':default' present
-                String envVal = System.getenv(varName);
+                String overrideVal = overrides.getProperty(varName);
                 String replacement;
-                if (envVal != null) {
-                    replacement = envVal;
+                if (overrideVal != null) {
+                    replacement = overrideVal;
                 } else if (defaultVal != null) {
                     replacement = defaultVal;
                 } else {
-                    // Fail fast: passing the literal "${VAR}" downstream is silent
-                    // corruption — a missing required variable must stop startup
+                    // Fail fast: passing the literal "${NAME}" downstream is silent
+                    // corruption — a missing required value must stop startup
                     throw new IllegalStateException(
-                        "Configuration property '" + key + "' references environment variable '"
-                        + varName + "' which is not set and has no default");
+                        "Configuration property '" + key + "' references '" + varName
+                        + "', which the configuration overrides do not define and which has no default");
                 }
                 matcher.appendReplacement(resolved, Matcher.quoteReplacement(replacement));
             }

@@ -31,6 +31,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests for {@link WatermarkCalculator}.
@@ -95,7 +96,7 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
         if (connectionManager != null) {
             new DeadConsumerGroupCleanup(connectionManager, "peegeeq-main")
                     .cleanupAllDeadGroups()
-                    .eventually(() -> connectionManager.close())
+                    .transform(TestCleanup.cleanup(() -> connectionManager.close()))
                     .onSuccess(v -> testContext.completeNow())
                     .onFailure(testContext::failNow);
         } else {

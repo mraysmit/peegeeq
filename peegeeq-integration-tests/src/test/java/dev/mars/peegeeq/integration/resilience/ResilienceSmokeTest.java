@@ -21,6 +21,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Resilience smoke tests that verify system behaviour when PostgreSQL becomes
@@ -53,11 +54,11 @@ public class ResilienceSmokeTest extends SmokeTestBase {
                         .compose(ignored -> pollHealthUntil(
                                 vertx, setupId, 503, 503, HEALTH_POLL_ATTEMPTS,
                                 "Service should return 503 when DB is paused"))
-                        .eventually(() -> unpauseDatabase(vertx)))
+                        .transform(TestCleanup.cleanup(() -> unpauseDatabase(vertx))))
                 .compose(v -> pollHealthUntil(
                         vertx, setupId, 200, 500, HEALTH_POLL_ATTEMPTS,
                         "Service should recover with 200 after DB is unpaused"))
-                .eventually(() -> setupService.destroySetup(setupId))
+                .transform(TestCleanup.cleanup(() -> setupService.destroySetup(setupId)))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }
@@ -83,8 +84,8 @@ public class ResilienceSmokeTest extends SmokeTestBase {
                 .compose(v -> pauseDatabase(vertx)
                         .compose(ignored -> triggerCircuitBreakerChecks(vertx, setupId, 12))
                         .compose(ignored -> verifyFastFailure(setupId))
-                        .eventually(() -> unpauseDatabase(vertx)))
-                .eventually(() -> setupService.destroySetup(setupId))
+                        .transform(TestCleanup.cleanup(() -> unpauseDatabase(vertx))))
+                .transform(TestCleanup.cleanup(() -> setupService.destroySetup(setupId)))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }

@@ -32,6 +32,7 @@ import java.util.concurrent.TimeUnit;
 import static dev.mars.peegeeq.failover.PgReplicationFixture.STANDBYS;
 import static dev.mars.peegeeq.failover.PgReplicationFixture.WRITER;
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Guarded installation of the pending durability policy by the supervisor: a real coordinator, a
@@ -106,10 +107,10 @@ class PgPolicyInstallationIntegrationTest {
     }
 
     @AfterEach void tearDown(VertxTestContext context) {
-        NODES.forceStopAll(runner).eventually(() -> elector.close()).eventually(() -> {
+        NODES.forceStopAll(runner).transform(TestCleanup.cleanup(() -> elector.close())).transform(TestCleanup.cleanup(() -> {
             admin.close();
             return Future.<Void>succeededFuture();
-        }).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+        })).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
     }
 
     @Test void installingThePendingPolicyPutsItInEffectUnderACompletedReceiptWithAdmissionClosed(

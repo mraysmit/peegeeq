@@ -53,6 +53,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent.NATIVE_QUEUE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
@@ -159,10 +160,10 @@ class PgNativeQueueConsumerCapacityIT {
                 allMessagesEntered.tryComplete();
             }
             return releaseHandlers.future()
-                    .eventually(() -> {
+                    .transform(TestCleanup.cleanup(() -> {
                         activeHandlers.decrementAndGet();
                         return Future.succeededFuture();
-                    });
+                    }));
         })
         .compose(ignored -> {
             List<Future<?>> sends = new ArrayList<>(MESSAGE_COUNT);
@@ -184,10 +185,10 @@ class PgNativeQueueConsumerCapacityIT {
                     });
         })
         .compose(ignored -> consumer.closeAsync())
-        .eventually(() -> {
+        .transform(TestCleanup.cleanup(() -> {
             releaseHandlers.tryComplete();
             return consumer.closeAsync();
-        })
+        }))
         .onSuccess(ignored -> testContext.verify(() -> {
             assertEquals(1, maximumAtBarrier.get(),
                     "consumerThreads=1 must atomically limit admitted handlers to one");

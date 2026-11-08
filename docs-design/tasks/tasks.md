@@ -1856,8 +1856,8 @@ Continued on 2026-11-08, third round:
 | Finding 6 consequence: aggregated closes | `Future.all` fails on the first failure while the sibling closes still run, so the next shutdown step starts early. Changed to `Future.join` in `PgConnectionManager.close`, `PartitionedConsumerEngine` teardown, `PgNativeQueueFactory.closeManagedResources` and the Spring `BiTemporalTxConfig` stop. The other callers of the changed closes (`PeeGeeQDatabaseSetupService.destroySetup` and `close`) already run every close and return the first failure. `PgDatabaseService.close()` logged "closed successfully" after starting a close it does not wait for; it now says the close started. | Native factory: `PgNativeQueueFactoryCloseIntegrationTest`, real faults (a held handler keeps one consumer's close open; the other consumer's claim waits on a table lock and is cancelled, 57014). Red with `Future.all` ("settled while a managed consumer was still closing"), green with `join`; the manager close reports the same failure through the factory's close hook. `PgConnectionManager.close`: no red test is possible on Vert.x 5.0.4, because `CloseFuture.close()` completes its promise whatever its children report, so `Pool.close()` never fails (static, from the vertx-core source). Engine teardown: `PartitionedNativeConsumerIntegrationTest.testTeardown_waitsForInFlightSweep_whenLeaveFails`. The first sweep runs at start; a held lock on `outbox_topic_watermarks` stops it at its upsert, an `EXCLUSIVE` lock on `outbox_topic_subscriptions` stops the leave at its generation bump, and only that query is cancelled. Red with `Future.all` ("stop settled while a watermark sweep was in flight"), green with `join`; the stop reports the 57014 leave failure. `PgNativeConsumerGroup` now logs an engine stop failure at ERROR, as `OutboxConsumerGroup` does, through `andThen` so the declared line precedes completion. Spring `BiTemporalTxConfig`: a store close can fail (a failed `UNLISTEN`), but no store close has a step a test can hold open (handler `UNLISTEN` and connection close, pool close, client close), so `all` and `join` cannot be told apart from outside; static. `join` is kept as the coding-principles form for parallel closes. Regression: native integration 236/236, db connection-manager classes 54/54. An earlier version of this row said the case "cannot be produced without a mock"; that was not checked and was wrong. |
 | `QueueBrowser.close()` | Not changed. Both implementations observe the asynchronous observer stop and log its failure. No caller has to wait for it, and the server stop closes the setup Vert.x, which closes the dedicated connections. | Static |
 
-vertx-junit5 5.1 migration (investigated 2026-11-08; test conversion done the same day; the
-version is not raised):
+vertx-junit5 5.1 migration (investigated 2026-11-08; test conversion done the same day;
+Vert.x raised to 5.1.10 the same day, see "Vert.x 5.1.10 upgrade" below):
 
 - What changes. 5.1 creates every context with a hidden invocation checkpoint and flags it only
   after the method returns. A context completed by checkpoints therefore cannot complete while the
@@ -1934,6 +1934,39 @@ version is not raised):
   (probe: failed context, and flagged checkpoint with an open invocation checkpoint). Its
   removal of leftover contexts stays; its post-`@AfterEach` await becomes redundant on 5.1, where
   VertxExtension joins the teardown itself, and is deleted then.
+
+Vert.x 5.1.10 upgrade (2026-11-08):
+
+- Root `vertx.version` 5.0.4 -> 5.1.10 (the latest 5.1 patch on Maven Central that day; 5.2.3
+  is the latest release and was not tried). The BOM moves vertx-core, pg-client, sql-client,
+  vertx-junit5 and the rest; `dependency:tree` shows 5.1.10 in native and in the standalone
+  Spring module. `scram.version` 3.1 -> 3.2: the pin had been set to the scram-client version
+  pg-client 5.0.4 declares, and 5.1.10 declares 3.2. The test containers authenticate with
+  SCRAM (`host all ... scram-sha-256`, read from the image), so integration tests exercise it.
+  `PeeGeeQServiceManager` printed a hard-coded "Vert.x 5.0.4"; it now prints the vertx-core
+  implementation version. README badge updated.
+- `VertxTeardownAfterFailureExtension`: the post-`@AfterEach` await is deleted. With it removed
+  the guard passes 3/3 on 5.1.10. A mutant that also skips the removal of leftover contexts fails
+  the failed-context fixture ("the teardown was cut off: CancellationException"), so the removal
+  stays.
+- Defect found by the upgrade, fixed: `PgDatabaseService.close()` closed its connection
+  provider, which wraps the manager's own client factory, before it started the manager close.
+  The manager runs its close hooks first and closes the client factory last, so a hook that
+  still used the database ran on closed pools. Spring bean destruction calls this `close()`; in
+  `OutboxErrorHandlingSpringBootTest` a consumer persisting a terminal state at shutdown failed
+  with `ClosedConnectionException`, then the consumer, factory and manager closes failed (5
+  ERROR entries; 0 in three 5.0.4 runs of the same class). The service now only starts the
+  manager close. Red first: `PgDatabaseServiceCoreTest.closeRunsTheManagerCloseHooksBeforeThePoolsClose`
+  failed with "Pool closed"; green 14/14 after. Only `PgDatabaseService` creates a
+  `PgConnectionProvider` in production code.
+- Runs on 5.1.10: core tier all modules green (Java 1837 + Vitest 128 and 836; pg-sidecar and
+  integration-tests have no core-tagged classes); test-support 64/64; targeted integration db
+  41 + 39 + 33, native 33, outbox 25, bitemporal 24, REST 23; Spring integration group 120/120
+  and the converted Spring classes 15/15 (0 shutdown errors after the fix); Spring reactive
+  and outbox classes 26/26 with SCRAM 3.2.
+- Not run on 5.1.10: the full integration tier of any reactor module, examples, benchmarking,
+  pg-failover integration, migrations integration, the UI end-to-end suites, and the
+  `-Pall-tests` gate. These belong on Jenkins.
 
 Found and not corrected on 2026-11-08, third round:
 

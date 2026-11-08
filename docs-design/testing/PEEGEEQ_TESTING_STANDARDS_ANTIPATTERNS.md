@@ -458,18 +458,25 @@ code exactly as in production code.
 this codebase was found to be error erasure. Both are banned everywhere. The full
 classification is in [the coding principles](../dev/pgq-coding-principles.md).
 
-The shutdown/cleanup case is the common temptation. The correct API is `.eventually()`, which
-runs a side-effect (close a pool, cancel a timer, leave a group) without altering whether the
-overall Future succeeds or fails.
+The shutdown/cleanup case is the common temptation. In tests the correct API is
+`TestCleanup.cleanup` from `peegeeq-test-support`. It runs the close on success and on failure,
+and a failed close fails a successful chain. `.eventually()` is not a replacement: it discards
+the outcome of the cleanup it runs, so a failed close is lost and the test passes. The guard in
+`VertxAsyncForbiddenPatternsGuardTest` rejects `.eventually(` in test sources. Production code
+that must report a close failure uses `CloseSteps`.
 
 ```java
 // WRONG: .recover() erases the error
 resource.close()
     .recover(e -> { logger.warn("Close failed", e); return Future.succeededFuture(); })
 
-// CORRECT: .eventually() runs cleanup without touching the outcome
+// WRONG: .eventually() discards a failed close
 operation()
     .eventually(() -> resource.close())
+
+// CORRECT: the close runs on both paths, and its failure fails the chain
+operation()
+    .transform(TestCleanup.cleanup(() -> resource.close()))
 ```
 
 Background timer callbacks that cannot propagate anywhere use `.onFailure(...)` as a terminal
@@ -539,19 +546,14 @@ void tearDown(VertxTestContext testContext) {
 ```
 
 ```java
-// CORRECT: void closes shielded, Future-returning closes composed in order, failure fails the test
+// CORRECT: every close runs in order, and the first failure fails the test
 @AfterEach
 void tearDown(VertxTestContext testContext) {
-    if (consumer != null) {
-        try { consumer.close(); } catch (Exception e) { logger.warn("Error closing consumer", e); }
-    }
-    if (producer != null) {
-        try { producer.close(); } catch (Exception e) { logger.warn("Error closing producer", e); }
-    }
-    Future.<Void>succeededFuture()
-        .compose(v -> factory != null ? factory.close() : Future.succeededFuture())
-        .compose(v -> connectionManager != null ? connectionManager.close() : Future.succeededFuture())
-        .compose(v -> manager != null ? manager.closeReactive() : Future.succeededFuture())
+    TestCleanup.run(
+            () -> consumer != null ? consumer.closeAsync() : Future.succeededFuture(),
+            () -> factory != null ? factory.close() : Future.succeededFuture(),
+            () -> connectionManager != null ? connectionManager.close() : Future.succeededFuture(),
+            () -> manager != null ? manager.closeReactive() : Future.succeededFuture())
         .onSuccess(v -> {
             manager = null;
             testContext.completeNow();
@@ -579,15 +581,13 @@ event loop is already dead, and the close is then never reached.
 
 ```java
 // WRONG: pool already closed when the cleanup query fires
-manager.closeReactive()
-    .eventually(() -> cleanupSql(pool))
+TestCleanup.run(() -> manager.closeReactive(), () -> cleanupSql(pool))
 
 // CORRECT: cleanup first, close last
-cleanupSql(pool)
-    .eventually(() -> manager.closeReactive())
+TestCleanup.run(() -> cleanupSql(pool), () -> manager.closeReactive())
 ```
 
-The close is the terminal `.eventually(...)` step, not the first one.
+The close is the last cleanup step, not the first one.
 
 ### Rule 5: The container outlives the manager
 
@@ -643,13 +643,14 @@ class MyTest {
 Pick one owner. Never mix `@ExtendWith(VertxExtension.class)` with a `Vertx` field created by
 the test.
 
-### Rule 7: `.eventually(() -> resource.close())` inside a test body
+### Rule 7: `.transform(TestCleanup.cleanup(() -> resource.close()))` inside a test body
 
-`.eventually(...)` on the test's Future chain is a valid place to close a resource whose
-`close()` returns a Future or is event-loop-safe (`MessageProducer.close()`,
-`MessageConsumer.close()`, `Pool.close()`). It is not a substitute for `@AfterEach`: a
-resource stored in a field is closed in `@AfterEach` through the chain in Rule 2, so that it
-is also closed when the test body fails before reaching `.eventually(...)`.
+`TestCleanup.cleanup(...)` on the test's Future chain is a valid place to close a resource whose
+`close()` returns a Future (`MessageConsumer.closeAsync()`, `Pool.close()`, a group's
+`close()`). A failed close fails the test. It is not a substitute for `@AfterEach`: a resource
+stored in a field is closed in `@AfterEach` through the chain in Rule 2, so that it is also
+closed when the test body fails before reaching the cleanup. Do not use `.eventually(...)`: it
+discards the close's failure.
 
 `try`/`finally` does not bracket an async Future chain. The `finally` block runs the moment
 the `try` body returns control, before the chain has settled, and can close a resource the
@@ -930,14 +931,14 @@ producer.send("msg1")
     .onSuccess(v -> { producer.close(); producer2.close(); })
     .onFailure(testContext::failNow);
 
-// CORRECT: close regardless of outcome
+// CORRECT: close regardless of outcome; a failed or throwing close fails the test
 producer.send("msg1")
     .compose(v -> producer2.send("msg2"))
-    .eventually(() -> {
+    .transform(TestCleanup.cleanup(() -> {
         producer.close();
         producer2.close();
         return Future.succeededFuture();
-    })
+    }))
     .onFailure(testContext::failNow);
 ```
 

@@ -156,19 +156,16 @@ public class PgDatabaseService implements dev.mars.peegeeq.api.database.Database
         }
     }
 
+    /**
+     * Starts the asynchronous manager close; PeeGeeQManager logs its outcome. The connection
+     * provider wraps the manager's client factory, which the manager closes after its close hooks
+     * have run. Closing the provider here closed the manager's pools under those hooks, so a
+     * consumer that wrote to the database while it closed failed.
+     */
     @Override
     public void close() throws Exception {
         logger.info("Closing database service");
-        try {
-            if (connectionProvider != null) {
-                connectionProvider.close();
-            }
-        } finally {
-            if (manager != null) {
-                // Starts the asynchronous manager close; PeeGeeQManager logs its outcome.
-                manager.close();
-            }
-        }
+        manager.close();
         logger.info("Database service close started; the manager closes asynchronously");
     }
 

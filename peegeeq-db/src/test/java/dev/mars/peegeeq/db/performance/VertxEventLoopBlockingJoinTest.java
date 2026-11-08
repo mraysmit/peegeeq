@@ -21,6 +21,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Verifies the scheduling contract that makes blocking an event loop unsafe.
@@ -55,7 +56,7 @@ class VertxEventLoopBlockingJoinTest {
                     "A timer queued by an event-loop callback must wait for that callback to return");
                 return (Void) null;
             })
-            .eventually(vertx::close)
+            .transform(TestCleanup.cleanup(vertx::close))
             .onSuccess(ignored -> testContext.completeNow())
             .onFailure(testContext::failNow);
     }
@@ -94,7 +95,7 @@ class VertxEventLoopBlockingJoinTest {
                     "The event loop must progress while worker coordination is pending");
                 return (Void) null;
             })
-            .eventually(vertx::close)
+            .transform(TestCleanup.cleanup(vertx::close))
             .onSuccess(ignored -> testContext.completeNow())
             .onFailure(testContext::failNow);
     }

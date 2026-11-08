@@ -42,6 +42,7 @@ import io.vertx.core.Future;
 import static org.junit.jupiter.api.Assertions.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Resource management tests for consumer mode implementation.
@@ -206,12 +207,12 @@ class ConsumerModeResourceManagementTest {
                 producer.send("Test polling message 1")
                     .compose(v -> producer2.send("Test polling message 2"))
                     .compose(v -> producer3.send("Test polling message 3"))
-                    .eventually(() -> {
+                    .transform(TestCleanup.cleanup(() -> {
                         producer.close();
                         producer2.close();
                         producer3.close();
                         return Future.succeededFuture();
-                    })
+                    }))
                     .onFailure(testContext::failNow);
             }).onFailure(testContext::failNow);
     }

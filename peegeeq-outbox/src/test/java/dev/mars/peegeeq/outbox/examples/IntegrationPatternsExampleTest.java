@@ -44,6 +44,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests for the implemented IntegrationPatternsExample patterns:
@@ -108,7 +109,7 @@ public class IntegrationPatternsExampleTest {
                 ? outboxFactory.close()
                 : Future.succeededFuture();
         closeChain
-                .eventually(() -> manager != null ? manager.closeReactive() : Future.succeededFuture())
+                .transform(TestCleanup.cleanup(() -> manager != null ? manager.closeReactive() : Future.succeededFuture()))
                 .onSuccess(v -> {
                     logger.info("Integration Patterns Example Test teardown completed");
                     testContext.completeNow();

@@ -56,6 +56,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import static org.junit.jupiter.api.Assertions.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests for {@link OutboxConsumerGroup#stopGracefully()} against a real PostgreSQL container.
@@ -104,8 +105,8 @@ class OutboxConsumerGroupGracefulShutdownTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
         Future.<Void>succeededFuture()
-                .eventually(() -> group != null ? group.close() : Future.succeededFuture())
-                .eventually(() -> manager != null ? manager.closeReactive() : Future.succeededFuture())
+                .transform(TestCleanup.cleanup(() -> group != null ? group.close() : Future.succeededFuture()))
+                .transform(TestCleanup.cleanup(() -> manager != null ? manager.closeReactive() : Future.succeededFuture()))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));

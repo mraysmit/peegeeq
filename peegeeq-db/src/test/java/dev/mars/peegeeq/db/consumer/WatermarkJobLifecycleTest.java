@@ -14,6 +14,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 @ExtendWith(VertxExtension.class)
 @Tag(TestCategories.CORE)
@@ -40,7 +41,7 @@ class WatermarkJobLifecycleTest {
                     assertFalse(job.isRunning());
                     return (Void) null;
                 })
-                .eventually(connectionManager::close)
+                .transform(TestCleanup.cleanup(connectionManager::close))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }
@@ -63,7 +64,7 @@ class WatermarkJobLifecycleTest {
                     assertFalse(job.isRunning());
                     return (Void) null;
                 })
-                .eventually(connectionManager::close)
+                .transform(TestCleanup.cleanup(connectionManager::close))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }
@@ -96,7 +97,7 @@ class WatermarkJobLifecycleTest {
                     assertFalse(job.isRunning());
                     return (Void) null;
                 })
-                .eventually(connectionManager::close)
+                .transform(TestCleanup.cleanup(connectionManager::close))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }

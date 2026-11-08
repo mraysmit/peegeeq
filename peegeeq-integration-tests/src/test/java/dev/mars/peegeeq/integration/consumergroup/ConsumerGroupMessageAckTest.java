@@ -35,6 +35,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration test verifying that a consumer group member receives a message
@@ -168,7 +169,7 @@ public class ConsumerGroupMessageAckTest extends SmokeTestBase {
                     pool.preparedQuery(
                             "SELECT COUNT(*) AS n FROM queue_messages WHERE topic = $1")
                         .execute(Tuple.of(queueName))
-                        .eventually(() -> pool.close())
+                        .transform(TestCleanup.cleanup(() -> pool.close()))
                         .onSuccess(rows -> {
                             long remaining = rows.iterator().next().getLong("n");
                             if (remaining > 0) {

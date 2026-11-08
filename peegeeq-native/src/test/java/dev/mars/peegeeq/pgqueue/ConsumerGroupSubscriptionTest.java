@@ -62,6 +62,7 @@ import io.vertx.sqlclient.Tuple;
 import static org.junit.jupiter.api.Assertions.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Unit tests for Consumer Group subscription and handler features.
@@ -215,7 +216,7 @@ class ConsumerGroupSubscriptionTest {
                         "Excluded historical messages must remain available, not be claimed and discarded");
                     return (Void) null;
                 })
-                .eventually(group::close)
+                .transform(TestCleanup.cleanup(group::close))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
 
@@ -253,7 +254,7 @@ class ConsumerGroupSubscriptionTest {
                     assertEquals(Set.copyOf(expected), Set.copyOf(received));
                     return (Void) null;
                 })
-                .eventually(group::close)
+                .transform(TestCleanup.cleanup(group::close))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
 
@@ -296,7 +297,7 @@ class ConsumerGroupSubscriptionTest {
                         "Messages before the timestamp must remain available");
                     return (Void) null;
                 })
-                .eventually(group::close)
+                .transform(TestCleanup.cleanup(group::close))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
 
@@ -336,7 +337,7 @@ class ConsumerGroupSubscriptionTest {
                         "Messages below the ID boundary must remain available");
                     return (Void) null;
                 })
-                .eventually(group::close)
+                .transform(TestCleanup.cleanup(group::close))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
 
@@ -435,7 +436,7 @@ class ConsumerGroupSubscriptionTest {
                     assertEquals((long) historical.size(), availableHistorical);
                     return (Void) null;
                 })
-                .eventually(group::close)
+                .transform(TestCleanup.cleanup(group::close))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
 
@@ -559,7 +560,7 @@ class ConsumerGroupSubscriptionTest {
                     producer.send("Message-2"),
                     producer.send("Message-3")).mapEmpty())
                 .compose(v -> atLeastTwoReceived.future())
-                .eventually(group::close)
+                .transform(TestCleanup.cleanup(group::close))
                 .onSuccess(v -> testContext.verify(() -> {
                     // The native queue may deliver any 2-3 of the sent payloads before close completes;
                     // every received payload must be one of the sent payloads (no duplicates, no corruption).
@@ -688,7 +689,7 @@ class ConsumerGroupSubscriptionTest {
                     assertEquals(Set.copyOf(expected), Set.copyOf(received));
                     return (Void) null;
                 })
-                .eventually(group::close)
+                .transform(TestCleanup.cleanup(group::close))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
 
@@ -762,11 +763,11 @@ class ConsumerGroupSubscriptionTest {
                         "Concurrent registration must create exactly one default consumer");
                     return (Void) null;
                 })
-                .eventually(group::close)
-                .eventually(() -> {
+                .transform(TestCleanup.cleanup(group::close))
+                .transform(TestCleanup.cleanup(() -> {
                     executor.shutdown();
                     return Future.succeededFuture();
-                })
+                }))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
 

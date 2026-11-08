@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Unit tests for {@code GET /api/v1/queues/:setupId/:queueName} verifying that
@@ -125,7 +126,7 @@ class QueueDetailsConfigResponseTest {
                 .compose(deployId -> {
                     webClient = WebClient.create(vertx);
                     return getDetails(webClient, PORT)
-                            .eventually(() -> vertx.undeploy(deployId));
+                            .transform(TestCleanup.cleanup(() -> vertx.undeploy(deployId)));
                 })
                 .onComplete(ctx.succeeding(body -> ctx.verify(() -> {
                     JsonObject config = body.getJsonObject("config");
@@ -167,7 +168,7 @@ class QueueDetailsConfigResponseTest {
                 .compose(deployId -> {
                     WebClient auxClient = WebClient.create(vertx);
                     return getDetails(auxClient, auxPort)
-                            .eventually(() -> vertx.undeploy(deployId));
+                            .transform(TestCleanup.cleanup(() -> vertx.undeploy(deployId)));
                 })
                 .onComplete(ctx.succeeding(body -> ctx.verify(() -> {
                     JsonObject config = body.getJsonObject("config");
@@ -220,7 +221,7 @@ class QueueDetailsConfigResponseTest {
                 .compose(deployId -> {
                     WebClient auxClient = WebClient.create(vertx);
                     return getDetails(auxClient, auxPort)
-                            .eventually(() -> vertx.undeploy(deployId));
+                            .transform(TestCleanup.cleanup(() -> vertx.undeploy(deployId)));
                 })
                 .onComplete(ctx.succeeding(body -> ctx.verify(() -> {
                     assertEquals("outbox", body.getString("implementationType"),

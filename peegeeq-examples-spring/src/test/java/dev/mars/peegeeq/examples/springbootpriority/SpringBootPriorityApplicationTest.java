@@ -65,6 +65,7 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests for Spring Boot Priority Example.
@@ -165,7 +166,7 @@ public class SpringBootPriorityApplicationTest {
 
         pool.query(createTradeSettlementsTable).execute()
             .compose(ignored -> pool.query(createPriorityConsumerMetricsTable).execute())
-            .eventually(connectionManager::close)
+            .transform(TestCleanup.cleanup(connectionManager::close))
             .onSuccess(ignored -> {
                 log.info("Application-specific tables created successfully");
                 testContext.completeNow();

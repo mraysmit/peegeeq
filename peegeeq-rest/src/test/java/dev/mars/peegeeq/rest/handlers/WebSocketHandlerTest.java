@@ -45,6 +45,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests for WebSocket handler functionality.
@@ -120,7 +121,7 @@ class WebSocketHandlerTest {
             cleanup = cleanup.compose(v -> wsClient.close());
         }
         if (deploymentId != null) {
-            cleanup = cleanup.eventually(() -> vertx.undeploy(deploymentId));
+            cleanup = cleanup.transform(TestCleanup.cleanup(() -> vertx.undeploy(deploymentId)));
         }
 
         cleanup

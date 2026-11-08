@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * The renewal timer of a node that holds the writer lease: a real coordinator, a real PostgreSQL
@@ -109,11 +110,11 @@ class PgRenewalLoopIntegrationTest {
 
     @AfterEach void tearDown(VertxTestContext context) {
         loop.stop().compose(ignored -> POSTGRES.forceStop(runner, dataDirectory))
-            .eventually(() -> elector.close())
-            .eventually(() -> {
+            .transform(TestCleanup.cleanup(() -> elector.close()))
+            .transform(TestCleanup.cleanup(() -> {
                 admin.close();
                 return Future.<Void>succeededFuture();
-            }).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+            })).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
     }
 
     @Test void renewalKeepsOwnershipFreshBeyondOneOwnershipBudget(VertxTestContext context) {

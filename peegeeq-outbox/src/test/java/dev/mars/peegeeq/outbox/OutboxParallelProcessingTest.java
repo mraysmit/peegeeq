@@ -58,6 +58,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Tests for parallel processing capabilities in the outbox pattern.
@@ -235,13 +236,13 @@ public class OutboxParallelProcessingTest {
             }
             return Future.all(sends).mapEmpty();
         })
-          .eventually(() -> {
+          .transform(TestCleanup.cleanup(() -> {
               // MessageProducer.close() is synchronous and void.
               for (MessageProducer<String> concurrentProducer : concurrentProducers) {
                   try { concurrentProducer.close(); } catch (Exception e) { logger.warn("Producer close failed: {}", e.getMessage()); }
               }
               return Future.succeededFuture();
-          })
+          }))
           .onFailure(testContext::failNow);
     }
 }

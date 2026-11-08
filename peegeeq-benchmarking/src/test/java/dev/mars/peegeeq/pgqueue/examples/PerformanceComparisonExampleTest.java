@@ -64,6 +64,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Performance comparison test showing the impact of different system property configurations.
@@ -149,7 +150,7 @@ class PerformanceComparisonExampleTest {
         logger.info(" Cleaning up Performance Comparison Test");
 
         (nativeFactory != null ? nativeFactory.close() : Future.<Void>succeededFuture())
-            .eventually(() -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+            .transform(TestCleanup.cleanup(() -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture()))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
@@ -398,7 +399,7 @@ class PerformanceComparisonExampleTest {
             vertx.setTimer(30000, id ->
                 allProcessed.tryFail("Timeout waiting for all messages for " + configName));
 
-            return resultFuture.eventually(() -> {
+            return resultFuture.transform(TestCleanup.cleanup(() -> {
                 try {
                     consumer.close();
                     producer.close();
@@ -407,7 +408,7 @@ class PerformanceComparisonExampleTest {
                     logger.error("Failed to close resources for configuration {}", configName, closeError);
                     return Future.failedFuture(closeError);
                 }
-            });
+            }));
 
         } catch (Exception e) {
             logger.error("Configuration test failed for {}: {}", configName, e.getMessage(), e);

@@ -27,6 +27,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests for System Monitoring Handler.
@@ -152,10 +153,10 @@ public class SystemMonitoringIntegrationTest {
                     });
                     ws.exceptionHandler(firstStats::tryFail);
 
-                    return firstStats.future().eventually(() -> {
+                    return firstStats.future().transform(TestCleanup.cleanup(() -> {
                         vertx.cancelTimer(timeoutTimerId);
                         return Future.succeededFuture();
-                    });
+                    }));
                 })
                 .compose(v -> {
                     // 3. Now scrape metrics

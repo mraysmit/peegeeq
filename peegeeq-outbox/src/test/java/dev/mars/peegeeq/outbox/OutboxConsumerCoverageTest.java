@@ -43,6 +43,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
@@ -282,7 +283,7 @@ class OutboxConsumerCoverageTest {
                                                     "Second message must wait while first completion update is blocked");
                                             return txRef.get().commit();
                                         })
-                                        .eventually(() -> lockConn.close());
+                                        .transform(TestCleanup.cleanup(() -> lockConn.close()));
                             });
                 })
                 .compose(v -> bothHandled.future())

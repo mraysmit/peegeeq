@@ -40,6 +40,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Performance tests for PgBiTemporalEventStore.
@@ -108,9 +109,9 @@ class PgBiTemporalEventStorePerformanceTest {
         peeGeeQManager = null;
 
         closeFuture
-            .eventually(() -> managerToClose != null
+            .transform(TestCleanup.cleanup(() -> managerToClose != null
                 ? managerToClose.closeReactive()
-                : Future.succeededFuture())
+                : Future.succeededFuture()))
             .transform(result -> {
                 PgBiTemporalEventStore.clearCachedPools();
                 return result.succeeded()

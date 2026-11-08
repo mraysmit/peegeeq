@@ -59,6 +59,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import io.vertx.core.Future;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Comprehensive test cases for advanced producer and consumer group functionality
@@ -465,8 +466,8 @@ class AdvancedProducerConsumerGroupTest {
                 return sendSimpleMessages(messageCount);
             })
             .compose(sent -> allMessagesProcessed.future())
-            .eventually(() -> Future.all(
-                orderGroup.close(), paymentGroup.close(), analyticsGroup.close()).mapEmpty())
+            .transform(TestCleanup.cleanup(() -> Future.all(
+                orderGroup.close(), paymentGroup.close(), analyticsGroup.close()).mapEmpty()))
             .onSuccess(ignored -> testContext.verify(() -> {
                 int totalProcessed = orderProcessedCount.get()
                     + paymentProcessedCount.get()

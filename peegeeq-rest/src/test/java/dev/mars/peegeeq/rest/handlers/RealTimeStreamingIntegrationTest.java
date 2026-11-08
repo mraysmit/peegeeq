@@ -44,6 +44,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests for real-time streaming features.
@@ -125,7 +126,7 @@ class RealTimeStreamingIntegrationTest {
             cleanup = cleanup.compose(v -> wsClient.close());
         }
         if (deploymentId != null) {
-            cleanup = cleanup.eventually(() -> vertx.undeploy(deploymentId));
+            cleanup = cleanup.transform(TestCleanup.cleanup(() -> vertx.undeploy(deploymentId)));
         }
 
         cleanup

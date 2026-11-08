@@ -20,6 +20,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * {@code dropDatabase} must poll {@code pg_stat_activity} until all
@@ -101,10 +102,10 @@ class DatabaseTemplateManagerDropDrainTest extends BaseIntegrationTest {
                 Pool adminPool = buildAdminPool(vertx);
                 return adminPool.withConnection(conn ->
                         databaseTemplateManager.dropDatabase(conn, testDbName))
-                    .eventually(adminPool::close)
-                    .eventually(() ->
+                    .transform(TestCleanup.cleanup(adminPool::close))
+                    .transform(TestCleanup.cleanup(() ->
                         // close targetPool; may fail because the database was dropped ignored by .eventually()
-                        targetPool.close());
+                        targetPool.close()));
             })
             .compose(ignored -> {
 
@@ -112,7 +113,7 @@ class DatabaseTemplateManagerDropDrainTest extends BaseIntegrationTest {
                 Pool adminPool = buildAdminPool(vertx);
                 return adminPool.withConnection(conn ->
                         databaseTemplateManager.databaseExists(conn, testDbName))
-                    .eventually(adminPool::close);
+                    .transform(TestCleanup.cleanup(adminPool::close));
             })
             .onSuccess(exists -> {
                 testContext.verify(() ->

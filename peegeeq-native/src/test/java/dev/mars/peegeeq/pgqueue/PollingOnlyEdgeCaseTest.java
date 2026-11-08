@@ -39,6 +39,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Edge case tests for POLLING_ONLY consumer mode.
@@ -287,10 +288,10 @@ class PollingOnlyEdgeCaseTest {
                 assertEquals(0, messageCount.get(), "Should not process any messages from empty queue");
                 return producer.send("Message after empty polling");
             })
-            .eventually(() -> {
+            .transform(TestCleanup.cleanup(() -> {
                 producer.close();
                 return Future.succeededFuture();
-            })
+            }))
             .onFailure(testContext::failNow);
     }
 

@@ -67,8 +67,8 @@ public class PerformanceTestResultsGenerator {
         report.append("**Date:** ").append(LocalDateTime.now().format(DateTimeFormatter.ofPattern("MMMM d, yyyy"))).append("  \n");
         report.append("**Test Environment:** ").append(testEnvironment).append("  \n");
         
-        // Add Vert.x version if available
-        String vertxVersion = System.getProperty("vertx.version", "5.x with optimizations applied");
+        // The version of the vertx-core jar on the classpath, from its manifest
+        String vertxVersion = io.vertx.core.Vertx.class.getPackage().getImplementationVersion();
         report.append("**Vert.x Version:** ").append(vertxVersion).append("  \n\n");
         
         // Executive Summary

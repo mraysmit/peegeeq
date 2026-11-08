@@ -20,8 +20,12 @@ package dev.mars.peegeeq.pgqueue;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
+import io.vertx.pgclient.PgException;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
@@ -36,7 +40,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import io.vertx.core.streams.ReadStream;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -76,21 +79,22 @@ public class PgNativeQueueContainersTest {
         this.vertx = vertx;
         objectMapper = new ObjectMapper();
 
-        // Create connection options from TestContainer
-        PgConnectOptions connectOptions = new PgConnectOptions()
-                .setHost(postgres.getHost())
-                .setPort(postgres.getFirstMappedPort())
-                .setDatabase(postgres.getDatabaseName())
-                .setUser(postgres.getUsername())
-                .setPassword(postgres.getPassword());
-
         // Create pool options
         PoolOptions poolOptions = new PoolOptions()
                 .setMaxSize(5);
 
         // Create queue
-        queue = new PgNativeQueue<>(vertx, connectOptions, poolOptions, 
+        queue = new PgNativeQueue<>(vertx, connectOptions(postgres.getFirstMappedPort()), poolOptions,
                 objectMapper, "test_channel", JsonObject.class);
+    }
+
+    private static PgConnectOptions connectOptions(int port) {
+        return new PgConnectOptions()
+                .setHost(postgres.getHost())
+                .setPort(port)
+                .setDatabase(postgres.getDatabaseName())
+                .setUser(postgres.getUsername())
+                .setPassword(postgres.getPassword());
     }
 
     @AfterEach
@@ -109,25 +113,20 @@ public class PgNativeQueueContainersTest {
         // A strict checkpoint: a second delivery fails the test.
         Checkpoint messageReceived = testContext.checkpoint();
 
-        // Act - Get the ReadStream from the queue
-        ReadStream<JsonObject> stream = queue.receive();
-
-        // Set up handlers for the stream
-        stream.handler(message -> {
-            testContext.verify(() -> {
-                assertNotNull(message, "Received message should not be null");
-                assertEquals(messageText, message.getString("text"));
-            });
-            messageReceived.flag();
-        });
-
-        stream.exceptionHandler(testContext::failNow);
-
-        // Wait for subscription setup, then send
-        vertx.setTimer(1000, id -> {
-            queue.send(expectedPayload)
-                .onFailure(testContext::failNow);
-        });
+        // Act: listen() completes once LISTEN has run; a NOTIFY sent before that is lost.
+        queue.listen()
+            .compose(stream -> {
+                stream.handler(message -> {
+                    testContext.verify(() -> {
+                        assertNotNull(message, "Received message should not be null");
+                        assertEquals(messageText, message.getString("text"));
+                    });
+                    messageReceived.flag();
+                });
+                stream.exceptionHandler(testContext::failNow);
+                return queue.send(expectedPayload);
+            })
+            .onFailure(testContext::failNow);
     }
 
     @Test
@@ -138,24 +137,21 @@ public class PgNativeQueueContainersTest {
         // A strict checkpoint: exactly five deliveries.
         Checkpoint messagesReceived = testContext.checkpoint(messageCount);
 
-        // Act - Get the ReadStream from the queue
-        ReadStream<JsonObject> stream = queue.receive();
-
-        // Set up handlers for the stream
-        stream.handler(message -> messagesReceived.flag());
-
-        stream.exceptionHandler(testContext::failNow);
-
-        // Wait for subscription setup, then send
-        vertx.setTimer(1000, id -> {
-            for (int i = 0; i < messageCount; i++) {
-                JsonObject payload = new JsonObject()
-                        .put("text", "Test message " + i)
-                        .put("index", i);
-                queue.send(payload)
-                    .onFailure(testContext::failNow);
-            }
-        });
+        // Act: send once LISTEN has run.
+        queue.listen()
+            .compose(stream -> {
+                stream.handler(message -> messagesReceived.flag());
+                stream.exceptionHandler(testContext::failNow);
+                Future<Void> sends = Future.succeededFuture();
+                for (int i = 0; i < messageCount; i++) {
+                    JsonObject payload = new JsonObject()
+                            .put("text", "Test message " + i)
+                            .put("index", i);
+                    sends = sends.compose(v -> queue.send(payload));
+                }
+                return sends;
+            })
+            .onFailure(testContext::failNow);
     }
 
     @Test
@@ -168,26 +164,92 @@ public class PgNativeQueueContainersTest {
         Checkpoint firstMessageReceived = testContext.checkpoint();
         AtomicReference<JsonObject> receivedMessage = new AtomicReference<>();
 
-        // Act - Get the ReadStream from the queue
-        ReadStream<JsonObject> stream = queue.receive();
+        // Act: send once LISTEN has run.
+        queue.listen()
+            .compose(stream -> {
+                stream.handler(message -> {
+                    // Only handle the first message
+                    if (receivedMessage.compareAndSet(null, message)) {
+                        testContext.verify(() -> assertEquals(messageText, message.getString("text")));
+                        firstMessageReceived.flag();
+                        // Pause the stream after receiving the first message
+                        stream.pause();
+                    }
+                });
+                stream.exceptionHandler(testContext::failNow);
+                return queue.send(expectedPayload);
+            })
+            .onFailure(testContext::failNow);
+    }
 
-        // Set up handlers for the stream
-        stream.handler(message -> {
-            // Only handle the first message
-            if (receivedMessage.compareAndSet(null, message)) {
-                testContext.verify(() -> assertEquals(messageText, message.getString("text")));
-                firstMessageReceived.flag();
-                // Pause the stream after receiving the first message
-                stream.pause();
-            }
-        });
+    @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.pgqueue.PgNativeQueue",
+            message = "Failed to LISTEN on channel invalid channel: ",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.pgqueue.PgNotificationStream",
+            message = "Handling error: ",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = PgException.class)
+    void listenFailsWhenTheListenStatementIsRejected(VertxTestContext testContext) {
+        // A channel name with a space is not an identifier, so the server rejects the LISTEN.
+        PgNativeQueue<JsonObject> invalidChannel = new PgNativeQueue<>(vertx,
+                connectOptions(postgres.getFirstMappedPort()), new PoolOptions().setMaxSize(1),
+                objectMapper, "invalid channel", JsonObject.class);
 
-        stream.exceptionHandler(testContext::failNow);
+        invalidChannel.listen()
+            .transform(TestCleanup.cleanup(invalidChannel::close))
+            .onSuccess(stream -> testContext.failNow(new AssertionError("LISTEN of an invalid channel must fail")))
+            .onFailure(error -> testContext.verify(() -> {
+                assertInstanceOf(PgException.class, error, "the server's rejection must reach the caller");
+                testContext.completeNow();
+            }));
+    }
 
-        // Wait for subscription setup, then send
-        vertx.setTimer(1000, id -> {
-            queue.send(expectedPayload)
-                .onFailure(testContext::failNow);
-        });
+    @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.pgqueue.PgNativeQueue",
+            message = "Failed to establish LISTEN connection for channel unreachable_channel: ",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.pgqueue.PgNotificationStream",
+            message = "Handling error: ",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = java.net.ConnectException.class)
+    void listenFailsWhenTheServerIsUnreachable(VertxTestContext testContext) {
+        // Port 1 on the container host has no listener, so the connection is refused.
+        PgNativeQueue<JsonObject> unreachable = new PgNativeQueue<>(vertx, connectOptions(1),
+                new PoolOptions().setMaxSize(1), objectMapper, "unreachable_channel", JsonObject.class);
+
+        unreachable.listen()
+            .transform(TestCleanup.cleanup(unreachable::close))
+            .onSuccess(stream -> testContext.failNow(new AssertionError("listen() must fail without a server")))
+            .onFailure(error -> testContext.verify(() -> {
+                assertFalse(error instanceof IllegalStateException,
+                        "the connection failure must reach the caller, not a closed-queue failure: " + error);
+                testContext.completeNow();
+            }));
+    }
+
+    @Test
+    void listenFailsWhenTheQueueWasClosedBeforeTheConnectionArrived(VertxTestContext testContext) {
+        PgNativeQueue<JsonObject> closedQueue = new PgNativeQueue<>(vertx,
+                connectOptions(postgres.getFirstMappedPort()), new PoolOptions().setMaxSize(1),
+                objectMapper, "closed_channel", JsonObject.class);
+
+        closedQueue.close()
+            .compose(closed -> closedQueue.listen())
+            .onSuccess(stream -> testContext.failNow(new AssertionError("listen() after close() must fail")))
+            .onFailure(error -> testContext.verify(() -> {
+                assertInstanceOf(IllegalStateException.class, error);
+                assertEquals("PgNativeQueue for channel closed_channel was closed before LISTEN was established",
+                        error.getMessage());
+                testContext.completeNow();
+            }));
     }
 }

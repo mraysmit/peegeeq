@@ -43,6 +43,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Performance comparison tests for different consumer modes.
@@ -234,12 +235,12 @@ class ConsumerModePerformanceTest {
 
             return sendChain
                     .compose(ignored -> allProcessedSignal.future())
-                    .eventually(() -> {
+                    .transform(TestCleanup.cleanup(() -> {
                         vertx.cancelTimer(timerId);
                         try { producer.close(); } catch (Exception e) { logger.warn("producer.close failed in throughput measurement", e); }
                         try { consumer.close(); } catch (Exception e) { logger.warn("consumer.close failed in throughput measurement", e); }
                         return Future.succeededFuture();
-                    })
+                    }))
                     .map(endTime -> {
                         double durationSeconds = (endTime - startTimeRef[0]) / 1000.0;
                         double throughput = messageCount / durationSeconds;
@@ -295,12 +296,12 @@ class ConsumerModePerformanceTest {
 
             return sendChain
                     .compose(ignored -> allProcessedSignal.future())
-                    .eventually(() -> {
+                    .transform(TestCleanup.cleanup(() -> {
                         vertx.cancelTimer(timerId);
                         try { producer.close(); } catch (Exception e) { logger.warn("producer.close failed in latency measurement", e); }
                         try { consumer.close(); } catch (Exception e) { logger.warn("consumer.close failed in latency measurement", e); }
                         return Future.succeededFuture();
-                    })
+                    }))
                     .map(ignored -> {
                         latencies.sort(Long::compareTo);
                         double minLatency = latencies.get(0);

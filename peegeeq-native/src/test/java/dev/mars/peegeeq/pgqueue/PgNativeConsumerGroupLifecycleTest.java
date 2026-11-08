@@ -55,6 +55,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Core lifecycle tests for {@link PgNativeConsumerGroup}.
@@ -82,11 +83,11 @@ class PgNativeConsumerGroupLifecycleTest {
     void tearDown(VertxTestContext testContext) {
         Future<Void> cleanup = group != null ? group.close() : Future.succeededFuture();
         for (PgConnectionManager cm : extraConnectionManagers) {
-            cleanup = cleanup.eventually(cm::close);
+            cleanup = cleanup.transform(TestCleanup.cleanup(cm::close));
         }
         extraConnectionManagers.clear();
         for (Vertx vtx : extraVertxInstances) {
-            cleanup = cleanup.eventually(vtx::close);
+            cleanup = cleanup.transform(TestCleanup.cleanup(vtx::close));
         }
         extraVertxInstances.clear();
         cleanup

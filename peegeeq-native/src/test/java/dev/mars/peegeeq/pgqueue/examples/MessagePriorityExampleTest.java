@@ -63,6 +63,7 @@ import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Comprehensive JUnit test demonstrating message priority handling in PeeGeeQ Native Queue.
@@ -220,12 +221,12 @@ class MessagePriorityExampleTest {
         sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "msg-4", "HIGH", "Important notification", PRIORITY_HIGH));
         sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "msg-5", "CRITICAL", "Security alert", PRIORITY_CRITICAL));
         sendChain
-            .eventually(() -> {
+            .transform(TestCleanup.cleanup(() -> {
                 // MessageProducer.close() is synchronous and void; the teardown closes the
                 // consumer through the factory.
                 producer.close();
                 return Future.succeededFuture();
-            })
+            }))
             .onFailure(testContext::failNow);
     }
 
@@ -259,12 +260,12 @@ class MessagePriorityExampleTest {
         sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "low-1", "CLEANUP", "Cleanup old logs", PRIORITY_LOW));
         sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "bulk-1", "ANALYTICS", "Generate daily report", PRIORITY_BULK));
         sendChain
-            .eventually(() -> {
+            .transform(TestCleanup.cleanup(() -> {
                 // MessageProducer.close() is synchronous and void; the teardown closes the
                 // consumer through the factory.
                 producer.close();
                 return Future.succeededFuture();
-            })
+            }))
             .onFailure(testContext::failNow);
     }
 
@@ -308,12 +309,12 @@ class MessagePriorityExampleTest {
         sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "bulk-001", "BULK_ORDER", "Inventory reconciliation", PRIORITY_LOW));
         sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "analytics-001", "ANALYTICS", "Daily sales report", PRIORITY_BULK));
         sendChain
-            .eventually(() -> {
+            .transform(TestCleanup.cleanup(() -> {
                 // MessageProducer.close() is synchronous and void; the teardown closes the
                 // consumer through the factory.
                 producer.close();
                 return Future.succeededFuture();
-            })
+            }))
             .onFailure(testContext::failNow);
     }
 
@@ -356,12 +357,12 @@ class MessagePriorityExampleTest {
         // Batch processing
         sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "batch-001", "BATCH_TX", "End-of-day reconciliation", PRIORITY_BULK));
         sendChain
-            .eventually(() -> {
+            .transform(TestCleanup.cleanup(() -> {
                 // MessageProducer.close() is synchronous and void; the teardown closes the
                 // consumer through the factory.
                 producer.close();
                 return Future.succeededFuture();
-            })
+            }))
             .onFailure(testContext::failNow);
     }
 
@@ -403,12 +404,12 @@ class MessagePriorityExampleTest {
         // Background analytics
         sendChain = sendChain.compose(v -> sendPriorityMessage(producer, "analytics-001", "METRICS", "Generate performance metrics", PRIORITY_BULK));
         sendChain
-            .eventually(() -> {
+            .transform(TestCleanup.cleanup(() -> {
                 // MessageProducer.close() is synchronous and void; the teardown closes the
                 // consumer through the factory.
                 producer.close();
                 return Future.succeededFuture();
-            })
+            }))
             .onFailure(testContext::failNow);
     }
 
@@ -440,12 +441,12 @@ class MessagePriorityExampleTest {
             sendChain = sendChain.compose(v -> sendPriorityMessage(producer, messageId, messageType, content, priority));
         }
         sendChain
-            .eventually(() -> {
+            .transform(TestCleanup.cleanup(() -> {
                 // MessageProducer.close() is synchronous and void; the teardown closes the
                 // consumer through the factory.
                 producer.close();
                 return Future.succeededFuture();
-            })
+            }))
             .compose(sent -> allProcessed.future())
             .onSuccess(done -> testContext.verify(() -> {
                 long duration = System.currentTimeMillis() - startTime;

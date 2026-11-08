@@ -52,6 +52,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Edge case tests for Outbox Consumer Group subscription features.
@@ -176,7 +177,7 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                         });
                         return (Void) null;
                     })
-                    .eventually(() -> group.close());
+                    .transform(TestCleanup.cleanup(() -> group.close()));
             })
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);

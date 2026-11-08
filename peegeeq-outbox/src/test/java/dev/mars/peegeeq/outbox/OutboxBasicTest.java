@@ -54,6 +54,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 import static org.junit.jupiter.api.Assertions.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Basic integration tests for outbox producer and consumer functionality.
@@ -112,9 +113,9 @@ class OutboxBasicTest {
                 ? outboxFactory.close()
                 : Future.succeededFuture();
         factoryClose
-            .eventually(() -> manager != null
+            .transform(TestCleanup.cleanup(() -> manager != null
                     ? manager.closeReactive()
-                    : Future.succeededFuture())
+                    : Future.succeededFuture()))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));

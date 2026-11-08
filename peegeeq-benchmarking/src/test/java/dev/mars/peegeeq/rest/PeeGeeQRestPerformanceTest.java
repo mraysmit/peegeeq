@@ -42,6 +42,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Performance tests for PeeGeeQ REST API using TestContainers.
@@ -111,13 +112,13 @@ public class PeeGeeQRestPerformanceTest {
         deploymentId = null;
 
         cleanup
-                .eventually(() -> {
+                .transform(TestCleanup.cleanup(() -> {
                     if (client != null) {
                         client.close();
                         client = null;
                     }
                     return Future.succeededFuture();
-                })
+                }))
                 .onSuccess(v -> {
                     logger.info("Performance test cleanup completed");
                     testContext.completeNow();

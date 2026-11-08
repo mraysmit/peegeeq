@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests for the Phase R wiring of {@link SetupBindingRegistry} into
@@ -130,9 +131,9 @@ class SetupBindingPersistenceIntegrationTest extends BaseIntegrationTest {
                             "the opaque credential reference must be stored verbatim");
                     return Future.succeededFuture();
                 })
-                .eventually(() -> verifyMgr.close())
+                .transform(TestCleanup.cleanup(() -> verifyMgr.close()))
                 .compose(v -> service.destroySetup(setupId))
-                .eventually(() -> service.close())
+                .transform(TestCleanup.cleanup(() -> service.close()))
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
     }
@@ -167,9 +168,9 @@ class SetupBindingPersistenceIntegrationTest extends BaseIntegrationTest {
                     }
                     return Future.succeededFuture();
                 })
-                .eventually(() -> verifyMgr.close())
+                .transform(TestCleanup.cleanup(() -> verifyMgr.close()))
                 .compose(v -> service.destroySetup(setupId))
-                .eventually(() -> service.close())
+                .transform(TestCleanup.cleanup(() -> service.close()))
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
     }
@@ -201,7 +202,7 @@ class SetupBindingPersistenceIntegrationTest extends BaseIntegrationTest {
                     assertTrue(ar.failed(), "the setup must not remain active after the failed create");
                     return Future.succeededFuture();
                 }))
-                .eventually(() -> service.close())
+                .transform(TestCleanup.cleanup(() -> service.close()))
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
     }
@@ -240,11 +241,11 @@ class SetupBindingPersistenceIntegrationTest extends BaseIntegrationTest {
                     assertEquals("mem://connect-ref", it.next().getString("credential_ref"));
                     return Future.succeededFuture();
                 })
-                .eventually(() -> verifyMgr.close())
+                .transform(TestCleanup.cleanup(() -> verifyMgr.close()))
                 .compose(v -> serviceB.destroySetup(setupId))
-                .eventually(() -> serviceB.close())
+                .transform(TestCleanup.cleanup(() -> serviceB.close()))
                 .compose(v -> serviceA.destroySetup(setupId))
-                .eventually(() -> serviceA.close())
+                .transform(TestCleanup.cleanup(() -> serviceA.close()))
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
     }
@@ -283,8 +284,8 @@ class SetupBindingPersistenceIntegrationTest extends BaseIntegrationTest {
                         return Future.succeededFuture();
                     });
                 })
-                .eventually(() -> verifyMgr.close())
-                .eventually(() -> service.close())
+                .transform(TestCleanup.cleanup(() -> verifyMgr.close()))
+                .transform(TestCleanup.cleanup(() -> service.close()))
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
     }
@@ -373,7 +374,7 @@ class SetupBindingPersistenceIntegrationTest extends BaseIntegrationTest {
                 // Start both independent shutdowns before either owned Vert.x instance stops.
                 // Observing them through one aggregate avoids scheduling the second close from a
                 // continuation whose event loop may already be terminating under CI load.
-                .eventually(() -> Future.all(serviceA.close(), serviceB.close()).mapEmpty())
+                .transform(TestCleanup.cleanup(() -> Future.all(serviceA.close(), serviceB.close()).mapEmpty()))
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
     }
@@ -392,7 +393,7 @@ class SetupBindingPersistenceIntegrationTest extends BaseIntegrationTest {
                     assertTrue(report.getSkippedSetups().isEmpty(), "nothing to skip");
                     return Future.<Void>succeededFuture();
                 })
-                .eventually(() -> service.close())
+                .transform(TestCleanup.cleanup(() -> service.close()))
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
     }
@@ -408,7 +409,7 @@ class SetupBindingPersistenceIntegrationTest extends BaseIntegrationTest {
                             "failure must explain the missing registry, got: " + ar.cause());
                     return Future.succeededFuture();
                 })
-                .eventually(() -> service.close())
+                .transform(TestCleanup.cleanup(() -> service.close()))
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
     }

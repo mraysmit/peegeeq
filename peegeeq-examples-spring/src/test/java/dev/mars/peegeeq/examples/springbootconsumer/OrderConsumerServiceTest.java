@@ -65,6 +65,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 
 import org.junit.jupiter.api.AfterAll;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests for Spring Boot Consumer Example.
@@ -152,7 +153,7 @@ public class OrderConsumerServiceTest {
 
         pool.query(CREATE_ORDERS_TABLE).execute()
             .compose(ignored -> pool.query(CREATE_CONSUMER_STATUS_TABLE).execute())
-            .eventually(connectionManager::close)
+            .transform(TestCleanup.cleanup(connectionManager::close))
             .onSuccess(ignored -> {
                 log.info("Application-specific consumer tables created before Spring context startup");
                 testContext.completeNow();
@@ -232,10 +233,10 @@ public class OrderConsumerServiceTest {
                             return row.getLong(0) > 0;
                         });
                 }))
-            .eventually(() -> {
+            .transform(TestCleanup.cleanup(() -> {
                 producer.close();
                 return Future.succeededFuture();
-            })
+            }))
             .onSuccess(orderExists -> testContext.verify(() -> {
                 assertTrue(orderExists, "Order should be stored in database");
                 assertTrue(consumerService.getMessagesProcessed() > 0, "Consumer should have processed messages");
@@ -266,10 +267,10 @@ public class OrderConsumerServiceTest {
             .compose(v -> producer.send(filteredEvent))
             // Wait for both messages to be processed then verify
             .compose(v -> vertx.timer(2000))
-            .eventually(() -> {
+            .transform(TestCleanup.cleanup(() -> {
                 producer.close();
                 return Future.succeededFuture();
-            })
+            }))
             .onSuccess(v -> testContext.verify(() -> {
                 long processedDelta = consumerService.getMessagesProcessed() - initialProcessed;
                 long filteredDelta = consumerService.getMessagesFiltered() - initialFiltered;

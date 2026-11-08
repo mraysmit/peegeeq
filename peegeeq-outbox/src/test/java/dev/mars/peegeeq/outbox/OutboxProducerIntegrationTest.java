@@ -45,6 +45,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import java.util.List;
 import java.util.Properties;
 import java.util.UUID;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests for OutboxProducer.
@@ -384,10 +385,10 @@ public class OutboxProducerIntegrationTest {
                         producer.send("payload", null, "correlation-id"),
                         producer.send("payload", null, "correlation-id", "message-group")))
                 .compose(v -> verifyPersistedMetadata(topic, 4, 2, 1, 4, 4))
-                .eventually(() -> {
+                .transform(TestCleanup.cleanup(() -> {
                     producer.close();
                     return Future.succeededFuture();
-                })
+                }))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }
@@ -431,10 +432,10 @@ public class OutboxProducerIntegrationTest {
         java.util.Map<String, String> emptyHeaders = new java.util.HashMap<>();
         producer.send("payload", emptyHeaders)
                 .compose(v -> verifyPersistedMetadata(topic, 1, 0, 0, 1, 1))
-                .eventually(() -> {
+                .transform(TestCleanup.cleanup(() -> {
                     producer.close();
                     return Future.succeededFuture();
-                })
+                }))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }
@@ -453,10 +454,10 @@ public class OutboxProducerIntegrationTest {
         // Null correlation ID should be acceptable
         producer.send("payload", null, null)
                 .compose(v -> verifyPersistedMetadata(topic, 1, 0, 0, 1, 1))
-                .eventually(() -> {
+                .transform(TestCleanup.cleanup(() -> {
                     producer.close();
                     return Future.succeededFuture();
-                })
+                }))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }

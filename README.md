@@ -6,7 +6,7 @@
 
 [![Java](https://img.shields.io/badge/Java-23-orange.svg)](https://openjdk.java.net/projects/jdk/23/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-12+-336791.svg)](https://www.postgresql.org/)
-[![Vert.x](https://img.shields.io/badge/Vert.x-5.0.4-purple.svg)](https://vertx.io/)
+[![Vert.x](https://img.shields.io/badge/Vert.x-5.1.10-purple.svg)](https://vertx.io/)
 [![React](https://img.shields.io/badge/React-18-61DAFB.svg?logo=react&logoColor=white)](https://reactjs.org/)
 [![Maven](https://img.shields.io/badge/Maven-3.8+-blue.svg)](https://maven.apache.org/)
 [![Build](https://img.shields.io/github/actions/workflow/status/mraysmit/peegeeq/build.yml?branch=master&logo=github)](https://github.com/mraysmit/peegeeq/actions)

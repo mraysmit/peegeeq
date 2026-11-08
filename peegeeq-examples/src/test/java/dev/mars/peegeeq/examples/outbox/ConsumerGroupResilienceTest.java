@@ -57,6 +57,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Test cases for consumer group resilience, error handling, and recovery scenarios
@@ -156,11 +157,11 @@ class ConsumerGroupResilienceTest {
         manager.closeReactive()
             .onSuccess(v -> logger.info("PeeGeeQ manager closed"))
             .onFailure(err -> logger.error("Error closing manager", err))
-            .eventually(() -> {
+            .transform(TestCleanup.cleanup(() -> {
                 logger.info("Resilience test teardown completed");
                 testContext.completeNow();
                 return Future.<Void>succeededFuture();
-            });
+            }));
     }
     
     /**

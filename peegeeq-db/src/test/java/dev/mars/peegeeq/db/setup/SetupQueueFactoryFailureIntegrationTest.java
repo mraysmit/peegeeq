@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests for queue factory creation failures during
@@ -115,7 +116,7 @@ class SetupQueueFactoryFailureIntegrationTest extends BaseIntegrationTest {
                     assertTrue(ar.failed(), "the setup must not remain active after the failed create");
                     return Future.succeededFuture();
                 }))
-                .eventually(() -> service.close())
+                .transform(TestCleanup.cleanup(() -> service.close()))
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
     }
@@ -163,7 +164,7 @@ class SetupQueueFactoryFailureIntegrationTest extends BaseIntegrationTest {
                     assertTrue(ar.failed(), "the setup must not remain active after the failed create");
                     return Future.succeededFuture();
                 }))
-                .eventually(() -> service.close())
+                .transform(TestCleanup.cleanup(() -> service.close()))
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
     }
@@ -223,7 +224,7 @@ class SetupQueueFactoryFailureIntegrationTest extends BaseIntegrationTest {
                             + "because the failed setup does not own it");
                     return Future.succeededFuture();
                 })
-                .eventually(() -> service.close())
+                .transform(TestCleanup.cleanup(() -> service.close()))
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
     }
@@ -267,7 +268,7 @@ class SetupQueueFactoryFailureIntegrationTest extends BaseIntegrationTest {
                     assertTrue(ar.failed(), "the setup must not remain active after the failed create");
                     return Future.succeededFuture();
                 }))
-                .eventually(() -> service.close())
+                .transform(TestCleanup.cleanup(() -> service.close()))
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
     }

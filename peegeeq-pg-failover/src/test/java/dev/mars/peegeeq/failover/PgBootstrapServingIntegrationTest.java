@@ -36,6 +36,7 @@ import java.util.concurrent.TimeUnit;
 import static dev.mars.peegeeq.failover.PgReplicationFixture.STANDBYS;
 import static dev.mars.peegeeq.failover.PgReplicationFixture.WRITER;
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * The second half of first-start bootstrap: policy installation, confirmation of revision 1,
@@ -114,14 +115,14 @@ class PgBootstrapServingIntegrationTest {
         // A frozen coordinator must be resumed before anything else talks to it.
         (consulPaused ? resumeConsul() : Future.<Void>succeededFuture())
             .compose(ignored -> connectionManager == null ? Future.<Void>succeededFuture() : connectionManager.close())
-            .compose(ignored -> NODES.forceStopAll(runner)).eventually(() -> {
+            .compose(ignored -> NODES.forceStopAll(runner)).transform(TestCleanup.cleanup(() -> {
             Future<Void> closed = elector.close();
             for (PgPrimaryElector observer : observers) closed = closed.compose(ignored -> observer.close());
             return closed;
-        }).eventually(() -> {
+        })).transform(TestCleanup.cleanup(() -> {
             admin.close();
             return Future.<Void>succeededFuture();
-        }).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+        })).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
     }
 
     @Test void servingInstallsConfirmsPreparesPublishesAndOpensAdmissionForRevisionOne(VertxTestContext context) {

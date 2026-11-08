@@ -43,6 +43,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 @Tag(TestCategories.INTEGRATION)
 @ExtendWith(VertxExtension.class)
@@ -286,7 +287,7 @@ class HaProxyNotificationFailoverIntegrationTest {
             .compose(connection -> connection
                 .preparedQuery("SELECT pg_notify($1, $2)")
                 .execute(Tuple.of(channel, payload))
-                .eventually(connection::close))
+                .transform(TestCleanup.cleanup(connection::close)))
             .mapEmpty();
     }
 

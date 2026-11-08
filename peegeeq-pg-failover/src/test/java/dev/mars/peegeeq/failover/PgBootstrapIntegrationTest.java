@@ -33,6 +33,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * First-start bootstrap up to the guarded primary start: a real coordinator, a real PostgreSQL
@@ -107,14 +108,14 @@ class PgBootstrapIntegrationTest {
         Future<Void> stopped = Future.succeededFuture();
         for (PgRenewalLoop loop : loops) stopped = stopped.compose(ignored -> loop.stop());
         stopped.compose(ignored -> POSTGRES.forceStop(runner, dataDirectory))
-            .eventually(() -> {
+            .transform(TestCleanup.cleanup(() -> {
                 Future<Void> closed = Future.succeededFuture();
                 for (PgPrimaryElector elector : electors) closed = closed.compose(ignored -> elector.close());
                 return closed;
-            }).eventually(() -> {
+            })).transform(TestCleanup.cleanup(() -> {
                 admin.close();
                 return Future.<Void>succeededFuture();
-            }).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+            })).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
     }
 
     @Test void aValidRequestStartsAWritablePrimaryWithAdmissionClosedUnderWithdrawnIntent(VertxTestContext context)

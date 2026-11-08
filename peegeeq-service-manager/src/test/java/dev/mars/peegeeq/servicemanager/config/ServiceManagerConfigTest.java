@@ -46,6 +46,18 @@ class ServiceManagerConfigTest {
     }
 
     @Test
+    @DisplayName("JVM system properties are not configuration")
+    void systemPropertiesAreNotConfiguration() {
+        assertEquals("from-system-property", System.getProperty("consul.host"),
+            "the surefire configuration of peegeeq-service-manager must set the probe property");
+
+        ServiceManagerConfig config = new ServiceManagerConfig();
+
+        assertEquals("localhost", config.getConsulHost(),
+            "a system property must not override the default; configuration is passed explicitly");
+    }
+
+    @Test
     @DisplayName("constructor with JsonObject uses provided values")
     void constructorWithJsonObject_usesProvidedValues() {
         JsonObject json = new JsonObject()

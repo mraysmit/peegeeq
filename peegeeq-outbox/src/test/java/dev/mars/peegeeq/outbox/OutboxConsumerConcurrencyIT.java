@@ -56,6 +56,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
@@ -157,10 +158,10 @@ class OutboxConsumerConcurrencyIT {
                         allHandlersEntered.tryComplete();
                     }
                     return releaseHandlers.future()
-                            .eventually(() -> {
+                            .transform(TestCleanup.cleanup(() -> {
                                 activeHandlers.decrementAndGet();
                                 return Future.succeededFuture();
-                            });
+                            }));
                 }))
                 .compose(ignored -> firstHandlerEntered.future())
                 .compose(ignored -> countProcessingRows())
@@ -170,10 +171,10 @@ class OutboxConsumerConcurrencyIT {
                     return allHandlersEntered.future();
                 })
                 .compose(ignored -> consumer.closeAsync())
-                .eventually(() -> {
+                .transform(TestCleanup.cleanup(() -> {
                     releaseHandlers.tryComplete();
                     return consumer.closeAsync();
-                })
+                }))
                 .onSuccess(ignored -> testContext.verify(() -> {
                     assertEquals(1, processingRowsAtBarrier.get(),
                             "consumerThreads=1 must admit only one claimed row");
@@ -214,10 +215,10 @@ class OutboxConsumerConcurrencyIT {
                         allHandlersEntered.tryComplete();
                     }
                     return releaseHandlers.future()
-                            .eventually(() -> {
+                            .transform(TestCleanup.cleanup(() -> {
                                 activeHandlers.decrementAndGet();
                                 return Future.succeededFuture();
-                            });
+                            }));
                 }))
                 .compose(ignored -> firstHandlerEntered.future())
                 .compose(ignored -> countProcessingRows())
@@ -228,10 +229,10 @@ class OutboxConsumerConcurrencyIT {
                     return allHandlersEntered.future();
                 })
                 .compose(ignored -> consumer.closeAsync())
-                .eventually(() -> {
+                .transform(TestCleanup.cleanup(() -> {
                     releaseHandlers.tryComplete();
                     return consumer.closeAsync();
-                })
+                }))
                 .onSuccess(ignored -> testContext.verify(() -> {
                     assertEquals(consumerThreads, processingRowsAtBarrier.get(),
                             "the atomic claim must use the configured handler capacity");
@@ -293,10 +294,10 @@ class OutboxConsumerConcurrencyIT {
                     return allHandlersEntered.future();
                 })
                 .compose(ignored -> consumer.closeAsync())
-                .eventually(() -> {
+                .transform(TestCleanup.cleanup(() -> {
                     releaseFirstGroupMessage.tryComplete();
                     return consumer.closeAsync();
-                })
+                }))
                 .onSuccess(ignored -> testContext.verify(() -> {
                     assertFalse(secondGroupMessageEnteredBeforeRelease.get(),
                             "a later message in the same group must wait for the earlier handler");

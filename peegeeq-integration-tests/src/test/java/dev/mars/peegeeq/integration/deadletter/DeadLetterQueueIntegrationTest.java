@@ -37,6 +37,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Dead Letter Queue (DLQ) integration tests.
@@ -126,7 +127,7 @@ public class DeadLetterQueueIntegrationTest extends SmokeTestBase {
                         logger.info("Inserted row into dead_letter_queue (correlationId={})", correlationId);
                         return Future.<Void>succeededFuture();
                     })
-                    .eventually(() -> pool.close());
+                    .transform(TestCleanup.cleanup(() -> pool.close()));
             })
             // Query the DLQ REST API
             .compose(v -> webClient.get("/api/v1/setups/" + setupId + "/deadletter/messages").send())
