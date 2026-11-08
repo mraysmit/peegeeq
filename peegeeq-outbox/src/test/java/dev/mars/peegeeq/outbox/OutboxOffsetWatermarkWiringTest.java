@@ -32,8 +32,12 @@ import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
+import io.vertx.core.AsyncResult;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
+import io.vertx.pgclient.PgException;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Tuple;
@@ -52,6 +56,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import dev.mars.peegeeq.test.vertx.TestCleanup;
@@ -127,7 +133,6 @@ class OutboxOffsetWatermarkWiringTest {
                         return Future.succeededFuture();
                     });
                 })
-                .transform(TestCleanup.cleanup(() -> vertx.timer(500).mapEmpty()))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }
@@ -153,9 +158,11 @@ class OutboxOffsetWatermarkWiringTest {
                     group.setMessageHandler(msg -> Future.succeededFuture());
 
                     return group.start(SubscriptionOptions.fromBeginning())
-                            // Allow async join to propagate.
-                            .compose(started -> vertx.timer(2000).mapEmpty())
-                            .compose(delayed -> countPartitionAssignments(topic, groupName))
+                            // The join is asynchronous; poll for the assignment rows.
+                            .compose(started -> pollUntil(vertx,
+                                    () -> countPartitionAssignments(topic, groupName).map(count -> count >= 1),
+                                    "the engine's partition assignments"))
+                            .compose(joined -> countPartitionAssignments(topic, groupName))
                             .map(count -> {
                                 logger.info("partition assignments after start: {}", count);
                                 assertTrue(count >= 1,
@@ -170,6 +177,126 @@ class OutboxOffsetWatermarkWiringTest {
                 .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
+    }
+
+    /**
+     * The engine's leave fails: an EXCLUSIVE lock on outbox_topic_subscriptions holds the leave
+     * at its generation bump, and only that query is cancelled (SQLSTATE 57014). The group's
+     * close must report the failure and log it at ERROR, because an engine that failed to stop
+     * may still fetch and dispatch. {@code close()} is used, not {@code stopGracefully()}:
+     * stopGracefully also writes the subscription status, which the lock would hold first.
+     */
+    @Test
+    @DisplayName("close reports a failed engine leave and logs it at ERROR")
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.outbox.OutboxConsumerGroup",
+            message = "Error stopping partitioned engine for group 'owm-leave-fail-group': ",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = PgException.class)
+    @io.vertx.junit5.Timeout(value = 60, timeUnit = TimeUnit.SECONDS)
+    void close_reportsFailedEngineLeave(Vertx vertx, VertxTestContext testContext) {
+        String topic = "owm-leave-fail-" + UUID.randomUUID().toString().substring(0, 8);
+        String groupName = "owm-leave-fail-group";
+        AtomicReference<Future<Void>> close = new AtomicReference<>();
+
+        configureOffsetWatermarkTopic(topic, groupName)
+                .compose(v -> insertOutboxMessage(topic, "part-A", "payload-1"))
+                .compose(v -> {
+                    // Built directly, with the wiring the registrar uses, and not through the
+                    // factory: the factory would report this group's failed close again in the
+                    // teardown. The native counterpart builds its group the same way.
+                    ConsumerGroup<String> group = new OutboxConsumerGroup<>(groupName, topic, String.class,
+                            databaseService, new com.fasterxml.jackson.databind.ObjectMapper(),
+                            databaseService.getMetricsProvider(), manager.getConfiguration(), null,
+                            databaseService.getClientFactory().getConnectionManager(),
+                            dev.mars.peegeeq.db.PeeGeeQDefaults.DEFAULT_POOL_ID);
+                    group.setMessageHandler(msg -> Future.succeededFuture());
+                    return group.start(SubscriptionOptions.fromBeginning())
+                            .compose(started -> pollUntil(vertx,
+                                    () -> countPartitionAssignments(topic, groupName).map(count -> count >= 1),
+                                    "the engine's partition assignments"))
+                            .compose(joined -> databaseService.getPool().withTransaction(lockHolder ->
+                                    lockHolder.query("LOCK TABLE outbox_topic_subscriptions IN EXCLUSIVE MODE")
+                                            .execute()
+                                            .compose(locked -> {
+                                                close.set(group.close());
+                                                return pollUntil(vertx,
+                                                        () -> waitingQueries(GENERATION_BUMP_MARKER).map(n -> n > 0),
+                                                        "the group leave waiting on the lock");
+                                            })
+                                            .compose(leaveWaiting -> cancelWaitingQueries(GENERATION_BUMP_MARKER))));
+                })
+                // The lock is released when the transaction ends; then the close settles.
+                .compose(lockReleased -> close.get().<AsyncResult<Void>>transform(Future::succeededFuture))
+                .onSuccess(outcome -> testContext.verify(() -> {
+                    assertTrue(outcome.failed(), "close() must report the failed engine leave");
+                    assertTrue(hasSqlState(outcome.cause(), "57014"),
+                            "the reported failure must be the cancelled leave, but was: " + outcome.cause());
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
+    }
+
+    private static final String GENERATION_BUMP_MARKER = "rebalance_generation = rebalance_generation + 1";
+
+    /** Number of backends whose query contains {@code marker} and that wait for a lock. */
+    private Future<Long> waitingQueries(String marker) {
+        return databaseService.getPool().preparedQuery(
+                        "SELECT COUNT(*) AS waiting FROM pg_stat_activity "
+                        + "WHERE datname = current_database() AND wait_event_type = 'Lock' "
+                        + "AND position($1 in query) > 0")
+                .execute(Tuple.of(marker))
+                .map(rows -> rows.iterator().next().getLong("waiting"));
+    }
+
+    /** Cancels the waiting backends whose query contains {@code marker}, and only those. */
+    private Future<Void> cancelWaitingQueries(String marker) {
+        return databaseService.getPool().preparedQuery(
+                        "SELECT pg_cancel_backend(pid) AS cancelled FROM pg_stat_activity "
+                        + "WHERE datname = current_database() AND wait_event_type = 'Lock' "
+                        + "AND position($1 in query) > 0")
+                .execute(Tuple.of(marker))
+                .compose(rows -> rows.size() > 0
+                        ? Future.<Void>succeededFuture()
+                        : Future.<Void>failedFuture(new AssertionError("No waiting query to cancel for: " + marker)));
+    }
+
+    private static boolean hasSqlState(Throwable failure, String sqlState) {
+        for (Throwable t = failure; t != null; t = t.getCause()) {
+            if (t instanceof PgException pg && sqlState.equals(pg.getSqlState())) {
+                return true;
+            }
+            for (Throwable suppressed : t.getSuppressed()) {
+                if (hasSqlState(suppressed, sqlState)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** Re-runs {@code check} every 100 ms until it yields true; fails after 20 s. */
+    private Future<Void> pollUntil(Vertx vertx, Supplier<Future<Boolean>> check, String awaited) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
+        Promise<Void> done = Promise.promise();
+        pollOnce(vertx, check, deadline, awaited, done);
+        return done.future();
+    }
+
+    private void pollOnce(Vertx vertx, Supplier<Future<Boolean>> check, long deadline, String awaited,
+                          Promise<Void> done) {
+        check.get()
+                .onSuccess(reached -> {
+                    if (reached) {
+                        done.tryComplete();
+                    } else if (System.nanoTime() >= deadline) {
+                        done.tryFail(new AssertionError("Timed out waiting for " + awaited));
+                    } else {
+                        vertx.setTimer(100, id -> pollOnce(vertx, check, deadline, awaited, done));
+                    }
+                })
+                .onFailure(done::tryFail);
     }
 
     private Future<Void> configureOffsetWatermarkTopic(String topic, String groupName) {
