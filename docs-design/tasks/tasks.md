@@ -1812,7 +1812,8 @@ Continued on 2026-11-08:
 | 10 (unknown commit outcome not logged) | `PgConnectionManager` logs ERROR `Commit outcome unknown for service ...` before failing. The two tests that cause it declare it. | Red 5 of 15 (`observed=0`); green 15/15, connection-manager classes 54, `PgBootstrapServingIntegrationTest` method 1/1 |
 | 7 (invalid configuration value replaced by the default) | `getInt`, `getLong`, `getDouble`, `getDuration` throw `IllegalArgumentException` naming key and value; `getBoolean` accepts only true or false. Values validated at construction now stop construction. `PeeGeeQConfigurationTest` no longer saves and clears system properties. `AdvancedConfigurationExampleTest` set `polling-interval` to `2000`, which was replaced by the default; it is now `PT2S`. The same class demonstrated a system-property, environment-variable, default lookup chain that tested only its own helper; it is removed. | Red 5 of 29; db core 371/371; db `*Config*` integration 41/41. Scan: every repository value of the 39 keys read by literal name parses. |
 
-Found and not corrected on 2026-11-08:
+Found and not corrected on 2026-11-08 (closed; see "Open items of the 2026-11-08 sections,
+closed the same day"):
 
 - Finding 7 changes a contract: a deployment whose properties hold an invalid number, duration or
   boolean no longer starts or no longer reads that key. Keys read through constants or computed
@@ -1830,7 +1831,8 @@ Continued on 2026-11-08, second round:
 | REST shutdown | `MessageConsumer` gains `default Future<Void> closeAsync()`; the webhook handler awaits its consumers' `closeAsync()`; `stop()` runs handlers, setup service and HTTP server as `CloseSteps`. The unused consumer field of `WebSocketConnection` and its accessors are deleted (no caller). WebSocket and monitoring handlers stay synchronous: they only send close frames, which the server close supersedes; their Futures are observed. | REST core 178; full REST integration 394 |
 | 13 (async `@AfterEach` of a failed test not awaited) | vertx-junit5 5.0.4 returns from the join when the test failed; 5.1.6 fixes it but also changes when a `Checkpoint` completes a context, run-verified with a probe: 57 classes here await a checkpoint inside the test body. The project stays on 5.0.4. `VertxTeardownAfterFailureExtension` (test-support, service-loaded) awaits the teardown contexts with VertxExtension's timeout rules. | Guard red on 5.0.4 (`CancellationException`), green with the extension; removing it from the services file fails the guard again. Core suites with the extension: test-support 62, api 250, db 371, outbox 120, native 163, bitemporal 31, REST 178 |
 
-Found and not corrected on 2026-11-08, second round:
+Found and not corrected on 2026-11-08, second round (all closed; see "Open items of the
+2026-11-08 sections, closed the same day"):
 
 - `PeeGeeQConfiguration.loadProperties` applies every `PEEGEEQ_*` environment variable as an
   override (153 to 158). The project rule bans environment variables in configuration; Phase 11
@@ -1899,13 +1901,15 @@ Vert.x raised to 5.1.10 the same day, see "Vert.x 5.1.10 upgrade" below):
   and now asserts the depth rises by three and returns; `PostgreSQLErrorHandlingTest` logged send
   failures at WARN and had `if (completed) ... else ...` branches that passed either way; strict
   single checkpoints that a second message over-flagged (`ConsumerGroupSubscriptionTest`).
-  Not changed: `PgNativeQueueContainers*Test` send after a fixed `setTimer(1000)` because
+  Not changed then, closed later the same day (see "Open items of the 2026-11-08 sections"):
+  `PgNativeQueueContainers*Test` send after a fixed `setTimer(1000)` because
   `OutboxQueue`-style `receive()` returns a `ReadStream` with no readiness Future; native
   producers closed in the removed tails are no longer closed (`PgNativeQueueProducer.close()`
   only sets a flag); the `PostgreSQLErrorHandlingTest` methods do not force the errors their
   names describe (their own comments say so).
-  Examples 10 files and Spring 4 files converted the same day; the scan now finds 0 files and
-  0 methods in the repository. Runs on 5.0.4 after installing the changed upstream modules:
+  Examples 10 files and Spring 4 files converted the same day. The scan then reported 0 files
+  and 0 methods, which was wrong: it matched one-line signatures only and missed
+  `FanOutTracePropagationTest` (converted later; a block-based scan finds 0). Runs on 5.0.4 after installing the changed upstream modules:
   examples 35/35 (`-Pintegration-tests`, the 10 classes 4 + 1 + 2 + 1 + 6 + 7 + 2 + 5 + 3 + 4),
   Spring 12/12 (`-Dtest.groups=integration,performance`, 3 per class). Examples fixes beside
   the wait: `NativeQueueFeatureTest`, `SimpleNativeQueueTest` and
@@ -1968,7 +1972,33 @@ Vert.x 5.1.10 upgrade (2026-11-08):
   pg-failover integration, migrations integration, the UI end-to-end suites, and the
   `-Pall-tests` gate. These belong on Jenkins.
 
-Found and not corrected on 2026-11-08, third round:
+Open items of the 2026-11-08 sections, closed the same day (scope set by the owner: every open
+item of these sections; `${VAR}` resolved from explicit properties only, the owner's ruling):
+
+| Item | Correction | Evidence |
+|---|---|---|
+| Test cleanup ruling (`.eventually` discards a failed cleanup) | `TestCleanup` in `peegeeq-test-support` (`dev.mars.peegeeq.test.vertx`): `.transform(cleanup(steps...))` runs the steps in order after the chain settles, each exactly once; the result is the chain's outcome unless a step failed (a step failure fails a successful chain and is suppressed onto a failed one); a throwing step or a `null` Future is a step failure; `run(steps...)` is the teardown form. 335 `.eventually(` calls in 130 test files rewritten by a script that matches the call on comment- and string-masked text. `VertxAsyncForbiddenPatternsGuardTest.testSourcesUseTheCleanupHelperInsteadOfEventually` rejects `.eventually(` in test sources (production stays allowed). Both standards corrected: principles line 208 claim removed, the cleanup pattern, the rule tables and section 3 rewritten, `CloseSteps` named for production; testing standard 461-472, Rule 2 (its `compose` teardown skipped later closes after one failure), Rule 4, Rule 7 and the producer example. The guard's `countFile` skipped an unreadable file silently; it now fails. | Helper red (class missing), green 11/11; mutant that discards a step failure as `eventually` does fails 6 of 11, source restored (SHA-256 equal). Guard red (every file listed), green. The migration surfaced one hidden cleanup failure: `ConsumerGroupFaultIntegrationTest.dbConnectionLoss_engineRecovers` closed a connection twice ("Connection released twice"); fixed. Runs after the migration: core tier all modules (Java 1854, Vitest 128 + 836); db integration 237 + 302 + 280; outbox 261 + 299 (+ the fixed class 4); native 59 + 183 (+ fault class 7); bitemporal changed classes 87; REST 24; runtime 11; pg-failover 48; examples 35; integration-tests 11; Spring integration 120; benchmarking changed classes 47 (`-Pperformance-tests`) |
+| 5.1 checkpoint shape missed by the scan | The scan matched one-line signatures only. `FanOutTracePropagationTest` declares `VertxTestContext` on a second line; its 4 methods waited in the body after a flagged checkpoint and failed on 5.1.10. Converted (assertions in the handler under `verify`). A block-based scan (enclosing method by brace matching) finds 0 files. | 4/4 failed on 5.1.10 before, 4/4 after |
+| `OutboxConsumerGroupFaultToleranceTest` fixed delays | The four 500 ms waits after `start()` are removed (start completes once the group polls). The 2 s pause after `pg_terminate_backend` is a poll: the killed pids have left `pg_stat_activity`, then the application pool runs a query. The negative assertions keep a window, now five polls of an explicit 200 ms interval (1 s) after a positive precondition, and the post-stop row must still be `PENDING`. The default profile polled every 5 s, so the old 2 s post-stop window was shorter than one poll. `waitUntil` is deleted (subsumed by `pollUntil`). | 7/7 in the class run (with `OutboxConsumerGroupSubscriptionTest` 25/25) |
+| `OutboxConsumerGroupSubscriptionTest` `future.get(5, SECONDS)` | The thread-safety test mirrors its native twin: workers on an executor, the last completes a Promise, the assertions run in the chain; it also asserts exactly one default consumer. | 25/25 with the class above |
+| `PgNativeQueueContainers*Test` fixed `setTimer(1000)` | New `PgNativeQueue.listen()`: completes with the stream once LISTEN has run; `receive()` shares the code path. The six tests send after `listen()`. Three new tests force each failure mode for real: LISTEN of an invalid channel name (42601), a refused connection (port 1), and a queue closed before the connection arrived. | Red (method missing), green 9/9 |
+| Native producers not closed in the removed tails | No change needed. `PgNativeQueueProducer` holds the factory's shared `VertxPoolAdapter` and no connection; `close()` sets a flag. The factory and manager close the pool. | Static (fields and `close()` read) |
+| `PostgreSQLErrorHandlingTest` forced none of the errors its names describe | Rewritten. Each test forces the error inside the handler with SQL against the container: 40001 (REPEATABLE READ update after a concurrent update), 40P01 (opposite lock order, `deadlock_timeout` 100 ms), 57014 (`statement_timeout`), 57P01 (`pg_terminate_backend` of the handler's backend), a rolled-back first attempt, and a permanent 23505 that is dead-lettered with `retry_count = max-retries` and the SQLSTATE in `failure_reason`. Teardown uses `TestCleanup.run`. | 6/6; every SQLSTATE appears in the consumer's WARN line of the run |
+| `${VAR}` placeholders read `System.getenv` | `${NAME}` resolves from the overrides passed to the constructor, then its default; otherwise construction fails naming the property. The process environment is not read. Configuration guide, production and staging profile comments and the guide example test updated. Contract change: a deployment that relied on environment variables for the `production` profile passes them as overrides. | Red 3 of 4 new tests (resolved from the environment), green 33/33; Spring integration 120/120 (its apps default to the production profile with explicit overrides) |
+| `ServiceManagerConfig` read `System.getProperty` (found in the scan for finding 7) | The system-property fallbacks are removed; JSON and defaults only. `peegeeq-service-manager` surefire sets a probe property. No production caller constructs the class. `PerformanceTestResultsGenerator` printed a stored "5.x" default from a system property; it prints the vertx-core version. | Red 3 of 8 (the probe leaked into the defaults), green 8/8 |
+| Finding 7: keys read through constants or computed names | The only computed reads are the seven alias pairs of `PeeGeeQConfiguration` (14 keys). Every value the repository assigns to them (property files, YAML, Java) is an integer, an ISO-8601 duration or a boolean and parses. | Scan output of this session |
+| Outbox group engine stop failure "cannot be produced without a mock" | It can. `OutboxOffsetWatermarkWiringTest.close_reportsFailedEngineLeave`: an EXCLUSIVE lock on `outbox_topic_subscriptions` holds the leave at its generation bump and only that query is cancelled (57014); `close()` reports it and the declared ERROR is logged. The group is built directly so the factory teardown does not report its failed close again. The class's fixed 2 s join delay is a poll and its 500 ms teardown timer is removed. | 2/2; mutant that turns the stop failure into success fails it, source restored |
+| Manager job stop failures "cannot be produced without a mock" | Unreachable. `DeadConsumerDetectionJob.stop()` and `ConsumerGroupRetryJob.stop()` never fail: they settle once the in-flight cycle has settled, and the cycle records its own failure in its failure tracker (`DeadConsumerDetectionJob:357`, `ConsumerGroupRetryJob:235`). | Static |
+| `SystemMonitoringHandler` 200 and 216 "cannot be produced without a mock" | Both branches guard a window: the close handlers (352, 471) remove a connection from its map, so `close()` meets an already closed or failing socket only when the peer's close arrives between that handler and the check, on another event loop. A real socket cannot place that deterministically. | Static |
+| `PgConnectionManager.close` "no red test possible on 5.0.4" | Still true on 5.1.10: `CloseFuture.cascadeClose` completes the parent promise once every child has settled, whatever each reported (5.1.10 bytecode). | Static |
+| `QueueBrowser.close()` synchronous; tail browser close caught | Kept. The catch logs at WARN with the exception (`ManagementApiHandler:2341`); the server stop closes the setup Vert.x and its dedicated connections. | Static |
+| Earlier lists | Round 1 (finding 7 scan) and round 2 (environment sweep, surefire misattribution, vertx-junit5 5.1) are closed by the rows above and the third-round tables. | |
+
+Not run after these changes: the whole-repository `-Pall-tests` gate and the UI end-to-end suites
+(Jenkins builds the pushed branch only); the full bitemporal, REST, examples and benchmarking
+integration and performance tiers beyond the changed classes.
+
+Found and not corrected on 2026-11-08, third round (all closed; see the table above):
 
 - `resolvePlaceholders` still reads `System.getenv` for `${VAR}`. The shipped
   `peegeeq-production.properties` in peegeeq-db names all database coordinates that way, so
