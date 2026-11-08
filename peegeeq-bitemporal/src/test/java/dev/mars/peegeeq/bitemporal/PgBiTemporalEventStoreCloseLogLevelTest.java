@@ -21,6 +21,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.AppenderBase;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.api.lifecycle.CloseSteps;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
@@ -39,6 +40,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.parallel.Isolated;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.junit.jupiter.Container;
@@ -54,21 +56,20 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests that PgBiTemporalEventStore.close() logs at ERROR level (not WARN)
- * when resource close operations fail. Covers the 3 WARNERROR changes in close():
+ * The close of {@link PgBiTemporalEventStore} (finding 6).
  *
- * <ol>
- *   <li>Reactive notification handler close failure</li>
- *   <li>Reactive pool close failure</li>
- *   <li>Pipelined client close failure</li>
- * </ol>
- *
- * Positive tests: trigger failure conditions  verify ERROR logged.
- * Negative tests: clean close  verify no ERROR logged.
+ * <p>The store closes its notification handler, its reactive pool and its pipelined client as
+ * {@link CloseSteps}: every step runs, a failed step is logged at ERROR, and the first failure
+ * fails {@code close()}. The step mechanism is tested with real failures in
+ * {@code CloseStepsCoreTest}; none of these three resources can be made to fail to close here
+ * without a mock, so this class pins the outcomes that real conditions produce.</p>
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
+// The log capture is attached to the shared store logger. Run alone, so it sees only the lines
+// of the test that reads it.
+@Isolated
 class PgBiTemporalEventStoreCloseLogLevelTest {
 
     private static final Logger log = LoggerFactory.getLogger(PgBiTemporalEventStoreCloseLogLevelTest.class);
@@ -87,36 +88,20 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
     void setUp(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
         this.vertx = vertx;
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", properties(postgres)), new SimpleMeterRegistry());
 
-        Properties testProps = PeeGeeQTestConfig.builder()
-                .from(postgres)
-                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
-                .property("peegeeq.database.ssl.enabled", "false")
-                .property("peegeeq.database.pool.max-size", "5")
-                .property("peegeeq.health.check-interval", "PT5S")
-                .property("peegeeq.metrics.reporting-interval", "PT10S")
-                .property("peegeeq.migration.enabled", "false")
-                .property("peegeeq.migration.auto-migrate", "false")
-                .build();
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
-        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-
-        // Attach log capture to PgBiTemporalEventStore's logger
-        eventStoreLogger = (ch.qos.logback.classic.Logger)
-                LoggerFactory.getLogger(PgBiTemporalEventStore.class);
+        eventStoreLogger = (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(PgBiTemporalEventStore.class);
         logCapture = new LogCaptureAppender();
         logCapture.setContext(eventStoreLogger.getLoggerContext());
         logCapture.start();
         eventStoreLogger.addAppender(logCapture);
 
         manager.start()
-                .compose(v -> {
+                .onSuccess(v -> {
                     eventStore = new PgBiTemporalEventStore<>(
-                            vertx, manager, JsonObject.class, "bitemporal_log_level_test",
-                            new ObjectMapper());
-                    return Future.succeededFuture();
+                            vertx, manager, JsonObject.class, "bitemporal_log_level_test", new ObjectMapper());
+                    testContext.completeNow();
                 })
-                .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
@@ -127,38 +112,28 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
         eventStoreLogger.detachAppender(logCapture);
         logCapture.stop();
 
-        Future<Void> closeChain = Future.succeededFuture();
-
+        // Both close; a failure of either fails the teardown, because it leaks connections.
+        CloseSteps steps = CloseSteps.after(Future.succeededFuture(), log);
         if (eventStore != null) {
-            closeChain = closeChain.compose(v -> eventStore.close()
-                    .transform(ar -> Future.succeededFuture()));
+            steps.then("event store", eventStore::close);
         }
         if (manager != null) {
-            closeChain = closeChain.compose(v -> manager.closeReactive()
-                    .transform(ar -> Future.succeededFuture()));
+            steps.then("manager", manager::closeReactive);
         }
-
-        closeChain.onSuccess(v -> testContext.completeNow())
-                  .onFailure(e -> { log.error("Teardown close error", e); testContext.failNow(e); });
+        steps.result()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    @DisplayName("Negative: clean close with DB alive produces no ERROR from close chain")
+    @DisplayName("Clean close with DB alive succeeds and logs no ERROR")
     void testCleanCloseNoErrorLogs(VertxTestContext testContext) throws InterruptedException {
         logCapture.clear();
         eventStore.close()
                 .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
-                    List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
-                    boolean hasCloseError = errors.stream().anyMatch(e ->
-                            e.getFormattedMessage().contains("Error closing reactive notification handler") ||
-                            e.getFormattedMessage().contains("Error closing reactive pool") ||
-                            e.getFormattedMessage().contains("Error closing pipelined client"));
-
-                    assertFalse(hasCloseError,
-                            "Clean close should not produce ERROR logs from close chain, but got: " +
-                                    errors.stream().map(ILoggingEvent::getFormattedMessage).toList());
+                    assertEquals(List.of(), messagesAt(Level.ERROR));
                     eventStore = null; // Prevent double-close in tearDown
                     testContext.completeNow();
                 })));
@@ -167,70 +142,44 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
     }
 
     @Test
-    @DisplayName("Positive: close after DB shutdown logs ERROR (not WARN) for pool/resource close failures")
-    void testCloseAfterDbShutdownLogsError(VertxTestContext testContext) throws InterruptedException {
-        // Use a separate container we can stop
+    @DisplayName("Close after the database stopped succeeds: the pool and client close locally")
+    void testCloseAfterDbShutdownSucceeds(VertxTestContext testContext) throws InterruptedException {
         @SuppressWarnings("resource")
         PostgreSQLContainer ownContainer = PostgreSQLTestConstants.createStandardContainer();
         ownContainer.start();
         PeeGeeQTestSchemaInitializer.initializeSchema(ownContainer, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
-
-        Properties ownProps = PeeGeeQTestConfig.builder()
-                .from(ownContainer)
-                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
-                .property("peegeeq.database.ssl.enabled", "false")
-                .property("peegeeq.database.pool.max-size", "5")
-                .property("peegeeq.health.check-interval", "PT5S")
-                .property("peegeeq.metrics.reporting-interval", "PT10S")
-                .property("peegeeq.migration.enabled", "false")
-                .property("peegeeq.migration.auto-migrate", "false")
-                .build();
-        PeeGeeQConfiguration ownConfig = new PeeGeeQConfiguration("default", ownProps);
-        PeeGeeQManager ownManager = new PeeGeeQManager(ownConfig, new SimpleMeterRegistry());
-
-        ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger)
-                LoggerFactory.getLogger(PgBiTemporalEventStore.class);
-        LogCaptureAppender ownCapture = new LogCaptureAppender();
-        ownCapture.setContext(logger.getLoggerContext());
-        ownCapture.start();
-        logger.addAppender(ownCapture);
+        PeeGeeQManager ownManager = new PeeGeeQManager(
+                new PeeGeeQConfiguration("default", properties(ownContainer)), new SimpleMeterRegistry());
+        PgBiTemporalEventStore<JsonObject>[] ownStore = newStoreHolder();
 
         ownManager.start()
                 .compose(v -> {
-                    PgBiTemporalEventStore<JsonObject> ownStore = new PgBiTemporalEventStore<>(
-                            vertx, ownManager, JsonObject.class, "bitemporal_log_level_test2",
-                            new ObjectMapper());
-
-                    // Stop the database to cause close failures.
-                    // Connection-abort errors from background jobs (e.g. DeadConsumerDetectionJob) below are expected.
-                    log.info("[TEST] Intentionally stopping database container to trigger close failure path subsequent connection errors are expected");
-                    ownContainer.stop();
-                    ownCapture.clear();
-
-                    return ownStore.close()
-                            .compose(v2 -> ownManager.closeReactive().transform(ar -> Future.succeededFuture()));
+                    ownStore[0] = new PgBiTemporalEventStore<>(
+                            vertx, ownManager, JsonObject.class, "bitemporal_log_level_test2", new ObjectMapper());
+                    log.info("[TEST] Stopping the database before close; connection errors from background jobs are expected");
+                    // Stopping a container blocks, so it runs off the event loop.
+                    return vertx.<Void>executeBlocking(() -> {
+                        ownContainer.stop();
+                        return null;
+                    });
                 })
+                .compose(v -> {
+                    logCapture.clear();
+                    return ownStore[0].close();
+                })
+                .compose(v -> ownManager.closeReactive())
                 .onSuccess(v -> testContext.verify(() -> {
-                    List<ILoggingEvent> warns = ownCapture.eventsAtLevel(Level.WARN);
-
-                    // Verify close chain failures are NOT at WARN (they should be at ERROR)
-                    boolean hasWarnForClose = warns.stream().anyMatch(e ->
-                            e.getFormattedMessage().contains("Error closing reactive notification handler") ||
-                            e.getFormattedMessage().contains("Error closing reactive pool") ||
-                            e.getFormattedMessage().contains("Error closing pipelined client"));
-                    assertFalse(hasWarnForClose,
-                            "Resource close failures should be at ERROR level, not WARN");
-
-                    logger.detachAppender(ownCapture);
-                    ownCapture.stop();
+                    assertEquals(List.of(), messagesAt(Level.ERROR),
+                            "closing after the database stopped is not a close failure");
                     testContext.completeNow();
-                }));
+                }))
+                .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
     }
 
     @Test
-    @DisplayName("Negative: double close produces no ERROR (second close is a no-op)")
+    @DisplayName("Double close produces no ERROR (second close is a no-op)")
     void testDoubleCloseNoError(VertxTestContext testContext) throws InterruptedException {
         eventStore.close()
                 .compose(v -> {
@@ -238,10 +187,8 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
                     return eventStore.close();
                 })
                 .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
-                    List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
-                    assertTrue(errors.isEmpty(),
-                            "Double close should not produce ERROR logs (second close is a no-op), but got: " +
-                                    errors.stream().map(ILoggingEvent::getFormattedMessage).toList());
+                    assertEquals(List.of(), messagesAt(Level.ERROR),
+                            "the second close is a no-op and must log no ERROR");
                     eventStore = null;
                     testContext.completeNow();
                 })));
@@ -250,6 +197,28 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
     }
 
     // --- Helpers ---
+
+    private static Properties properties(PostgreSQLContainer container) {
+        return PeeGeeQTestConfig.builder()
+                .from(container)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
+                .property("peegeeq.database.ssl.enabled", "false")
+                .property("peegeeq.database.pool.max-size", "5")
+                .property("peegeeq.health.check-interval", "PT5S")
+                .property("peegeeq.metrics.reporting-interval", "PT10S")
+                .property("peegeeq.migration.enabled", "false")
+                .property("peegeeq.migration.auto-migrate", "false")
+                .build();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static PgBiTemporalEventStore<JsonObject>[] newStoreHolder() {
+        return (PgBiTemporalEventStore<JsonObject>[]) new PgBiTemporalEventStore<?>[1];
+    }
+
+    private List<String> messagesAt(Level level) {
+        return logCapture.eventsAtLevel(level).stream().map(ILoggingEvent::getFormattedMessage).toList();
+    }
 
     static final class LogCaptureAppender extends AppenderBase<ILoggingEvent> {
         private final List<ILoggingEvent> events = Collections.synchronizedList(new ArrayList<>());
@@ -260,9 +229,11 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
         }
 
         List<ILoggingEvent> eventsAtLevel(Level level) {
-            return events.stream()
-                    .filter(e -> e.getLevel().equals(level))
-                    .toList();
+            synchronized (events) {
+                return events.stream()
+                        .filter(e -> e.getLevel().equals(level))
+                        .toList();
+            }
         }
 
         void clear() {

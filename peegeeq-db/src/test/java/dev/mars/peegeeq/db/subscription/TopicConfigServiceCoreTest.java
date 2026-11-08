@@ -36,7 +36,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-11-27
  * @version 1.0
  */
-@Tag(TestCategories.CORE)
+@Tag(TestCategories.INTEGRATION)
 public class TopicConfigServiceCoreTest extends BaseIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(TopicConfigServiceCoreTest.class);

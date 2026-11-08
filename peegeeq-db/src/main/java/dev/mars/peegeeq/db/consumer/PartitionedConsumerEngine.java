@@ -218,7 +218,9 @@ public class PartitionedConsumerEngine<T> {
                         "Failed to leave group during teardown: topic={}, group={}, err={}",
                         topic, groupName, err.getMessage()));
 
-        Future<Void> teardown = Future.all(watermarkStop, leaveGroup)
+        // join, not all: a failed watermark stop must not clear the partition maps while the
+        // in-flight fetches and the group leave are still running.
+        Future<Void> teardown = Future.join(watermarkStop, leaveGroup)
                 .map(ignored -> (Void) null);
         return teardown
                 .eventually(() -> {

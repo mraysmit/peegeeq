@@ -195,10 +195,17 @@ public class SystemMonitoringHandler {
                 vertx.cancelTimer(conn.timerId);
             if (conn.idleCheckerId > 0)
                 vertx.cancelTimer(conn.idleCheckerId);
-            try {
-                conn.webSocket.close((short) 1001, "Server shutting down");
-            } catch (Exception e) {
-                // Ignore close errors
+            // A socket the client already closed needs no close. Each close is observed, and a
+            // failure is reported without stopping the close of the other connections.
+            if (!conn.webSocket.isClosed()) {
+                try {
+                    conn.webSocket.close((short) 1001, "Server shutting down")
+                            .onFailure(error -> log.warn("Failed to close monitoring WebSocket {} during shutdown: {}",
+                                    conn.connectionId, error.getMessage(), error));
+                } catch (RuntimeException error) {
+                    log.warn("Failed to close monitoring WebSocket {} during shutdown: {}",
+                            conn.connectionId, error.getMessage(), error);
+                }
             }
         });
         wsConnections.clear();
@@ -211,10 +218,16 @@ public class SystemMonitoringHandler {
                 vertx.cancelTimer(conn.heartbeatTimerId);
             if (conn.idleCheckerId > 0)
                 vertx.cancelTimer(conn.idleCheckerId);
-            try {
-                conn.response.end();
-            } catch (Exception e) {
-                // Ignore close errors
+            // A response the client already closed, or one already ended, needs no end.
+            if (!conn.response.ended() && !conn.response.closed()) {
+                try {
+                    conn.response.end()
+                            .onFailure(error -> log.warn("Failed to end monitoring SSE stream {} during shutdown: {}",
+                                    conn.connectionId, error.getMessage(), error));
+                } catch (RuntimeException error) {
+                    log.warn("Failed to end monitoring SSE stream {} during shutdown: {}",
+                            conn.connectionId, error.getMessage(), error);
+                }
             }
         });
         sseConnections.clear();
@@ -387,9 +400,17 @@ public class SystemMonitoringHandler {
             return;
         }
 
-        // Parse query parameters
-        int interval = parseInterval(request.getParam("interval"));
-        int heartbeat = parseHeartbeat(request.getParam("heartbeat"));
+        // Parse query parameters. A value that is not an integer is refused, never replaced by
+        // the default.
+        int interval;
+        int heartbeat;
+        try {
+            interval = parseInterval(request.getParam("interval"));
+            heartbeat = parseHeartbeat(request.getParam("heartbeat"));
+        } catch (IllegalArgumentException invalid) {
+            ctx.response().setStatusCode(400).end(invalid.getMessage());
+            return;
+        }
 
         // Setup SSE response headers
         response.putHeader("Content-Type", "text/event-stream")
@@ -1119,7 +1140,8 @@ public class SystemMonitoringHandler {
             int interval = Integer.parseInt(param);
             return Math.max(config.minIntervalSeconds(), Math.min(config.maxIntervalSeconds(), interval));
         } catch (NumberFormatException e) {
-            return config.defaultIntervalSeconds();
+            throw new IllegalArgumentException(
+                    "Query parameter 'interval' must be an integer: '" + param + "'", e);
         }
     }
 
@@ -1129,7 +1151,8 @@ public class SystemMonitoringHandler {
         try {
             return Math.max(10, Integer.parseInt(param));
         } catch (NumberFormatException e) {
-            return 30;
+            throw new IllegalArgumentException(
+                    "Query parameter 'heartbeat' must be an integer: '" + param + "'", e);
         }
     }
 

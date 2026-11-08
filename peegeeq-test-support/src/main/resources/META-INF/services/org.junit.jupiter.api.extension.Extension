@@ -1,1 +1,2 @@
 dev.mars.peegeeq.test.logging.UnexpectedErrorLogExtension
+dev.mars.peegeeq.test.vertx.VertxTeardownAfterFailureExtension

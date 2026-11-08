@@ -1683,36 +1683,33 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         eventBusInstanceRegistry.computeIfPresent(eventBusInstanceKey,
             (key, existing) -> existing == this ? null : existing);
 
-        // Close resources sequentially: notification handler  reactive pool  pipelined client.
-        // .eventually() ensures subsequent closes run regardless of earlier failures.
-        // The notification handler is closed first via .compose() so its error propagates;
-        // pool and client use .eventually() for best-effort cleanup with errors logged.
-        Future<Void> chain = Future.succeededFuture();
+        // Close resources in order: notification handler, reactive pool, pipelined client. Every
+        // step runs; a failure is logged at ERROR and the first one fails the returned Future
+        // (finding 6). Before, the pool and client steps used eventually(), which discards their
+        // failure, so a pool that failed to close was reported as a successful close.
+        dev.mars.peegeeq.api.lifecycle.CloseSteps steps =
+                dev.mars.peegeeq.api.lifecycle.CloseSteps.after(Future.succeededFuture(), logger);
 
         if (reactiveNotificationHandler != null) {
-            chain = chain.compose(v -> reactiveNotificationHandler.stop()
-                    .onFailure(e -> logger.warn("Error closing reactive notification handler: {}", e.getMessage(), e)));
+            steps.then("reactive notification handler", reactiveNotificationHandler::stop);
         }
 
         if (reactivePool != null) {
             Pool poolRef = reactivePool;
             reactivePool = null;
-            chain = chain.eventually(() -> poolRef.close()
-                    .onSuccess(x -> logger.debug("Closed reactive pool"))
-                    .onFailure(e -> logger.warn("Error closing reactive pool: {}", e.getMessage(), e)));
+            steps.then("reactive pool", () -> poolRef.close()
+                    .onSuccess(x -> logger.debug("Closed reactive pool")));
         }
 
         if (pipelinedClient != null) {
             SqlClient clientRef = pipelinedClient;
             pipelinedClient = null;
-            chain = chain.eventually(() -> clientRef.close()
-                    .onSuccess(x -> logger.debug("Closed pipelined client"))
-                    .onFailure(e -> logger.warn("Error closing pipelined client: {}", e.getMessage(), e)));
+            steps.then("pipelined client", () -> clientRef.close()
+                    .onSuccess(x -> logger.debug("Closed pipelined client")));
         }
 
-        return chain
-                .onSuccess(v -> logger.info("Bi-temporal event store closed"))
-                .onFailure(e -> logger.warn("Bi-temporal event store closed with errors"));
+        return steps.result()
+                .onSuccess(v -> logger.info("Bi-temporal event store closed"));
     }
 
 

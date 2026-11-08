@@ -290,8 +290,11 @@ public class ReactiveNotificationHandler<T> {
             }
             md5Hash = hexString.toString().substring(0, 8);
         } catch (java.security.NoSuchAlgorithmException e) {
-            // Fallback to hashCode if MD5 not available (shouldn't happen)
-            md5Hash = String.format("%08x", baseChannel.hashCode() & 0xFFFFFFFFL).substring(0, 8);
+            // No substitute hash: the database trigger derives the channel with md5, so any other
+            // suffix names a channel the trigger never notifies, and every notification is lost.
+            // Every Java platform is required to provide MD5.
+            throw new IllegalStateException(
+                    "MD5 is unavailable; the channel name of '" + baseChannel + "' cannot be derived", e);
         }
 
         String hashSuffix = "_" + md5Hash;

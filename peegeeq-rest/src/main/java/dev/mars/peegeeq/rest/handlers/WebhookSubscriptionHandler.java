@@ -360,27 +360,28 @@ public class WebhookSubscriptionHandler {
     }
     
     /**
-     * Cleanup method - closes all active consumers and web client.
+     * Closes every active consumer and the web client. The Future completes when every consumer
+     * has released its resources, and fails with the first consumer that could not: the server
+     * closes the setup pools after this, so a consumer still settling would lose its delivery.
+     * Before, each consumer was closed without waiting and a failure was a WARN.
      */
-    public void close() {
+    public io.vertx.core.Future<Void> close() {
         logger.info("Closing WebhookSubscriptionHandler...");
-        
-        activeConsumers.values().forEach(consumer -> {
-            try {
-                consumer.close();
-            } catch (Exception e) {
-                logger.warn("Error closing consumer: {}", e.getMessage());
-            }
-        });
-        
+
+        dev.mars.peegeeq.api.lifecycle.CloseSteps steps =
+                dev.mars.peegeeq.api.lifecycle.CloseSteps.after(io.vertx.core.Future.succeededFuture(), logger);
+        activeConsumers.forEach((subscriptionId, consumer) ->
+                steps.then("webhook consumer " + subscriptionId, consumer::closeAsync));
         activeConsumers.clear();
         subscriptions.clear();
-        
-        if (webClient != null) {
-            webClient.close();
-        }
-        
-        logger.info("WebhookSubscriptionHandler closed");
+
+        return steps.result()
+                .andThen(closed -> {
+                    if (webClient != null) {
+                        webClient.close();
+                    }
+                })
+                .onSuccess(v -> logger.info("WebhookSubscriptionHandler closed"));
     }
 }
 

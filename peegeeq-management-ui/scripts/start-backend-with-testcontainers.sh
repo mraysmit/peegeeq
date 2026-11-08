@@ -93,12 +93,8 @@ echo "Updated connection config: $DB_CONFIG_FILE"
 
 # --- Step 3: Start Backend ---
 
-# Set environment variables for PeeGeeQ
-export PEEGEEQ_DATABASE_HOST=$DB_HOST
-export PEEGEEQ_DATABASE_PORT=$DB_PORT
-export PEEGEEQ_DATABASE_NAME="postgres"
-export PEEGEEQ_DATABASE_USERNAME="peegeeq"
-export PEEGEEQ_DATABASE_PASSWORD="peegeeq"
+# The REST server reads no PEEGEEQ_* environment variables or system properties. The UI
+# creates setups with explicit connection coordinates from the connection file above.
 
 echo ""
 echo "Starting PeeGeeQ REST API server..."
@@ -109,12 +105,7 @@ MANAGEMENT_UI_ROOT="$(dirname "$SCRIPT_DIR")"
 REPOSITORY_ROOT="$(dirname "$MANAGEMENT_UI_ROOT")"
 cd "$REPOSITORY_ROOT"
 
-# Build the Maven command with system properties
+# Start the server
 mvn exec:java \
-    -pl peegeeq-rest \
-    -DPEEGEEQ_DATABASE_HOST=$DB_HOST \
-    -DPEEGEEQ_DATABASE_PORT=$DB_PORT \
-    -DPEEGEEQ_DATABASE_NAME=postgres \
-    -DPEEGEEQ_DATABASE_USERNAME=peegeeq \
-    -DPEEGEEQ_DATABASE_PASSWORD=peegeeq
+    -pl peegeeq-rest
 

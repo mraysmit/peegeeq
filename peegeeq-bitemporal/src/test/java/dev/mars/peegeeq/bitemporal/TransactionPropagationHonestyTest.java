@@ -98,7 +98,6 @@ class TransactionPropagationHonestyTest {
 
     private PeeGeeQManager manager;
     private PgBiTemporalEventStore<TestPayload> eventStore;
-    private Vertx vertx;
 
     // An external Vertx instance that is NOT the event store's internal sharedVertx.
     // This simulates the "caller started work on some other Vert.x instance" scenario.
@@ -149,7 +148,7 @@ class TransactionPropagationHonestyTest {
     }
 
     @BeforeEach
-    void setUp(VertxTestContext testContext) throws Exception {
+    void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
@@ -162,7 +161,8 @@ class TransactionPropagationHonestyTest {
         String schema = resolveSchema();
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, schema, SchemaComponent.BITEMPORAL);
 
-        vertx = Vertx.vertx();
+        // The extension owns this Vert.x and closes it after the test. A teardown that closes
+        // its own Vert.x from a callback on that Vert.x never sees the close complete.
 
         // Create an external Vertx instance deliberately separate from the event
         // store's internal sharedVertx.  This is the caller's world.
@@ -210,30 +210,19 @@ class TransactionPropagationHonestyTest {
             closeFuture = closeFuture.compose(v -> manager.closeReactive());
         }
         if (externalVertx != null) {
+            // Called from a callback of the steps above, which run on other Vert.x instances,
+            // never on externalVertx itself, so this close can report its completion.
             closeFuture = closeFuture.compose(v -> externalVertx.close());
-        }
-        if (vertx != null) {
-            closeFuture = closeFuture.compose(v -> vertx.close());
         }
 
         closeFuture
-                .onSuccess(v -> {
-                    clearTestSystemProperties();
-                    testContext.completeNow();
-                })
-                .onFailure(err -> {
-                    clearTestSystemProperties();
-                    testContext.failNow(err);
-                });
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
         if (testContext.failed()) {
             throw new RuntimeException(testContext.causeOfFailure());
         }
-    }
-
-    private void clearTestSystemProperties() {
-        // Properties are now managed via PeeGeeQTestConfig  no System properties to clear
     }
 
     // ========================================================================

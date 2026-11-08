@@ -33,7 +33,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-11-27
  * @version 1.0
  */
-@Tag(TestCategories.CORE)
+@Tag(TestCategories.INTEGRATION)
 public class PgMetricsProviderCoreTest extends BaseIntegrationTest {
 
     private PgConnectionManager connectionManager;

@@ -2369,6 +2369,26 @@ public class EventStoreIntegrationTest {
                 .onFailure(testContext::failNow);
     }
 
+    @Test
+    @DisplayName("Finding 19 - a non-numeric aggregates limit or offset is refused with 400, not replaced by the default")
+    void uniqueAggregatesRefusesANonNumericLimitOrOffset(VertxTestContext testContext) {
+        String base = "/api/v1/eventstores/" + testSetupId + "/test_events/aggregates";
+        webClient.get(TEST_PORT, "localhost", base + "?limit=abc").timeout(10000).send()
+                .compose(limitResponse -> {
+                    testContext.verify(() -> {
+                        assertEquals(400, limitResponse.statusCode(), limitResponse.bodyAsString());
+                        assertTrue(limitResponse.bodyAsString().contains("limit"), limitResponse.bodyAsString());
+                    });
+                    return webClient.get(TEST_PORT, "localhost", base + "?offset=-x").timeout(10000).send();
+                })
+                .onSuccess(offsetResponse -> testContext.verify(() -> {
+                    assertEquals(400, offsetResponse.statusCode(), offsetResponse.bodyAsString());
+                    assertTrue(offsetResponse.bodyAsString().contains("offset"), offsetResponse.bodyAsString());
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
+    }
+
     private io.vertx.core.Future<io.vertx.ext.web.client.HttpResponse<io.vertx.core.buffer.Buffer>> storeEvent(
             JsonObject request) {
         return webClient.post(TEST_PORT, "localhost", "/api/v1/eventstores/" + testSetupId + "/test_events/events")

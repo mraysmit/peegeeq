@@ -256,48 +256,46 @@ public class PeeGeeQRestServer extends AbstractVerticle {
     public void stop(Promise<Void> stopPromise) {
         logger.info("Stopping PeeGeeQ REST API server - closing handlers first");
 
-        // Step 1: Close handlers that manage consumers BEFORE closing the HTTP server
-        // This ensures consumers are properly stopped before database connections are
-        // closed
-        try {
-            if (webhookHandler != null) {
-                logger.debug("Closing WebhookSubscriptionHandler...");
-                webhookHandler.close();
-                logger.debug("WebhookSubscriptionHandler closed");
-            }
-            if (sseHandler != null) {
-                logger.debug("Closing ServerSentEventsHandler...");
-                sseHandler.close();
-                logger.debug("ServerSentEventsHandler closed");
-            }
-            if (monitoringHandler != null) {
-                logger.debug("Closing SystemMonitoringHandler...");
-                monitoringHandler.close();
-                logger.debug("SystemMonitoringHandler closed");
-            }
-            if (webSocketHandler != null) {
-                logger.debug("Closing WebSocketHandler...");
-                webSocketHandler.close();
-                logger.debug("WebSocketHandler closed");
-            }
-        } catch (Exception e) {
-            logger.warn("Error closing handlers during shutdown: {}", e.getMessage());
+        // Every step runs; a failed step is logged at ERROR and the first failure fails the stop.
+        // Before, the handlers were closed without waiting inside one try/catch: a webhook
+        // consumer could still be settling when the setup pools closed, and a handler that threw
+        // skipped the handlers after it.
+        dev.mars.peegeeq.api.lifecycle.CloseSteps steps =
+                dev.mars.peegeeq.api.lifecycle.CloseSteps.after(Future.succeededFuture(), logger);
+        // Step 1: Close handlers that manage consumers BEFORE the setup pools close. The webhook
+        // handler is awaited: its consumers hold connections. The other handlers only send
+        // socket close frames, which the HTTP server close in step 3 supersedes.
+        if (webhookHandler != null) {
+            steps.then("webhook subscription handler", webhookHandler::close);
         }
-
+        if (sseHandler != null) {
+            steps.then("server-sent events handler", () -> {
+                sseHandler.close();
+                return Future.<Void>succeededFuture();
+            });
+        }
+        if (monitoringHandler != null) {
+            steps.then("system monitoring handler", () -> {
+                monitoringHandler.close();
+                return Future.<Void>succeededFuture();
+            });
+        }
+        if (webSocketHandler != null) {
+            steps.then("WebSocket handler", () -> {
+                webSocketHandler.close();
+                return Future.<Void>succeededFuture();
+            });
+        }
         // Step 2: Close the setup service (cancels background timers on all active
         // PeeGeeQManager instances, preventing "Failed to refresh depth cache" warnings
         // after the database becomes unreachable)
-        setupService.close()
-                .onFailure(e -> logger.warn("Error closing setup service during shutdown: {}", e.getMessage()))
-                // Step 3: Close the HTTP server regardless of setupService outcome
-                .eventually(() -> {
-                    if (server != null) {
-                        return server.close()
-                                .onSuccess(v -> logger.info("PeeGeeQ REST API server stopped"))
-                                .onFailure(cause -> logger.error("Failed to stop PeeGeeQ REST API server", cause));
-                    }
-                    return Future.succeededFuture();
-                })
+        steps.then("setup service", setupService::close);
+        // Step 3: Close the HTTP server
+        if (server != null) {
+            steps.then("HTTP server", () -> server.close()
+                    .onSuccess(v -> logger.info("PeeGeeQ REST API server stopped")));
+        }
+        steps.result()
                 .onSuccess(v -> stopPromise.complete())
                 .onFailure(stopPromise::fail);
     }

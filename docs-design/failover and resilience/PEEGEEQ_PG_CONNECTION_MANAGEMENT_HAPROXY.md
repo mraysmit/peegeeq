@@ -801,8 +801,9 @@ effective endpoint unless `peegeeq.database.listen.*` is set (§8).
 **Schema.** Every deployment supplies `peegeeq.database.schema`. The shipped value is a
 placeholder. A blank schema is rejected at configuration time.
 
-**Environment variables.** Each key has an environment form, for example
-`PEEGEEQ_DATABASE_PROXY_HOST`.
+**Environment variables.** None. `PeeGeeQConfiguration` reads no `PEEGEEQ_*` environment
+variables (the sweep was removed on 2026-11-08). A deployment passes these keys as explicit
+overrides.
 
 ### 6.3 Pooled access
 

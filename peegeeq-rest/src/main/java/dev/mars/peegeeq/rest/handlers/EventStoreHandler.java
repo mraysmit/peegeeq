@@ -357,13 +357,22 @@ public class EventStoreHandler {
         int offset = 0;
         String limitStr = ctx.request().getParam("limit");
         String offsetStr = ctx.request().getParam("offset");
+        // A value that is not an integer is refused, never replaced by the default.
         if (limitStr != null && !limitStr.isBlank()) {
-            try { limit = Math.max(1, Math.min(1000, Integer.parseInt(limitStr))); }
-            catch (NumberFormatException ignored) { /* use default */ }
+            try {
+                limit = Math.max(1, Math.min(1000, Integer.parseInt(limitStr)));
+            } catch (NumberFormatException invalid) {
+                sendError(ctx, 400, "Query parameter 'limit' must be an integer: '" + limitStr + "'");
+                return;
+            }
         }
         if (offsetStr != null && !offsetStr.isBlank()) {
-            try { offset = Math.max(0, Integer.parseInt(offsetStr)); }
-            catch (NumberFormatException ignored) { /* use default */ }
+            try {
+                offset = Math.max(0, Integer.parseInt(offsetStr));
+            } catch (NumberFormatException invalid) {
+                sendError(ctx, 400, "Query parameter 'offset' must be an integer: '" + offsetStr + "'");
+                return;
+            }
         }
 
         // source: absent = AUTO; log = force the live event-log query; summary = force the summary table

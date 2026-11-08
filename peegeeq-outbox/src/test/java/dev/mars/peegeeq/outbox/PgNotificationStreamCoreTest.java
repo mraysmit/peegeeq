@@ -21,6 +21,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
@@ -33,7 +34,6 @@ import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -153,26 +153,21 @@ public class PgNotificationStreamCoreTest {
     }
 
     @Test
-    void testHandleNotification(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 5, timeUnit = TimeUnit.SECONDS)
+    void testHandleNotification(VertxTestContext testContext) {
         logger.info("=== TEST: testHandleNotification STARTED ===");
-        
+
         PgNotificationStream<String> stream = new PgNotificationStream<>(vertx, String.class, objectMapper);
-        
+
         Checkpoint messageCheckpoint = testContext.checkpoint();
-        AtomicReference<String> receivedMessage = new AtomicReference<>();
-        
-        stream.handler(message -> {
-            receivedMessage.set(message);
-            messageCheckpoint.flag();
-        });
-        
         String testMessage = "Test notification";
+
+        stream.handler(message -> testContext.verify(() -> {
+            assertEquals(testMessage, message, "Should receive correct message");
+            messageCheckpoint.flag();
+        }));
+
         stream.handleNotification(testMessage);
-        
-        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should receive notification");
-        assertEquals(testMessage, receivedMessage.get(), "Should receive correct message");
-        
-        logger.info("=== TEST: testHandleNotification COMPLETED ===");
     }
 
     @Test
@@ -207,99 +202,82 @@ public class PgNotificationStreamCoreTest {
     }
 
     @Test
-    void testHandleNotificationAfterResume(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 5, timeUnit = TimeUnit.SECONDS)
+    void testHandleNotificationAfterResume(VertxTestContext testContext) {
         logger.info("=== TEST: testHandleNotificationAfterResume STARTED ===");
-        
+
         PgNotificationStream<String> stream = new PgNotificationStream<>(vertx, String.class, objectMapper);
-        
+
         Checkpoint messageCheckpoint = testContext.checkpoint();
-        AtomicReference<String> receivedMessage = new AtomicReference<>();
-        
-        stream.handler(message -> {
-            receivedMessage.set(message);
+        String testMessage = "Message after resume";
+
+        stream.handler(message -> testContext.verify(() -> {
+            assertEquals(testMessage, message, "Should receive correct message");
             messageCheckpoint.flag();
-        });
-        
+        }));
+
         // Pause then resume
         stream.pause();
         stream.resume();
-        
+
         // Send notification after resume
-        String testMessage = "Message after resume";
         stream.handleNotification(testMessage);
-        
-        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should receive notification after resume");
-        assertEquals(testMessage, receivedMessage.get(), "Should receive correct message");
-        
-        logger.info("=== TEST: testHandleNotificationAfterResume COMPLETED ===");
     }
 
     @Test
-    void testHandleMultipleNotifications(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 5, timeUnit = TimeUnit.SECONDS)
+    void testHandleMultipleNotifications(VertxTestContext testContext) {
         logger.info("=== TEST: testHandleMultipleNotifications STARTED ===");
-        
+
         PgNotificationStream<String> stream = new PgNotificationStream<>(vertx, String.class, objectMapper);
-        
+
         int notificationCount = 5;
+        // A strict checkpoint: a sixth notification fails the test.
         Checkpoint messageCheckpoint = testContext.checkpoint(notificationCount);
         AtomicInteger receivedCount = new AtomicInteger(0);
-        
-        stream.handler(message -> {
-            receivedCount.incrementAndGet();
+
+        stream.handler(message -> testContext.verify(() -> {
+            assertEquals("Notification " + receivedCount.getAndIncrement(), message,
+                "Should receive the notifications in order");
             messageCheckpoint.flag();
-        });
-        
+        }));
+
         // Send multiple notifications
         for (int i = 0; i < notificationCount; i++) {
             stream.handleNotification("Notification " + i);
         }
-        
-        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should receive all notifications");
-        assertEquals(notificationCount, receivedCount.get(), "Should receive correct number of notifications");
-        
-        logger.info("=== TEST: testHandleMultipleNotifications COMPLETED ===");
     }
 
     @Test
-    void testHandleError(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 5, timeUnit = TimeUnit.SECONDS)
+    void testHandleError(VertxTestContext testContext) {
         logger.info("=== TEST: testHandleError STARTED ===");
-        
+
         PgNotificationStream<String> stream = new PgNotificationStream<>(vertx, String.class, objectMapper);
-        
+
         Checkpoint errorCheckpoint = testContext.checkpoint();
-        AtomicReference<Throwable> receivedError = new AtomicReference<>();
-        
-        stream.exceptionHandler(error -> {
-            receivedError.set(error);
-            errorCheckpoint.flag();
-        });
-        
         RuntimeException testError = new RuntimeException("Test error");
+
+        stream.exceptionHandler(error -> testContext.verify(() -> {
+            assertSame(testError, error, "Should receive correct error");
+            errorCheckpoint.flag();
+        }));
+
         stream.handleError(testError);
-        
-        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should receive error");
-        assertEquals(testError, receivedError.get(), "Should receive correct error");
-        
-        logger.info("=== TEST: testHandleError COMPLETED ===");
     }
 
     @Test
-    void testHandleEnd(VertxTestContext testContext) throws Exception {
+    @Timeout(value = 5, timeUnit = TimeUnit.SECONDS)
+    void testHandleEnd(VertxTestContext testContext) {
         logger.info("=== TEST: testHandleEnd STARTED ===");
-        
+
         PgNotificationStream<String> stream = new PgNotificationStream<>(vertx, String.class, objectMapper);
-        
+
         Checkpoint endCheckpoint = testContext.checkpoint();
-        
-        stream.endHandler(v -> {
-            endCheckpoint.flag();
-        });
-        
+
+        stream.endHandler(v -> endCheckpoint.flag());
+
         stream.handleEnd();
-        
-        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should receive end signal");
-        
-        logger.info("=== TEST: testHandleEnd COMPLETED ===");
     }
 
     @Test

@@ -36,7 +36,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-11-27
  * @version 1.0
  */
-@Tag(TestCategories.CORE)
+@Tag(TestCategories.INTEGRATION)
 @Execution(ExecutionMode.SAME_THREAD)
 @ResourceLock(value = "dead-consumer-detection", mode = ResourceAccessMode.READ_WRITE)
 public @ExtendWith(VertxExtension.class)

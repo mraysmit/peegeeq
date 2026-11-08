@@ -148,6 +148,57 @@ public class MultiConfigurationExampleTest {
     }
 
     /**
+     * Finding 19: a configuration that fails to close fails {@code close()}. The failure was logged
+     * and {@code close()} then reported success. The other configurations still close.
+     */
+    @Test
+    @dev.mars.peegeeq.test.logging.ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.db.PeeGeeQManager",
+        message = "Close step 'close hook failing-hook' failed:",
+        messageMatch = dev.mars.peegeeq.test.logging.ExpectedErrorLog.MessageMatch.PREFIX,
+        throwable = dev.mars.peegeeq.test.logging.ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = IllegalStateException.class)
+    @dev.mars.peegeeq.test.logging.ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.db.config.MultiConfigurationManager",
+        message = "Failed to close configuration: failing",
+        throwable = dev.mars.peegeeq.test.logging.ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = IllegalStateException.class)
+    void testCloseFailsWhenAConfigurationFailsToClose(VertxTestContext testContext) {
+        configManager.registerConfiguration("failing", testConfig());
+        configManager.registerConfiguration("healthy", testConfig());
+
+        configManager.start()
+            .compose(v -> {
+                ((dev.mars.peegeeq.api.lifecycle.LifecycleHookRegistrar) configManager.getDatabaseService("failing"))
+                    .registerCloseHook(new dev.mars.peegeeq.api.lifecycle.PeeGeeQCloseHook() {
+                        @Override
+                        public String name() {
+                            return "failing-hook";
+                        }
+
+                        @Override
+                        public Future<Void> closeReactive() {
+                            return Future.failedFuture(new IllegalStateException("configuration resource not released"));
+                        }
+                    });
+                MultiConfigurationManager closing = configManager;
+                configManager = null; // the close under test is the only close
+                return closing.close().transform(result -> Future.succeededFuture(
+                    new Object[] {result, closing}));
+            })
+            .onSuccess(pair -> testContext.verify(() -> {
+                io.vertx.core.AsyncResult<?> result = (io.vertx.core.AsyncResult<?>) pair[0];
+                MultiConfigurationManager closed = (MultiConfigurationManager) pair[1];
+                assertTrue(result.failed(), "a configuration that failed to close must fail close()");
+                assertEquals("configuration resource not released", result.cause().getMessage());
+                assertFalse(closed.isStarted());
+                assertEquals(Set.of(), closed.getConfigurationNames(), "every configuration must be released");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+    }
+
+    /**
      * Test Pattern 3: High-Throughput Configuration
      * Validates high-throughput configuration patterns and settings
      */

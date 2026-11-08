@@ -145,7 +145,8 @@ public class BiTemporalTxConfig {
                 logger.info("Stopping all bi-temporal event stores before PeeGeeQ Manager destruction");
                 CountDownLatch latch = new CountDownLatch(1);
                 AtomicReference<Throwable> error = new AtomicReference<>();
-                Future.all(
+                // join, not all: wait for every store to finish closing before the manager is destroyed.
+                Future.join(
                         orderEventStore.close(),
                         inventoryEventStore.close(),
                         paymentEventStore.close(),

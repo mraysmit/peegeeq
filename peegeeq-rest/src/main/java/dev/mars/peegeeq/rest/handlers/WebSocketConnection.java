@@ -1,6 +1,5 @@
 package dev.mars.peegeeq.rest.handlers;
 
-import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.QueueBrowser;
 import io.vertx.core.http.ServerWebSocket;
 import io.vertx.core.json.JsonObject;
@@ -11,7 +10,7 @@ import org.slf4j.LoggerFactory;
  * Represents an active WebSocket connection for real-time message streaming.
  * 
  * Manages the state and configuration of a single WebSocket connection,
- * including subscription settings, filters, and the associated message consumer.
+ * including subscription settings, filters, and the non-destructive queue browser it observes.
  * 
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-19
@@ -37,9 +36,6 @@ public class WebSocketConnection {
     private int batchSize = 1;
     private long maxWaitTime = 5000L; // 5 seconds default
     
-    // Message consumer (legacy — not used by the non-destructive tail path)
-    private MessageConsumer<Object> consumer;
-
     // Non-destructive live observer (QueueBrowser.tail()). Never consumes/acks messages.
     private QueueBrowser<Object> browser;
     
@@ -223,17 +219,6 @@ public class WebSocketConnection {
         active = false;
         subscribed = false;
         
-        // Close consumer if it exists
-        if (consumer != null) {
-            try {
-                consumer.close();
-                logger.debug("Closed message consumer for connection: {}", connectionId);
-            } catch (Exception e) {
-                logger.warn("Error closing message consumer for connection {}: {}", connectionId, e.getMessage());
-            }
-            consumer = null;
-        }
-
         // Close the non-destructive tail observer if it exists (stops observing; consumes nothing)
         if (browser != null) {
             try {
@@ -347,14 +332,6 @@ public class WebSocketConnection {
         this.maxWaitTime = Math.max(1000L, Math.min(60000L, maxWaitTime)); // Clamp between 1s and 60s
     }
     
-    public MessageConsumer<Object> getConsumer() {
-        return consumer;
-    }
-
-    public void setConsumer(MessageConsumer<Object> consumer) {
-        this.consumer = consumer;
-    }
-
     public QueueBrowser<Object> getBrowser() {
         return browser;
     }

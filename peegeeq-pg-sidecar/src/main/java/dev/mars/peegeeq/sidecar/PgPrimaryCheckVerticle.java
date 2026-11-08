@@ -1,7 +1,6 @@
 package dev.mars.peegeeq.sidecar;
 
 import io.vertx.core.AbstractVerticle;
-import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
@@ -15,8 +14,9 @@ import org.slf4j.LoggerFactory;
  *
  * <pre>
  * GET /primary
- *    HTTP 200  when pg_is_in_recovery() = false  (this node is the write primary)
- *    HTTP 503  when pg_is_in_recovery() = true   (replica) or PostgreSQL is unreachable
+ *    HTTP 200 "primary"              when pg_is_in_recovery() = false (this node is the write primary)
+ *    HTTP 503 "replica"              when pg_is_in_recovery() = true
+ *    HTTP 503 "unavailable: cause"   when the check query fails, for example PostgreSQL is unreachable
  * </pre>
  *
  * HAProxy configuration:
@@ -83,30 +83,42 @@ public class PgPrimaryCheckVerticle extends AbstractVerticle {
                 .onFailure(start::fail);
     }
 
+    /**
+     * HAProxy reads the status only: 200 routes writes here, 503 routes them away. A replica and a
+     * node whose check failed both answer 503, so the body separates them for an operator:
+     * {@code primary}, {@code replica}, or {@code unavailable: <cause>} (finding 8).
+     */
     private void handlePrimaryCheck(io.vertx.core.http.HttpServerResponse response) {
         pool.query("SELECT pg_is_in_recovery()")
                 .execute()
-                .compose(rows -> {
-                    boolean isReplica = rows.iterator().next().getBoolean(0);
+                .map(rows -> Boolean.TRUE.equals(rows.iterator().next().getBoolean(0)))
+                .onSuccess(isReplica -> {
                     int statusCode = isReplica ? 503 : 200;
                     logger.debug("pg_is_in_recovery={}  HTTP {}", isReplica, statusCode);
-                    return Future.succeededFuture(statusCode);
+                    end(response, statusCode, isReplica ? "replica" : "primary");
                 })
-                .onSuccess(statusCode -> response.setStatusCode(statusCode).end())
                 .onFailure(err -> {
                     logger.warn("pg_is_in_recovery() query failed: {}", err.getMessage());
-                    response.setStatusCode(503).end();
+                    end(response, 503, "unavailable: " + err.getMessage());
                 });
+    }
+
+    private static void end(io.vertx.core.http.HttpServerResponse response, int statusCode, String body) {
+        response.setStatusCode(statusCode)
+                .putHeader("content-type", "text/plain")
+                .end(body)
+                .onFailure(err -> logger.debug("Primary check response not delivered: {}", err.getMessage()));
     }
 
     @Override
     public void stop(Promise<Void> stop) {
         if (pool != null) {
+            // A pool that failed to close fails the undeploy; it was reported as a clean stop before.
             pool.close()
                     .onSuccess(v -> stop.complete())
                     .onFailure(err -> {
-                        logger.warn("Pool close failed during stop", err);
-                        stop.complete();
+                        logger.error("Pool close failed during stop", err);
+                        stop.fail(err);
                     });
         } else {
             stop.complete();

@@ -49,11 +49,6 @@ public class AdvancedConfigurationExampleTest {
     private PeeGeeQManager manager;
     private Properties containerProps;
 
-    private static final String DB_URL_KEY = "PEEGEEQ_DB_URL";
-    private static final String DB_USERNAME_KEY = "PEEGEEQ_DB_USERNAME";
-    private static final String DB_PASSWORD_KEY = "PEEGEEQ_DB_PASSWORD";
-    private static final String MONITORING_ENABLED_KEY = "PEEGEEQ_MONITORING_ENABLED";
-
     @BeforeEach
     void setUp() {
         logger.info("Setting up Advanced Configuration Example Test");
@@ -87,13 +82,11 @@ public class AdvancedConfigurationExampleTest {
         if (manager != null) {
             manager.closeReactive()
                 .onSuccess(v -> {
-                    clearTestProperties();
                     logger.info("\u2713 Advanced Configuration Example Test teardown completed");
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
         } else {
-            clearTestProperties();
             logger.info("\u2713 Advanced Configuration Example Test teardown completed");
             testContext.completeNow();
         }
@@ -174,7 +167,8 @@ public class AdvancedConfigurationExampleTest {
 
     /**
      * Test Pattern 2: External Configuration Management
-     * Validates properties files, environment variables, and system properties
+     * Validates instance properties passed to the constructor. PeeGeeQ reads no system
+     * properties and no environment variables.
      */
     @Test
     void testExternalConfigurationManagement() throws Exception {
@@ -191,32 +185,10 @@ public class AdvancedConfigurationExampleTest {
         assertEquals("instance-value", instanceValue, "Instance property override should take precedence");
         logger.info("Instance properties configuration: {}", instanceValue);
 
-        // Test environment variables simulation
-        logger.info("--- Testing Environment Variables Configuration ---");
-        System.setProperty(DB_URL_KEY, "jdbc:postgresql://localhost:5432/peegeeq");
-        System.setProperty(DB_USERNAME_KEY, "peegeeq_user");
-        System.setProperty(DB_PASSWORD_KEY, "secure_password");
-        System.setProperty(MONITORING_ENABLED_KEY, "true");
-
-        String dbUrl = getConfigValue(DB_URL_KEY, "jdbc:postgresql://localhost:5432/peegeeq");
-        String dbUsername = getConfigValue(DB_USERNAME_KEY, "peegeeq");
-        String dbPassword = getConfigValue(DB_PASSWORD_KEY, "password");
-        boolean monitoringEnabled = Boolean.parseBoolean(getConfigValue(MONITORING_ENABLED_KEY, "false"));
-
-        assertNotNull(dbUrl, "Database URL should be configured");
-        assertNotNull(dbUsername, "Database username should be configured");
-        assertNotNull(dbPassword, "Database password should be configured");
-        assertTrue(monitoringEnabled, "Monitoring should be enabled");
-
-        logger.info("Environment Variables Configuration:");
-        logger.info("   Database URL: {}", maskSensitiveInfo(dbUrl));
-        logger.info("   Database Username: {}", dbUsername);
-        logger.info("   Database Password: {}", maskSensitiveInfo(dbPassword));
-        logger.info("   Monitoring Enabled: {}", monitoringEnabled);
-
-        // Test configuration hierarchy
-        logger.info("--- Testing Configuration Hierarchy ---");
-        testConfigurationHierarchy();
+        // PeeGeeQ reads no system properties and no environment variables. A system/env/default
+        // lookup chain demonstrated here before was a pattern the project bans; it tested only a
+        // private helper of this class. Environment values reach PeeGeeQ through ${VAR}
+        // placeholders in the profile, which PeeGeeQConfigurationTest covers.
 
         logger.info("External configuration management validated successfully");
     }
@@ -364,19 +336,21 @@ public class AdvancedConfigurationExampleTest {
         containerProps.forEach((k, v) -> configProps.setProperty(k.toString(), v.toString()));
         configProps.setProperty("peegeeq.queue.max-retries", "5");
         configProps.setProperty("peegeeq.queue.batch-size", "20");
-        configProps.setProperty("peegeeq.queue.polling-interval", "2000");
+        // Durations are ISO-8601. "2000" is not a duration and is refused when it is read.
+        configProps.setProperty("peegeeq.queue.polling-interval", "PT2S");
         configProps.setProperty("peegeeq.monitoring.enabled", "true");
         PeeGeeQConfiguration testConfig = new PeeGeeQConfiguration("default", configProps);
 
         assertEquals("5", testConfig.getString("peegeeq.queue.max-retries", null));
         assertEquals("20", testConfig.getString("peegeeq.queue.batch-size", null));
-        assertEquals("2000", testConfig.getString("peegeeq.queue.polling-interval", null));
+        assertEquals("PT2S", testConfig.getString("peegeeq.queue.polling-interval", null));
+        assertEquals(java.time.Duration.ofSeconds(2), testConfig.getQueueConfig().getPollingInterval());
         assertTrue(testConfig.getBoolean("peegeeq.monitoring.enabled", false));
 
         logger.info("Instance Configuration Values:");
         logger.info("   Max Retries: {}", testConfig.getString("peegeeq.queue.max-retries", null));
         logger.info("   Batch Size: {}", testConfig.getString("peegeeq.queue.batch-size", null));
-        logger.info("   Polling Interval: {}ms", testConfig.getString("peegeeq.queue.polling-interval", null));
+        logger.info("   Polling Interval: {}", testConfig.getString("peegeeq.queue.polling-interval", null));
         logger.info("   Monitoring Enabled: {}", testConfig.getBoolean("peegeeq.monitoring.enabled", false));
 
         // Test safety considerations
@@ -394,80 +368,6 @@ public class AdvancedConfigurationExampleTest {
         logger.info("   - JVM-level settings and memory allocation");
 
         logger.info("Runtime configuration updates validated successfully");
-    }
-
-    // Helper methods for configuration management
-
-    private void clearTestProperties() {
-        System.clearProperty(DB_URL_KEY);
-        System.clearProperty(DB_USERNAME_KEY);
-        System.clearProperty(DB_PASSWORD_KEY);
-        System.clearProperty(MONITORING_ENABLED_KEY);
-    }
-
-    private String getConfigValue(String key, String defaultValue) {
-        // Check system properties first
-        String value = System.getProperty(key);
-        if (value != null) {
-            return value;
-        }
-
-        // Check environment variables
-        value = System.getenv(key);
-        if (value != null) {
-            return value;
-        }
-
-        // Check simulated environment variables (for demo)
-        value = System.getProperty("env." + key);
-        if (value != null) {
-            return value;
-        }
-
-        // Return default
-        return defaultValue;
-    }
-
-    private String maskSensitiveInfo(String value) {
-        if (value == null || value.length() <= 4) {
-            return "****";
-        }
-        return value.substring(0, 2) + "****" + value.substring(value.length() - 2);
-    }
-
-    private void testConfigurationHierarchy() {
-        logger.info("Testing configuration hierarchy (highest to lowest priority):");
-        logger.info("1. System properties (-Dproperty=value)");
-        logger.info("2. Environment variables");
-        logger.info("3. External configuration files");
-        logger.info("4. Application defaults");
-
-        // Test hierarchy with a test property
-        String testKey = "peegeeq.hierarchy.test";
-
-        // Set default
-        String defaultValue = "default-value";
-
-        // Set environment variable simulation
-        System.setProperty("env." + testKey, "env-value");
-
-        // Set system property (should override environment)
-        System.setProperty(testKey, "system-value");
-
-        String finalValue = getConfigValue(testKey, defaultValue);
-        assertEquals("system-value", finalValue, "System property should have highest priority");
-
-        // Remove system property, should fall back to env
-        System.clearProperty(testKey);
-        finalValue = getConfigValue(testKey, defaultValue);
-        assertEquals("env-value", finalValue, "Environment variable should have second priority");
-
-        // Remove env simulation, should fall back to default
-        System.clearProperty("env." + testKey);
-        finalValue = getConfigValue(testKey, defaultValue);
-        assertEquals("default-value", finalValue, "Default value should have lowest priority");
-
-        logger.info("Configuration hierarchy validated successfully");
     }
 
     // Environment-specific configuration getters

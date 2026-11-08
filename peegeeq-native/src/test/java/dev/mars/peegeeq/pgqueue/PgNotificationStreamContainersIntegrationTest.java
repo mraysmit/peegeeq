@@ -53,7 +53,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @org.junit.jupiter.api.Tag(dev.mars.peegeeq.test.categories.TestCategories.INTEGRATION)
 @ExtendWith(VertxExtension.class)
 @Testcontainers
-public class PgNotificationStreamTestContainers {
+public class PgNotificationStreamContainersIntegrationTest {
 
     @Container
     private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();

@@ -224,7 +224,10 @@ public class PeeGeeQManagerTimerGuardTest {
                     //   Subsequent: io.netty.channel.AbstractChannel$AnnotatedConnectException wrapping
                     //             java.net.ConnectException ("Connection refused")  new connection
                     //             attempts fail because the port is gone.
-                    // hasCauseOfAnyType checks for any of the three by exact class name.
+                    //   Or, when the database stops while a refresh query is in flight:
+                    //             io.vertx.sqlclient.ClosedConnectionException ("Failed to read any
+                    //             response from the server") -- run on 2026-11-08, f6-db-manager2.
+                    // hasCauseOfAnyType checks for any of these by exact class name.
                     assertFalse(warns.isEmpty(), "Expected the first timer failure at WARN");
                     assertFalse(errors.isEmpty(),
                             "Expected a rate-limited ERROR summary after the escalation threshold");
@@ -233,7 +236,8 @@ public class PeeGeeQManagerTimerGuardTest {
                             .allMatch(e -> hasCauseOfAnyType(e.getThrowableProxy(),
                                     "java.io.IOException",
                                     "java.net.SocketException",
-                                    "java.net.ConnectException"));
+                                    "java.net.ConnectException",
+                                    "io.vertx.sqlclient.ClosedConnectionException"));
                     assertTrue(allWarnsHaveConnectionFailure,
                             "Every WARN must carry a network I/O exception (IOException/SocketException/ConnectException) " +
                             "in cause chain  proves the DB-stopped scenario produced these failures and the exception " +

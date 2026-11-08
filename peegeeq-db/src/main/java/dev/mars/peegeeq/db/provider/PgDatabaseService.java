@@ -165,10 +165,11 @@ public class PgDatabaseService implements dev.mars.peegeeq.api.database.Database
             }
         } finally {
             if (manager != null) {
+                // Starts the asynchronous manager close; PeeGeeQManager logs its outcome.
                 manager.close();
             }
         }
-        logger.info("Database service closed successfully");
+        logger.info("Database service close started; the manager closes asynchronously");
     }
 
     // VertxProvider implementation

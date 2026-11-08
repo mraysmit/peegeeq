@@ -62,7 +62,7 @@ public class PeeGeeQConfiguration {
     /**
      * Constructor for programmatic configuration with arbitrary property overrides.
      *
-     * <p>Loads the profile defaults (resource files and environment variables) and
+     * <p>Loads the profile defaults (resource files) and
      * then applies every entry in {@code overrides} on top, without writing anything
      * back to {@code System.getProperties()}. This is the correct pattern for tests
      * that run concurrently: each test instance holds its own isolated property set
@@ -148,17 +148,9 @@ public class PeeGeeQConfiguration {
             props.putAll(profileProperties);
         }
 
-        // Override with environment variables (convert to property format)
-        Properties environmentProperties = new Properties();
-        System.getenv().forEach((key, value) -> {
-            if (key.startsWith("PEEGEEQ_")) {
-                String propKey = resolveEnvVarKey(key, props);
-                environmentProperties.setProperty(propKey, value);
-            }
-        });
-        promoteCompatibilityAliasesInSource(environmentProperties);
-        props.putAll(environmentProperties);
-
+        // No PEEGEEQ_* environment-variable sweep: the process environment is ambient state,
+        // like system properties, and is not PeeGeeQ configuration. An application that wants
+        // environment values copies them into the overrides at its bootstrap boundary.
         return props;
     }
     
@@ -187,9 +179,9 @@ public class PeeGeeQConfiguration {
      *       otherwise replaced by {@code default} (which may be empty).</li>
      * </ul>
      *
-     * <p>This is called after all property sources (resource files, env-var sweep,
-     * environment variables and programmatic overrides) have been merged, so that
-     * placeholders in any source are resolved uniformly.</p>
+     * <p>This is called after all property sources (resource files and programmatic
+     * overrides) have been merged, so that placeholders in any source are resolved
+     * uniformly.</p>
      */
     private static void resolvePlaceholders(Properties props) {
         Pattern pattern = Pattern.compile("\\$\\{([^}:]+)(?::([^}]*))?\\}");
@@ -223,30 +215,6 @@ public class PeeGeeQConfiguration {
         }
     }
 
-    /**
-     * Resolve an environment variable name to its matching property key,
-     * handling hyphenated property names (e.g., max-size, visibility-timeout)
-     * that cannot be represented directly in environment variable names.
-     */
-    private static String resolveEnvVarKey(String envVar, Properties knownProps) {
-        String directConversion = envVar.toLowerCase().replace("_", ".");
-        if (knownProps.containsKey(directConversion)) {
-            return directConversion;
-        }
-        String normalized = directConversion.replace("-", ".");
-        for (String knownKey : knownProps.stringPropertyNames()) {
-            if (knownKey.replace("-", ".").equals(normalized)) {
-                return knownKey;
-            }
-        }
-        for (String aliasKey : COMPATIBILITY_ALIASES.keySet()) {
-            if (aliasKey.replace("-", ".").equals(normalized)) {
-                return aliasKey;
-            }
-        }
-        return directConversion;
-    }
-    
     private void validateConfiguration() {
         List<String> errors = new ArrayList<>();
         
@@ -457,11 +425,10 @@ public class PeeGeeQConfiguration {
         try {
             return Integer.parseInt(value);
         } catch (NumberFormatException e) {
-            logger.warn("Invalid integer value for {}: {}, using default: {}", key, value, defaultValue);
-            return defaultValue;
+            throw invalidValue(key, value, "an integer", e);
         }
     }
-    
+
     public long getLong(String key, long defaultValue) {
         String value = properties.getProperty(key);
         if (value == null) {
@@ -470,19 +437,26 @@ public class PeeGeeQConfiguration {
         try {
             return Long.parseLong(value);
         } catch (NumberFormatException e) {
-            logger.warn("Invalid long value for {}: {}, using default: {}", key, value, defaultValue);
-            return defaultValue;
+            throw invalidValue(key, value, "a long integer", e);
         }
     }
-    
+
     public boolean getBoolean(String key, boolean defaultValue) {
         String value = properties.getProperty(key);
         if (value == null) {
             return defaultValue;
         }
-        return Boolean.parseBoolean(value);
+        // Boolean.parseBoolean reads every value other than "true" as false, so "yes" or a
+        // mistyped "ture" switched a feature off without a trace.
+        if ("true".equalsIgnoreCase(value.trim())) {
+            return true;
+        }
+        if ("false".equalsIgnoreCase(value.trim())) {
+            return false;
+        }
+        throw invalidValue(key, value, "true or false", null);
     }
-    
+
     public Duration getDuration(String key, Duration defaultValue) {
         String value = properties.getProperty(key);
         if (value == null) {
@@ -490,10 +464,18 @@ public class PeeGeeQConfiguration {
         }
         try {
             return Duration.parse(value);
-        } catch (Exception e) {
-            logger.error("Invalid duration value for {}: {}, using default: {}", key, value, defaultValue);
-            return defaultValue;
+        } catch (java.time.format.DateTimeParseException e) {
+            throw invalidValue(key, value, "an ISO-8601 duration such as PT30S", e);
         }
+    }
+
+    /**
+     * An invalid configured value stops the configuration. It is never replaced by the default:
+     * the system would then run with a setting the operator did not write (finding 7).
+     */
+    private static IllegalArgumentException invalidValue(String key, String value, String expected, Exception cause) {
+        return new IllegalArgumentException("Configuration property '" + key + "' must be " + expected
+                + ", got '" + value + "'", cause);
     }
     
     // Specific configuration builders
@@ -607,8 +589,7 @@ public class PeeGeeQConfiguration {
         try {
             return Double.parseDouble(value);
         } catch (NumberFormatException e) {
-            logger.warn("Invalid double value for {}: {}, using default: {}", key, value, defaultValue);
-            return defaultValue;
+            throw invalidValue(key, value, "a number", e);
         }
     }
 

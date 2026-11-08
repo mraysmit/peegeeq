@@ -75,11 +75,12 @@ public class RestApiStreamingExampleTest {
     private WebSocketClient wsClient;
     
     @BeforeEach
-    void setUp() {
+    void setUp(Vertx vertx) {
         logger.info("Setting up REST API Streaming Example Test");
-        
-        // Initialize Vert.x and clients
-        vertx = Vertx.vertx();
+
+        // The extension owns this Vert.x and closes it after the test. A teardown that closes
+        // its own Vert.x from a callback on that Vert.x never sees the close complete.
+        this.vertx = vertx;
         client = WebClient.create(vertx);
         httpClient = vertx.createHttpClient();
         wsClient = vertx.createWebSocketClient();
@@ -107,13 +108,8 @@ public class RestApiStreamingExampleTest {
                 .onSuccess(ignored -> logger.info("WebSocketClient closed"));
         }
 
-        if (vertx != null) {
-            closeFuture = closeFuture.compose(ignored -> vertx.close());
-        }
-
         closeFuture
             .onSuccess(ignored -> {
-                logger.info("Vert.x closed successfully");
                 logger.info("REST API Streaming Example Test teardown completed");
                 testContext.completeNow();
             })

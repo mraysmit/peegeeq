@@ -17,7 +17,7 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@Tag(TestCategories.CORE)
+@Tag(TestCategories.INTEGRATION)
 @ExtendWith(VertxExtension.class)
 @Execution(ExecutionMode.SAME_THREAD)
 public class PgDatabaseServiceCoreTest extends BaseIntegrationTest {

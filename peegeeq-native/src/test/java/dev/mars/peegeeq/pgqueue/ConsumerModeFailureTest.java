@@ -19,6 +19,7 @@ import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.sqlclient.Tuple;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,10 +34,17 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -130,54 +138,91 @@ class ConsumerModeFailureTest {
     void testExceptionHandlingInMessageHandlers(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info(" Testing exception handling in message handlers");
 
-        String topicName = "test-exception-handling";
+        // A unique topic keeps rows of an earlier run on a reused container out of the counts.
+        String topicName = "test-exception-handling-" + UUID.randomUUID().toString().substring(0, 8);
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
             ConsumerConfig.builder().mode(ConsumerMode.HYBRID).pollingInterval(Duration.ofSeconds(1)).build());
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
+        int maxRetries = manager.getConfiguration().getQueueConfig().getMaxRetries();
 
         AtomicInteger processedCount = new AtomicInteger(0);
-        AtomicInteger exceptionCount = new AtomicInteger(0);
-        Checkpoint normalMessages = testContext.checkpoint(3);
+        Map<String, AtomicInteger> failedDeliveries = new ConcurrentHashMap<>();
 
-            consumer.subscribe(message -> {
+        consumer.subscribe(message -> {
                 String payload = message.getPayload();
-                logger.info(" Processing message: {}", payload);
-
                 if (payload.contains("exception")) {
-                    exceptionCount.incrementAndGet();
-                    logger.info(" Throwing intentional exception for message: {} (attempt {})", payload, exceptionCount.get());
+                    int attempt = failedDeliveries.computeIfAbsent(payload, p -> new AtomicInteger()).incrementAndGet();
+                    logger.info(" Throwing intentional exception for message: {} (attempt {})", payload, attempt);
                     throw new RuntimeException("Intentional test exception for: " + payload);
-                } else {
-                    processedCount.incrementAndGet();
-                    logger.info("Successfully processed message: {}", payload);
-                    normalMessages.flag();
-                    return Future.succeededFuture();
                 }
+                processedCount.incrementAndGet();
+                logger.info("Successfully processed message: {}", payload);
+                return Future.succeededFuture();
             })
-            .onSuccess(ignored -> producer.send("Normal message 1")
-                    .compose(v -> producer.send("Message with exception"))
-                    .compose(v -> producer.send("Normal message 2"))
-                    .compose(v -> producer.send("Another exception message"))
-                    .compose(v -> producer.send("Normal message 3"))
-                    .onFailure(testContext::failNow))
+            .compose(v -> producer.send("Normal message 1"))
+            .compose(v -> producer.send("Message with exception"))
+            .compose(v -> producer.send("Normal message 2"))
+            .compose(v -> producer.send("Another exception message"))
+            .compose(v -> producer.send("Normal message 3"))
+            .compose(v -> pollUntil(vertx, () -> count(DEAD_LETTER_COUNT_SQL, topicName).map(c -> c == 2L),
+                    "both failing messages were not dead-lettered"))
+            .compose(v -> pollUntil(vertx, () -> count(MESSAGE_COUNT_SQL, topicName).map(c -> c == 0L),
+                    "queue_messages still holds rows of the topic"))
+            .compose(v -> deadLetterRetryCounts(topicName))
+            .onSuccess(retryCounts -> testContext.verify(() -> {
+                assertEquals(3, processedCount.get(), "each normal message must be processed exactly once");
+                assertEquals(Set.of("Message with exception", "Another exception message"), failedDeliveries.keySet(),
+                        "only the two failing messages may fail");
+                failedDeliveries.forEach((payload, deliveries) -> assertEquals(maxRetries + 1, deliveries.get(),
+                        "with max-retries N a failing message is delivered N + 1 times: " + payload));
+                assertEquals(List.of(maxRetries, maxRetries), retryCounts,
+                        "each dead letter must record the N retries");
+                testContext.completeNow();
+            }))
             .onFailure(testContext::failNow);
 
-            // Wait for message processing (longer timeout to account for retries)
-            assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Should process non-exception messages successfully");
+        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS),
+                "the failing messages were not settled within 60 seconds");
+    }
 
-            // Verify that normal messages were processed
-            assertEquals(3, processedCount.get(), "Should process exactly 3 normal messages");
+    private static final String DEAD_LETTER_COUNT_SQL =
+            "SELECT COUNT(*) AS c FROM dead_letter_queue WHERE topic = $1";
+    private static final String MESSAGE_COUNT_SQL =
+            "SELECT COUNT(*) AS c FROM queue_messages WHERE topic = $1";
+    private static final long POLL_DEADLINE_MS = 30_000;
 
-            // A failing message is delivered max-retries + 1 times before it is dead-lettered.
-            int deliveriesPerFailingMessage = manager.getConfiguration().getQueueConfig().getMaxRetries() + 1;
-            assertTrue(exceptionCount.get() >= 2, "Should encounter at least 2 exceptions (original attempts)");
-            assertTrue(exceptionCount.get() <= 2 * deliveriesPerFailingMessage,
-                    "Should not exceed 2 messages x (max-retries + 1) deliveries, got " + exceptionCount.get());
+    private Future<Long> count(String sql, String topic) {
+        return manager.getPool().preparedQuery(sql).execute(Tuple.of(topic))
+                .map(rows -> rows.iterator().next().getLong("c"));
+    }
 
-        logger.info("Exception handling verified - processed: {}, exceptions: {} (includes retries)",
-            processedCount.get(), exceptionCount.get());
+    private Future<List<Integer>> deadLetterRetryCounts(String topic) {
+        return manager.getPool()
+                .preparedQuery("SELECT retry_count FROM dead_letter_queue WHERE topic = $1 ORDER BY id")
+                .execute(Tuple.of(topic))
+                .map(rows -> {
+                    List<Integer> counts = new ArrayList<>();
+                    rows.forEach(row -> counts.add(row.getInteger("retry_count")));
+                    return counts;
+                });
+    }
 
-        logger.info("Exception handling in message handlers test completed successfully");
+    private Future<Void> pollUntil(Vertx vertx, Supplier<Future<Boolean>> condition, String failureMessage) {
+        return pollUntil(vertx, condition, System.currentTimeMillis() + POLL_DEADLINE_MS, failureMessage);
+    }
+
+    private Future<Void> pollUntil(Vertx vertx, Supplier<Future<Boolean>> condition, long deadline,
+                                   String failureMessage) {
+        return condition.get().compose(met -> {
+            if (met) {
+                return Future.<Void>succeededFuture();
+            }
+            if (System.currentTimeMillis() >= deadline) {
+                return Future.<Void>failedFuture(new AssertionError(
+                        failureMessage + " within " + POLL_DEADLINE_MS + " ms"));
+            }
+            return vertx.timer(100).compose(t -> pollUntil(vertx, condition, deadline, failureMessage));
+        });
     }
 
     @Test

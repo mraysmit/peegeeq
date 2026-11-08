@@ -8,6 +8,7 @@ import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.vertx.core.Future;
@@ -140,6 +141,13 @@ class PgConnectionManagerDurabilityIntegrationTest {
 
     @ParameterizedTest
     @CsvSource({"off,true,false", "local,true,false", "remote_write,true,false", "off,false,false", "on,true,true"})
+    // Finding 10: an unknown commit outcome is an ERROR an operator sees, not only a failed Future.
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.db.connection.PgConnectionManager",
+        message = "Commit outcome unknown for service 'durability'",
+        messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgCommitOutcomeUnknownException.class)
     void weakerCallerPolicyCannotAcknowledgeWithoutBothPeers(
             String setting, boolean local, boolean cancel, VertxTestContext testContext) {
         int[] backend = {0};

@@ -146,15 +146,14 @@ peegeeq.database.password=password
 
 **Environment Variables**
 
-```bash
-# Env vars are mapped by lowercasing and replacing '_' with '.', so
-# PEEGEEQ_DATABASE_SCHEMA -> peegeeq.database.schema (PEEGEEQ_DB_* would NOT match).
-export PEEGEEQ_DATABASE_SCHEMA="myapp_messaging"
-export PEEGEEQ_DATABASE_HOST="localhost"
-export PEEGEEQ_DATABASE_PORT="5432"
-export PEEGEEQ_DATABASE_NAME="myapp_db"
-export PEEGEEQ_DATABASE_USERNAME="dbuser"
-export PEEGEEQ_DATABASE_PASSWORD="password"
+`PeeGeeQConfiguration` does not read `PEEGEEQ_*` environment variables. An application that
+keeps these values in its environment copies them into the overrides at its own bootstrap
+boundary:
+
+```java
+Properties overrides = new Properties();
+overrides.setProperty("peegeeq.database.schema", System.getenv("APP_QUEUE_SCHEMA"));
+PeeGeeQConfiguration config = new PeeGeeQConfiguration("production", overrides);
 ```
 
 #### Integration Tests
@@ -4032,7 +4031,7 @@ Failed to load template: base - Error: Template not found
 | **Setup Integration Test** | PeeGeeQDatabaseSetupService | `setupService.createCompleteSetup(request).onSuccess(...).onFailure(...)` |
 | **Setup Unit Test** | PeeGeeQTestSchemaInitializer | `initializeSchema(postgres, "peegeeq", SchemaComponent.ALL)` |
 | **Set Custom Schema (Flyway)** | Configuration | `flyway.schemas=myapp_queue,myapp_events` |
-| **Set Custom Schema (App)** | Environment Variable | `export PEEGEEQ_DATABASE_SCHEMA="myapp_queue"` |
+| **Set Custom Schema (App)** | Configuration override | `overrides.setProperty("peegeeq.database.schema", "myapp_queue")` |
 | **Verify Schema** | Flyway Info | `mvn flyway:info` |
 | **Reset Dev DB** | Flyway Clean | `mvn flyway:clean flyway:migrate` |
 | **Check Health** | PeeGeeQManager | `manager.getHealthService().checkHealth()` |
