@@ -328,16 +328,20 @@ public class MultiConfigurationManager {
                 .onFailure(e -> logger.error("Failed to close configuration: {}", entry.getKey(), e)));
         }
 
+        // join waits for every close. The state is released whatever the outcome, and the first
+        // failure is returned: a configuration that failed to close may still hold connections
+        // (finding 19). The failure was logged and then replaced by success before.
         return Future.join(futures)
-            .onFailure(e ->
-                logger.warn("Some configurations failed to close cleanly: {}", e.getMessage()))
-            .transform(ar -> Future.<Void>succeededFuture())
-            .eventually(() -> {
+            .transform(joined -> {
                 configurations.clear();
                 managers.clear();
                 databaseServices.clear();
                 state.set(State.STOPPED);
                 closeOwnedMeterRegistry();
+                if (joined.failed()) {
+                    // Each failed configuration was logged at ERROR above.
+                    return Future.<Void>failedFuture(joined.cause());
+                }
                 logger.info("MultiConfigurationManager closed");
                 return Future.<Void>succeededFuture();
             });

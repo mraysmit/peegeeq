@@ -1483,4 +1483,40 @@ class SystemMonitoringHandlerTest {
         return done.future();
     }
 
+    // Finding 19: a non-numeric SSE parameter was replaced by the default and the stream opened
+    // with 200, so the client could not tell that its setting was ignored.
+
+    @Test
+    @Order(19)
+    void sseMetricsRefusesANonNumericInterval(Vertx vertx, VertxTestContext testContext) {
+        assertSseParameterRefused(vertx, testContext, "/sse/metrics?interval=abc", "interval");
+    }
+
+    @Test
+    @Order(20)
+    void sseMetricsRefusesANonNumericHeartbeat(Vertx vertx, VertxTestContext testContext) {
+        assertSseParameterRefused(vertx, testContext, "/sse/metrics?heartbeat=ten", "heartbeat");
+    }
+
+    /**
+     * The status is checked when the headers arrive: an accepted stream never ends, so reading
+     * its body would wait for the test timeout instead of failing with the status.
+     */
+    private void assertSseParameterRefused(Vertx vertx, VertxTestContext testContext, String path, String parameter) {
+        HttpClient sseClient = vertx.createHttpClient();
+        sseClient.request(HttpMethod.GET, TEST_PORT, "localhost", path)
+                .compose(request -> request.send())
+                .compose(response -> response.statusCode() == 400
+                        ? response.body()
+                        : io.vertx.core.Future.<io.vertx.core.buffer.Buffer>failedFuture(new AssertionError(
+                                "a non-numeric " + parameter + " must be refused with 400, got " + response.statusCode())))
+                .onComplete(result -> sseClient.close()
+                        .onFailure(closeError -> logger.warn("Failed to close the SSE test client", closeError)))
+                .onSuccess(body -> testContext.verify(() -> {
+                    assertTrue(body.toString().contains(parameter), "the refusal must name the parameter: " + body);
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
+    }
+
 }

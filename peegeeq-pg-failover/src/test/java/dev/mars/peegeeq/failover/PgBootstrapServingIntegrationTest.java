@@ -491,6 +491,13 @@ class PgBootstrapServingIntegrationTest {
 
     @Test
     @io.vertx.junit5.Timeout(value = 120, timeUnit = TimeUnit.SECONDS)
+    // Finding 10: the unknown outcome is also logged at ERROR by the connection manager.
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.db.connection.PgConnectionManager",
+        message = "Commit outcome unknown for service 'writer'",
+        messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgCommitOutcomeUnknownException.class)
     void aWeakenedCommitPolicyStillWaitsForBothStandbysAndReportsAnUnknownOutcome(VertxTestContext context) {
         var control = durability(COMMAND_TIMEOUT);
         var missing = STANDBYS.get(1);

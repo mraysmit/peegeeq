@@ -43,7 +43,7 @@ import io.vertx.junit5.VertxTestContext;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Implementation of PoolingUnderLoad functionality.
+ * Implementation of PoolingUnderLoadIntegrationTest functionality.
  * 
  * This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
@@ -58,9 +58,9 @@ import org.junit.jupiter.api.Tag;
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
-public class PoolingUnderLoad {
+public class PoolingUnderLoadIntegrationTest {
 
-    private static final Logger logger = LoggerFactory.getLogger(PoolingUnderLoad.class);
+    private static final Logger logger = LoggerFactory.getLogger(PoolingUnderLoadIntegrationTest.class);
 
     @Container
     private static final PostgreSQLContainer postgres = createPostgresContainer();

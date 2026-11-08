@@ -61,4 +61,21 @@ public interface MessageConsumer<T> extends AutoCloseable {
      */
     @Override
     void close();
+
+    /**
+     * Closes the consumer and completes when its resources are released, or fails if they could
+     * not be. A caller that must not release shared resources, such as a pool, before the
+     * consumer has settled waits on this Future.
+     *
+     * <p>The default runs {@link #close()} and reports a thrown exception as a failed Future.
+     * Consumers whose release is asynchronous override it.</p>
+     */
+    default Future<Void> closeAsync() {
+        try {
+            close();
+            return Future.succeededFuture();
+        } catch (RuntimeException failure) {
+            return Future.failedFuture(failure);
+        }
+    }
 }

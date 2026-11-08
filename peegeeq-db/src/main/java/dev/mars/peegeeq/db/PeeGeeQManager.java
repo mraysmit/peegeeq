@@ -456,55 +456,47 @@ public class PeeGeeQManager {
             awaitStart = Future.succeededFuture();
         }
 
-        // .eventually() chains ensure ALL cleanup runs regardless of any failure.
-        // The original awaitStart outcome flows through to the caller automatically 
-        // if start() was in-flight and failed, that failure propagates after cleanup.
-        Future<Void> cleanup = awaitStart
-            // Step 3: Stop reactive components (cancel timers, stop background tasks)
-            // After this point, no new timer callbacks will fire
-            .eventually(() -> stop()
-                .onFailure(e -> logger.warn("stop() failed during close, continuing cleanup: {}", e.getMessage())))
-            // Step 4: Run registered close hooks
-            .eventually(() -> {
-                io.vertx.core.Future<Void> chain = io.vertx.core.Future.succeededFuture();
-                if (!closeHooks.isEmpty()) {
-                    logger.info("Running {} registered close hooks", closeHooks.size());
-                    for (dev.mars.peegeeq.api.lifecycle.PeeGeeQCloseHook hook : closeHooks) {
-                        chain = chain.eventually(() -> hook.closeReactive()
-                            .onSuccess(v2 -> logger.debug("Close hook '{}' completed", hook.name()))
-                            .onFailure(e -> logger.warn("Close hook '{}' failed: {}", hook.name(), e.getMessage())));
-                    }
-                } else {
-                    logger.debug("No registered close hooks to run");
-                }
-                return chain;
-            })
-            // Note: Timer cancellation handled by Step 3 stop()->stopBackgroundTasks()
-            // Step 5: Close worker executor (finish pending tasks)
-            .eventually(() -> workerExecutor.close()
-                .onFailure(e -> logger.warn("Failed to close worker executor", e)))
-            // Step 6: Close client factory (DB pools) - AFTER workers are done
-            .eventually(() -> {
-                if (clientFactory != null) {
-                    logger.info("Closing client factory");
-                    return clientFactory.closeAsync()
-                        .onSuccess(v2 -> logger.info("Client factory closed successfully"))
-                        .onFailure(e -> logger.warn("Error closing client factory: {}", e.getMessage()));
-                }
-                return Future.succeededFuture();
-            })
-            // Step 7: Close manager-owned MeterRegistry
-            .eventually(() -> {
-                if (meterRegistryOwnedByManager && meterRegistry instanceof AutoCloseable ac) {
-                    try {
-                        ac.close();
-                        logger.info("Closed manager-owned MeterRegistry");
-                    } catch (Exception e) {
-                        logger.warn("Failed to close MeterRegistry", e);
-                    }
-                }
-                return Future.succeededFuture();
+        // Every step runs whatever the earlier steps did, and the first failure is kept: it fails
+        // the returned Future, and later failures are suppressed on it (finding 6). eventually()
+        // is not used for the steps because it discards the failure of its supplier, so a failed
+        // close was reported as success. An in-flight start() that failed is the first failure.
+        // Step 3: Stop reactive components (cancel timers, stop background tasks).
+        // After this point, no new timer callbacks will fire.
+        dev.mars.peegeeq.api.lifecycle.CloseSteps steps = dev.mars.peegeeq.api.lifecycle.CloseSteps.after(awaitStart, logger)
+            .then("stop", this::stop);
+        // Step 4: Run registered close hooks
+        if (!closeHooks.isEmpty()) {
+            logger.info("Running {} registered close hooks", closeHooks.size());
+            for (dev.mars.peegeeq.api.lifecycle.PeeGeeQCloseHook hook : closeHooks) {
+                steps.then("close hook " + hook.name(), () -> hook.closeReactive()
+                    .onSuccess(v2 -> logger.debug("Close hook '{}' completed", hook.name())));
+            }
+        } else {
+            logger.debug("No registered close hooks to run");
+        }
+        // Step 5: Close worker executor (finish pending tasks)
+        steps.then("worker executor", workerExecutor::close);
+        // Step 6: Close client factory (DB pools) - AFTER workers are done
+        if (clientFactory != null) {
+            steps.then("client factory", () -> {
+                logger.info("Closing client factory");
+                return clientFactory.closeAsync()
+                    .onSuccess(v2 -> logger.info("Client factory closed successfully"));
             });
+        }
+        // Step 7: Close manager-owned MeterRegistry
+        if (meterRegistryOwnedByManager && meterRegistry instanceof AutoCloseable ac) {
+            steps.then("meter registry", () -> {
+                try {
+                    ac.close();
+                    logger.info("Closed manager-owned MeterRegistry");
+                    return Future.<Void>succeededFuture();
+                } catch (Exception e) {
+                    return Future.<Void>failedFuture(e);
+                }
+            });
+        }
+        Future<Void> cleanup = steps.result();
 
         // The public close Future must settle while the manager context still exists. A caller
         // can legitimately compose closeReactive() after another manager-context Future. If we
@@ -1069,22 +1061,21 @@ public class PeeGeeQManager {
             vertx.cancelTimer(poolAcquireCanaryTimerId);
             poolAcquireCanaryTimerId = 0;
         }
-        Future<Void> jobStop = Future.succeededFuture();
+        // Both jobs are stopped; a job that fails to stop may still be running, so its failure is
+        // logged at ERROR and fails stop() (finding 19). It was a WARN followed by success before.
+        dev.mars.peegeeq.api.lifecycle.CloseSteps jobStops =
+            dev.mars.peegeeq.api.lifecycle.CloseSteps.after(Future.succeededFuture(), logger);
         if (deadConsumerDetectionJob != null) {
             DeadConsumerDetectionJob job = deadConsumerDetectionJob;
             deadConsumerDetectionJob = null;
-            jobStop = jobStop.compose(v -> job.stop()
-                .onFailure(e -> logger.warn("Error stopping dead consumer detection job: {}", e.getMessage()))
-                .transform(ar -> Future.succeededFuture()));
+            jobStops.then("dead consumer detection job", job::stop);
         }
         if (consumerGroupRetryJob != null) {
             ConsumerGroupRetryJob job = consumerGroupRetryJob;
             consumerGroupRetryJob = null;
-            jobStop = jobStop.compose(v -> job.stop()
-                .onFailure(e -> logger.warn("Error stopping consumer group retry job: {}", e.getMessage()))
-                .transform(ar -> Future.succeededFuture()));
+            jobStops.then("consumer group retry job", job::stop);
         }
-        return jobStop
+        return jobStops.result()
             .onSuccess(v -> logger.debug(": All background tasks stopped"));
     }
 

@@ -116,12 +116,9 @@ public class PgConnectionProvider implements dev.mars.peegeeq.api.database.Conne
 
     @Override
     public boolean hasClient(String clientId) {
-        try {
-            var connectionConfig = clientFactory.getConnectionConfig(clientId);
-            return connectionConfig != null;
-        } catch (Exception e) {
-            return false;
-        }
+        // The lookup is a map read that does not throw. An exception here is a defect and
+        // propagates; it was answered "no client" before.
+        return clientFactory.getConnectionConfig(clientId) != null;
     }
 
     @Override

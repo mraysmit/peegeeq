@@ -67,15 +67,15 @@ public class PostgresNoticeHandlerIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(PostgresNoticeHandlerIntegrationTest.class);
 
-    private Vertx vertx;
     private PgConnectionManager connectionManager;
     private SimpleMeterRegistry meterRegistry;
     private NoticeMetrics noticeMetrics;
     private Pool pool;
 
     @BeforeEach
-    void setUp() {
-        vertx = Vertx.vertx();
+    void setUp(Vertx vertx) {
+        // The extension owns this Vert.x and closes it after the test. A teardown that closes
+        // its own Vert.x from a callback on that Vert.x never sees the close complete.
         meterRegistry = new SimpleMeterRegistry();
         noticeMetrics = new MicrometerNoticeMetrics(meterRegistry);
 
@@ -98,9 +98,6 @@ public class PostgresNoticeHandlerIntegrationTest {
         }
         if (connectionManager != null) {
             closeFuture = closeFuture.compose(v -> connectionManager.close());
-        }
-        if (vertx != null) {
-            closeFuture = closeFuture.compose(v -> vertx.close());
         }
         closeFuture
             .onSuccess(v -> testContext.completeNow())

@@ -35,7 +35,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-11-27
  * @version 2.0
  */
-@Tag(TestCategories.CORE)
+@Tag(TestCategories.INTEGRATION)
 @Execution(ExecutionMode.SAME_THREAD)  // Run tests sequentially to avoid database conflicts
 public class DatabaseTemplateManagerCoreTest extends BaseIntegrationTest {
 

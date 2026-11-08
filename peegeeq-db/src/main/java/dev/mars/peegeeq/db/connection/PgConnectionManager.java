@@ -315,7 +315,7 @@ public class PgConnectionManager {
                             });
                     });
             })
-            .compose(value -> commitOwnedTransaction(connection, transaction, value), failure -> {
+            .compose(value -> commitOwnedTransaction(serviceId, connection, transaction, value), failure -> {
                 if (transaction.completion().isComplete()) {
                     return Future.failedFuture(failure);
                 }
@@ -332,7 +332,7 @@ public class PgConnectionManager {
     }
 
     private <T> Future<T> commitOwnedTransaction(
-            SqlConnection connection, Transaction transaction, T value) {
+            String serviceId, SqlConnection connection, Transaction transaction, T value) {
         AtomicReference<PgNotice> commitWarning = new AtomicReference<>();
         setupNoticeHandler(connection, notice -> {
             if ("WARNING".equalsIgnoreCase(notice.getSeverity())) {
@@ -344,11 +344,22 @@ public class PgConnectionManager {
             if (warning != null) {
                 // PostgreSQL can warn and acknowledge a locally committed, unreplicated write.
                 // Any commit warning denies a successful durability acknowledgement.
-                return Future.failedFuture(new PgCommitOutcomeUnknownException(
+                return commitOutcomeUnknown(serviceId, new PgCommitOutcomeUnknownException(
                     new IllegalStateException("PostgreSQL warning during commit: " + warning.getMessage())));
             }
             return Future.succeededFuture(value);
-        }, failure -> Future.failedFuture(new PgCommitOutcomeUnknownException(failure)));
+        }, failure -> commitOutcomeUnknown(serviceId, new PgCommitOutcomeUnknownException(failure)));
+    }
+
+    /**
+     * Reports a commit whose outcome is unknown and fails with it. The write may or may not be
+     * durable, so an operator must see it whatever the caller does with the failure (finding 10).
+     * The line is logged before the Future fails, so it precedes every handler of the caller.
+     */
+    private <T> Future<T> commitOutcomeUnknown(String serviceId, PgCommitOutcomeUnknownException unknown) {
+        logger.error("Commit outcome unknown for service '{}': the write may or may not be durable: {}",
+            serviceId, unknown.getMessage(), unknown);
+        return Future.failedFuture(unknown);
     }
 
     private Future<Void> applyTransactionSearchPath(
@@ -619,7 +630,9 @@ public class PgConnectionManager {
 
     /**
      * Closes all pools asynchronously.
-     * Returns a Future that completes when all pools are closed.
+     * Returns a Future that completes when every pool close has finished. It fails with the
+     * first failure only after the other pool closes have finished too ({@code Future.join}),
+     * so a caller that closes Vert.x next does not close it under a pool that is still closing.
      *
      * @return Future<Void> that completes when all pools are closed
      */
@@ -639,7 +652,7 @@ public class PgConnectionManager {
             closeFutures.add(closePool(serviceId));
         }
 
-        return Future.all(closeFutures)
+        return Future.join(closeFutures)
             .compose(v -> {
                 logger.info("PgConnectionManager@{}: Closed successfully ({} pool(s))", instanceId, closeFutures.size());
                 return Future.<Void>succeededFuture();

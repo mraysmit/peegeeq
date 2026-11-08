@@ -470,21 +470,28 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
         );
 
         MessageHandler<T> handler = this::distributeMessage;
+        // The field is cleared by a close that runs during startup, so this method keeps its own
+        // reference to the engine it started.
+        PartitionedConsumerEngine<T> engine = partitionedEngine;
 
-        return partitionedEngine.start(handler)
+        return engine.start(handler)
                 .compose(v -> {
                     if (!state.compareAndSet(State.STARTING, State.ACTIVE)) {
                         logger.warn("Outbox consumer group '{}' was closed during startup, aborting", groupName);
-                        return partitionedEngine.stop()
-                                .onFailure(stopErr ->
-                                    logger.warn("Failed to stop engine during startup abort: {}", stopErr.getMessage()))
-                                .transform(ar -> Future.<Void>succeededFuture())
-                                .compose(v2 -> Future.<Void>failedFuture(
-                                        new IllegalStateException("Consumer group closed during startup")));
+                        IllegalStateException aborted =
+                                new IllegalStateException("Consumer group closed during startup");
+                        // A close during startup may already have taken and stopped the engine;
+                        // stopPartitionedEngineAsync() then has nothing to stop.
+                        return stopPartitionedEngineAsync().transform(stopped -> {
+                            if (stopped.failed()) {
+                                aborted.addSuppressed(stopped.cause());
+                            }
+                            return Future.<Void>failedFuture(aborted);
+                        });
                     }
                     // Allow concurrent dispatch from multiple partitions:
                     // each assigned partition may have one message in-flight simultaneously.
-                    int partitionCount = partitionedEngine.getAssignedPartitions().size();
+                    int partitionCount = engine.getAssignedPartitions().size();
                     if (partitionCount > 1) {
                         members.values().forEach(m -> m.setMaxConcurrency(partitionCount));
                     }
@@ -652,9 +659,12 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
 
             startedWithSubscription = false;
 
+            // The engine is stopped even when the consumer fails to close; the first failure is
+            // returned. Before, a failed consumer close skipped the engine stop.
             return closeUnderlyingConsumerAsync(
                     "Error closing outbox consumer for group '{}' during stop: {}", groupName)
-                .compose(v -> stopPartitionedEngineAsync())
+                .transform(consumerClosed -> stopPartitionedEngineAsync()
+                        .transform(engineStopped -> firstFailure(consumerClosed, engineStopped)))
                 .eventually(() -> {
                     state.set(State.NEW);
                     logger.info("Outbox consumer group '{}' stopped", groupName);
@@ -701,10 +711,23 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
             return Future.succeededFuture();
         }
         partitionedEngine = null;
+        // An engine that fails to stop may still fetch and dispatch, so the failure is an ERROR
+        // and it fails the caller (finding 19). It was a WARN followed by success before.
         return engine.stop()
-                .onFailure(err -> logger.warn("Error stopping partitioned engine for group '{}': {}",
-                        groupName, err.getMessage()))
-                .transform(ar -> Future.<Void>succeededFuture());
+                .onFailure(err -> logger.error("Error stopping partitioned engine for group '{}': {}",
+                        groupName, err.getMessage(), err));
+    }
+
+    /** The first failure of two settled closes, with the second suppressed on it. */
+    private static Future<Void> firstFailure(io.vertx.core.AsyncResult<Void> first,
+                                             io.vertx.core.AsyncResult<Void> second) {
+        if (first.failed()) {
+            if (second.failed() && second.cause() != first.cause()) {
+                first.cause().addSuppressed(second.cause());
+            }
+            return Future.failedFuture(first.cause());
+        }
+        return second.failed() ? Future.failedFuture(second.cause()) : Future.succeededFuture();
     }
     
     @Override
@@ -820,8 +843,11 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
         members.values().forEach(OutboxConsumerGroupMember::close);
         members.clear();
 
+        // Both closes are already running; the outcome keeps the first failure, so an engine
+        // failure is not lost when the consumer close also failed.
         closeFuture = consumerClose
-                .compose(v -> engineClose)
+                .transform(consumerClosed -> engineClose
+                        .transform(engineClosed -> firstFailure(consumerClosed, engineClosed)))
                 .onSuccess(v -> logger.info("Outbox consumer group '{}' closed", groupName));
         return closeFuture;
     }

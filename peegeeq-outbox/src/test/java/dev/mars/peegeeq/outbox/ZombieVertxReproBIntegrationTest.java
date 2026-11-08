@@ -25,7 +25,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 /**
  * Pure Vert.x zombie repro - class B.
  *
- * See ZombieVertxReproA for full explanation. When run together with ZombieVertxReproA,
+ * See ZombieVertxReproAIntegrationTest for full explanation. When run together with ZombieVertxReproAIntegrationTest,
  * no "Connection refused" zombie errors should appear. This confirms the zombie seen in
  * ZombieReproA/B (Spring Boot) is caused by Spring not invoking PeeGeeQManager.close()
  * during context teardown, not by anything inherent in PeeGeeQManager itself.
@@ -33,9 +33,9 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
-class ZombieVertxReproB {
+class ZombieVertxReproBIntegrationTest {
 
-    private static final Logger logger = LoggerFactory.getLogger(ZombieVertxReproB.class);
+    private static final Logger logger = LoggerFactory.getLogger(ZombieVertxReproBIntegrationTest.class);
 
     private static final String[] SYSTEM_PROPERTIES = {
         "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
@@ -73,6 +73,6 @@ class ZombieVertxReproB {
 
     @Test
     void trivialTestB() {
-        logger.info("ZombieVertxReproB: trivial test - no zombie should appear from A's manager");
+        logger.info("ZombieVertxReproBIntegrationTest: trivial test - no zombie should appear from A's manager");
     }
 }

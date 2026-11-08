@@ -349,8 +349,12 @@ public class WebSocketHandler {
         activeConnections.values().forEach(connection -> {
             try {
                 connection.cleanup();
+                // A close frame is best effort: the HTTP server close that follows closes the
+                // socket in any case, so a failed frame leaks nothing.
                 if (!connection.getWebSocket().isClosed()) {
-                    connection.getWebSocket().close((short) 1001, "Server shutting down");
+                    connection.getWebSocket().close((short) 1001, "Server shutting down")
+                            .onFailure(error -> logger.warn("Failed to send the close frame to WebSocket {}: {}",
+                                    connection.getConnectionId(), error.getMessage()));
                 }
             } catch (Exception e) {
                 logger.warn("Error closing WebSocket connection {}: {}", connection.getConnectionId(), e.getMessage());

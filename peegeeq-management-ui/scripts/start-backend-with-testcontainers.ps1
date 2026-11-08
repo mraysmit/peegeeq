@@ -23,12 +23,8 @@ Write-Host "  Port: $($DbConfig.port)"
 Write-Host "  Database: $($DbConfig.database)"
 Write-Host "  Username: $($DbConfig.username)"
 
-# Set environment variables for PeeGeeQ
-$env:PEEGEEQ_DATABASE_HOST = $DbConfig.host
-$env:PEEGEEQ_DATABASE_PORT = $DbConfig.port
-$env:PEEGEEQ_DATABASE_NAME = $DbConfig.database
-$env:PEEGEEQ_DATABASE_USERNAME = $DbConfig.username
-$env:PEEGEEQ_DATABASE_PASSWORD = $DbConfig.password
+# The REST server reads no PEEGEEQ_* environment variables or system properties. The UI
+# creates setups with explicit connection coordinates from the connection file above.
 
 Write-Host ""
 Write-Host "Starting PeeGeeQ REST API server with TestContainers database..." -ForegroundColor Cyan
@@ -39,16 +35,10 @@ $ManagementUiRoot = Split-Path -Parent $ScriptDir
 $RepositoryRoot = Split-Path -Parent $ManagementUiRoot
 Set-Location $RepositoryRoot
 
-# Build the Maven command with system properties
+# Build the Maven command
 $MavenArgs = @(
     "exec:java",
-    "-pl", "peegeeq-rest",
-    "-Dexec.systemProperties",
-    "-DPEEGEEQ_DATABASE_HOST=$($DbConfig.host)",
-    "-DPEEGEEQ_DATABASE_PORT=$($DbConfig.port)",
-    "-DPEEGEEQ_DATABASE_NAME=$($DbConfig.database)",
-    "-DPEEGEEQ_DATABASE_USERNAME=$($DbConfig.username)",
-    "-DPEEGEEQ_DATABASE_PASSWORD=$($DbConfig.password)"
+    "-pl", "peegeeq-rest"
 )
 
 & mvn $MavenArgs

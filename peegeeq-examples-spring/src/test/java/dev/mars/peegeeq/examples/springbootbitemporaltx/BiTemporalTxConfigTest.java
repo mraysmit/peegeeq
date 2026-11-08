@@ -19,7 +19,11 @@ package dev.mars.peegeeq.examples.springbootbitemporaltx;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springbootbitemporaltx.config.BiTemporalTxProperties;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -50,6 +54,16 @@ class BiTemporalTxConfigTest {
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
         SharedTestContainers.configureSharedProperties(registry);
+    }
+
+    /**
+     * The {@code @Container} field stops the shared container after each class, and the next
+     * class starts it with an empty database. Every class therefore initializes its own schema,
+     * as the other classes in this package do.
+     */
+    @BeforeAll
+    static void initializeSchema() {
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
     }
 
     @Autowired

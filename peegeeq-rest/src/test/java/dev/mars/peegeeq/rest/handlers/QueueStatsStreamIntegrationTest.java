@@ -194,6 +194,28 @@ public class QueueStatsStreamIntegrationTest {
     }
 
     @Test
+    @DisplayName("Finding 19 - a non-numeric intervalMs is refused with 400, not replaced by the default")
+    void testNonNumericIntervalAnswers400(Vertx vertx, VertxTestContext testContext) {
+        HttpClient client = vertx.createHttpClient();
+        client.request(HttpMethod.GET, TEST_PORT, "localhost",
+                "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/stats/stream?intervalMs=fast")
+            .compose(req -> req.send())
+            // Checked when the headers arrive: an accepted stream never ends, so reading its body
+            // would wait for the test timeout instead of failing with the status.
+            .compose(resp -> resp.statusCode() == 400
+                ? resp.body()
+                : io.vertx.core.Future.<io.vertx.core.buffer.Buffer>failedFuture(new AssertionError(
+                    "a non-numeric intervalMs must be refused with 400, got " + resp.statusCode())))
+            .onComplete(result -> client.close()
+                .onFailure(closeError -> logger.warn("Failed to close the stats stream test client", closeError)))
+            .onSuccess(body -> testContext.verify(() -> {
+                assertTrue(body.toString().contains("intervalMs"), "the refusal must name the parameter: " + body);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
     @DisplayName("stats stream - unknown queue answers 404, not an empty stream")
     void testUnknownQueueAnswers404(Vertx vertx, VertxTestContext testContext) {
         HttpClient client = vertx.createHttpClient();

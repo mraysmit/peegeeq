@@ -17,14 +17,10 @@ package dev.mars.peegeeq.db.config;
  */
 
 
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.parallel.ResourceLock;
 
 import dev.mars.peegeeq.test.categories.TestCategories;
-import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 
 import java.time.Duration;
 import java.util.Properties;
@@ -42,35 +38,9 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.CORE)
-@ResourceLock("system-properties")
 public class PeeGeeQConfigurationTest {
 
     private static final String TEST_PROFILE = "test";
-    private Properties savedProperties;
-
-    @BeforeEach
-    void setUp() {
-        // Save ALL peegeeq.* system properties before each test
-        savedProperties = new Properties();
-        System.getProperties().entrySet().stream()
-            .filter(entry -> entry.getKey().toString().startsWith("peegeeq."))
-            .forEach(entry -> savedProperties.put(entry.getKey(), entry.getValue()));
-
-        // Clear all peegeeq.* properties to start fresh
-        System.getProperties().entrySet().removeIf(entry ->
-            entry.getKey().toString().startsWith("peegeeq."));
-    }
-
-    @AfterEach
-    void tearDown() {
-        // Clear all peegeeq.* properties
-        System.getProperties().entrySet().removeIf(entry ->
-            entry.getKey().toString().startsWith("peegeeq."));
-
-        // Restore saved properties
-        savedProperties.forEach((key, value) ->
-            System.setProperty(key.toString(), value.toString()));
-    }
 
     @Test
     void testConstructorLoadsProfile() {
@@ -169,8 +139,9 @@ public class PeeGeeQConfigurationTest {
         // Test with default value
         assertEquals(9999, config.getInt("non.existent.property", 9999));
 
-        // Test with invalid value (should return default)
-        assertEquals(1000, config.getInt("peegeeq.test.invalid.int", 1000));
+        // Finding 7: an invalid value stops the configuration; it is never replaced by the default
+        assertInvalidValueRefused(() -> config.getInt("peegeeq.test.invalid.int", 1000),
+                "peegeeq.test.invalid.int", "not-an-int");
     }
 
     @Test
@@ -183,8 +154,8 @@ public class PeeGeeQConfigurationTest {
         // Test with default value
         assertEquals(9999L, config.getLong("non.existent.property", 9999L));
 
-        // Test with invalid value (should return default)
-        assertEquals(1000L, config.getLong("peegeeq.test.invalid.long", 1000L));
+        assertInvalidValueRefused(() -> config.getLong("peegeeq.test.invalid.long", 1000L),
+                "peegeeq.test.invalid.long", "not-a-long");
     }
 
     @Test
@@ -199,13 +170,16 @@ public class PeeGeeQConfigurationTest {
 
         // Test with "false" string
         assertFalse(config.getBoolean("peegeeq.database.pool.auto-commit", true));
+
+        // A value that is neither true nor false was read as false
+        Properties invalidBoolean = new Properties();
+        invalidBoolean.setProperty("peegeeq.database.ssl.enabled", "yes");
+        PeeGeeQConfiguration withInvalidBoolean = new PeeGeeQConfiguration(TEST_PROFILE, invalidBoolean);
+        assertInvalidValueRefused(() -> withInvalidBoolean.getBoolean("peegeeq.database.ssl.enabled", false),
+                "peegeeq.database.ssl.enabled", "yes");
     }
 
     @Test
-    @ExpectedErrorLog(
-            logger = "dev.mars.peegeeq.db.config.PeeGeeQConfiguration",
-            message = "Invalid duration value for peegeeq.test.invalid.duration: not-a-duration, using default: PT5M",
-            throwable = ExpectedErrorLog.ThrowablePolicy.NONE)
     void testGetDuration() {
         PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE, new Properties());
 
@@ -216,8 +190,16 @@ public class PeeGeeQConfigurationTest {
         Duration defaultDuration = Duration.ofMinutes(5);
         assertEquals(defaultDuration, config.getDuration("non.existent.property", defaultDuration));
 
-        // Test with invalid value (should return default)
-        assertEquals(defaultDuration, config.getDuration("peegeeq.test.invalid.duration", defaultDuration));
+        assertInvalidValueRefused(() -> config.getDuration("peegeeq.test.invalid.duration", defaultDuration),
+                "peegeeq.test.invalid.duration", "not-a-duration");
+    }
+
+    private static void assertInvalidValueRefused(org.junit.jupiter.api.function.Executable read,
+                                                  String key, String value) {
+        IllegalArgumentException refused = assertThrows(IllegalArgumentException.class, read,
+                "an invalid value of " + key + " must stop the configuration, not become the default");
+        assertTrue(refused.getMessage().contains(key) && refused.getMessage().contains(value),
+                "the error must name the key and the value: " + refused.getMessage());
     }
 
     // Note: getDouble is private, so we test it indirectly through CircuitBreakerConfig
@@ -233,11 +215,9 @@ public class PeeGeeQConfigurationTest {
         Properties invalidDoubleProps = new Properties();
         invalidDoubleProps.setProperty("peegeeq.circuit-breaker.failure-rate-threshold", "not-a-double");
 
-        PeeGeeQConfiguration configWithInvalidDouble = new PeeGeeQConfiguration(TEST_PROFILE, invalidDoubleProps);
-        PeeGeeQConfiguration.CircuitBreakerConfig cbConfigWithInvalid = configWithInvalidDouble.getCircuitBreakerConfig();
-
-        // Should use default value from the implementation (50.0) because the override is not a valid double
-        assertEquals(50.0, cbConfigWithInvalid.getFailureRateThreshold(), 0.001);
+        // The circuit breaker settings are validated at construction, so the refusal comes there.
+        assertInvalidValueRefused(() -> new PeeGeeQConfiguration(TEST_PROFILE, invalidDoubleProps),
+                "peegeeq.circuit-breaker.failure-rate-threshold", "not-a-double");
     }
 
     @Test
@@ -444,17 +424,23 @@ public class PeeGeeQConfigurationTest {
         }
     }
 
+    /**
+     * PeeGeeQ configuration is explicit and instance-scoped: a {@code PEEGEEQ_*} environment
+     * variable of the process must not become a property. The db surefire configuration sets
+     * {@code PEEGEEQ_TEST_ENVIRONMENT_SWEEP_PROBE} for this test; the first assertion proves the
+     * variable is present, so the test cannot pass because the variable is missing.
+     */
     @Test
-    void testEnvironmentVariableHandling() {
-        // We can't set environment variables in Java, so we'll test the method that processes them
-        // This is a more limited test that verifies the property key transformation logic
+    void processEnvironmentVariablesAreNotConfiguration() {
+        assertEquals("from-environment", System.getenv("PEEGEEQ_TEST_ENVIRONMENT_SWEEP_PROBE"),
+                "the surefire configuration of peegeeq-db must set the probe variable");
 
-        // Create a configuration and verify a property that would come from an environment variable
-        // For example, if PEEGEEQ_DATABASE_HOST were set, it would be transformed to peegeeq.database.host
-
-        // We can only verify this indirectly by checking that the default property was loaded
         PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE, new Properties());
-        assertEquals("test-host", config.getString("peegeeq.database.host"));
+
+        assertEquals("absent", config.getString("peegeeq.test.environment.sweep.probe", "absent"),
+                "a PEEGEEQ_* environment variable must not be applied as a configuration property");
+        assertFalse(config.getProperties().containsValue("from-environment"),
+                "no property may carry the value of a PEEGEEQ_* environment variable");
     }
 
     @Test

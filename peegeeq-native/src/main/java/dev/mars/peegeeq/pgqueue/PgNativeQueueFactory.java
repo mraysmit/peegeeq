@@ -506,6 +506,8 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
         if (asyncCloses.isEmpty()) {
             return Future.succeededFuture();
         }
-        return Future.all(asyncCloses).mapEmpty();
+        // join, not all: the factory close must not report a failure while other consumer
+        // groups and consumers are still closing.
+        return Future.join(asyncCloses).mapEmpty();
     }
 }

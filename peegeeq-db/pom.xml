@@ -163,7 +163,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.2.5</version>
+                <version>${surefire.version}</version>
                 <configuration>
                     <!-- Use profile-based configuration -->
                     <groups>${test.groups}</groups>
@@ -184,6 +184,12 @@
                     <systemPropertyVariables>
                         <peegeeq.performance.tests>${peegeeq.performance.tests}</peegeeq.performance.tests>
                     </systemPropertyVariables>
+
+                    <!-- Probe for PeeGeeQConfigurationTest.processEnvironmentVariablesAreNotConfiguration:
+                         PeeGeeQConfiguration must ignore PEEGEEQ_* variables of the process. -->
+                    <environmentVariables>
+                        <PEEGEEQ_TEST_ENVIRONMENT_SWEEP_PROBE>from-environment</PEEGEEQ_TEST_ENVIRONMENT_SWEEP_PROBE>
+                    </environmentVariables>
                 </configuration>
             </plugin>
 

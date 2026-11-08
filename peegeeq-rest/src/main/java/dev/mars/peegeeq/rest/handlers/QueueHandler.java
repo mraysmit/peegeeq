@@ -565,11 +565,13 @@ public class QueueHandler {
         String detectedType = request.detectMessageType();
         headers.put("messageType", detectedType);
 
-        // Add approximate JSON payload size for monitoring
+        // Add approximate JSON payload size for monitoring. A payload that cannot be written as
+        // JSON cannot be sent either, so the failure fails the send rather than becoming "unknown".
         try {
             headers.put("payloadSize", String.valueOf(objectMapper.writeValueAsString(request.getPayload()).length()));
         } catch (Exception e) {
-            headers.put("payloadSize", "unknown");
+            return Future.failedFuture(new IllegalArgumentException(
+                    "The message payload cannot be written as JSON: " + e.getMessage(), e));
         }
 
         // Add timestamp

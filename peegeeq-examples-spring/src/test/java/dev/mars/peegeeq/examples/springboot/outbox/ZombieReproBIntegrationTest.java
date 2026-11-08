@@ -25,7 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Zombie-shutdown regression test B.
- * See ZombieReproA for full explanation.
+ * See ZombieReproAIntegrationTest for full explanation.
  * Running both classes verifies through the test log that shutting down either isolated
  * Spring context does not leave a PeeGeeQManager timer active in the other context.
  */
@@ -41,9 +41,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 )
 @Testcontainers
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
-class ZombieReproB {
+class ZombieReproBIntegrationTest {
 
-    private static final Logger logger = LoggerFactory.getLogger(ZombieReproB.class);
+    private static final Logger logger = LoggerFactory.getLogger(ZombieReproBIntegrationTest.class);
 
     @Autowired
     private PeeGeeQManager peeGeeQManager;
@@ -64,6 +64,6 @@ class ZombieReproB {
     @Test
     void managerStartsInSecondIsolatedContext() {
         assertTrue(peeGeeQManager.isStarted(), "Second isolated context should start its manager");
-        logger.info("ZombieReproB: manager is started; Spring will own context shutdown");
+        logger.info("ZombieReproBIntegrationTest: manager is started; Spring will own context shutdown");
     }
 }

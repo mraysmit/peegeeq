@@ -28,7 +28,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * Mirrors ZombieReproA/B (Spring Boot) but uses the same explicit lifecycle pattern
  * as OutboxConsumerCrashRecoveryTest. PeeGeeQManager is created in @BeforeEach and
  * explicitly closed in @AfterEach via closeReactive(). When run together with
- * ZombieVertxReproB, NO "Connection refused" zombie errors should appear, because
+ * ZombieVertxReproBIntegrationTest, NO "Connection refused" zombie errors should appear, because
  * the manager is shut down cleanly before the container stops.
  *
  * Contrast with ZombieReproA/B (Spring Boot), where Spring does not invoke
@@ -38,9 +38,9 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
-class ZombieVertxReproA {
+class ZombieVertxReproAIntegrationTest {
 
-    private static final Logger logger = LoggerFactory.getLogger(ZombieVertxReproA.class);
+    private static final Logger logger = LoggerFactory.getLogger(ZombieVertxReproAIntegrationTest.class);
 
     @Container
     private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
@@ -73,6 +73,6 @@ class ZombieVertxReproA {
 
     @Test
     void trivialTestA() {
-        logger.info("ZombieVertxReproA: trivial test - manager started and will be closed cleanly in @AfterEach");
+        logger.info("ZombieVertxReproAIntegrationTest: trivial test - manager started and will be closed cleanly in @AfterEach");
     }
 }

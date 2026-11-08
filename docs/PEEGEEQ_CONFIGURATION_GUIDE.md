@@ -41,22 +41,15 @@ Values merge in this order, from lowest to highest precedence:
 
 1. `peegeeq-default.properties`
 2. `peegeeq-<profile>.properties` when the profile is not `default`
-3. `PEEGEEQ_*` environment variables
-4. the explicit `Properties overrides` object, or the explicit database arguments
+3. the explicit `Properties overrides` object, or the explicit database arguments
 
-JVM `-Dpeegeeq.*` system properties are not swept by `PeeGeeQConfiguration`. If an
-application intentionally wants JVM arguments, copy them into an isolated `Properties`
-object at its bootstrap boundary and pass that object to the two-argument constructor.
-
-Known environment-variable names map underscores to the existing canonical key, including
-hyphenated segments:
-
-```text
-PEEGEEQ_DATABASE_HOST                 -> peegeeq.database.host
-PEEGEEQ_DATABASE_PROXY_HOST           -> peegeeq.database.proxy.host
-PEEGEEQ_DATABASE_POOL_MAX_SIZE        -> peegeeq.database.pool.max-size
-PEEGEEQ_CIRCUIT_BREAKER_ENABLED       -> peegeeq.circuit-breaker.enabled
-```
+`PeeGeeQConfiguration` sweeps neither JVM `-Dpeegeeq.*` system properties nor `PEEGEEQ_*`
+environment variables. Both are process-wide state, so they would apply to every
+configuration in the process. An application that wants values from JVM arguments or from
+its environment copies them into an isolated `Properties` object at its bootstrap boundary
+and passes that object to the two-argument constructor. The `PEEGEEQ_*` sweep was removed on
+2026-11-08; a deployment that set `PEEGEEQ_DATABASE_HOST` and similar variables must now pass
+those values as overrides.
 
 ### Placeholder resolution
 

@@ -43,9 +43,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 )
 @Testcontainers
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
-class ZombieReproA {
+class ZombieReproAIntegrationTest {
 
-    private static final Logger logger = LoggerFactory.getLogger(ZombieReproA.class);
+    private static final Logger logger = LoggerFactory.getLogger(ZombieReproAIntegrationTest.class);
 
     @Autowired
     private PeeGeeQManager peeGeeQManager;
@@ -66,6 +66,6 @@ class ZombieReproA {
     @Test
     void managerStartsInFirstIsolatedContext() {
         assertTrue(peeGeeQManager.isStarted(), "First isolated context should start its manager");
-        logger.info("ZombieReproA: manager is started; Spring will own context shutdown");
+        logger.info("ZombieReproAIntegrationTest: manager is started; Spring will own context shutdown");
     }
 }

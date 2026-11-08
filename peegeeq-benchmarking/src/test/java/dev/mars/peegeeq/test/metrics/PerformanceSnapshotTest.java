@@ -139,7 +139,36 @@ class PerformanceSnapshotTest {
         logger.info("Latency metrics test passed");
         logger.info("=== TEST METHOD COMPLETED: testLatencyMetrics ===");
     }
-    
+
+    // Finding 19: the unchecked cast in getLatencyMetrics cannot fail where its catch stood, so a
+    // map of other value types was returned as Map<String, Double> and failed where it was read.
+
+    @Test
+    void latencyMetricsGivenAsIntegersAreReturnedAsDoubles() {
+        PerformanceSnapshot snapshot = snapshotWithLatency(Map.of("p50", 10, "p99", 50L));
+
+        Map<String, Double> latency = snapshot.getLatencyMetrics();
+
+        assertEquals(Double.valueOf(10.0), latency.get("p50"));
+        assertEquals(Double.valueOf(50.0), latency.get("p99"));
+    }
+
+    @Test
+    void latencyMetricWithANonNumericValueIsRefusedAndNamed() {
+        PerformanceSnapshot snapshot = snapshotWithLatency(Map.of("p50", "fast"));
+
+        IllegalStateException refused = assertThrows(IllegalStateException.class, snapshot::getLatencyMetrics);
+        assertTrue(refused.getMessage().contains("p50"), refused.getMessage());
+    }
+
+    private static PerformanceSnapshot snapshotWithLatency(Map<String, Object> latency) {
+        return new PerformanceSnapshot(
+            "latencyTypes", PerformanceProfile.STANDARD,
+            Instant.now(), Instant.now().plusMillis(100), Duration.ofMillis(100),
+            true, Map.of("latency", latency)
+        );
+    }
+
     @Test
     void testSnapshotSummary() {
         logger.info("=== TEST METHOD STARTED: testSnapshotSummary ===");

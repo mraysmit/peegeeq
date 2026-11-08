@@ -377,4 +377,46 @@ public class DeadLetterRequeueIntegrationTest {
             })
             .onFailure(testContext::failNow);
     }
+
+    // Finding 19: a non-numeric limit, offset or retention was replaced by the default. A cleanup
+    // with a mistyped retention then deleted with the 30-day default.
+
+    @Test
+    @Order(12)
+    @DisplayName("List DLQ messages with a non-numeric limit returns 400")
+    void testListWithNonNumericLimit_returns400(VertxTestContext testContext) {
+        assertRefused(testContext, webClient.get(TEST_PORT, "localhost",
+                String.format("/api/v1/setups/%s/deadletter/messages?limit=many", setupId)).send(), "limit");
+    }
+
+    @Test
+    @Order(13)
+    @DisplayName("List DLQ messages with a non-numeric offset returns 400")
+    void testListWithNonNumericOffset_returns400(VertxTestContext testContext) {
+        assertRefused(testContext, webClient.get(TEST_PORT, "localhost",
+                String.format("/api/v1/setups/%s/deadletter/messages?offset=1x", setupId)).send(), "offset");
+    }
+
+    @Test
+    @Order(14)
+    @DisplayName("Cleanup with a non-numeric retentionDays returns 400")
+    void testCleanupWithNonNumericRetention_returns400(VertxTestContext testContext) {
+        assertRefused(testContext, webClient.post(TEST_PORT, "localhost",
+                String.format("/api/v1/setups/%s/deadletter/cleanup?retentionDays=week", setupId)).send(),
+                "retentionDays");
+    }
+
+    private void assertRefused(VertxTestContext testContext,
+                               io.vertx.core.Future<io.vertx.ext.web.client.HttpResponse<io.vertx.core.buffer.Buffer>> request,
+                               String parameter) {
+        request
+            .onSuccess(response -> testContext.verify(() -> {
+                assertEquals(400, response.statusCode(),
+                        "a non-numeric " + parameter + " must be refused: " + response.bodyAsString());
+                assertTrue(response.bodyAsString().contains(parameter),
+                        "the refusal must name the parameter: " + response.bodyAsString());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+    }
 }

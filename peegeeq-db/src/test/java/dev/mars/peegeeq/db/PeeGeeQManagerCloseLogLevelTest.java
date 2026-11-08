@@ -19,11 +19,16 @@ package dev.mars.peegeeq.db;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.AppenderBase;
-import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.api.lifecycle.PeeGeeQCloseHook;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
@@ -39,47 +44,38 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests that PeeGeeQManager.closeReactive() logs at ERROR level (not WARN)
- * when cleanup operations fail. Covers the 6 WARNERROR changes in closeReactive():
+ * The cleanup steps of {@link PeeGeeQManager#closeReactive()} (finding 6).
  *
- * <ol>
- *   <li>stop() failure during close</li>
- *   <li>Close hook failure</li>
- *   <li>Worker executor close failure</li>
- *   <li>Client factory close failure</li>
- *   <li>MeterRegistry close failure</li>
- *   <li>Vert.x close (non-RejectedExecutionException) failure</li>
- * </ol>
+ * <p>Every step runs whatever the earlier steps did. A step that fails is logged at ERROR with
+ * its cause, because a failed close can leave connections or threads open, and the returned
+ * Future fails with the first failure; later failures are suppressed on it. Before the
+ * correction each step was chained with {@code eventually}, which discards the step's failure:
+ * a failed close was logged at WARN and {@code closeReactive()} reported success.</p>
  *
- * Positive tests: trigger failure conditions  verify ERROR logged.
- * Negative tests: clean close  verify no ERROR logged in cleanup chain.
+ * <p>A failing close hook is the cleanup failure a test can produce with real objects; it
+ * exercises the same step chain as the other steps.</p>
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers(disabledWithoutDocker = true)
 @ExtendWith(VertxExtension.class)
 @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+// The log capture is attached to the shared PeeGeeQManager logger. Run alone, so it sees only
+// the lines of the test that reads it.
+@org.junit.jupiter.api.parallel.Isolated
 public class PeeGeeQManagerCloseLogLevelTest {
 
-    private static final String POSTGRES_IMAGE = PgTestImageConstant.POSTGRES_IMAGE;
-
     @Container
-    static PostgreSQLContainer postgres = new PostgreSQLContainer(POSTGRES_IMAGE)
-            .withDatabaseName("peegeeq_test")
-            .withUsername("peegeeq_test")
-            .withPassword("peegeeq_test")
-            .withReuse(false);
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private LogCaptureAppender logCapture;
@@ -87,17 +83,12 @@ public class PeeGeeQManagerCloseLogLevelTest {
 
     @org.junit.jupiter.api.BeforeAll
     static void initDb() {
-        if (!postgres.isRunning()) {
-            postgres.start();
-        }
         initializeSchemaFor(postgres);
     }
 
     @BeforeEach
     void setUp() {
-        // Attach log capture to PeeGeeQManager's logger
-        managerLogger = (ch.qos.logback.classic.Logger)
-                LoggerFactory.getLogger(PeeGeeQManager.class);
+        managerLogger = (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(PeeGeeQManager.class);
         logCapture = new LogCaptureAppender();
         logCapture.setContext(managerLogger.getLoggerContext());
         logCapture.start();
@@ -119,15 +110,9 @@ public class PeeGeeQManagerCloseLogLevelTest {
     }
 
     @Test
-    @DisplayName("Negative: clean close with DB alive produces no ERROR from cleanup chain")
+    @DisplayName("Negative: clean close with DB alive succeeds and logs no cleanup ERROR")
     void testCleanCloseNoErrorLogs(VertxTestContext testContext) {
-        Properties testProps = PeeGeeQTestConfig.builder()
-                .from(postgres)
-                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
-                .property("peegeeq.migration.enabled", "false")
-                .property("peegeeq.migration.auto-migrate", "false")
-                .build();
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
+        manager = newManager(postgres);
 
         manager.start()
                 .compose(v -> {
@@ -135,24 +120,8 @@ public class PeeGeeQManagerCloseLogLevelTest {
                     return manager.closeReactive();
                 })
                 .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
-                    List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
-                    List<String> errorMessages = errors.stream()
-                            .map(ILoggingEvent::getFormattedMessage)
-                            .toList();
-
-                    // No ERROR from the cleanup chain when everything closes cleanly
-                    boolean hasCleanupError = errorMessages.stream().anyMatch(msg ->
-                            msg.contains("stop() failed during close") ||
-                            msg.contains("Close hook") ||
-                            msg.contains("Failed to close worker executor") ||
-                            msg.contains("Error closing client factory") ||
-                            msg.contains("Failed to close MeterRegistry") ||
-                            msg.contains("Error closing Vert.x instance"));
-
-                    assertFalse(hasCleanupError,
-                            "Clean close should not produce ERROR logs from cleanup chain, but got: " + errorMessages);
-
-                    // Manager reference set to null so tearDown doesn't double-close
+                    assertEquals(List.of(), messagesAt(Level.ERROR),
+                            "a clean close must not log ERROR");
                     manager = null;
                     testContext.completeNow();
                 })));
@@ -160,25 +129,13 @@ public class PeeGeeQManagerCloseLogLevelTest {
 
     @Test
     @Timeout(value = 60, timeUnit = TimeUnit.SECONDS)
-    @DisplayName("Positive: close after DB shutdown logs ERROR for client factory close failure")
-    void testCloseAfterDbShutdownLogsErrorForClientFactoryFailure(VertxTestContext testContext) {
-        // Use a separate container that we can stop
+    @DisplayName("Close after the database stopped still closes every component and succeeds")
+    void testCloseAfterDbShutdownSucceeds(VertxTestContext testContext) {
         @SuppressWarnings("resource")
-        PostgreSQLContainer ownContainer = new PostgreSQLContainer(POSTGRES_IMAGE)
-                .withDatabaseName("peegeeq_test")
-                .withUsername("peegeeq_test")
-                .withPassword("peegeeq_test")
-                .withReuse(false);
+        PostgreSQLContainer ownContainer = PostgreSQLTestConstants.createStandardContainer();
         ownContainer.start();
         initializeSchemaFor(ownContainer);
-
-        Properties testProps = PeeGeeQTestConfig.builder()
-                .from(ownContainer)
-                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
-                .property("peegeeq.migration.enabled", "false")
-                .property("peegeeq.migration.auto-migrate", "false")
-                .build();
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
+        manager = newManager(ownContainer);
 
         manager.start()
                 .compose(v -> Vertx.currentContext().owner().<Void>executeBlocking(() -> {
@@ -191,62 +148,34 @@ public class PeeGeeQManagerCloseLogLevelTest {
                     return manager.closeReactive();
                 })
                 .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
-                    // closeReactive() should complete (via .eventually()) even with failures
-                    // The key assertion: failures are logged at ERROR, not WARN
-                    List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
-                    List<ILoggingEvent> warns = logCapture.eventsAtLevel(Level.WARN);
-
-                    // Verify no WARN messages for the cleanup steps that should be ERROR
-                    boolean hasWarnForCleanup = warns.stream().anyMatch(e ->
-                            e.getFormattedMessage().contains("stop() failed during close") ||
-                            e.getFormattedMessage().contains("Failed to close worker executor") ||
-                            e.getFormattedMessage().contains("Error closing client factory") ||
-                            e.getFormattedMessage().contains("Failed to close MeterRegistry"));
-                    assertFalse(hasWarnForCleanup,
-                            "Cleanup failures should be at ERROR level, not WARN");
-
-                    // closeReactive() completed successfully (chained recovers)
+                    // Pools close locally; a stopped database is not a close failure.
+                    assertTrue(messagesAt(Level.INFO).contains("Client factory closed successfully"),
+                            "the client factory must be closed: " + messagesAt(Level.INFO));
+                    assertEquals(List.of(), messagesAt(Level.ERROR));
                     manager = null;
                     testContext.completeNow();
                 })));
     }
 
     @Test
-    @DisplayName("Positive: close without start produces no ERROR (stop() is a no-op when not started)")
+    @DisplayName("Close without start produces no ERROR (stop() is a no-op when not started)")
     void testCloseWithoutStartNoStopError(VertxTestContext testContext) {
-        Properties testProps = PeeGeeQTestConfig.builder()
-                .from(postgres)
-                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
-                .property("peegeeq.migration.enabled", "false")
-                .property("peegeeq.migration.auto-migrate", "false")
-                .build();
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
+        manager = newManager(postgres);
 
         logCapture.clear();
         manager.closeReactive()
                 .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
-                    List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
-                    boolean hasStopError = errors.stream()
-                            .anyMatch(e -> e.getFormattedMessage().contains("stop() failed during close"));
-                    assertFalse(hasStopError,
-                            "stop() on an un-started manager should not produce an ERROR");
-
+                    assertEquals(List.of(), messagesAt(Level.ERROR));
                     manager = null;
                     testContext.completeNow();
                 })));
     }
 
     @Test
-    @DisplayName("Negative: Vert.x close with RejectedExecutionException stays at WARN/DEBUG, not ERROR")
+    @DisplayName("Negative: Vert.x close with RejectedExecutionException stays below ERROR")
     void testVertxCloseExpectedExceptionNotLoggedAsError(VertxTestContext testContext) {
-        Properties testProps = PeeGeeQTestConfig.builder()
-                .from(postgres)
-                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
-                .property("peegeeq.migration.enabled", "false")
-                .property("peegeeq.migration.auto-migrate", "false")
-                .build();
         // Manager owns its own Vert.x (default constructor path)
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
+        manager = newManager(postgres);
 
         manager.start()
                 .compose(v -> {
@@ -254,169 +183,148 @@ public class PeeGeeQManagerCloseLogLevelTest {
                     return manager.closeReactive();
                 })
                 .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
-                    // If Vert.x close produces a RejectedExecutionException (expected during shutdown),
-                    // it should be at DEBUG, not ERROR
-                    List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
-                    boolean hasVertxCloseError = errors.stream()
-                            .anyMatch(e -> e.getFormattedMessage().contains("Error closing Vert.x instance"));
+                    boolean hasVertxCloseError = messagesAt(Level.ERROR).stream()
+                            .anyMatch(message -> message.contains("Error closing Vert.x instance"));
                     assertFalse(hasVertxCloseError,
                             "Expected Vert.x RejectedExecutionException during close should not be logged at ERROR");
-
                     manager = null;
                     testContext.completeNow();
                 })));
     }
 
+    @Test
+    @DisplayName("A close hook that fails fails closeReactive, is logged at ERROR, and later steps still run")
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.PeeGeeQManager",
+            message = "Close step 'close hook failing-hook' failed:",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = IllegalStateException.class)
+    void failedCloseHookFailsCloseAndLaterStepsRun(VertxTestContext testContext) {
+        manager = newManager(postgres);
+        AtomicBoolean laterHookRan = new AtomicBoolean();
+        manager.registerCloseHook(hook("failing-hook",
+                () -> Future.failedFuture(new IllegalStateException("hook could not release its resource"))));
+        manager.registerCloseHook(hook("later-hook", () -> {
+            laterHookRan.set(true);
+            return Future.succeededFuture();
+        }));
+
+        manager.start()
+                .compose(v -> {
+                    logCapture.clear();
+                    return manager.closeReactive();
+                })
+                .onComplete(result -> testContext.verify(() -> {
+                    assertTrue(result.failed(), "a failed close step must fail closeReactive()");
+                    assertEquals("hook could not release its resource", result.cause().getMessage());
+                    assertTrue(laterHookRan.get(), "a failed hook must not stop the later hooks");
+                    assertTrue(messagesAt(Level.INFO).contains("Client factory closed successfully"),
+                            "a failed hook must not stop the pool close");
+                    manager = null;
+                    testContext.completeNow();
+                }));
+    }
+
+    @Test
+    @DisplayName("A close hook that throws is a failed step, not a discarded one")
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.PeeGeeQManager",
+            message = "Close step 'close hook throwing-hook' failed:",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = IllegalArgumentException.class)
+    void throwingCloseHookFailsClose(VertxTestContext testContext) {
+        manager = newManager(postgres);
+        manager.registerCloseHook(hook("throwing-hook", () -> {
+            throw new IllegalArgumentException("hook threw");
+        }));
+
+        manager.start()
+                .compose(v -> manager.closeReactive())
+                .onComplete(result -> testContext.verify(() -> {
+                    assertTrue(result.failed(), "a thrown close step must fail closeReactive()");
+                    assertInstanceOf(IllegalArgumentException.class, result.cause());
+                    manager = null;
+                    testContext.completeNow();
+                }));
+    }
+
+    @Test
+    @DisplayName("With two failed steps the first is returned and the second is suppressed on it")
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.PeeGeeQManager",
+            message = "Close step 'close hook first-hook' failed:",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = IllegalStateException.class)
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.PeeGeeQManager",
+            message = "Close step 'close hook second-hook' failed:",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = IllegalStateException.class)
+    void firstOfTwoFailuresIsReturned(VertxTestContext testContext) {
+        manager = newManager(postgres);
+        manager.registerCloseHook(hook("first-hook",
+                () -> Future.failedFuture(new IllegalStateException("first"))));
+        manager.registerCloseHook(hook("second-hook",
+                () -> Future.failedFuture(new IllegalStateException("second"))));
+
+        manager.start()
+                .compose(v -> manager.closeReactive())
+                .onComplete(result -> testContext.verify(() -> {
+                    assertTrue(result.failed());
+                    assertEquals("first", result.cause().getMessage());
+                    assertEquals(1, result.cause().getSuppressed().length, "the second failure must be kept");
+                    assertEquals("second", result.cause().getSuppressed()[0].getMessage());
+                    manager = null;
+                    testContext.completeNow();
+                }));
+    }
+
     // --- Helpers ---
 
-    private void initializeSchema() {
-        initializeSchemaFor(postgres);
+    private static PeeGeeQManager newManager(PostgreSQLContainer container) {
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(container)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
+                .property("peegeeq.migration.enabled", "false")
+                .property("peegeeq.migration.auto-migrate", "false")
+                .build();
+        return new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
     }
 
-    @SuppressWarnings("unchecked")
+    private static PeeGeeQCloseHook hook(String name, java.util.function.Supplier<Future<Void>> close) {
+        return new PeeGeeQCloseHook() {
+            @Override
+            public String name() {
+                return name;
+            }
+
+            @Override
+            public Future<Void> closeReactive() {
+                return close.get();
+            }
+        };
+    }
+
+    private List<String> messagesAt(Level level) {
+        return logCapture.eventsAtLevel(level).stream().map(ILoggingEvent::getFormattedMessage).toList();
+    }
+
     private static void initializeSchemaFor(PostgreSQLContainer container) {
-        try (Connection conn = DriverManager.getConnection(
-                container.getJdbcUrl(), container.getUsername(), container.getPassword());
-             Statement stmt = conn.createStatement()) {
-            // Place the unqualified DDL below in the resolved schema so custom-schema
-            // runs see the same tables the manager targets (suite-wide convention)
-            String schema = PostgreSQLTestConstants.TEST_SCHEMA;
-            stmt.execute("CREATE SCHEMA IF NOT EXISTS " + schema);
-            stmt.execute("SET search_path TO " + schema);
-            stmt.execute("""
-                CREATE TABLE IF NOT EXISTS outbox (
-                    id BIGSERIAL PRIMARY KEY,
-                    topic VARCHAR(255) NOT NULL,
-                    payload JSONB NOT NULL,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    processed_at TIMESTAMP WITH TIME ZONE,
-                    processing_started_at TIMESTAMP WITH TIME ZONE,
-                    status VARCHAR(50) DEFAULT 'PENDING',
-                    retry_count INT DEFAULT 0,
-                    max_retries INT DEFAULT 3,
-                    next_retry_at TIMESTAMP WITH TIME ZONE,
-                    version INT DEFAULT 0,
-                    headers JSONB DEFAULT '{}',
-                    error_message TEXT,
-                    correlation_id VARCHAR(255),
-                    message_group VARCHAR(255),
-                    priority INT DEFAULT 5,
-                    required_consumer_groups INT DEFAULT 1,
-                    completed_consumer_groups INT DEFAULT 0,
-                    completed_groups_bitmap BIGINT DEFAULT 0
-                )
-                """);
-            stmt.execute("""
-                CREATE TABLE IF NOT EXISTS queue_messages (
-                    id BIGSERIAL PRIMARY KEY,
-                    topic VARCHAR(255) NOT NULL,
-                    payload JSONB NOT NULL,
-                    visible_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    lock_id BIGINT,
-                    lock_until TIMESTAMP WITH TIME ZONE,
-                    retry_count INT DEFAULT 0,
-                    max_retries INT DEFAULT 3,
-                    status VARCHAR(50) DEFAULT 'AVAILABLE',
-                    headers JSONB DEFAULT '{}',
-                    correlation_id VARCHAR(255),
-                    message_group VARCHAR(255),
-                    priority INT DEFAULT 5
-                )
-                """);
-            stmt.execute("""
-                CREATE TABLE IF NOT EXISTS dead_letter_queue (
-                    id BIGSERIAL PRIMARY KEY,
-                    original_table VARCHAR(50) NOT NULL,
-                    original_id BIGINT NOT NULL,
-                    topic VARCHAR(255) NOT NULL,
-                    payload JSONB NOT NULL,
-                    original_created_at TIMESTAMP WITH TIME ZONE NOT NULL,
-                    failed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    failure_reason TEXT NOT NULL,
-                    retry_count INT NOT NULL,
-                    headers JSONB DEFAULT '{}',
-                    correlation_id VARCHAR(255),
-                    message_group VARCHAR(255)
-                )
-                """);
-            stmt.execute("""
-                CREATE TABLE IF NOT EXISTS outbox_topics (
-                    topic VARCHAR(255) PRIMARY KEY,
-                    semantics VARCHAR(20) NOT NULL DEFAULT 'QUEUE',
-                    message_retention_hours INT NOT NULL DEFAULT 24,
-                    zero_subscription_retention_hours INT DEFAULT 24,
-                    block_writes_on_zero_subscriptions BOOLEAN DEFAULT FALSE,
-                    completion_tracking_mode VARCHAR(20) DEFAULT 'REFERENCE_COUNTING',
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-                )
-                """);
-            stmt.execute("""
-                CREATE TABLE IF NOT EXISTS outbox_topic_subscriptions (
-                    id BIGSERIAL PRIMARY KEY,
-                    topic VARCHAR(255) NOT NULL,
-                    group_name VARCHAR(255) NOT NULL,
-                    subscription_status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
-                    subscribed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    last_active_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    start_from_message_id BIGINT,
-                    start_from_timestamp TIMESTAMP WITH TIME ZONE,
-                    heartbeat_interval_seconds INT NOT NULL DEFAULT 60,
-                    heartbeat_timeout_seconds INT NOT NULL DEFAULT 300,
-                    last_heartbeat_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    backfill_status VARCHAR(20) DEFAULT 'NONE',
-                    backfill_checkpoint_id BIGINT,
-                    backfill_processed_messages BIGINT DEFAULT 0,
-                    backfill_total_messages BIGINT,
-                    backfill_started_at TIMESTAMP WITH TIME ZONE,
-                    backfill_completed_at TIMESTAMP WITH TIME ZONE,
-                    consecutive_misses INTEGER NOT NULL DEFAULT 0,
-                    dead_after_misses INTEGER NOT NULL DEFAULT 3,
-                    UNIQUE (topic, group_name)
-                )
-                """);
-            stmt.execute("""
-                CREATE TABLE IF NOT EXISTS outbox_consumer_groups (
-                    id BIGSERIAL PRIMARY KEY,
-                    message_id BIGINT NOT NULL,
-                    group_name VARCHAR(255) NOT NULL,
-                    status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
-                    processed_at TIMESTAMP WITH TIME ZONE,
-                    error_message TEXT,
-                    retry_count INT DEFAULT 0,
-                    UNIQUE (message_id, group_name)
-                )
-                """);
-            stmt.execute("""
-                CREATE TABLE IF NOT EXISTS processed_ledger (
-                    message_id BIGINT NOT NULL,
-                    group_name VARCHAR(255) NOT NULL,
-                    processed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    PRIMARY KEY (message_id, group_name)
-                )
-                """);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to initialize schema", e);
-        }
+        PeeGeeQTestSchemaInitializer.initializeSchema(
+                container, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
     }
 
-    /**
-     * Log capture appender using logback's AppenderBase same pattern used
-     * in the existing ObservabilitySystemIntegrationTest.
-     */
+    /** Log capture appender using logback's AppenderBase. */
     static final class LogCaptureAppender extends AppenderBase<ILoggingEvent> {
         private final List<ILoggingEvent> events = Collections.synchronizedList(new ArrayList<>());
 
         @Override
         protected void append(ILoggingEvent eventObject) {
             events.add(eventObject);
-        }
-
-        List<ILoggingEvent> snapshot() {
-            synchronized (events) {
-                return new ArrayList<>(events);
-            }
         }
 
         List<ILoggingEvent> eventsAtLevel(Level level) {

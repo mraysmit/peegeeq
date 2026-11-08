@@ -215,20 +215,25 @@ public class PerformanceSnapshot {
     }
     
     /**
-     * Get latency metrics if available.
-     * 
+     * Get latency metrics if available. Each value is converted to a {@code double}.
+     *
      * @return latency metrics map, or empty map if not available
+     * @throws IllegalStateException if a latency value is not a number; it is named, never dropped
      */
     public Map<String, Double> getLatencyMetrics() {
         Object latency = additionalMetrics.get("latency");
-        if (latency instanceof Map) {
-            try {
-                return (Map<String, Double>) latency;
-            } catch (ClassCastException e) {
-                return new HashMap<>();
-            }
+        if (!(latency instanceof Map<?, ?> latencyMap)) {
+            return new HashMap<>();
         }
-        return new HashMap<>();
+        Map<String, Double> converted = new HashMap<>();
+        latencyMap.forEach((key, value) -> {
+            if (!(value instanceof Number number)) {
+                throw new IllegalStateException("Latency metric '" + key + "' of snapshot '" + testName
+                        + "' is not a number: " + value);
+            }
+            converted.put(String.valueOf(key), number.doubleValue());
+        });
+        return converted;
     }
     
     /**

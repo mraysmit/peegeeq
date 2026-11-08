@@ -64,9 +64,16 @@ public class DeadLetterHandler {
     public void listMessages(RoutingContext ctx) {
         String setupId = ctx.pathParam("setupId");
         String topic = ctx.request().getParam("topic");
-        int limit = parseIntParam(ctx, "limit", 50);
-        int offset = parseIntParam(ctx, "offset", 0);
-        
+        int limit;
+        int offset;
+        try {
+            limit = parseIntParam(ctx, "limit", 50);
+            offset = parseIntParam(ctx, "offset", 0);
+        } catch (IllegalArgumentException invalid) {
+            sendError(ctx, 400, PeeGeeQErrorCodes.INVALID_FIELD_VALUE, invalid.getMessage());
+            return;
+        }
+
         logger.debug("Listing dead letter messages for setup: {}, topic: {}, limit: {}, offset: {}", 
             setupId, topic, limit, offset);
         
@@ -277,7 +284,13 @@ public class DeadLetterHandler {
      */
     public void cleanup(RoutingContext ctx) {
         String setupId = ctx.pathParam("setupId");
-        int retentionDays = parseIntParam(ctx, "retentionDays", 30);
+        int retentionDays;
+        try {
+            retentionDays = parseIntParam(ctx, "retentionDays", 30);
+        } catch (IllegalArgumentException invalid) {
+            sendError(ctx, 400, PeeGeeQErrorCodes.INVALID_FIELD_VALUE, invalid.getMessage());
+            return;
+        }
 
         logger.debug("Cleaning up dead letter messages for setup: {}, retention: {} days", setupId, retentionDays);
 
@@ -326,11 +339,22 @@ public class DeadLetterHandler {
         return json;
     }
     
+    /**
+     * Reads an optional integer query parameter. An absent parameter gives the default. A value
+     * that is not an integer is refused, never replaced by the default: a mistyped retention
+     * would otherwise delete with the default retention.
+     *
+     * @throws IllegalArgumentException if the value is not an integer
+     */
     private int parseIntParam(RoutingContext ctx, String name, int defaultValue) {
         String value = ctx.request().getParam(name);
         if (value == null || value.isEmpty()) return defaultValue;
-        try { return Integer.parseInt(value); } 
-        catch (NumberFormatException e) { return defaultValue; }
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(
+                    "Query parameter '" + name + "' must be an integer: '" + value + "'", e);
+        }
     }
     
     private void sendError(RoutingContext ctx, int statusCode, String errorCode, String message) {

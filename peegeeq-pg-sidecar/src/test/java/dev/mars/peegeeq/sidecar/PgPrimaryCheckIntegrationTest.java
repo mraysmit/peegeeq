@@ -99,6 +99,7 @@ class PgPrimaryCheckIntegrationTest {
                     logger.info("GET /primary  HTTP {}", response.statusCode());
                     assertEquals(200, response.statusCode(),
                             "Standalone PostgreSQL should report pg_is_in_recovery()=false  HTTP 200");
+                    assertEquals("primary", response.bodyAsString());
                     ctx.completeNow();
                 }))
                 .onFailure(ctx::failNow);
@@ -138,6 +139,10 @@ class PgPrimaryCheckIntegrationTest {
             logger.info("GET /primary (unreachable pg)  HTTP {}", response.statusCode());
             assertEquals(503, response.statusCode(),
                     "Unreachable PostgreSQL should return HTTP 503");
+            // Finding 8: the body separates an unreachable node from a replica, which also answers 503.
+            String body = response.bodyAsString();
+            org.junit.jupiter.api.Assertions.assertTrue(body != null && body.startsWith("unavailable: "),
+                    "the body must say the check failed and why: " + body);
             ctx.completeNow();
         })).onFailure(ctx::failNow);
     }

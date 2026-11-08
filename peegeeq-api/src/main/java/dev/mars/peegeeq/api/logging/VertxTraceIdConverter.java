@@ -17,6 +17,12 @@ public class VertxTraceIdConverter extends ClassicConverter {
      */
     private static final String NO_TRACE_INDICATOR = "-";
 
+    /**
+     * Indicator shown when the trace could not be read. It differs from {@link #NO_TRACE_INDICATOR}
+     * so that a failed read is not mistaken for a line that has no trace.
+     */
+    static final String READ_FAILED_INDICATOR = "error";
+
     @Override
     public String convert(ILoggingEvent event) {
         // 1. Try MDC first (fastest, and standard for blocking code)
@@ -47,7 +53,11 @@ public class VertxTraceIdConverter extends ClassicConverter {
                     }
                 }
             } catch (Throwable t) {
-                // Ignore Vertx initialization errors safely
+                // A converter must not throw: the appender would drop the whole line. It must not
+                // log either: that would re-enter the layout. Logback's status channel is the
+                // reporting path for converter failures.
+                addError("Could not read the trace id from the Vert.x context", t);
+                return READ_FAILED_INDICATOR;
             }
         }
         

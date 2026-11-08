@@ -285,7 +285,15 @@ public class ServerSentEventsHandler {
             return;
         }
 
-        long intervalMs = parseIntervalMs(ctx.request().getParam("intervalMs"));
+        long intervalMs;
+        try {
+            intervalMs = parseIntervalMs(ctx.request().getParam("intervalMs"));
+        } catch (IllegalArgumentException invalid) {
+            ctx.response().setStatusCode(400)
+                    .putHeader("content-type", "application/json")
+                    .end(new JsonObject().put("error", invalid.getMessage()).encode());
+            return;
+        }
 
         setupService.getSetupResult(setupId)
                 .compose(setupResult -> {
@@ -382,6 +390,12 @@ public class ServerSentEventsHandler {
         });
     }
 
+    /**
+     * An absent interval gives the default; an integer is clamped to the allowed range.
+     *
+     * @throws IllegalArgumentException if the value is not an integer: it is refused, never
+     *                                  replaced by the default
+     */
     private static long parseIntervalMs(String param) {
         if (param == null) {
             return STATS_STREAM_DEFAULT_INTERVAL_MS;
@@ -391,7 +405,8 @@ public class ServerSentEventsHandler {
             return Math.max(STATS_STREAM_MIN_INTERVAL_MS,
                     Math.min(STATS_STREAM_MAX_INTERVAL_MS, requested));
         } catch (NumberFormatException e) {
-            return STATS_STREAM_DEFAULT_INTERVAL_MS;
+            throw new IllegalArgumentException(
+                    "Query parameter 'intervalMs' must be an integer: '" + param + "'", e);
         }
     }
 
