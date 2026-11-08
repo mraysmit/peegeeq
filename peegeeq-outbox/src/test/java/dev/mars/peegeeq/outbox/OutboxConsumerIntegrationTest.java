@@ -44,6 +44,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests for OutboxConsumer focusing on lifecycle methods and state management.
@@ -98,9 +99,9 @@ class OutboxConsumerIntegrationTest {
                 ? consumer.closeAsync()
                 : Future.succeededFuture();
         closeConsumer
-                .eventually(() -> manager != null
+                .transform(TestCleanup.cleanup(() -> manager != null
                         ? manager.closeReactive()
-                        : Future.succeededFuture())
+                        : Future.succeededFuture()))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }

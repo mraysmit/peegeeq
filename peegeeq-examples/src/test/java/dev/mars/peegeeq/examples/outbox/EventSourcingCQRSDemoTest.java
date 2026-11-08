@@ -40,6 +40,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Demo test showcasing Event Sourcing & CQRS Patterns for PeeGeeQ.
@@ -543,7 +544,7 @@ class EventSourcingCQRSDemoTest {
             // This prevents connection pool exhaustion between tests.
             // NOTE: wall-clock settle delay (3s) is a deeper antipattern flagged for follow-up;
             // kept here to preserve existing inter-test isolation behaviour.
-            .eventually(() -> vertx.timer(3000))
+            .transform(TestCleanup.cleanup(() -> vertx.timer(3000)))
             .onSuccess(v -> {
                 logger.info("Resource cleanup wait completed");
                 logger.info("Cleanup complete");

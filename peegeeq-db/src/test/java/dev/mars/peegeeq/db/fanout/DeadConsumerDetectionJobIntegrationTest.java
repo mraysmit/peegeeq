@@ -43,6 +43,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests for {@link DeadConsumerDetectionJob}.
@@ -104,7 +105,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
             Future<Void> stopJob = (job != null && job.isRunning()) ? job.stop() : Future.succeededFuture();
             stopJob
                     .compose(v -> cleanup.cleanupAllDeadGroups())
-                    .eventually(() -> connectionManager.close())
+                    .transform(TestCleanup.cleanup(() -> connectionManager.close()))
                     .onSuccess(v -> testContext.completeNow())
                     .onFailure(testContext::failNow);
         } else {

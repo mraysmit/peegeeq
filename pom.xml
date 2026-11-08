@@ -79,7 +79,7 @@
         <!-- JaCoCo coverage is OFF by default; opt in with -Pcoverage (or -Djacoco.skip=false) -->
         <jacoco.skip>true</jacoco.skip>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <vertx.version>5.0.4</vertx.version>
+        <vertx.version>5.1.10</vertx.version>
         <!-- One surefire/failsafe version for every module. 3.5.3 fixed SUREFIRE-1643: with JUnit
              parallel execution, 3.2.5 filed test cases and counts under the wrong class. -->
         <surefire.version>3.5.6</surefire.version>
@@ -91,7 +91,8 @@
         <logback.version>1.5.18</logback.version>
         <micrometer.version>1.12.0</micrometer.version>
         <resilience4j.version>2.1.0</resilience4j.version>
-        <scram.version>3.1</scram.version>
+        <!-- Must equal the scram-client version vertx-pg-client declares (5.1.10 declares 3.2). -->
+        <scram.version>3.2</scram.version>
         <spring.boot.version>3.5.6</spring.boot.version>
         <reactor.version>3.5.8</reactor.version>
         <!-- Versions formerly supplied by the (now-removed) Spring Boot BOM; pinned explicitly so the
@@ -216,7 +217,7 @@
             </dependency>
 
             <!-- SCRAM Authentication for PostgreSQL -->
-            <!-- Note: These are transitively provided by vertx-pg-client 5.0.4 -->
+            <!-- Note: These are transitively provided by vertx-pg-client -->
             <!-- Managed here for version consistency across all modules -->
             <dependency>
                 <groupId>com.ongres.scram</groupId>

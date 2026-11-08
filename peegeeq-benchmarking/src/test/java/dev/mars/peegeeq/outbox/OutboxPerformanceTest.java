@@ -58,6 +58,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Performance tests for the outbox pattern implementation.
@@ -286,11 +287,11 @@ public class OutboxPerformanceTest {
                 final MessageProducer<String> concurrentProducer =
                     outboxFactory.createProducer(testTopic, String.class);
                 Future<Void> producerFuture = sendConcurrent(concurrentProducer, producerId, 0, messagesPerProducer)
-                    .eventually(() -> {
+                    .transform(TestCleanup.cleanup(() -> {
                         try { concurrentProducer.close(); }
                         catch (Exception e) { logger.warn("Producer {} close failed: {}", producerId, e.getMessage()); }
                         return Future.<Void>succeededFuture();
-                    });
+                    }));
                 producerFutures.add(producerFuture);
             }
             return Future.all(producerFutures).onSuccess(v -> sendCompleteTimeRef.set(Instant.now()));

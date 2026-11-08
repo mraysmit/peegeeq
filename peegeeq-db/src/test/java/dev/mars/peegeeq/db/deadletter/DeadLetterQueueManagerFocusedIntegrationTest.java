@@ -34,6 +34,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Focused integration tests for DeadLetterQueueManager using TestContainers.
@@ -372,7 +373,7 @@ public class DeadLetterQueueManagerFocusedIntegrationTest extends BaseIntegratio
             .compose(v -> assertFutureFailure(getAllDeadLetterMessages(10, 0)))
             .compose(v -> assertFutureFailure(getDeadLetterMessage(1L)))
             .compose(v -> assertFutureFailure(getStatistics()))
-            .eventually(() -> renameDeadLetterTableBack("dead_letter_queue_tmp"))
+            .transform(TestCleanup.cleanup(() -> renameDeadLetterTableBack("dead_letter_queue_tmp")))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
     }
@@ -412,7 +413,7 @@ public class DeadLetterQueueManagerFocusedIntegrationTest extends BaseIntegratio
             .compose(v -> assertFutureFailure(deadLetterQueueManager.getAllDeadLetterMessages(10, 0)))
             .compose(v -> assertFutureFailure(deadLetterQueueManager.getDeadLetterMessage(1L)))
             .compose(v -> assertFutureFailure(deadLetterQueueManager.getStatistics()))
-            .eventually(() -> renameDeadLetterTableBack("dead_letter_queue_tmp"))
+            .transform(TestCleanup.cleanup(() -> renameDeadLetterTableBack("dead_letter_queue_tmp")))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
     }
@@ -446,7 +447,7 @@ public class DeadLetterQueueManagerFocusedIntegrationTest extends BaseIntegratio
             .compose(v -> assertFutureFailure(deadLetterQueueManager.reprocessDeadLetterMessage(1L, "reason")))
             .compose(v -> assertFutureFailure(deadLetterQueueManager.deleteDeadLetterMessage(1L, "reason")))
             .compose(v -> assertFutureFailure(deadLetterQueueManager.cleanupOldMessages(1)))
-            .eventually(() -> renameDeadLetterTableBack("dead_letter_queue_tmp"))
+            .transform(TestCleanup.cleanup(() -> renameDeadLetterTableBack("dead_letter_queue_tmp")))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
     }
@@ -480,7 +481,7 @@ public class DeadLetterQueueManagerFocusedIntegrationTest extends BaseIntegratio
             .compose(v -> assertFutureFailure(reprocessDeadLetterMessage(1L, "reason")))
             .compose(v -> assertFutureFailure(deleteDeadLetterMessage(1L, "reason")))
             .compose(v -> assertFutureFailure(cleanupOldMessages(1)))
-            .eventually(() -> renameDeadLetterTableBack("dead_letter_queue_tmp"))
+            .transform(TestCleanup.cleanup(() -> renameDeadLetterTableBack("dead_letter_queue_tmp")))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
     }

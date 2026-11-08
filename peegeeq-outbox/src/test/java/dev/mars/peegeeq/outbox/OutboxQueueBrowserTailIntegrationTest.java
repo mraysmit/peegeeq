@@ -48,6 +48,7 @@ import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration test for {@link dev.mars.peegeeq.api.messaging.QueueBrowser#tail} on the OUTBOX
@@ -153,17 +154,17 @@ class OutboxQueueBrowserTailIntegrationTest {
                                                 return Future.succeededFuture();
                                             })
                                             .compose(v -> consumedByRealConsumer.future())
-                                            .eventually(() -> {
+                                            .transform(TestCleanup.cleanup(() -> {
                                                 try { consumer.close(); }
                                                 catch (Exception e) { logger.warn("Error closing consumer: {}", e.getMessage()); }
                                                 return Future.succeededFuture();
-                                            });
+                                            }));
                                 })
-                                .eventually(() -> {
+                                .transform(TestCleanup.cleanup(() -> {
                                     try { browser.close(); }
                                     catch (Exception e) { logger.warn("Error closing browser: {}", e.getMessage()); }
                                     return Future.succeededFuture();
-                                }))
+                                })))
                 .onSuccess(consumedMsg -> ctx.verify(() -> {
                     assertEquals("hello-outbox-tail", consumedMsg.getPayload(),
                             "a real consumer must still receive the observed message — observe did not consume it");

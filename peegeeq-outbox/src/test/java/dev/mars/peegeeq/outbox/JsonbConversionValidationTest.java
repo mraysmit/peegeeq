@@ -52,6 +52,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Test to validate that JSONB conversion is working correctly.
@@ -108,8 +109,8 @@ class JsonbConversionValidationTest {
         logger.info("Tearing down: closing resources and manager");
         Future<Void> closeFactory = factory != null ? factory.close() : Future.succeededFuture();
         closeFactory
-                .eventually(() -> connectionManager != null ? connectionManager.close() : Future.succeededFuture())
-                .eventually(() -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+                .transform(TestCleanup.cleanup(() -> connectionManager != null ? connectionManager.close() : Future.succeededFuture()))
+                .transform(TestCleanup.cleanup(() -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture()))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }
@@ -237,11 +238,11 @@ class JsonbConversionValidationTest {
         })
                 .compose(v -> producer.send(testOrder, headers))
                 .compose(v -> done.future())
-                .eventually(() -> {
+                .transform(TestCleanup.cleanup(() -> {
                     consumer.close();
                     producer.close();
                     return Future.succeededFuture();
-                })
+                }))
                 .onSuccess(v -> testContext.verify(() -> {
                     assertEquals(1, processedCount.intValue(), "Should have processed exactly 1 message");
                     testContext.completeNow();

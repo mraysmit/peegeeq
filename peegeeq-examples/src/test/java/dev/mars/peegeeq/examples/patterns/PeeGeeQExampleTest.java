@@ -49,6 +49,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * INFRASTRUCTURE TEST: PeeGeeQ Manager Lifecycle and TestContainers Integration
@@ -197,8 +198,8 @@ class PeeGeeQExampleTest {
             .compose(v -> { demonstrateCircuitBreaker(manager); return Future.<Void>succeededFuture(); })
             .compose(v -> demonstrateDeadLetterQueue(manager))
             .compose(v -> monitorSystemBriefly(manager))
-            .eventually(() -> manager.closeReactive()
-                    .onFailure(e -> logger.warn("Error closing manager", e)));
+            .transform(TestCleanup.cleanup(() -> manager.closeReactive()
+                    .onFailure(e -> logger.warn("Error closing manager", e))));
     }
 
     private void demonstrateConfiguration(PeeGeeQManager manager) {
@@ -339,11 +340,11 @@ class PeeGeeQExampleTest {
 
         // Run monitoring for 5 seconds (shorter for test)
         return vertx.timer(5000)
-            .eventually(() -> {
+            .transform(TestCleanup.cleanup(() -> {
                 shutdownExecutorGracefully(monitor, "system-monitor");
                 logger.info("Monitoring completed");
                 return Future.<Void>succeededFuture();
-            })
+            }))
             .mapEmpty();
     }
 

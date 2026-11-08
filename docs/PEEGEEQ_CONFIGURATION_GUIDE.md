@@ -53,15 +53,28 @@ those values as overrides.
 
 ### Placeholder resolution
 
-After merging, values may contain `${VAR}` or `${VAR:default}`:
+After merging, values may contain `${NAME}` or `${NAME:default}`. A placeholder resolves
+against the `Properties overrides` passed to the constructor. Environment variables and system
+properties are not read (changed on 2026-11-08; before, a placeholder read the environment).
 
-- `${VAR}` uses the environment value and fails construction when `VAR` is absent.
-- `${VAR:default}` uses the environment value or the literal default.
-- `${VAR:}` resolves to an empty string when the variable is absent.
+- `${NAME}` uses override `NAME` and fails construction, naming the property, when the
+  overrides do not define it.
+- `${NAME:default}` uses override `NAME` or the literal default.
+- `${NAME:}` resolves to an empty string when the overrides do not define `NAME`.
 
-The production profile uses required placeholders for all database coordinates. Missing
-`DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD`, or `DB_SCHEMA`
-therefore fails fast unless an explicit override supplies the property first.
+The production profile uses required placeholders for all database coordinates. The caller
+supplies `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD`, and `DB_SCHEMA` as
+overrides, or overrides the `peegeeq.database.*` properties directly; otherwise construction
+fails. A deployment that keeps these values in environment variables copies them into the
+overrides at its bootstrap boundary:
+
+```java
+Properties overrides = new Properties();
+for (String name : List.of("DB_HOST", "DB_PORT", "DB_NAME", "DB_USERNAME", "DB_PASSWORD", "DB_SCHEMA")) {
+    overrides.setProperty(name, Objects.requireNonNull(System.getenv(name), name + " is not set"));
+}
+PeeGeeQConfiguration config = new PeeGeeQConfiguration("production", overrides);
+```
 
 ## Bundled profiles
 
@@ -71,7 +84,7 @@ Each non-default profile overrides the default baseline.
 |---|---|
 | `default` | Complete local baseline and the authoritative active-key inventory |
 | `development` | Small development pool; circuit breaker disabled |
-| `production` | Required environment-backed database coordinates and TLS |
+| `production` | Required database coordinates supplied as overrides, and TLS |
 | `reliable` | Conservative retry, visibility, and recovery timings |
 | `low-latency` | Batch size 1 and 10 ms empty-queue polling |
 | `high-performance` | Large batches, eight consumer threads, pipelining 32 |

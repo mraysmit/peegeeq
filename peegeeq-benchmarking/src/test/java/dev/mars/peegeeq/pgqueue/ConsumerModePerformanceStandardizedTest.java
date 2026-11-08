@@ -42,6 +42,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import io.vertx.core.Future;
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Standardized consumer mode performance tests using the new ConsumerModePerformanceTestBase.
@@ -267,10 +268,10 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
                 });
             }
             return sends.compose(ignored -> allProcessed.future());
-        }).eventually(() -> {
+        }).transform(TestCleanup.cleanup(() -> {
             vertx.cancelTimer(timerId);
             return Future.succeededFuture();
-        }).map(endTime -> {
+        })).map(endTime -> {
             double durationSeconds = Math.max(0.001, (endTime - startTime[0]) / 1000.0);
             double throughput = messageCount / durationSeconds;
             double averageLatency = totalLatency.get() / (double) messageCount;
@@ -318,10 +319,10 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
                 });
             }
             return sends.compose(ignored -> allProcessed.future());
-        }).eventually(() -> {
+        }).transform(TestCleanup.cleanup(() -> {
             vertx.cancelTimer(timerId);
             return Future.succeededFuture();
-        }).map(v -> {
+        })).map(v -> {
             latencies.sort(Long::compareTo);
             double averageLatency = latencies.stream().mapToLong(Long::longValue).average().orElseThrow();
             int p95Index = Math.min(latencies.size() - 1, (int) Math.ceil(latencies.size() * 0.95) - 1);

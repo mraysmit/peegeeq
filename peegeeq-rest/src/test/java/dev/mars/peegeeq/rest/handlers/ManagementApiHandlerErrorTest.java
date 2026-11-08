@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * TDD error-path tests for ManagementApiHandler.
@@ -138,7 +139,7 @@ class ManagementApiHandlerErrorTest {
                 .compose(auxId ->
                         webClient.get(AUX_PORT, "localhost", "/api/v1/management/overview")
                                 .send()
-                                .eventually(() -> vertx.undeploy(auxId)))
+                                .transform(TestCleanup.cleanup(() -> vertx.undeploy(auxId))))
                 .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     assertEquals(503, response.statusCode());
                     assertNotNull(response.bodyAsJsonObject().getString("error"));
@@ -198,7 +199,7 @@ class ManagementApiHandlerErrorTest {
                         webClient.post(AUX_PORT, "localhost", "/api/v1/management/queues")
                                 .putHeader("Content-Type", "application/json")
                                 .sendJsonObject(body)
-                                .eventually(() -> vertx.undeploy(auxId)))
+                                .transform(TestCleanup.cleanup(() -> vertx.undeploy(auxId))))
                 .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     assertEquals(404, response.statusCode());
                     assertNotNull(response.bodyAsJsonObject().getString("error"));
@@ -237,7 +238,7 @@ class ManagementApiHandlerErrorTest {
                         webClient.post(AUX_PORT, "localhost", "/api/v1/management/queues")
                                 .putHeader("Content-Type", "application/json")
                                 .sendJsonObject(body)
-                                .eventually(() -> vertx.undeploy(auxId)))
+                                .transform(TestCleanup.cleanup(() -> vertx.undeploy(auxId))))
                 .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     assertEquals(503, response.statusCode());
                     assertNotNull(response.bodyAsJsonObject().getString("error"));
@@ -308,7 +309,7 @@ class ManagementApiHandlerErrorTest {
                         webClient.post(AUX_PORT, "localhost",
                                         "/api/v1/management/consumer-groups/test-setup/test-queue/test-group/pause")
                                 .send()
-                                .eventually(() -> vertx.undeploy(auxId)))
+                                .transform(TestCleanup.cleanup(() -> vertx.undeploy(auxId))))
                 .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     assertEquals(404, response.statusCode());
                     assertNotNull(response.bodyAsJsonObject().getString("error"));
@@ -365,7 +366,7 @@ class ManagementApiHandlerErrorTest {
                         webClient.post(AUX_PORT, "localhost",
                                         "/api/v1/management/consumer-groups/test-setup/test-queue/test-group/resume")
                                 .send()
-                                .eventually(() -> vertx.undeploy(auxId)))
+                                .transform(TestCleanup.cleanup(() -> vertx.undeploy(auxId))))
                 .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     assertEquals(404, response.statusCode());
                     assertNotNull(response.bodyAsJsonObject().getString("error"));
@@ -421,7 +422,7 @@ class ManagementApiHandlerErrorTest {
                         webClient.post(AUX_PORT, "localhost",
                                         "/api/v1/management/consumer-groups/test-setup/test-queue/test-group/backfill")
                                 .send()
-                                .eventually(() -> vertx.undeploy(auxId)))
+                                .transform(TestCleanup.cleanup(() -> vertx.undeploy(auxId))))
                 .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     assertEquals(404, response.statusCode());
                     assertNotNull(response.bodyAsJsonObject().getString("error"));
@@ -615,7 +616,7 @@ class ManagementApiHandlerErrorTest {
         RestServerConfig config = new RestServerConfig(
                 AUX_PORT, RestServerConfig.MonitoringConfig.defaults(), List.of("*"));
         return vertx.deployVerticle(new PeeGeeQRestServer(config, svc))
-                .compose(auxId -> request.get().eventually(() -> vertx.undeploy(auxId)));
+                .compose(auxId -> request.get().transform(TestCleanup.cleanup(() -> vertx.undeploy(auxId))));
     }
 
     /** A queue implementation whose close returns the given result. It creates nothing. */

@@ -64,6 +64,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests for {@link OutboxConsumerGroup} covering lifecycle, membership,
@@ -106,8 +107,8 @@ class OutboxConsumerGroupCoreTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) {
         Future.<Void>succeededFuture()
-                .eventually(() -> group != null ? group.close() : Future.succeededFuture())
-                .eventually(() -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+                .transform(TestCleanup.cleanup(() -> group != null ? group.close() : Future.succeededFuture()))
+                .transform(TestCleanup.cleanup(() -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture()))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }

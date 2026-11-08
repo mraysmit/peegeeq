@@ -20,6 +20,7 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * TDD error-path tests for HealthHandler.
@@ -182,7 +183,7 @@ class HealthHandlerErrorTest {
         vertx.deployVerticle(new PeeGeeQRestServer(config, service))
                 .compose(auxId -> webClient.get(AUX_PORT, "localhost", "/api/v1/setups/test-id/health")
                         .send()
-                        .eventually(() -> vertx.undeploy(auxId)))
+                        .transform(TestCleanup.cleanup(() -> vertx.undeploy(auxId))))
                 .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     assertEquals(500, response.statusCode());
                     assertNotNull(response.bodyAsJsonObject().getString("error"));
@@ -224,7 +225,7 @@ class HealthHandlerErrorTest {
         vertx.deployVerticle(new PeeGeeQRestServer(config, service))
                 .compose(auxId -> webClient.get(AUX_PORT, "localhost", "/api/v1/setups/test-id/health/components")
                         .send()
-                        .eventually(() -> vertx.undeploy(auxId)))
+                        .transform(TestCleanup.cleanup(() -> vertx.undeploy(auxId))))
                 .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     assertEquals(500, response.statusCode());
                     assertNotNull(response.bodyAsJsonObject().getString("error"));
@@ -265,7 +266,7 @@ class HealthHandlerErrorTest {
         vertx.deployVerticle(new PeeGeeQRestServer(config, service))
                 .compose(auxId -> webClient.get(AUX_PORT, "localhost", "/api/v1/setups/test-id/health/components/database")
                         .send()
-                        .eventually(() -> vertx.undeploy(auxId)))
+                        .transform(TestCleanup.cleanup(() -> vertx.undeploy(auxId))))
                 .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     assertEquals(500, response.statusCode());
                     assertNotNull(response.bodyAsJsonObject().getString("error"));

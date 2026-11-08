@@ -50,6 +50,7 @@ import org.junit.jupiter.api.Tag;
 import java.util.List;
 import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests for RuntimeDatabaseSetupService using TestContainers.
@@ -251,7 +252,7 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
                                                 return Future.succeededFuture();
                                             })));
                 })
-                .eventually(() -> verifyMgr.close())
+                .transform(TestCleanup.cleanup(() -> verifyMgr.close()))
                 .compose(v -> setupService.destroySetup(setupId))
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
@@ -326,7 +327,7 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
                                         return Future.succeededFuture();
                                     }));
                 })
-                .eventually(() -> verifyMgr.close())
+                .transform(TestCleanup.cleanup(() -> verifyMgr.close()))
                 .compose(v -> setupService.destroySetup(setupId))
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
@@ -396,7 +397,7 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
                                         return Future.succeededFuture();
                                     }));
                 })
-                .eventually(() -> verifyMgr.close())
+                .transform(TestCleanup.cleanup(() -> verifyMgr.close()))
                 .compose(v -> setupService.destroySetup(setupId))
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
@@ -460,7 +461,7 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
                                         return Future.succeededFuture();
                                     }));
                 })
-                .eventually(() -> verifyMgr.close())
+                .transform(TestCleanup.cleanup(() -> verifyMgr.close()))
                 .compose(v -> setupService.destroySetup(setupId))
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
@@ -520,7 +521,7 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
                                 return (Void) null;
                             });
                 })
-                .eventually(() -> serviceB.close())
+                .transform(TestCleanup.cleanup(() -> serviceB.close()))
                 .compose(v -> setupService.destroySetup(setupId))
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
@@ -669,7 +670,7 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
                                         return Future.succeededFuture();
                                     }));
                 })
-                .eventually(() -> verifyMgr.close())
+                .transform(TestCleanup.cleanup(() -> verifyMgr.close()))
                 .compose(v -> setupService.destroySetup(setupIdA))
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
@@ -738,7 +739,7 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
                     assertFalse(exists, "database must be dropped after a confirmed drop");
                     return (Void) null;
                 })
-                .eventually(() -> verifyMgr.close())
+                .transform(TestCleanup.cleanup(() -> verifyMgr.close()))
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
     }

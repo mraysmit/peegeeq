@@ -47,6 +47,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Comprehensive tests for DeadLetterQueueManager.
@@ -115,9 +116,9 @@ class DeadLetterQueueManagerTest {
             : Future.succeededFuture();
 
         cleanup
-            .eventually(() -> connectionManager != null
+            .transform(TestCleanup.cleanup(() -> connectionManager != null
                 ? connectionManager.close()
-                : Future.<Void>succeededFuture())
+                : Future.<Void>succeededFuture()))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(err -> {
                 logger.error("Failed to clean up DeadLetterQueueManagerTest", err);

@@ -61,6 +61,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Comprehensive JUnit test demonstrating retry and failure handling in PeeGeeQ Outbox Pattern.
@@ -167,9 +168,9 @@ class RetryAndFailureHandlingExampleTest {
                 ? queueFactory.close()
                 : Future.succeededFuture();
         closeFactory
-                .eventually(() -> manager != null
+                .transform(TestCleanup.cleanup(() -> manager != null
                         ? manager.closeReactive()
-                        : Future.succeededFuture())
+                        : Future.succeededFuture()))
                 .onSuccess(v -> testContext.verify(() -> {
                     logger.info("Retry and Failure Handling Example Test cleanup completed");
                     testContext.completeNow();
@@ -299,11 +300,11 @@ class RetryAndFailureHandlingExampleTest {
                     processor.hasSucceeded(),
                     row.getString("status"),
                     row.getInteger("retry_count")))
-            .eventually(() -> {
+            .transform(TestCleanup.cleanup(() -> {
                 producer.close();
                 consumer.close();
                 return Future.succeededFuture();
-            });
+            }));
 
         return scenario;
     }

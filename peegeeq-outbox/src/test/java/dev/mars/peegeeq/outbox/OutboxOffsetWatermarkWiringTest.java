@@ -54,6 +54,7 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Wiring verification for {@code PartitionedConsumerEngine} inside the outbox subsystem.
@@ -126,7 +127,7 @@ class OutboxOffsetWatermarkWiringTest {
                         return Future.succeededFuture();
                     });
                 })
-                .eventually(() -> vertx.timer(500).mapEmpty())
+                .transform(TestCleanup.cleanup(() -> vertx.timer(500).mapEmpty()))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }
@@ -163,7 +164,7 @@ class OutboxOffsetWatermarkWiringTest {
                                         "outbox_partition_assignments, got " + count);
                                 return (Void) null;
                             })
-                            .eventually(() -> group.stopGracefully());
+                            .transform(TestCleanup.cleanup(() -> group.stopGracefully()));
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);

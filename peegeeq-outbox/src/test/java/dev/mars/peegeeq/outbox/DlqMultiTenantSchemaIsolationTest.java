@@ -53,6 +53,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests verifying that DLQ writes in {@code OutboxConsumer} are isolated
@@ -148,15 +149,15 @@ public class DlqMultiTenantSchemaIsolationTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
         Future.<Void>succeededFuture()
-                .eventually(() -> consumerGroupA != null
+                .transform(TestCleanup.cleanup(() -> consumerGroupA != null
                         ? consumerGroupA.stop().compose(v -> consumerGroupA.close())
                                 .onFailure(e -> logger.warn("consumerGroupA stop/close failed", e))
-                        : Future.succeededFuture())
-                .eventually(() -> consumerGroupB != null
+                        : Future.succeededFuture()))
+                .transform(TestCleanup.cleanup(() -> consumerGroupB != null
                         ? consumerGroupB.stop().compose(v -> consumerGroupB.close())
                                 .onFailure(e -> logger.warn("consumerGroupB stop/close failed", e))
-                        : Future.succeededFuture())
-                .eventually(() -> {
+                        : Future.succeededFuture()))
+                .transform(TestCleanup.cleanup(() -> {
                     if (producerA != null) producerA.close();
                     if (producerB != null) producerB.close();
                     if (factoryA != null) factoryA.close();
@@ -164,7 +165,7 @@ public class DlqMultiTenantSchemaIsolationTest {
                     Future<Void> closeA = managerA != null ? managerA.closeReactive() : Future.succeededFuture();
                     Future<Void> closeB = managerB != null ? managerB.closeReactive() : Future.succeededFuture();
                     return closeA.compose(ignored -> closeB);
-                })
+                }))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
 

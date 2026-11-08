@@ -41,6 +41,7 @@ import java.util.List;
 import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Comprehensive test for PerformanceComparisonExample functionality.
@@ -215,7 +216,7 @@ public class PerformanceComparisonExampleTest {
 
                 return mgr.closeReactive().map(closed -> result);
             })
-            .eventually(() -> mgr.closeReactive().transform(ar -> Future.<Void>succeededFuture()));
+            .transform(TestCleanup.cleanup(() -> mgr.closeReactive().transform(ar -> Future.<Void>succeededFuture())));
     }
     
     /**

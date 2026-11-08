@@ -20,6 +20,7 @@ package dev.mars.peegeeq.pgqueue;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.Timeout;
@@ -35,7 +36,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import io.vertx.core.streams.ReadStream;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -108,25 +108,20 @@ public class PgNativeQueueContainersWithPojoTest {
         // A strict checkpoint: a second delivery fails the test.
         Checkpoint messageReceived = testContext.checkpoint();
 
-        // Act - Get the ReadStream from the queue
-        ReadStream<TestMessage> stream = queue.receive();
-
-        // Set up handlers for the stream
-        stream.handler(message -> {
-            testContext.verify(() -> {
-                assertNotNull(message, "Received message should not be null");
-                assertEquals(messageText, message.getText());
-            });
-            messageReceived.flag();
-        });
-
-        stream.exceptionHandler(testContext::failNow);
-
-        // Wait for subscription setup, then send
-        vertx.setTimer(1000, id -> {
-            queue.send(expectedMessage)
-                .onFailure(testContext::failNow);
-        });
+        // Act: listen() completes once LISTEN has run; a NOTIFY sent before that is lost.
+        queue.listen()
+            .compose(stream -> {
+                stream.handler(message -> {
+                    testContext.verify(() -> {
+                        assertNotNull(message, "Received message should not be null");
+                        assertEquals(messageText, message.getText());
+                    });
+                    messageReceived.flag();
+                });
+                stream.exceptionHandler(testContext::failNow);
+                return queue.send(expectedMessage);
+            })
+            .onFailure(testContext::failNow);
     }
 
     @Test
@@ -137,22 +132,19 @@ public class PgNativeQueueContainersWithPojoTest {
         // A strict checkpoint: exactly five deliveries.
         Checkpoint messagesReceived = testContext.checkpoint(messageCount);
 
-        // Act - Get the ReadStream from the queue
-        ReadStream<TestMessage> stream = queue.receive();
-
-        // Set up handlers for the stream
-        stream.handler(message -> messagesReceived.flag());
-
-        stream.exceptionHandler(testContext::failNow);
-
-        // Wait for subscription setup, then send
-        vertx.setTimer(1000, id -> {
-            for (int i = 0; i < messageCount; i++) {
-                TestMessage message = new TestMessage("Test message " + i, i);
-                queue.send(message)
-                    .onFailure(testContext::failNow);
-            }
-        });
+        // Act: send once LISTEN has run.
+        queue.listen()
+            .compose(stream -> {
+                stream.handler(message -> messagesReceived.flag());
+                stream.exceptionHandler(testContext::failNow);
+                Future<Void> sends = Future.succeededFuture();
+                for (int i = 0; i < messageCount; i++) {
+                    TestMessage message = new TestMessage("Test message " + i, i);
+                    sends = sends.compose(v -> queue.send(message));
+                }
+                return sends;
+            })
+            .onFailure(testContext::failNow);
     }
 
     @Test
@@ -165,26 +157,21 @@ public class PgNativeQueueContainersWithPojoTest {
         Checkpoint firstMessageReceived = testContext.checkpoint();
         AtomicReference<TestMessage> receivedMessage = new AtomicReference<>();
 
-        // Act - Get the ReadStream from the queue
-        ReadStream<TestMessage> stream = queue.receive();
-
-        // Set up handlers for the stream
-        stream.handler(message -> {
-            // Only handle the first message
-            if (receivedMessage.compareAndSet(null, message)) {
-                testContext.verify(() -> assertEquals(messageText, message.getText()));
-                firstMessageReceived.flag();
-                // Pause the stream after receiving the first message
-                stream.pause();
-            }
-        });
-
-        stream.exceptionHandler(testContext::failNow);
-
-        // Wait for subscription setup, then send
-        vertx.setTimer(1000, id -> {
-            queue.send(expectedMessage)
-                .onFailure(testContext::failNow);
-        });
+        // Act: send once LISTEN has run.
+        queue.listen()
+            .compose(stream -> {
+                stream.handler(message -> {
+                    // Only handle the first message
+                    if (receivedMessage.compareAndSet(null, message)) {
+                        testContext.verify(() -> assertEquals(messageText, message.getText()));
+                        firstMessageReceived.flag();
+                        // Pause the stream after receiving the first message
+                        stream.pause();
+                    }
+                });
+                stream.exceptionHandler(testContext::failNow);
+                return queue.send(expectedMessage);
+            })
+            .onFailure(testContext::failNow);
     }
 }

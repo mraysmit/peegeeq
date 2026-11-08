@@ -37,6 +37,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Coverage-focused tests for OutboxConsumer error handling paths.
@@ -93,9 +94,9 @@ public class OutboxConsumerErrorPathsCoverageTest {
                 ? outboxFactory.close()
                 : Future.succeededFuture();
         closeFactory
-                .eventually(() -> manager != null
+                .transform(TestCleanup.cleanup(() -> manager != null
                         ? manager.closeReactive()
-                        : Future.succeededFuture())
+                        : Future.succeededFuture()))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }
@@ -307,10 +308,10 @@ public class OutboxConsumerErrorPathsCoverageTest {
         Future.all(subscribeFirst, subscribeSecond)
                 .compose(v -> producer.send(testMsg))
                 .compose(v -> received.future())
-                .eventually(() -> {
+                .transform(TestCleanup.cleanup(() -> {
                     consumer2.close();
                     return Future.succeededFuture();
-                })
+                }))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }

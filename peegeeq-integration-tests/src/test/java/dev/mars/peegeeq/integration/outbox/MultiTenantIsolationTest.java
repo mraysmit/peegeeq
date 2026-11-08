@@ -30,6 +30,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.util.UUID;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Multi-tenant schema isolation integration tests.
@@ -110,7 +111,7 @@ public class MultiTenantIsolationTest extends SmokeTestBase {
                             logger.info("Setup A: confirmed row present (count={})", n);
                             return Future.<Void>succeededFuture();
                         })
-                        .eventually(() -> pool.close()));
+                        .transform(TestCleanup.cleanup(() -> pool.close())));
             })
             // Verify: setup B's database does NOT contain the row
             .compose(v -> connectToSetupDb(setupRequestB)
@@ -127,7 +128,7 @@ public class MultiTenantIsolationTest extends SmokeTestBase {
                         logger.info("Setup B: confirmed no cross-tenant contamination (count=0)");
                         return Future.<Void>succeededFuture();
                     })
-                    .eventually(() -> pool.close())))
+                    .transform(TestCleanup.cleanup(() -> pool.close()))))
             .onSuccess(v -> {
                 cleanupSetup(setupIdA);
                 cleanupSetup(setupIdB);

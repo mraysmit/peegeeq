@@ -56,6 +56,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Comprehensive test suite for thread safety and concurrency in outbox consumer retry mechanism.
@@ -115,7 +116,7 @@ public class OutboxRetryConcurrencyTest {
     @AfterEach
     void tearDown(VertxTestContext ctx) {
         (outboxFactory != null ? outboxFactory.close() : Future.<Void>succeededFuture())
-            .eventually(() -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+            .transform(TestCleanup.cleanup(() -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture()))
             .onSuccess(v -> ctx.completeNow())
             .onFailure(ctx::failNow);
     }

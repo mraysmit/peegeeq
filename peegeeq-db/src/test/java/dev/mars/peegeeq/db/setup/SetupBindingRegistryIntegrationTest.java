@@ -20,6 +20,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests for {@link SetupBindingRegistry} — the durable binding store behind
@@ -175,7 +176,7 @@ class SetupBindingRegistryIntegrationTest extends BaseIntegrationTest {
                             "the registry must never gain a password column");
                     ctx.completeNow();
                 }))
-                .eventually(() -> verifyMgr.close())
+                .transform(TestCleanup.cleanup(() -> verifyMgr.close()))
                 .onFailure(ctx::failNow);
     }
 

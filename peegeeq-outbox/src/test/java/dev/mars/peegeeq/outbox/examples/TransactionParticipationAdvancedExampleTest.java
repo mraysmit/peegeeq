@@ -60,6 +60,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Comprehensive JUnit test demonstrating Advanced Transaction Participation in PeeGeeQ Outbox Pattern.
@@ -213,7 +214,7 @@ class TransactionParticipationAdvancedExampleTest {
                         logger.info(" Outbox message sent in transaction");
                         return transaction.commit();
                     }))
-                .eventually(() -> connection.close()))
+                .transform(TestCleanup.cleanup(() -> connection.close())))
             .mapEmpty()
             .onSuccess(v -> {
                 logger.info("Simple transaction participation test completed successfully!");
@@ -243,7 +244,7 @@ class TransactionParticipationAdvancedExampleTest {
                         logger.info(" Outbox message with metadata sent in transaction");
                         return transaction.commit();
                     }))
-                .eventually(() -> connection.close()))
+                .transform(TestCleanup.cleanup(() -> connection.close())))
             .mapEmpty()
             .onSuccess(v -> {
                 logger.info("Transaction participation with metadata test completed successfully!");
@@ -272,7 +273,7 @@ class TransactionParticipationAdvancedExampleTest {
                         logger.info(" Second outbox message sent in transaction");
                         return transaction.commit();
                     }))
-                .eventually(() -> connection.close()))
+                .transform(TestCleanup.cleanup(() -> connection.close())))
             .mapEmpty()
             .onSuccess(v -> {
                 logger.info("Multiple operations in same transaction test completed successfully!");
@@ -312,7 +313,7 @@ class TransactionParticipationAdvancedExampleTest {
                                 });
                         });
                 })
-                .eventually(() -> connection.close()))
+                .transform(TestCleanup.cleanup(() -> connection.close())))
             .onSuccess(result -> ctx.verify(() -> {
                 assertEquals("Business logic completed with outbox consistency", result);
                 logger.info("Business logic with outbox consistency test completed successfully!");
@@ -340,7 +341,7 @@ class TransactionParticipationAdvancedExampleTest {
                     )
                     """;
                 return connection.query(createTableSql).execute()
-                    .eventually(() -> connection.close())
+                    .transform(TestCleanup.cleanup(() -> connection.close()))
                     .mapEmpty();
             })
             .onSuccess(v -> logger.info(" Test business table created successfully"));

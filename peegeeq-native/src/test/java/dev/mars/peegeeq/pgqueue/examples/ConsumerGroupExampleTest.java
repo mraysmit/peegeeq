@@ -56,6 +56,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Test demonstrating consumer groups with message filtering and routing.
@@ -373,11 +374,11 @@ class ConsumerGroupExampleTest {
             "Timed out waiting for all consumer groups: order=" + orderProcessingCount.get()
                 + ", payment=" + paymentProcessingCount.get()
                 + ", analytics=" + analyticsCount.get()));
-        return processed.future().eventually(() -> {
+        return processed.future().transform(TestCleanup.cleanup(() -> {
             vertx.cancelTimer(periodicId);
             vertx.cancelTimer(timeoutId);
             return Future.succeededFuture();
-        });
+        }));
     }
 
     /**

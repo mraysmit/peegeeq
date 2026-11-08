@@ -51,6 +51,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Tests for reactive LISTEN/NOTIFY functionality in PgBiTemporalEventStore.
@@ -253,7 +254,7 @@ class ReactiveNotificationTest {
 
                 return pool.withConnection(conn ->
                     conn.query(notifyCommand).execute()
-                        ).map(notifyResult -> result).eventually(() -> pool.close());
+                        ).map(notifyResult -> result).transform(TestCleanup.cleanup(() -> pool.close()));
             })
             .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 BiTemporalEvent<TestEvent> appendedEvent = result.getKey();

@@ -67,6 +67,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Comprehensive test suite for database failure resilience in outbox consumer retry mechanism.
@@ -153,10 +154,10 @@ public class OutboxRetryResilienceTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) {
         (queueFactory != null ? queueFactory.close() : Future.<Void>succeededFuture())
-            .eventually(() -> verificationConnectionManager != null
+            .transform(TestCleanup.cleanup(() -> verificationConnectionManager != null
                     ? verificationConnectionManager.close()
-                    : Future.<Void>succeededFuture())
-            .eventually(() -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+                    : Future.<Void>succeededFuture()))
+            .transform(TestCleanup.cleanup(() -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture()))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
     }
@@ -265,7 +266,7 @@ public class OutboxRetryResilienceTest {
                     attemptCount,
                     injectFault,
                     lockedRow)
-                    .eventually(() -> releaseLockedRow(lockedRow)))
+                    .transform(TestCleanup.cleanup(() -> releaseLockedRow(lockedRow))))
             .onSuccess(result -> testContext.verify(() -> {
                 assertPersistedState(result.outboxRow(), attemptCount, 5, "DEAD_LETTER", 3);
                 assertEquals(1, result.deadLetterCount(),
@@ -296,7 +297,7 @@ public class OutboxRetryResilienceTest {
                     attemptCount,
                     injectFault,
                     lockedRow)
-                    .eventually(() -> releaseLockedRow(lockedRow)))
+                    .transform(TestCleanup.cleanup(() -> releaseLockedRow(lockedRow))))
             .onSuccess(result -> testContext.verify(() -> {
                 assertPersistedState(result.outboxRow(), attemptCount, 5, "DEAD_LETTER", 3);
                 assertEquals(1, result.deadLetterCount(),
@@ -327,7 +328,7 @@ public class OutboxRetryResilienceTest {
                     attemptCount,
                     injectFault,
                     lockedRow)
-                    .eventually(() -> releaseLockedRow(lockedRow)))
+                    .transform(TestCleanup.cleanup(() -> releaseLockedRow(lockedRow))))
             .onSuccess(result -> testContext.verify(() -> {
                 assertPersistedState(result.outboxRow(), attemptCount, 2, "COMPLETED", 0);
                 assertEquals(0, result.deadLetterCount(),
@@ -570,7 +571,7 @@ public class OutboxRetryResilienceTest {
                                                 recoveredCount,
                                                 completedRow,
                                                 deadLetterCount)))))
-                .eventually(() -> closeAllOnce(heldConnections, connectionsReleased));
+                .transform(TestCleanup.cleanup(() -> closeAllOnce(heldConnections, connectionsReleased)));
     }
 
     private Future<Void> ageProcessingMessageForRecovery(long messageId) {
@@ -741,7 +742,7 @@ public class OutboxRetryResilienceTest {
             return Future.succeededFuture();
         }
         return lock.transaction().rollback()
-                .eventually(lock.connection()::close);
+                .transform(TestCleanup.cleanup(lock.connection()::close));
     }
 
     private Future<Row> exhaustPoolAndAssertConsumerRecovery(
@@ -760,7 +761,7 @@ public class OutboxRetryResilienceTest {
                         heldConnections,
                         connectionReleased,
                         attemptCount))
-                .eventually(() -> closeAllOnce(heldConnections, connectionReleased));
+                .transform(TestCleanup.cleanup(() -> closeAllOnce(heldConnections, connectionReleased)));
     }
 
     private Future<Row> assertConsumerRecoversAfterPoolRelease(

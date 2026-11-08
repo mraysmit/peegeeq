@@ -47,6 +47,7 @@ import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxTestContext;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Comprehensive tests for HealthCheckManager and related health check components.
@@ -145,15 +146,15 @@ class HealthCheckManagerTest {
         // Clean up test data
         if (reactivePool != null) {
             cleanupChain = cleanupChain
-                .eventually(() -> cleanupTestData()
-                    .onFailure(err -> logger.warn("Failed to cleanup test data in tearDown: {}", err.getMessage())));
+                .transform(TestCleanup.cleanup(() -> cleanupTestData()
+                    .onFailure(err -> logger.warn("Failed to cleanup test data in tearDown: {}", err.getMessage()))));
         }
 
         // Close connection manager
         if (connectionManager != null) {
             cleanupChain = cleanupChain
-                .eventually(() -> connectionManager.close()
-                    .onFailure(err -> logger.warn("Failed to close connectionManager: {}", err.getMessage())));
+                .transform(TestCleanup.cleanup(() -> connectionManager.close()
+                    .onFailure(err -> logger.warn("Failed to close connectionManager: {}", err.getMessage()))));
         }
 
         cleanupChain

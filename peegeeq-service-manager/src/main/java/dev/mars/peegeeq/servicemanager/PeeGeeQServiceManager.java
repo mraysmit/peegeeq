@@ -273,7 +273,7 @@ public class PeeGeeQServiceManager extends AbstractVerticle {
         System.out.println("/_/    \\___/\\___/\\____/\\___/\\___/  \\___\\_\\");
         System.out.println();
         System.out.println("PostgreSQL Event-Driven Queue System");
-        System.out.println("Service Manager - Vert.x 5.0.4");
+        System.out.println("Service Manager - Vert.x " + Vertx.class.getPackage().getImplementationVersion());
         System.out.println();
 
         Vertx vertx = Vertx.vertx();

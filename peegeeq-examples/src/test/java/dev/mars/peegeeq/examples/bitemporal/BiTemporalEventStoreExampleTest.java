@@ -57,6 +57,7 @@ import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * INVESTMENT BANKING BACK OFFICE TRADE PROCESSING - BiTemporal Event Store Test Suite
@@ -227,7 +228,7 @@ class BiTemporalEventStoreExampleTest {
             : io.vertx.core.Future.succeededFuture();
 
         closeFuture
-            .eventually(() -> manager != null ? manager.closeReactive() : io.vertx.core.Future.succeededFuture())
+            .transform(TestCleanup.cleanup(() -> manager != null ? manager.closeReactive() : io.vertx.core.Future.succeededFuture()))
             .onComplete(ar -> {
                 eventStore = null;
                 manager = null;

@@ -42,12 +42,13 @@ import static org.junit.platform.engine.discovery.DiscoverySelectors.selectClass
 /**
  * Finding 13: after a failed test, an asynchronous {@code @AfterEach} must still be awaited.
  *
- * <p>vertx-junit5 5.0.x returns from {@code joinActiveTestContexts} as soon as the test has
- * failed, so the teardown's {@link VertxTestContext} is not awaited and the extension closes
- * Vert.x under it. A teardown that closes pools, containers or child processes is then cut
- * off, and the next test fails for a second reason. {@code VertxTeardownAfterFailureExtension},
- * registered by service loading like every suite here, awaits those contexts. A test method that
- * throws leaves its own contexts in the store; the fixtures cover a body that throws with no
+ * <p>A test method that throws leaves its {@link VertxTestContext} in the vertx-junit5 store, and
+ * vertx-junit5 5.1 hands it to the {@code @AfterEach}. When that context has failed, the teardown
+ * is cancelled and Vert.x closes under it. A teardown that closes pools, containers or child
+ * processes is then cut off, and the next test fails for a second reason.
+ * {@code VertxTeardownAfterFailureExtension}, registered by service loading like every suite
+ * here, removes the leftover contexts. (On 5.0.x the teardown was not awaited at all after a
+ * failed test, and the extension also awaited it.) The fixtures cover a body that throws with no
  * context, with a failed context, and with an open checkpoint. The run enables extension
  * autodetection exactly as the surefire configuration does. The fixtures are selected only
  * through {@link EngineTestKit}.</p>

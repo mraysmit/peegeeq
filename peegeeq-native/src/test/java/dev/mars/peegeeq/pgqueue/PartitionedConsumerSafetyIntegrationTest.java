@@ -57,6 +57,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent.*;
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Safety and edge-case integration tests for partitioned consumption.
@@ -139,7 +140,7 @@ class PartitionedConsumerSafetyIntegrationTest {
         logger.info("Tearing down: closing resources and manager");
         Future<Void> cleanup = connectionManager == null
                 ? Future.succeededFuture()
-                : cleanupTestData().eventually(() -> connectionManager.close());
+                : cleanupTestData().transform(TestCleanup.cleanup(() -> connectionManager.close()));
         cleanup
                 .onSuccess(v -> finishManagerClose(testContext, null))
                 .onFailure(e -> finishManagerClose(testContext, e));
@@ -274,7 +275,7 @@ class PartitionedConsumerSafetyIntegrationTest {
                                 logger.info("SAFETY 2 PASSED: stopGracefully() completed, state=NEW");
                                 return (Void) null;
                             })
-                            .eventually(group::stopGracefully);
+                            .transform(TestCleanup.cleanup(group::stopGracefully));
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
@@ -367,7 +368,7 @@ class PartitionedConsumerSafetyIntegrationTest {
                                 logger.info("SAFETY 3 PASSED: {} messages processed, zero duplicates", receivedIds.size());
                                 return (Void) null;
                             })
-                            .eventually(group::stopGracefully);
+                            .transform(TestCleanup.cleanup(group::stopGracefully));
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
@@ -420,7 +421,7 @@ class PartitionedConsumerSafetyIntegrationTest {
                                             "No partition assignments should exist when topic has no messages; got: " + count);
                                     logger.info("SAFETY 4 PASSED: ACTIVE state reached, 0 partition assignments");
                                     return (Void) null;
-                                }).eventually(group::stopGracefully);
+                                }).transform(TestCleanup.cleanup(group::stopGracefully));
                             });
                 })
                 .onSuccess(v -> testContext.completeNow())
@@ -496,7 +497,7 @@ class PartitionedConsumerSafetyIntegrationTest {
                                         })
                                 );
                             })
-                            .eventually(group::stopGracefully);
+                            .transform(TestCleanup.cleanup(group::stopGracefully));
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
@@ -629,10 +630,10 @@ class PartitionedConsumerSafetyIntegrationTest {
                                     });
                         })
                 )
-                .eventually(() -> {
+                .transform(TestCleanup.cleanup(() -> {
                     handlerRelease.tryComplete();
                     return closeGroups(groupAHolder[0], groupBHolder[0]);
-                })
+                }))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }

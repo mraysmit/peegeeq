@@ -57,6 +57,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Tests for OutboxConsumer failure handling paths to increase coverage.
@@ -113,7 +114,7 @@ public class OutboxConsumerFailureHandlingTest {
     void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down OutboxConsumerFailureHandlingTest");
         (outboxFactory != null ? outboxFactory.close() : Future.<Void>succeededFuture())
-                .eventually(() -> manager != null ? manager.closeReactive() : Future.succeededFuture())
+                .transform(TestCleanup.cleanup(() -> manager != null ? manager.closeReactive() : Future.succeededFuture()))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }

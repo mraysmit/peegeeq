@@ -44,6 +44,7 @@ import io.vertx.core.Future;
 import io.vertx.core.Promise;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Edge case tests for LISTEN_NOTIFY_ONLY consumer mode.
@@ -234,13 +235,13 @@ class ListenNotifyOnlyEdgeCaseTest {
             }
             return Future.all(lanes);
         })
-        .eventually(() -> {
+        .transform(TestCleanup.cleanup(() -> {
             // MessageProducer.close() is synchronous and void.
             for (MessageProducer<String> p : producers) {
                 try { p.close(); } catch (Exception e) { logger.warn("Producer close failed: {}", e.getMessage()); }
             }
             return Future.succeededFuture();
-        })
+        }))
         .onFailure(testContext::failNow);
     }
 

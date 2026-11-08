@@ -35,6 +35,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 
 import java.util.Properties;
 import java.util.UUID;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Base class for integration tests that provides proper database connection management,
@@ -152,11 +153,11 @@ public abstract class BaseIntegrationTest {
         // instance may already be closed (RejectedExecutionException). Use .eventually()
         // so this cleanup always runs without affecting the outcome of the chain.
         closeManager
-            .eventually(() -> vertxRef != null
+            .transform(TestCleanup.cleanup(() -> vertxRef != null
                 ? vertxRef.close()
                     .onSuccess(ignored -> logger.info("Vert.x instance closed explicitly for profile: {}", testProfile))
                     .onFailure(e -> logger.debug("Vert.x close after manager shutdown (expected if already closed): {}", e.getMessage()))
-                : Future.succeededFuture())
+                : Future.succeededFuture()))
             .onSuccess(v -> {
                 logger.info("Integration test teardown completed for profile: {}", testProfile);
                 testContext.completeNow();

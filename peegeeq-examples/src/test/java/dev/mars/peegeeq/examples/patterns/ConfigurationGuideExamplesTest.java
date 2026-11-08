@@ -120,15 +120,15 @@ public class ConfigurationGuideExamplesTest {
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("demo", new Properties());
 
         assertEquals("demo", config.getProfile());
-        // The demo profile hardcodes localhost  no placeholders, no env var needed.
+        // The demo profile hardcodes localhost  no placeholders, no overrides needed.
         assertEquals("localhost", config.getDatabaseConfig().getHost());
     }
 
     /**
      * Constructor 3  profile + programmatic overrides (RECOMMENDED).
      *
-     * <p>Overrides are applied after all other sources (profile file, env vars,
-     * system properties) and are therefore the highest-priority input.
+     * <p>Overrides are applied after the profile files and are therefore the
+     * highest-priority input. System properties and environment variables are not read.
      * This is the correct pattern for multi-tenant deployments and tests.</p>
      *
      * <p>Guide reference: "new PeeGeeQConfiguration(String profile, Properties overrides)"</p>
@@ -235,29 +235,29 @@ public class ConfigurationGuideExamplesTest {
     // =========================================================================
 
     /**
-     * {@code ${VAR:fallback}} resolves to {@code fallback} when the env var is absent.
+     * {@code ${VAR:fallback}} resolves to {@code fallback} when the overrides do not define {@code VAR}.
      *
      * <p>The placeholder is placed in a programmatic override. Phase 2 runs after
      * the full merge (including step 5 overrides), so placeholders in overrides are
      * resolved too.</p>
      *
-     * <p>Guide reference: "${VAR:default}  value of env var VAR if set, otherwise default"</p>
+     * <p>Guide reference: "${NAME:default} uses override NAME or the literal default"</p>
      */
     @Test
     void placeholder_withFallback_usesFallbackWhenEnvVarIsAbsent() {
         Properties overrides = validBase();
-        // This env var does not exist in any normal dev or CI environment.
+        // No override of this name is passed.
         overrides.setProperty("peegeeq.database.schema",
             "${PEEGEEQ_GUIDE_EXAMPLE_SCHEMA_ABSENT:fallback_schema}");
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", overrides);
 
         assertEquals("fallback_schema", config.getDatabaseConfig().getSchema(),
-            "${VAR:fallback} must resolve to 'fallback' when the env var is not set");
+            "${VAR:fallback} must resolve to 'fallback' when the overrides do not define VAR");
     }
 
     /**
-     * {@code ${VAR:}} with an empty default resolves to an empty string when the env var is absent.
+     * {@code ${VAR:}} with an empty default resolves to an empty string when the overrides do not define {@code VAR}.
      *
      * <p>This is the pattern used for {@code peegeeq.database.password} in the
      * production profile  an empty password triggers a WARN but does not fail
@@ -272,13 +272,13 @@ public class ConfigurationGuideExamplesTest {
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", overrides);
 
         assertEquals("", config.getString("peegeeq.database.password", "NOT_EMPTY"),
-            "${VAR:} must resolve to an empty string when the env var is not set");
+            "${VAR:} must resolve to an empty string when the overrides do not define VAR");
     }
 
     /**
-     * {@code ${VAR}} with no default throws when the env var is absent.
+     * {@code ${VAR}} with no default throws when the overrides do not define {@code VAR}.
      *
-     * <p>PeeGeeQConfiguration enforces fail-fast: referencing an absent env var with
+     * <p>PeeGeeQConfiguration enforces fail-fast: referencing a name the overrides do not define with
      * no default is a configuration error that must be caught at startup. An
      * {@link IllegalStateException} is thrown with the property name and missing
      * variable in the message.</p>
@@ -291,7 +291,7 @@ public class ConfigurationGuideExamplesTest {
 
         assertThrows(IllegalStateException.class,
             () -> new PeeGeeQConfiguration("default", overrides),
-            "${VAR} with no default must throw when the env var is absent — fail-fast at startup");
+            "${VAR} with no default must throw when the overrides do not define VAR — fail-fast at startup");
     }
 
     /**

@@ -31,6 +31,7 @@ import java.time.Duration;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests proving that flapping protection is required.
@@ -89,7 +90,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
         if (connectionManager != null) {
             new DeadConsumerGroupCleanup(connectionManager, SERVICE_ID)
                     .cleanupAllDeadGroups()
-                    .eventually(() -> connectionManager.close())
+                    .transform(TestCleanup.cleanup(() -> connectionManager.close()))
                     .onSuccess(v -> testContext.completeNow())
                     .onFailure(testContext::failNow);
         } else {

@@ -49,6 +49,7 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Performance tests for {@link BackfillScope} behaviour in {@link BackfillService}.
@@ -117,7 +118,7 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
                                 .execute(Tuple.of(testTopics.toArray(new String[0])))
                                 .mapEmpty());
             deleteFuture
-                    .eventually(() -> connectionManager.close())
+                    .transform(TestCleanup.cleanup(() -> connectionManager.close()))
                     .onSuccess(v -> testContext.completeNow())
                     .onFailure(testContext::failNow);
         } else {

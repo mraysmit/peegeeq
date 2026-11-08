@@ -127,17 +127,43 @@ public class PgNativeQueue<T> implements ReactiveQueue<T> {
             });
     }
 
+    /**
+     * Returns the stream at once; the LISTEN is set up in the background and a failure is
+     * reported to the stream. A NOTIFY sent before the LISTEN has run is not delivered: a caller
+     * that sends after subscribing uses {@link #listen()}.
+     */
     @Override
     public ReadStream<T> receive() {
         logger.debug("Setting up receive stream for channel: {}", channelName);
-
-        // Create a custom ReadStream implementation that listens for notifications
         PgNotificationStream<T> stream = new PgNotificationStream<>(vertx, messageType, objectMapper);
+        startListening(stream).onFailure(error -> logger.debug(
+                "LISTEN setup for channel {} ended without a subscription; the stream was told: {}",
+                channelName, error.getMessage()));
+        return stream;
+    }
 
-        // Set up the LISTEN connection
+    /**
+     * Like {@link #receive()}, but completes with the stream only once the LISTEN has run, so a
+     * NOTIFY sent afterwards is delivered. Fails when the connection cannot be made, when the
+     * server rejects the LISTEN, or when the queue was closed before the connection arrived.
+     */
+    public Future<ReadStream<T>> listen() {
+        logger.debug("Setting up listening stream for channel: {}", channelName);
+        PgNotificationStream<T> stream = new PgNotificationStream<>(vertx, messageType, objectMapper);
+        return startListening(stream).map(listening -> stream);
+    }
+
+    /** Connects, installs the notification handler and runs LISTEN; every failure also reaches the stream. */
+    private Future<Void> startListening(PgNotificationStream<T> stream) {
         logger.trace("Connecting to PostgreSQL for LISTEN/NOTIFY");
-        PgConnection.connect(vertx, connectOptions)
-            .onSuccess(conn -> {
+        return PgConnection.connect(vertx, connectOptions)
+            .transform(connected -> {
+                if (connected.failed()) {
+                    failOrEndStream(stream, "Failed to establish LISTEN connection for channel " + channelName,
+                            connected.cause());
+                    return Future.<Void>failedFuture(connected.cause());
+                }
+                PgConnection conn = connected.result();
                 if (closed.get()) {
                     // The queue was closed while the connection was being made. Close it now:
                     // close() could not see it, and it would otherwise stay open.
@@ -146,45 +172,53 @@ public class PgNativeQueue<T> implements ReactiveQueue<T> {
                             "Failed to close the late LISTEN connection of channel {}: {}",
                             channelName, closeError.getMessage()));
                     stream.handleEnd();
-                    return;
+                    return Future.<Void>failedFuture(new IllegalStateException(
+                            "PgNativeQueue for channel " + channelName + " was closed before LISTEN was established"));
                 }
-                this.listenConnection = conn;
-                logger.debug("Successfully established LISTEN connection to PostgreSQL");
+                return listenOn(conn, stream);
+            });
+    }
 
-                conn.notificationHandler(notification -> {
-                    if (channelName.equals(notification.getChannel())) {
-                        logger.debug("Received notification on channel {}: {}", notification.getChannel(), notification.getPayload());
-                        try {
-                            // Parse the notification payload and push to the stream
-                            T message;
-                            if (messageType == JsonObject.class) {
-                                // Use Vert.x's JsonObject for JsonObject type
-                                T castedMessage = (T) new JsonObject(notification.getPayload());
-                                message = castedMessage;
-                                logger.trace("Deserialized notification payload to JsonObject");
-                            } else {
-                                // Use Jackson for other types
-                                message = objectMapper.readValue(notification.getPayload(), messageType);
-                                logger.trace("Deserialized notification payload to {}", messageType.getSimpleName());
-                            }
-                            stream.handleNotification(message);
-                            logger.debug("Successfully processed notification and passed to stream handler");
-                        } catch (Exception e) {
-                            logger.error("Failed to process notification: {}", notification.getPayload(), e);
-                            stream.handleError(e);
-                        }
+    private Future<Void> listenOn(PgConnection conn, PgNotificationStream<T> stream) {
+        this.listenConnection = conn;
+        logger.debug("Successfully established LISTEN connection to PostgreSQL");
+
+        conn.notificationHandler(notification -> {
+            if (channelName.equals(notification.getChannel())) {
+                logger.debug("Received notification on channel {}: {}", notification.getChannel(), notification.getPayload());
+                try {
+                    // Parse the notification payload and push to the stream
+                    T message;
+                    if (messageType == JsonObject.class) {
+                        // Use Vert.x's JsonObject for JsonObject type
+                        T castedMessage = (T) new JsonObject(notification.getPayload());
+                        message = castedMessage;
+                        logger.trace("Deserialized notification payload to JsonObject");
+                    } else {
+                        // Use Jackson for other types
+                        message = objectMapper.readValue(notification.getPayload(), messageType);
+                        logger.trace("Deserialized notification payload to {}", messageType.getSimpleName());
                     }
-                });
+                    stream.handleNotification(message);
+                    logger.debug("Successfully processed notification and passed to stream handler");
+                } catch (Exception e) {
+                    logger.error("Failed to process notification: {}", notification.getPayload(), e);
+                    stream.handleError(e);
+                }
+            }
+        });
 
-                // Start listening on the channel
-                logger.debug("Executing LISTEN command for channel: {}", channelName);
-                conn.query("LISTEN " + channelName).execute()
-                    .onSuccess(v -> logger.info("Now listening on channel: {}", channelName))
-                    .onFailure(err -> failOrEndStream(stream, "Failed to LISTEN on channel " + channelName, err));
-            })
-            .onFailure(err -> failOrEndStream(stream, "Failed to establish LISTEN connection for channel " + channelName, err));
-
-        return stream;
+        // Start listening on the channel
+        logger.debug("Executing LISTEN command for channel: {}", channelName);
+        return conn.query("LISTEN " + channelName).execute()
+            .transform(listened -> {
+                if (listened.failed()) {
+                    failOrEndStream(stream, "Failed to LISTEN on channel " + channelName, listened.cause());
+                    return Future.<Void>failedFuture(listened.cause());
+                }
+                logger.info("Now listening on channel: {}", channelName);
+                return Future.<Void>succeededFuture();
+            });
     }
 
     @Override

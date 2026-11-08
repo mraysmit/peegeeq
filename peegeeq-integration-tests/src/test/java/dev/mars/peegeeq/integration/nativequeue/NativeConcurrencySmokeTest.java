@@ -35,6 +35,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 @ExtendWith(VertxExtension.class)
 @DisplayName("Native Queue Concurrency Tests")
@@ -272,7 +273,7 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
                     });
             })
             // Detach the appender and best-effort-destroy the setup regardless of outcome.
-            .eventually(() -> {
+            .transform(TestCleanup.cleanup(() -> {
                 rootLogger.detachAppender(appender);
                 appender.stop();
                 return setupService.getAllActiveSetupIds()
@@ -280,7 +281,7 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
                                 ? setupService.destroySetup(setupId)
                                 : Future.<Void>succeededFuture())
                         .transform(ar -> Future.<Void>succeededFuture());
-            })
+            }))
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 PgNativeQueueConsumer<Object> consumer = consumerRef.get();
                 assertFalse(consumer.hasActiveListenConnection(),

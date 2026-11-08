@@ -13,15 +13,18 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.pgclient.PgException;
+import io.vertx.sqlclient.Pool;
+import io.vertx.sqlclient.SqlConnection;
+import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -33,33 +36,24 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.util.List;
 import java.util.Properties;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
+import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * PostgreSQL-Specific Error Handling Tests for PeeGeeQ Native Queue.
+ * PostgreSQL errors raised inside a native queue message handler.
  *
- * Tests critical PostgreSQL error scenarios that could occur in production:
- * - Serialization failures (40001, 40P01 error codes)
- * - Deadlock detection and recovery
- * - Connection timeout scenarios
- * - Transaction rollback and retry logic
- *
- * These tests use real PostgreSQL with TestContainers to trigger actual
- * PostgreSQL error conditions rather than mocking them.
- *
- * Following established coding principles:
- * - Use real infrastructure (TestContainers) rather than mocks
- * - Test actual PostgreSQL error conditions that occur in production
- * - Validate proper error handling, retry logic, and recovery mechanisms
- * - Follow existing patterns from other integration tests
- * - Test resilience under realistic failure conditions
+ * <p>Each test forces the named PostgreSQL error for real, with SQL against the container, on the
+ * first delivery of a message. The handler returns that failure to the consumer. The tests assert
+ * the error's SQLSTATE and what the consumer does with it: a transient error is retried and the
+ * second delivery succeeds; a permanent error is retried {@code max-retries} times and the message
+ * is dead-lettered with the error recorded. Nothing is simulated in Java.</p>
  */
 @Tag(TestCategories.INTEGRATION)
 @ExtendWith(VertxExtension.class)
@@ -69,6 +63,8 @@ class PostgreSQLErrorHandlingTest {
 
     @Container
     static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
+
+    private static final long POLL_DEADLINE_MS = 20_000;
 
     private PeeGeeQManager manager;
     private QueueFactory factory;
@@ -104,234 +100,263 @@ class PostgreSQLErrorHandlingTest {
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws InterruptedException {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
-        (factory != null ? factory.close() : Future.<Void>succeededFuture())
-            .compose(v -> manager != null ? manager.closeReactive() : Future.succeededFuture())
+        // Both closes run; the first failure fails the teardown.
+        TestCleanup.run(
+                () -> factory != null ? factory.close() : Future.succeededFuture(),
+                () -> manager != null ? manager.closeReactive() : Future.succeededFuture())
             .onSuccess(v -> testContext.completeNow())
             .onFailure(err -> {
                 logger.error("Error during teardown", err);
                 testContext.failNow(err);
             });
-        // 60 s, not 30: closeReactive's own internal worst cases (pool close, in-flight health
-        // cycle, worker drain) can legitimately reach ~30 s under full-suite load, and a budget
-        // EQUAL to the thing it waits for is a boundary race. This exact teardown timed out at
-        // ~31 s under -Pall-tests on 2026-05-23 and again on 2026-08-09, and passes in
-        // isolation in ~10 s both times. The slow-close mechanism under load is NOT diagnosed —
-        // this aligns the budget so the test measures teardown FAILURE, not teardown latency; a
-        // genuine hang still fails at 60 s.
-        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
-        logger.info("Test teardown completed");
     }
 
-    // Intention: verify that two competing consumers process messages successfully despite potential serialization conflicts (pg error 40001); no real conflict is forced  this tests the happy path under competition.
     @Test
     @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
-    void testSerializationFailureRecovery(Vertx vertx, VertxTestContext testContext) {
-        logger.info(" Testing PostgreSQL serialization failure recovery (40001 error code)");
+    void serializationFailureInTheHandlerIsRetried(Vertx vertx, VertxTestContext testContext) {
+        assertTransientErrorIsRetried(vertx, testContext, "serialization", "40001", this::forceSerializationFailure);
+    }
 
-        String topicName = "test-serialization-failure";
-        MessageProducer<String> producer = factory.createProducer(topicName, String.class);
+    @Test
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    void deadlockInTheHandlerIsRetried(Vertx vertx, VertxTestContext testContext) {
+        assertTransientErrorIsRetried(vertx, testContext, "deadlock", "40P01", this::forceDeadlock);
+    }
 
-        // Send initial message to create the topic
-        Future<Void> initialSend = producer.send("Initial message");
+    @Test
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    void statementTimeoutInTheHandlerIsRetried(Vertx vertx, VertxTestContext testContext) {
+        assertTransientErrorIsRetried(vertx, testContext, "timeout", "57014", table -> pool()
+                .withTransaction(conn -> conn.query("SET LOCAL statement_timeout = '100ms'").execute()
+                        .compose(set -> conn.query("SELECT pg_sleep(2)").execute()))
+                .mapEmpty());
+    }
 
-        AtomicInteger processedCount = new AtomicInteger(0);
-        AtomicInteger failureCount = new AtomicInteger(0);
-        Checkpoint completionCheckpoint = testContext.checkpoint(2);
-        AtomicInteger checkpointCount = new AtomicInteger(0);
-        AtomicReference<Exception> lastException = new AtomicReference<>();
+    @Test
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    void terminatedHandlerConnectionIsRetried(Vertx vertx, VertxTestContext testContext) {
+        // The handler's own backend is terminated by the server (57P01, admin shutdown).
+        assertTransientErrorIsRetried(vertx, testContext, "terminate", "57P01", table -> pool()
+                .query("SELECT pg_terminate_backend(pg_backend_pid())").execute()
+                .mapEmpty());
+    }
 
-        // Create two consumers that will compete for the same message
-        MessageConsumer<String> consumer1 = factory.createConsumer(topicName, String.class);
-        MessageConsumer<String> consumer2 = factory.createConsumer(topicName, String.class);
+    @Test
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    void rolledBackFirstAttemptLeavesOnlyTheRetriedWrite(Vertx vertx, VertxTestContext testContext) {
+        String topic = "pg-error-rollback-" + UUID.randomUUID().toString().substring(0, 8);
+        String table = probeTable(topic);
+        MessageProducer<String> producer = factory.createProducer(topic, String.class);
+        MessageConsumer<String> consumer = factory.createConsumer(topic, String.class);
+        AtomicInteger attempts = new AtomicInteger();
 
-        // Consumer 1: Simulate long-running transaction that could cause serialization conflicts
-        Future<Void> consumer1Subscription = consumer1.subscribe(message -> {
-            logger.info("Consumer 1 processing message: {}", message.getPayload());
-            Promise<Void> promise = Promise.promise();
-            vertx.setTimer(100, timerId -> {
-                processedCount.incrementAndGet();
-                if (checkpointCount.incrementAndGet() <= 2) {
-                    completionCheckpoint.flag();
-                }
-                logger.info("Consumer 1 completed processing");
-                promise.complete();
-            });
-            return promise.future();
-        }).onFailure(testContext::failNow);
-
-        // Consumer 2: Competing consumer
-        Future<Void> consumer2Subscription = consumer2.subscribe(message -> {
-            logger.info("Consumer 2 processing message: {}", message.getPayload());
-            Promise<Void> promise = Promise.promise();
-            vertx.setTimer(50, timerId -> {
-                processedCount.incrementAndGet();
-                if (checkpointCount.incrementAndGet() <= 2) {
-                    completionCheckpoint.flag();
-                }
-                logger.info("Consumer 2 completed processing");
-                promise.complete();
-            });
-            return promise.future();
-        });
-
-        // Send messages that will trigger competition
-        Future.all(List.of(initialSend, consumer1Subscription, consumer2Subscription))
-            .compose(v -> producer.send("Competing message 1"))
-            .compose(v -> producer.send("Competing message 2"))
+        createProbeTable(table)
+            .compose(created -> consumer.subscribe(message -> {
+                int attempt = attempts.incrementAndGet();
+                // The write and the failure share one transaction, so the first attempt's row is
+                // rolled back with it.
+                return pool().withTransaction(conn -> conn
+                        .preparedQuery("INSERT INTO " + table + " (id, v) VALUES ($1, $2)")
+                        .execute(Tuple.of(100, attempt))
+                        .compose(inserted -> attempt == 1
+                                ? Future.<Void>failedFuture(new IllegalStateException("roll back attempt 1"))
+                                : Future.<Void>succeededFuture()));
+            }))
+            .compose(subscribed -> producer.send("rollback message"))
+            .compose(sent -> pollUntil(vertx, () -> countRows("queue_messages", topic).map(c -> c == 0L),
+                    "the message was not settled"))
+            .compose(settled -> pool().preparedQuery("SELECT v FROM " + table + " WHERE id = 100").execute())
+            .transform(TestCleanup.cleanup(() -> dropProbeTable(table)))
+            .onSuccess(rows -> testContext.verify(() -> {
+                assertEquals(2, attempts.get(), "the rolled-back attempt must be delivered again once");
+                assertEquals(1, rows.size(), "only the committed attempt may leave a row");
+                assertEquals(2, rows.iterator().next().getInteger("v"), "the row must come from attempt 2");
+                testContext.completeNow();
+            }))
             .onFailure(testContext::failNow);
-
     }
 
-    // Intention: verify that concurrent consumers detect and tolerate deadlock errors (pg error 40P01) without hanging; deadlocks are simulated via direct JDBC operations, and the test passes whether messages are processed or deadlocks are detected.
     @Test
-    @Timeout(value = 20, timeUnit = TimeUnit.SECONDS)
-    void testDeadlockDetectionAndRecovery(Vertx vertx, VertxTestContext testContext) {
-        logger.info(" Testing PostgreSQL deadlock detection and recovery");
+    @Timeout(value = 45, timeUnit = TimeUnit.SECONDS)
+    void persistentUniqueViolationIsDeadLetteredWithTheError(Vertx vertx, VertxTestContext testContext) {
+        String topic = "pg-error-unique-" + UUID.randomUUID().toString().substring(0, 8);
+        String table = probeTable(topic);
+        MessageProducer<String> producer = factory.createProducer(topic, String.class);
+        MessageConsumer<String> consumer = factory.createConsumer(topic, String.class);
+        int maxRetries = manager.getConfiguration().getQueueConfig().getMaxRetries();
+        AtomicInteger attempts = new AtomicInteger();
+        AtomicReference<Throwable> lastFailure = new AtomicReference<>();
 
-        String topicName = "test-deadlock-recovery";
-        MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-
-        // Send messages that will be processed concurrently
-        producer.send("Message A").onFailure(testContext::failNow);
-        producer.send("Message B").onFailure(testContext::failNow);
-        producer.send("Message C").onFailure(testContext::failNow);
-
-        AtomicInteger processedCount = new AtomicInteger(0);
-        AtomicInteger deadlockCount = new AtomicInteger(0);
-        Checkpoint completionCheckpoint = testContext.checkpoint(3);
-
-        // Create multiple consumers that could cause deadlocks
-        MessageConsumer<String> consumer1 = factory.createConsumer(topicName, String.class);
-        MessageConsumer<String> consumer2 = factory.createConsumer(topicName, String.class);
-        MessageConsumer<String> consumer3 = factory.createConsumer(topicName, String.class);
-
-        // Configure consumers to potentially cause deadlock scenarios
-        Future.all(List.of(
-            configureConsumerForDeadlockTesting(vertx, consumer1, "Consumer-1", processedCount, deadlockCount, completionCheckpoint),
-            configureConsumerForDeadlockTesting(vertx, consumer2, "Consumer-2", processedCount, deadlockCount, completionCheckpoint),
-            configureConsumerForDeadlockTesting(vertx, consumer3, "Consumer-3", processedCount, deadlockCount, completionCheckpoint)
-        )).onFailure(testContext::failNow);
-
+        createProbeTable(table)
+            .compose(created -> consumer.subscribe(message -> {
+                attempts.incrementAndGet();
+                // Row 1 exists, so every attempt violates the primary key.
+                return pool().query("INSERT INTO " + table + " (id, v) VALUES (1, 0)").execute()
+                        .<Void>mapEmpty()
+                        .onFailure(lastFailure::set);
+            }))
+            .compose(subscribed -> producer.send("duplicate key message"))
+            .compose(sent -> pollUntil(vertx, () -> countRows("dead_letter_queue", topic).map(c -> c == 1L),
+                    "the message was not dead-lettered"))
+            .compose(dead -> pool()
+                    .preparedQuery("SELECT retry_count, failure_reason FROM dead_letter_queue WHERE topic = $1")
+                    .execute(Tuple.of(topic)))
+            .transform(TestCleanup.cleanup(() -> dropProbeTable(table)))
+            .onSuccess(rows -> testContext.verify(() -> {
+                assertSqlState(lastFailure.get(), "23505");
+                assertEquals(maxRetries + 1, attempts.get(),
+                        "with max-retries N a failing message is delivered N + 1 times");
+                var row = rows.iterator().next();
+                assertEquals(maxRetries, row.getInteger("retry_count"), "the dead letter must record the retries");
+                assertTrue(row.getString("failure_reason").contains("23505"),
+                        "the dead letter must record the PostgreSQL error: " + row.getString("failure_reason"));
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
-    private Future<Void> configureConsumerForDeadlockTesting(Vertx vertx, MessageConsumer<String> consumer, String consumerName,
-                                                   AtomicInteger processedCount, AtomicInteger deadlockCount,
-                                                   Checkpoint completionCheckpoint) {
-        return consumer.subscribe(message -> {
-            logger.info("{} processing message: {}", consumerName, message.getPayload());
-            Promise<Void> promise = Promise.promise();
-            vertx.setTimer(50, timerId -> {
-                processedCount.incrementAndGet();
-                completionCheckpoint.flag();
-                logger.info("{} completed processing", consumerName);
-                promise.complete();
-            });
-            return promise.future();
-        });
-    }
+    /**
+     * Sends one message whose first delivery runs {@code failOnce}, which must fail with
+     * {@code expectedSqlState}; the second delivery succeeds. Asserts two deliveries, the
+     * SQLSTATE, an empty queue and no dead letter.
+     */
+    private void assertTransientErrorIsRetried(Vertx vertx, VertxTestContext testContext, String scenario,
+                                               String expectedSqlState, Function<String, Future<Void>> failOnce) {
+        String topic = "pg-error-" + scenario + "-" + UUID.randomUUID().toString().substring(0, 8);
+        String table = probeTable(topic);
+        MessageProducer<String> producer = factory.createProducer(topic, String.class);
+        MessageConsumer<String> consumer = factory.createConsumer(topic, String.class);
+        AtomicInteger attempts = new AtomicInteger();
+        AtomicReference<Throwable> firstFailure = new AtomicReference<>();
 
-    // Intention: verify that a statement timeout (deliberately triggered via SET statement_timeout='100ms') is caught and handled gracefully without crashing the consumer; the system must either process the message or absorb the timeout  both outcomes are valid.
-    @Test
-    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
-    void testConnectionTimeoutHandling(Vertx vertx, VertxTestContext testContext) {
-        logger.info(" Testing PostgreSQL connection timeout handling");
-
-        String topicName = "test-connection-timeout";
-        MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-
-        // Send initial message
-        producer.send("Timeout test message").onFailure(testContext::failNow);
-
-        AtomicInteger processedCount = new AtomicInteger(0);
-        AtomicInteger timeoutCount = new AtomicInteger(0);
-        AtomicBoolean connectionRecovered = new AtomicBoolean(false);
-        AtomicBoolean checkpointFlagged = new AtomicBoolean(false);
-        Checkpoint completionCheckpoint = testContext.checkpoint(1);
-
-        MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class);
-
-        consumer.subscribe(message -> {
-            logger.info("Processing message with potential timeout: {}", message.getPayload());
-            Promise<Void> promise = Promise.promise();
-            vertx.setTimer(150, timerId -> {
-                processedCount.incrementAndGet();
-                connectionRecovered.set(true);
-                if (checkpointFlagged.compareAndSet(false, true)) {
-                    completionCheckpoint.flag();
+        createProbeTable(table)
+            .compose(created -> consumer.subscribe(message -> {
+                if (attempts.incrementAndGet() > 1) {
+                    return Future.succeededFuture();
                 }
-                logger.info("Message processed successfully");
-                promise.complete();
-            });
-            return promise.future();
-        }).onFailure(testContext::failNow);
-
+                Future<Void> forced = failOnce.apply(table);
+                return forced
+                    .transform(outcome -> outcome.failed()
+                        ? Future.<Void>failedFuture(recordFirst(firstFailure, outcome.cause()))
+                        : Future.<Void>failedFuture(new AssertionError(
+                                "the " + scenario + " scenario did not raise a PostgreSQL error")));
+            }))
+            .compose(subscribed -> producer.send(scenario + " message"))
+            .compose(sent -> pollUntil(vertx, () -> countRows("queue_messages", topic).map(c -> c == 0L),
+                    "the message was not settled"))
+            .compose(settled -> countRows("dead_letter_queue", topic))
+            .transform(TestCleanup.cleanup(() -> dropProbeTable(table)))
+            .onSuccess(deadLetters -> testContext.verify(() -> {
+                assertSqlState(firstFailure.get(), expectedSqlState);
+                assertEquals(2, attempts.get(), "the failed delivery must be retried exactly once");
+                assertEquals(0L, deadLetters, "a retried message must not be dead-lettered");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
-    // Intention: verify that a deliberately rolled-back transaction (first message always rolls back via direct JDBC) does not crash the consumer; the test passes as long as at least one message is processed or a rollback is observed.
-    @Test
-    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
-    void testTransactionRollbackAndRetryLogic(Vertx vertx, VertxTestContext testContext) {
-        logger.info(" Testing transaction rollback and retry logic");
-
-        String topicName = "test-transaction-rollback";
-        MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-
-        // Send messages for rollback testing
-        producer.send("Rollback test message 1").onFailure(testContext::failNow);
-        producer.send("Rollback test message 2").onFailure(testContext::failNow);
-
-        AtomicInteger processedCount = new AtomicInteger(0);
-        AtomicInteger rollbackCount = new AtomicInteger(0);
-        AtomicInteger retryCount = new AtomicInteger(0);
-        Checkpoint completionCheckpoint = testContext.checkpoint(2);
-
-        MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class);
-
-        consumer.subscribe(message -> {
-            logger.info("Processing message for rollback test: {}", message.getPayload());
-            if (message.getPayload().contains("1")) {
-                rollbackCount.incrementAndGet();
-                logger.info("Transaction rollback triggered for message: {}", message.getPayload());
-                completionCheckpoint.flag();
-            } else {
-                processedCount.incrementAndGet();
-                completionCheckpoint.flag();
-                logger.info("Message processed successfully: {}", message.getPayload());
-            }
-            return Future.succeededFuture();
-        }).onFailure(testContext::failNow);
-
+    /**
+     * A REPEATABLE READ transaction takes its snapshot, another connection updates the row, and
+     * the first transaction's update of that row then fails with 40001.
+     */
+    private Future<Void> forceSerializationFailure(String table) {
+        return withTwoConnections((a, b) -> a.query("BEGIN ISOLATION LEVEL REPEATABLE READ").execute()
+                .compose(begun -> a.query("SELECT v FROM " + table + " WHERE id = 1").execute())
+                .compose(snapshot -> b.query("UPDATE " + table + " SET v = v + 1 WHERE id = 1").execute())
+                .compose(changed -> a.query("UPDATE " + table + " SET v = v + 1 WHERE id = 1").execute())
+                .<Void>mapEmpty()
+                .transform(TestCleanup.cleanup(() -> a.query("ROLLBACK").execute())));
     }
 
+    /**
+     * Two transactions lock rows 1 and 2 in opposite orders. The server detects the cycle after
+     * {@code deadlock_timeout} (100 ms here) and aborts one of them with 40P01.
+     */
+    private Future<Void> forceDeadlock(String table) {
+        return withTwoConnections((a, b) -> a.query("BEGIN").execute()
+                .compose(x -> a.query("SET LOCAL deadlock_timeout = '100ms'").execute())
+                .compose(x -> a.query("UPDATE " + table + " SET v = v + 1 WHERE id = 1").execute())
+                .compose(x -> b.query("BEGIN").execute())
+                .compose(x -> b.query("SET LOCAL deadlock_timeout = '100ms'").execute())
+                .compose(x -> b.query("UPDATE " + table + " SET v = v + 1 WHERE id = 2").execute())
+                .compose(x -> {
+                    Future<?> first = a.query("UPDATE " + table + " SET v = v + 1 WHERE id = 2").execute();
+                    Future<?> second = b.query("UPDATE " + table + " SET v = v + 1 WHERE id = 1").execute();
+                    return Future.join(first, second).transform(settled -> first.failed()
+                            ? Future.<Void>failedFuture(first.cause())
+                            : second.failed()
+                                ? Future.<Void>failedFuture(second.cause())
+                                : Future.<Void>succeededFuture());
+                })
+                .transform(TestCleanup.cleanup(
+                        () -> a.query("ROLLBACK").execute(),
+                        () -> b.query("ROLLBACK").execute())));
+    }
 
-    // Intention: verify that known PostgreSQL error codes (40001 serialization, 40P01 deadlock, 23505 unique violation, 08006 connection failure) are recognised and classified correctly; errors are triggered via direct JDBC simulation inside the message handler.
-    @Test
-    @Timeout(value = 20, timeUnit = TimeUnit.SECONDS)
-    void testPostgreSQLSpecificErrorCodes(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info(" Testing PostgreSQL-specific error code handling");
+    private Future<Void> withTwoConnections(java.util.function.BiFunction<SqlConnection, SqlConnection, Future<Void>> work) {
+        // Each connection is closed whatever the work's outcome; a failed close is reported.
+        return pool().getConnection().compose(a -> pool().getConnection()
+                .compose(b -> work.apply(a, b).transform(TestCleanup.cleanup(b::close)))
+                .transform(TestCleanup.cleanup(a::close)));
+    }
 
-        String topicName = "test-error-codes";
-        MessageProducer<String> producer = factory.createProducer(topicName, String.class);
+    private static Throwable recordFirst(AtomicReference<Throwable> first, Throwable failure) {
+        first.compareAndSet(null, failure);
+        return failure;
+    }
 
-        // Send message for error code testing
-        producer.send("Error code test message").onFailure(testContext::failNow);
+    private static void assertSqlState(Throwable failure, String expectedSqlState) {
+        assertNotNull(failure, "the handler's SQL must have failed");
+        PgException pgFailure = assertInstanceOf(PgException.class, failure,
+                "the failure must come from PostgreSQL: " + failure);
+        assertEquals(expectedSqlState, pgFailure.getSqlState(), "unexpected SQLSTATE: " + pgFailure.getMessage());
+    }
 
-        AtomicInteger processedCount = new AtomicInteger(0);
-        AtomicInteger errorCodeCount = new AtomicInteger(0);
-        Checkpoint completionCheckpoint = testContext.checkpoint(1);
+    private Pool pool() {
+        return manager.getPool();
+    }
 
-        MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class);
+    private static String probeTable(String topic) {
+        return "pg_error_probe_" + topic.substring(topic.lastIndexOf('-') + 1);
+    }
 
-        consumer.subscribe(message -> {
-            logger.info("Processing message for error code test: {}", message.getPayload());
-            processedCount.incrementAndGet();
-            completionCheckpoint.flag();
-            logger.info("Message processed successfully");
-            return Future.succeededFuture();
-        }).onFailure(testContext::failNow);
+    private Future<Void> createProbeTable(String table) {
+        return pool().query("CREATE TABLE " + table + " (id INT PRIMARY KEY, v INT NOT NULL)").execute()
+                .compose(created -> pool().query("INSERT INTO " + table + " (id, v) VALUES (1, 0), (2, 0)").execute())
+                .mapEmpty();
+    }
 
-        // Wait for processing to complete
+    private Future<Void> dropProbeTable(String table) {
+        return pool().query("DROP TABLE IF EXISTS " + table).execute().mapEmpty();
+    }
+
+    private Future<Long> countRows(String tableName, String topic) {
+        return pool().preparedQuery("SELECT COUNT(*) AS c FROM " + tableName + " WHERE topic = $1")
+                .execute(Tuple.of(topic))
+                .map(rows -> rows.iterator().next().getLong("c"));
+    }
+
+    private Future<Void> pollUntil(Vertx vertx, Supplier<Future<Boolean>> condition, String failureMessage) {
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(POLL_DEADLINE_MS);
+        Promise<Void> done = Promise.promise();
+        pollOnce(vertx, condition, deadline, failureMessage, done);
+        return done.future();
+    }
+
+    private void pollOnce(Vertx vertx, Supplier<Future<Boolean>> condition, long deadline,
+                          String failureMessage, Promise<Void> done) {
+        condition.get()
+            .onSuccess(reached -> {
+                if (reached) {
+                    done.tryComplete();
+                } else if (System.nanoTime() >= deadline) {
+                    done.tryFail(new AssertionError(failureMessage));
+                } else {
+                    vertx.setTimer(100, id -> pollOnce(vertx, condition, deadline, failureMessage, done));
+                }
+            })
+            .onFailure(done::tryFail);
     }
 }

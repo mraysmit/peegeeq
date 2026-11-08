@@ -59,6 +59,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests for {@link OutboxConsumerGroup} review fixes: per-member concurrency gate,
@@ -98,8 +99,8 @@ class OutboxConsumerGroupReviewFixesTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) {
         Future.<Void>succeededFuture()
-                .eventually(() -> group != null ? group.close() : Future.succeededFuture())
-                .eventually(() -> manager != null ? manager.closeReactive() : Future.succeededFuture())
+                .transform(TestCleanup.cleanup(() -> group != null ? group.close() : Future.succeededFuture()))
+                .transform(TestCleanup.cleanup(() -> manager != null ? manager.closeReactive() : Future.succeededFuture()))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }

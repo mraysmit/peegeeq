@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests for event store creation failures in {@link PeeGeeQDatabaseSetupService}.
@@ -103,7 +104,7 @@ class SetupEventStoreFactoryFailureIntegrationTest extends BaseIntegrationTest {
                     assertTrue(ar.failed(), "the setup must not remain active after the failed create");
                     return Future.succeededFuture();
                 }))
-                .eventually(() -> service.close())
+                .transform(TestCleanup.cleanup(() -> service.close()))
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
     }
@@ -146,7 +147,7 @@ class SetupEventStoreFactoryFailureIntegrationTest extends BaseIntegrationTest {
                     assertTrue(ar.failed(), "the setup must not remain active after the failed create");
                     return Future.succeededFuture();
                 }))
-                .eventually(() -> service.close())
+                .transform(TestCleanup.cleanup(() -> service.close()))
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
     }
@@ -180,8 +181,8 @@ class SetupEventStoreFactoryFailureIntegrationTest extends BaseIntegrationTest {
                             "failure must carry the factory's exception, got: " + ar.cause());
                     return Future.succeededFuture();
                 }))
-                .eventually(() -> service.destroySetup(setupId))
-                .eventually(() -> service.close())
+                .transform(TestCleanup.cleanup(() -> service.destroySetup(setupId)))
+                .transform(TestCleanup.cleanup(() -> service.close()))
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
     }

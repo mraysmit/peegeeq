@@ -62,10 +62,11 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Fault tolerance integration tests for {@link OutboxConsumerGroup}.
@@ -101,6 +102,11 @@ class OutboxConsumerGroupFaultToleranceTest {
     private PgConnectionManager verificationConnectionManager;
     private Pool verificationPool;
 
+    /** The consumers' polling interval; the windows of the negative assertions are derived from it. */
+    private static final String POLLING_INTERVAL = "PT0.2S";
+    /** A window that spans five polls: a group that still polled would claim a pending row in it. */
+    private long negativeWindowMs;
+
     @BeforeEach
     void setUp(Vertx vertx, VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
@@ -109,8 +115,11 @@ class OutboxConsumerGroupFaultToleranceTest {
         testTopic = "fault-test-" + UUID.randomUUID().toString().substring(0, 8);
 
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
-                .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
+                .property("peegeeq.queue.polling-interval", POLLING_INTERVAL)
+                .build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
+        negativeWindowMs = config.getQueueConfig().getPollingInterval().toMillis() * 5;
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
 
         // Verification pool independent connection for asserting DB state
@@ -144,9 +153,9 @@ class OutboxConsumerGroupFaultToleranceTest {
     void tearDown(VertxTestContext tearDownContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
         Future.<Void>succeededFuture()
-                .eventually(() -> outboxFactory != null ? outboxFactory.close() : Future.succeededFuture())
-                .eventually(() -> manager != null ? manager.closeReactive() : Future.succeededFuture())
-                .eventually(() -> verificationConnectionManager != null ? verificationConnectionManager.close() : Future.<Void>succeededFuture())
+                .transform(TestCleanup.cleanup(() -> outboxFactory != null ? outboxFactory.close() : Future.succeededFuture()))
+                .transform(TestCleanup.cleanup(() -> manager != null ? manager.closeReactive() : Future.succeededFuture()))
+                .transform(TestCleanup.cleanup(() -> verificationConnectionManager != null ? verificationConnectionManager.close() : Future.<Void>succeededFuture()))
                 .onSuccess(v -> tearDownContext.completeNow())
                 .onFailure(tearDownContext::failNow);
         assertTrue(tearDownContext.awaitCompletion(30, TimeUnit.SECONDS));
@@ -172,9 +181,8 @@ class OutboxConsumerGroupFaultToleranceTest {
                 received.add(message.getPayload());
                 return Future.succeededFuture();
             });
-            // Wait for group to start polling, then send pre-kill messages
+            // start() completes once the group polls; the messages wait as rows until claimed.
             consumerGroup.start()
-                .compose(v -> vertx.timer(500).mapEmpty())
                 .compose(v -> {
                     Future<Void> sends = Future.succeededFuture();
                     for (int i = 0; i < preKillMessages; i++) {
@@ -183,18 +191,22 @@ class OutboxConsumerGroupFaultToleranceTest {
                     }
                     return sends;
                 })
-                .compose(v -> waitUntil(
+                .compose(v -> pollUntil(
                         vertx,
-                        () -> received.size() == preKillMessages,
+                        () -> Future.succeededFuture(received.size() == preKillMessages),
                         10_000,
                         "Pre-kill messages should be consumed before terminating connections"))
                 .compose(v -> killPeeGeeQConnections())
-                .compose(killCount -> {
-                    logger.info("Killed PeeGeeQ connections polling loop should recover");
-                    assertTrue(killCount > 0,
+                .compose(killedPids -> {
+                    logger.info("Killed PeeGeeQ connections {}; polling loop should recover", killedPids);
+                    assertFalse(killedPids.isEmpty(),
                             "At least one PeeGeeQ connection should have been terminated");
-                    // Brief pause for the pool to notice the dead connections
-                    return vertx.timer(2000).mapEmpty();
+                    // The sends below need the killed backends gone and a live connection in the
+                    // application pool; both are polled instead of a fixed pause.
+                    return pollUntil(vertx, () -> backendsGone(killedPids), 10_000,
+                                    "The terminated backends should exit")
+                            .compose(gone -> pollUntil(vertx, () -> applicationPoolServes(), 10_000,
+                                    "The application pool should serve a live connection after the kill"));
                 })
                 .compose(v -> {
                     // Phase 2: send post-kill messages group must recover and process these
@@ -205,9 +217,9 @@ class OutboxConsumerGroupFaultToleranceTest {
                     }
                     return sends;
                 })
-                .compose(v -> waitUntil(
+                .compose(v -> pollUntil(
                         vertx,
-                        () -> received.size() == preKillMessages + postKillMessages,
+                        () -> Future.succeededFuture(received.size() == preKillMessages + postKillMessages),
                         15_000,
                         "Post-kill messages should be consumed after polling recovery"))
                 .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
@@ -304,9 +316,8 @@ class OutboxConsumerGroupFaultToleranceTest {
                 // Hold the handler in flight until the test verifies stop is waiting.
                 return handlerGate.future();
             });
-            // Wait for group to start, then send a message whose handler waits on the gate.
+            // Start the group, then send a message whose handler waits on the gate.
             consumerGroup.start()
-                .compose(v -> vertx.timer(500).mapEmpty())
                 .compose(v -> producer.send("slow-message").mapEmpty())
                 .compose(v -> handlerEntered.future())
                 .compose(v -> {
@@ -331,11 +342,19 @@ class OutboxConsumerGroupFaultToleranceTest {
                         return Future.succeededFuture();
                     });
 
+                    // A negative assertion needs a window: five polls of a group that still ran.
+                    // The row must still be PENDING after it, which shows nothing claimed it.
                     return producer.send("post-stop-message").mapEmpty()
-                        .compose(x -> vertx.timer(2000).mapEmpty())
-                        .map(x -> {
+                        .compose(x -> vertx.timer(negativeWindowMs).mapEmpty())
+                        .compose(x -> verificationPool.preparedQuery(
+                                "SELECT status FROM outbox WHERE topic = $1 AND payload ->> 'value' = $2")
+                            .execute(Tuple.of(testTopic, "post-stop-message")))
+                        .map(rows -> {
                             assertEquals(0, postStopReceived.intValue(),
                                     "No messages should be processed after stop()");
+                            assertEquals(1, rows.size(), "The post-stop message should be stored once");
+                            assertEquals("PENDING", rows.iterator().next().getString("status"),
+                                    "No consumer of the stopped group may claim the post-stop message");
                             return (Void) null;
                         });
                 })
@@ -400,7 +419,6 @@ class OutboxConsumerGroupFaultToleranceTest {
             AtomicInteger handlerCalls = new AtomicInteger();
             Promise<Void> handlerGate = Promise.promise();
             int totalMessages = 15;
-            int initialBatchSize = 10;
 
             consumerGroup = outboxFactory.createConsumerGroup("hung-group", testTopic, String.class);
             consumerGroup.addConsumer("c1", message -> {
@@ -408,9 +426,8 @@ class OutboxConsumerGroupFaultToleranceTest {
                 logger.info("Handler entered for message: {}", message.getPayload());
                 return handlerGate.future();
             });
-            // Wait for group to start, send multiple messages, then wait
+            // Start the group and send the messages; the first handler hangs on the gate.
             consumerGroup.start()
-                .compose(v -> vertx.timer(500).mapEmpty())
                 .compose(v -> {
                     Future<Void> sends = Future.succeededFuture();
                     for (int i = 0; i < totalMessages; i++) {
@@ -419,8 +436,13 @@ class OutboxConsumerGroupFaultToleranceTest {
                     }
                     return sends;
                 })
-                // Wait long enough for multiple poll cycles
-                .compose(v -> vertx.timer(10000).mapEmpty())
+                // Positive precondition first: the handler is entered and its batch is claimed.
+                .compose(v -> pollUntil(vertx, () -> Future.succeededFuture(handlerCalls.get() >= 1)
+                                .compose(entered -> !entered ? Future.succeededFuture(false)
+                                        : countProcessing().map(processing -> processing > 0)),
+                        10_000, "The first handler should be entered with its batch in PROCESSING"))
+                // Then a window of five polls in which an unblocked loop would claim more rows.
+                .compose(v -> vertx.timer(negativeWindowMs).mapEmpty())
                 .compose(v -> verificationPool.preparedQuery(
                     """
                     SELECT
@@ -460,10 +482,10 @@ class OutboxConsumerGroupFaultToleranceTest {
                     logger.info("F3 PASSED: hung handler blocks poll loop (documented behavior)");
                     return (Void) null;
                 })
-                .eventually(() -> {
+                .transform(TestCleanup.cleanup(() -> {
                     handlerGate.tryComplete();
                     return Future.succeededFuture();
-                })
+                }))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
 
@@ -486,6 +508,7 @@ class OutboxConsumerGroupFaultToleranceTest {
             Properties retryProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                     .property("peegeeq.queue.max-retries", "2")
+                    .property("peegeeq.queue.polling-interval", POLLING_INTERVAL)
                     .build();
 
             AtomicInteger attemptCount = new AtomicInteger();
@@ -509,8 +532,7 @@ class OutboxConsumerGroupFaultToleranceTest {
                     });
                     return consumerGroup.start();
                 })
-                // Wait for group to start, then send one doomed message
-                .compose(v -> vertx.timer(500).mapEmpty())
+                // The group has started; send one doomed message
                 .compose(v -> producer.send("doomed-message").mapEmpty())
                 .compose(v -> {
                     // Poll until message reaches terminal state
@@ -580,42 +602,78 @@ class OutboxConsumerGroupFaultToleranceTest {
      *
      * @return the number of connections terminated
      */
-    private Future<Integer> killPeeGeeQConnections() {
+    private Future<List<Integer>> killPeeGeeQConnections() {
         return verificationPool.preparedQuery(
-                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity " +
+                "SELECT pid, pg_terminate_backend(pid) AS terminated FROM pg_stat_activity " +
                 "WHERE pid != pg_backend_pid() AND datname = current_database() AND state = 'idle'")
             .execute()
             .map(rows -> {
-                int count = rows.size();
-                logger.info("Terminated {} PeeGeeQ connections", count);
-                return count;
+                List<Integer> killed = new ArrayList<>();
+                rows.forEach(row -> {
+                    if (Boolean.TRUE.equals(row.getBoolean("terminated"))) {
+                        killed.add(row.getInteger("pid"));
+                    }
+                });
+                logger.info("Terminated {} PeeGeeQ connections", killed.size());
+                return killed;
             });
     }
 
-    private Future<Void> waitUntil(Vertx vertx, BooleanSupplier condition, long timeoutMs, String timeoutMessage) {
-        if (condition.getAsBoolean()) {
-            return Future.succeededFuture();
-        }
+    /** True once none of {@code pids} is a server backend any more. */
+    private Future<Boolean> backendsGone(List<Integer> pids) {
+        return verificationPool.preparedQuery(
+                "SELECT count(*) AS remaining FROM pg_stat_activity WHERE pid = ANY($1)")
+            .execute(Tuple.of(pids.toArray(new Integer[0])))
+            .map(rows -> rows.iterator().next().getLong("remaining") == 0L);
+    }
 
-        Promise<Void> promise = Promise.promise();
-        long timeoutId = vertx.setTimer(timeoutMs, id -> {
-            if (!promise.future().isComplete()) {
-                promise.fail(new AssertionError(timeoutMessage));
-            }
-        });
+    /**
+     * True once the application pool runs a query. A query on a connection whose backend was
+     * terminated fails; that failure is the state being polled, so it maps to false.
+     */
+    private Future<Boolean> applicationPoolServes() {
+        return manager.getPool().query("SELECT 1").execute()
+            .map(rows -> true)
+            .transform(outcome -> {
+                if (outcome.failed()) {
+                    logger.debug("Application pool not serving yet: {}", outcome.cause().getMessage());
+                    return Future.succeededFuture(false);
+                }
+                return Future.succeededFuture(true);
+            });
+    }
 
-        long pollId = vertx.setPeriodic(100, id -> {
-            if (condition.getAsBoolean() && !promise.future().isComplete()) {
-                vertx.cancelTimer(timeoutId);
-                vertx.cancelTimer(id);
-                promise.complete();
-            }
-        });
+    private Future<Integer> countProcessing() {
+        return verificationPool.preparedQuery(
+                "SELECT count(*) AS processing FROM outbox WHERE topic = $1 AND status = 'PROCESSING'")
+            .execute(Tuple.of(testTopic))
+            .map(rows -> rows.iterator().next().getLong("processing").intValue());
+    }
 
-        return promise.future().eventually(() -> {
-            vertx.cancelTimer(timeoutId);
-            vertx.cancelTimer(pollId);
-            return Future.succeededFuture();
-        });
+    /**
+     * Re-runs {@code check} every 100 ms until it yields true, and fails with {@code timeoutMessage}
+     * after {@code timeoutMs}. A failed check fails the poll.
+     */
+    private Future<Void> pollUntil(Vertx vertx, Supplier<Future<Boolean>> check,
+                                   long timeoutMs, String timeoutMessage) {
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
+        Promise<Void> done = Promise.promise();
+        pollOnce(vertx, check, deadline, timeoutMessage, done);
+        return done.future();
+    }
+
+    private void pollOnce(Vertx vertx, Supplier<Future<Boolean>> check, long deadline,
+                          String timeoutMessage, Promise<Void> done) {
+        check.get()
+            .onSuccess(reached -> {
+                if (reached) {
+                    done.tryComplete();
+                } else if (System.nanoTime() >= deadline) {
+                    done.tryFail(new AssertionError(timeoutMessage));
+                } else {
+                    vertx.setTimer(100, id -> pollOnce(vertx, check, deadline, timeoutMessage, done));
+                }
+            })
+            .onFailure(done::tryFail);
     }
 }

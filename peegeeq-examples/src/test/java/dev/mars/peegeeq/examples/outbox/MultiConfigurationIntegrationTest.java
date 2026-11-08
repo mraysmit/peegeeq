@@ -35,6 +35,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration test demonstrating multi-configuration capabilities in a realistic scenario.
@@ -256,11 +257,11 @@ class MultiConfigurationIntegrationTest {
                 })
                 .onFailure(done::tryFail)
                 .compose(v -> done.future())
-                .eventually(() -> {
+                .transform(TestCleanup.cleanup(() -> {
                     consumer.close();
                     producer.close();
                     return Future.<Void>succeededFuture();
-                });
+                }));
     }
 
     private Future<Void> testRealTimeProcessing(QueueFactory factory, Vertx vertx) {
@@ -293,11 +294,11 @@ class MultiConfigurationIntegrationTest {
                 })
                 .onFailure(done::tryFail)
                 .compose(v -> done.future())
-                .eventually(() -> {
+                .transform(TestCleanup.cleanup(() -> {
                     consumer.close();
                     producer.close();
                     return Future.<Void>succeededFuture();
-                });
+                }));
     }
 
     private Future<Void> testTransactionalProcessing(QueueFactory factory) {
@@ -326,11 +327,11 @@ class MultiConfigurationIntegrationTest {
                 })
                 .onFailure(done::tryFail)
                 .compose(v -> done.future())
-                .eventually(() -> {
+                .transform(TestCleanup.cleanup(() -> {
                     consumer.close();
                     producer.close();
                     return Future.<Void>succeededFuture();
-                });
+                }));
     }
 
     // Event classes for testing

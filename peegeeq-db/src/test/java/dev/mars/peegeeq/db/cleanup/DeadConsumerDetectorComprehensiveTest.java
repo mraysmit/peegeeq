@@ -57,6 +57,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Comprehensive integration tests for {@link DeadConsumerDetector}.
@@ -128,7 +129,7 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
         if (connectionManager != null) {
             new DeadConsumerGroupCleanup(connectionManager, SERVICE_ID)
                     .cleanupAllDeadGroups()
-                    .eventually(() -> connectionManager.close())
+                    .transform(TestCleanup.cleanup(() -> connectionManager.close()))
                     .onSuccess(v -> testContext.completeNow())
                     .onFailure(testContext::failNow);
         } else {

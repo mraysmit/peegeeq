@@ -54,6 +54,7 @@ import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.Perfo
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent.ALL;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Explicit Task 6 release gate for sustained OFFSET_WATERMARK consumption.
@@ -186,9 +187,9 @@ class PartitionedConsumptionReleaseGate {
     void tearDown(VertxTestContext testContext) {
         stopAllEngines()
                 .compose(stopped -> cleanupWorkloads())
-                .eventually(() -> connectionManager == null
+                .transform(TestCleanup.cleanup(() -> connectionManager == null
                         ? Future.succeededFuture()
-                        : connectionManager.close())
+                        : connectionManager.close()))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(failure -> {
                     logger.error("Task 6 release-gate cleanup failed", failure);
@@ -332,10 +333,10 @@ class PartitionedConsumptionReleaseGate {
                         publishUntilDeadline(tenantB),
                         probeOltpUntilDeadline(tenantA),
                         probeOltpUntilDeadline(tenantB))
-                .eventually(() -> {
+                .transform(TestCleanup.cleanup(() -> {
                     vertx.cancelTimer(monitorId);
                     return Future.succeededFuture();
-                })
+                }))
                 .mapEmpty();
     }
 

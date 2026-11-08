@@ -31,23 +31,19 @@ public class ServiceManagerConfig {
         this(new JsonObject());
     }
     
+    /**
+     * Reads the given configuration; a key it does not hold takes its default. JVM system
+     * properties are not read: they are process-wide state, not service manager configuration.
+     */
     public ServiceManagerConfig(JsonObject config) {
-        this.consulHost = config.getString("consul.host", 
-                System.getProperty("consul.host", DEFAULT_CONSUL_HOST));
-        this.consulPort = config.getInteger("consul.port", 
-                Integer.parseInt(System.getProperty("consul.port", String.valueOf(DEFAULT_CONSUL_PORT))));
-        this.servicePort = config.getInteger("service.port", 
-                Integer.parseInt(System.getProperty("service.port", String.valueOf(DEFAULT_SERVICE_PORT))));
-        this.requestTimeout = config.getInteger("request.timeout", 
-                Integer.parseInt(System.getProperty("request.timeout", String.valueOf(DEFAULT_REQUEST_TIMEOUT))));
-        this.cacheRefreshInterval = config.getInteger("cache.refresh.interval", 
-                Integer.parseInt(System.getProperty("cache.refresh.interval", String.valueOf(DEFAULT_CACHE_REFRESH_INTERVAL))));
-        this.serviceName = config.getString("service.name", 
-                System.getProperty("service.name", "peegeeq-service-manager"));
-        this.environment = config.getString("environment", 
-                System.getProperty("environment", "development"));
-        this.region = config.getString("region", 
-                System.getProperty("region", "default"));
+        this.consulHost = config.getString("consul.host", DEFAULT_CONSUL_HOST);
+        this.consulPort = config.getInteger("consul.port", DEFAULT_CONSUL_PORT);
+        this.servicePort = config.getInteger("service.port", DEFAULT_SERVICE_PORT);
+        this.requestTimeout = config.getInteger("request.timeout", DEFAULT_REQUEST_TIMEOUT);
+        this.cacheRefreshInterval = config.getInteger("cache.refresh.interval", DEFAULT_CACHE_REFRESH_INTERVAL);
+        this.serviceName = config.getString("service.name", "peegeeq-service-manager");
+        this.environment = config.getString("environment", "development");
+        this.region = config.getString("region", "default");
     }
     
     // Getters

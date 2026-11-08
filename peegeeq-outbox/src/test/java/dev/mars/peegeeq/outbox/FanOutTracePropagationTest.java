@@ -13,6 +13,7 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
@@ -28,12 +29,12 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import static org.junit.jupiter.api.Assertions.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Tests for L9: Fan-Out Trace Propagation.
@@ -91,17 +92,18 @@ class FanOutTracePropagationTest {
                 ? outboxFactory.close()
                 : Future.succeededFuture();
         factoryClose
-            .eventually(() -> manager != null
+            .transform(TestCleanup.cleanup(() -> manager != null
                     ? manager.closeReactive()
-                    : Future.succeededFuture())
+                    : Future.succeededFuture()))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     void consumerGroupProcessing_createsChildSpan_sameTraceIdDifferentSpanId(
-            VertxTestContext testContext) throws Exception {
+            VertxTestContext testContext) {
         logger.info("Test: consumer group processing creates child span same trace id different span id");
         // Arrange: known publish trace context
         String publishTraceId = "abcdef0123456789abcdef0123456789";
@@ -113,33 +115,32 @@ class FanOutTracePropagationTest {
         // Set consumer group name
         ((OutboxConsumer<String>) consumer).setConsumerGroupName("payments-processor");
 
-        AtomicReference<String> consumerTraceId = new AtomicReference<>();
-        AtomicReference<String> consumerSpanId = new AtomicReference<>();
+        // A strict checkpoint: a second delivery fails the test.
         Checkpoint messageReceived = testContext.checkpoint();
 
-        // Act: subscribe and send
+        // Act: subscribe and send; the handler asserts the MDC it runs with.
         consumer.subscribe(message -> {
-                    consumerTraceId.set(MDC.get("traceId"));
-                    consumerSpanId.set(MDC.get("spanId"));
+                    String consumerTraceId = MDC.get("traceId");
+                    String consumerSpanId = MDC.get("spanId");
+                    testContext.verify(() -> {
+                        // Same traceId (correlation preserved), different spanId (child span)
+                        assertEquals(publishTraceId, consumerTraceId,
+                                "Consumer should see same traceId as publisher (trace correlation)");
+                        assertNotNull(consumerSpanId, "Consumer spanId should not be null");
+                        assertNotEquals(publishSpanId, consumerSpanId,
+                                "Consumer spanId should be a NEW child span, not the original publish spanId");
+                    });
                     messageReceived.flag();
                     return Future.succeededFuture();
                 })
                 .compose(v -> producer.send("child-span-test", headers, null).mapEmpty())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Consumer should receive message");
-
-        // Assert: same traceId (correlation preserved), different spanId (child span)
-        assertEquals(publishTraceId, consumerTraceId.get(),
-                "Consumer should see same traceId as publisher (trace correlation)");
-        assertNotNull(consumerSpanId.get(), "Consumer spanId should not be null");
-        assertNotEquals(publishSpanId, consumerSpanId.get(),
-                "Consumer spanId should be a NEW child span, not the original publish spanId");
     }
 
     @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     void consumerGroupProcessing_setsConsumerGroupInMDC(
-            VertxTestContext testContext) throws Exception {
+            VertxTestContext testContext) {
         logger.info("Test: consumer group processing sets consumer group in m d c");
         String publishTraceId = "fedcba9876543210fedcba9876543210";
         String publishSpanId = "abcdef1234567890";
@@ -149,26 +150,23 @@ class FanOutTracePropagationTest {
 
         ((OutboxConsumer<String>) consumer).setConsumerGroupName("order-fulfillment");
 
-        AtomicReference<String> consumerGroupMdc = new AtomicReference<>();
         Checkpoint messageReceived = testContext.checkpoint();
 
         consumer.subscribe(message -> {
-                    consumerGroupMdc.set(MDC.get("consumerGroup"));
+                    String consumerGroupMdc = MDC.get("consumerGroup");
+                    testContext.verify(() -> assertEquals("order-fulfillment", consumerGroupMdc,
+                            "consumerGroup should appear in MDC during message processing"));
                     messageReceived.flag();
                     return Future.succeededFuture();
                 })
                 .compose(v -> producer.send("group-mdc-test", headers, null).mapEmpty())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-
-        assertEquals("order-fulfillment", consumerGroupMdc.get(),
-                "consumerGroup should appear in MDC during message processing");
     }
 
     @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     void consumerWithoutGroupName_usesParseOrCreate_noChildSpan(
-            VertxTestContext testContext) throws Exception {
+            VertxTestContext testContext) {
         logger.info("Test: consumer without group name uses parse or create no child span");
         // Consumer WITHOUT a group name no child span should be created
         // (backward compat: same behaviour as before)
@@ -180,57 +178,51 @@ class FanOutTracePropagationTest {
 
         // Don't set consumer group name leave it null
 
-        AtomicReference<String> consumerTraceId = new AtomicReference<>();
-        AtomicReference<String> consumerSpanId = new AtomicReference<>();
         Checkpoint messageReceived = testContext.checkpoint();
 
         consumer.subscribe(message -> {
-                    consumerTraceId.set(MDC.get("traceId"));
-                    consumerSpanId.set(MDC.get("spanId"));
+                    String consumerTraceId = MDC.get("traceId");
+                    String consumerSpanId = MDC.get("spanId");
+                    testContext.verify(() -> {
+                        // Without a group name, should still parse the traceparent normally
+                        assertEquals(publishTraceId, consumerTraceId,
+                                "traceId should match publisher even without consumer group");
+                        // spanId behaviour: still the original publish spanId (no child span)
+                        assertEquals(publishSpanId, consumerSpanId,
+                                "Without consumer group, spanId should be the original publish spanId (no child span)");
+                    });
                     messageReceived.flag();
                     return Future.succeededFuture();
                 })
                 .compose(v -> producer.send("no-group-test", headers, null).mapEmpty())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-
-        // Without a group name, should still parse the traceparent normally
-        assertEquals(publishTraceId, consumerTraceId.get(),
-                "traceId should match publisher even without consumer group");
-        // spanId behaviour: still the original publish spanId (no child span)
-        assertEquals(publishSpanId, consumerSpanId.get(),
-                "Without consumer group, spanId should be the original publish spanId (no child span)");
     }
 
     @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     void consumerGroupProcessing_withoutTraceparent_generatesNewTrace(
-            VertxTestContext testContext) throws Exception {
+            VertxTestContext testContext) {
         logger.info("Test: consumer group processing without traceparent generates new trace");
         // Message with no traceparent header should generate new trace AND child span
         ((OutboxConsumer<String>) consumer).setConsumerGroupName("analytics-group");
 
-        AtomicReference<String> consumerTraceId = new AtomicReference<>();
-        AtomicReference<String> consumerSpanId = new AtomicReference<>();
-        AtomicReference<String> consumerGroupMdc = new AtomicReference<>();
         Checkpoint messageReceived = testContext.checkpoint();
 
         consumer.subscribe(message -> {
-                    consumerTraceId.set(MDC.get("traceId"));
-                    consumerSpanId.set(MDC.get("spanId"));
-                    consumerGroupMdc.set(MDC.get("consumerGroup"));
+                    String consumerTraceId = MDC.get("traceId");
+                    String consumerSpanId = MDC.get("spanId");
+                    String consumerGroupMdc = MDC.get("consumerGroup");
+                    testContext.verify(() -> {
+                        // Should have generated a trace context
+                        assertNotNull(consumerTraceId, "traceId should be auto-generated");
+                        assertNotNull(consumerSpanId, "spanId should be present");
+                        assertEquals("analytics-group", consumerGroupMdc,
+                                "consumerGroup should appear in MDC even for auto-generated traces");
+                    });
                     messageReceived.flag();
                     return Future.succeededFuture();
                 })
                 .compose(v -> producer.send("no-traceparent-test").mapEmpty())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-
-        // Should have generated a trace context
-        assertNotNull(consumerTraceId.get(), "traceId should be auto-generated");
-        assertNotNull(consumerSpanId.get(), "spanId should be present");
-        assertEquals("analytics-group", consumerGroupMdc.get(),
-                "consumerGroup should appear in MDC even for auto-generated traces");
     }
 }

@@ -76,7 +76,7 @@ public class PeeGeeQConfigurationTest {
 
     @Test
     void testUnresolvedPlaceholderWithoutDefaultThrows() {
-        // ${VAR} with no default and no env var must fail loudly at construction —
+        // ${VAR} with no default and no override of that name must fail loudly at construction —
         // passing the literal "${VAR}" string downstream is silent corruption
         Properties overrides = new Properties();
         overrides.setProperty("peegeeq.database.schema", "peegeeq_test");
@@ -444,8 +444,62 @@ public class PeeGeeQConfigurationTest {
     }
 
     @Test
+    void placeholderResolvesFromTheOverrides() {
+        Properties overrides = new Properties();
+        overrides.setProperty("peegeeq.database.schema", "peegeeq_test");
+        overrides.setProperty("PEEGEEQ_TEST_DB_NAME_SOURCE", "from-overrides");
+        overrides.setProperty("peegeeq.database.name", "${PEEGEEQ_TEST_DB_NAME_SOURCE}");
+
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE, overrides);
+
+        assertEquals("from-overrides", config.getString("peegeeq.database.name"));
+    }
+
+    @Test
+    void placeholderDoesNotReadTheProcessEnvironment() {
+        assertEquals("from-environment", System.getenv("PEEGEEQ_TEST_ENVIRONMENT_SWEEP_PROBE"),
+                "the surefire configuration of peegeeq-db must set the probe variable");
+        Properties overrides = new Properties();
+        overrides.setProperty("peegeeq.database.schema", "peegeeq_test");
+        overrides.setProperty("peegeeq.database.name", "${PEEGEEQ_TEST_ENVIRONMENT_SWEEP_PROBE}");
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> new PeeGeeQConfiguration(TEST_PROFILE, overrides),
+                "a placeholder must not resolve from an environment variable");
+        assertEquals("Configuration property 'peegeeq.database.name' references 'PEEGEEQ_TEST_ENVIRONMENT_SWEEP_PROBE',"
+                + " which the configuration overrides do not define and which has no default", ex.getMessage());
+    }
+
+    @Test
+    void productionProfileResolvesItsDatabasePlaceholdersFromTheOverrides() {
+        Properties overrides = new Properties();
+        overrides.setProperty("DB_HOST", "prod-db.internal");
+        overrides.setProperty("DB_PORT", "6432");
+        overrides.setProperty("DB_NAME", "peegeeq_prod");
+        overrides.setProperty("DB_USERNAME", "peegeeq_app");
+        overrides.setProperty("DB_PASSWORD", "prod-secret");
+        overrides.setProperty("DB_SCHEMA", "peegeeq_prod_schema");
+
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("production", overrides);
+
+        assertEquals("prod-db.internal", config.getDatabaseConfig().getHost());
+        assertEquals(6432, config.getDatabaseConfig().getPort());
+        assertEquals("peegeeq_prod", config.getDatabaseConfig().getDatabase());
+        assertEquals("peegeeq_app", config.getDatabaseConfig().getUsername());
+        assertEquals("peegeeq_prod_schema", config.getDatabaseConfig().getSchema());
+    }
+
+    @Test
+    void productionProfileWithoutDatabaseValuesFailsNamingTheKey() {
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> new PeeGeeQConfiguration("production", new Properties()));
+        assertTrue(ex.getMessage().startsWith("Configuration property 'peegeeq.database."),
+                "the error must name the unresolved property, got: " + ex.getMessage());
+    }
+
+    @Test
     void testPlaceholderResolutionWithDefault() {
-        // ${UNSET_VAR:my-default} should resolve to "my-default" when the env var is not set
+        // ${UNSET_VAR:my-default} resolves to "my-default" when the overrides do not define UNSET_VAR
         Properties overrides = new Properties();
         overrides.setProperty("peegeeq.database.host",     "${PEEGEEQ_TEST_UNSET_HOST:placeholder-host}");
         overrides.setProperty("peegeeq.database.port",     "5433");

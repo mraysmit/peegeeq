@@ -33,6 +33,7 @@ import java.util.UUID;
 import io.vertx.junit5.VertxTestContext;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests for DeadConsumerDetector.
@@ -101,7 +102,7 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
         if (connectionManager != null) {
             new DeadConsumerGroupCleanup(connectionManager, "peegeeq-main")
                     .cleanupAllDeadGroups()
-                    .eventually(() -> connectionManager.close())
+                    .transform(TestCleanup.cleanup(() -> connectionManager.close()))
                     .onSuccess(v -> testContext.completeNow())
                     .onFailure(testContext::failNow);
         } else {

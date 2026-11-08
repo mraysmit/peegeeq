@@ -37,6 +37,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests for idempotency key functionality in OutboxProducer.
@@ -87,9 +88,9 @@ class OutboxIdempotencyKeyTest {
                 ? outboxFactory.close()
                 : Future.succeededFuture();
         closeFactory
-                .eventually(() -> manager != null
+                .transform(TestCleanup.cleanup(() -> manager != null
                         ? manager.closeReactive()
-                        : Future.succeededFuture())
+                        : Future.succeededFuture()))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }
@@ -237,10 +238,10 @@ class OutboxIdempotencyKeyTest {
                 }))
             .compose(v -> firstMessageReceived.future())
             .compose(v -> vertx.timer(3000))
-            .eventually(() -> {
+            .transform(TestCleanup.cleanup(() -> {
                 consumer.close();
                 return Future.succeededFuture();
-            })
+            }))
             .onSuccess(v -> testContext.verify(() -> {
                 assertEquals(1, receivedCount.intValue(), "Consumer should receive message only once");
                 logger.info("Consumer received message only once despite duplicate sends");

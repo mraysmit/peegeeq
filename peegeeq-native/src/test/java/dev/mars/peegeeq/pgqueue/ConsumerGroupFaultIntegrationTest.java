@@ -63,6 +63,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent.ALL;
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Live infrastructure and fault-injection integration tests for partitioned consumer groups.
@@ -130,7 +131,7 @@ class ConsumerGroupFaultIntegrationTest {
     void tearDown(VertxTestContext testContext) {
         Future<Void> teardown = databaseService == null ? Future.succeededFuture() : cleanupTestData();
         if (connectionManager != null) {
-            teardown = teardown.eventually(connectionManager::close);
+            teardown = teardown.transform(TestCleanup.cleanup(connectionManager::close));
         }
         teardown
                 .onSuccess(v -> finishManagerClose(testContext, null))
@@ -207,7 +208,7 @@ class ConsumerGroupFaultIntegrationTest {
                             "At least one uncommitted message must be redelivered");
                     return (Void) null;
                 })
-                .eventually(() -> closeGroup(groupHolder[0]))
+                .transform(TestCleanup.cleanup(() -> closeGroup(groupHolder[0])))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }
@@ -252,10 +253,10 @@ class ConsumerGroupFaultIntegrationTest {
                     assertEquals(PgNativeConsumerGroup.State.NEW, groupHolder[0].getState());
                     return (Void) null;
                 })
-                .eventually(() -> {
+                .transform(TestCleanup.cleanup(() -> {
                     handlerRelease.tryComplete();
                     return closeGroup(groupHolder[0]);
-                })
+                }))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }
@@ -302,7 +303,12 @@ class ConsumerGroupFaultIntegrationTest {
                             .compose(this::terminateBackend)
                             .compose(terminated -> {
                                 assertTrue(terminated, "The consumer repository backend must be terminated");
-                                return terminatedConnection[0].close();
+                                // Closed here; the cleanup below closes it only when the chain
+                                // failed before this point. A second close fails with
+                                // "Connection released twice".
+                                SqlConnection connection = terminatedConnection[0];
+                                terminatedConnection[0] = null;
+                                return connection.close();
                             })
                             .compose(closed -> insertOutboxMessage(topic, "part-A", "after-kill"))
                             .compose(messageId -> {
@@ -319,11 +325,11 @@ class ConsumerGroupFaultIntegrationTest {
                                 return (Void) null;
                             });
                 })
-                .eventually(() -> terminatedConnection[0] == null
+                .transform(TestCleanup.cleanup(() -> terminatedConnection[0] == null
                         ? Future.<Void>succeededFuture()
-                        : terminatedConnection[0].close())
-                .eventually(() -> closeGroup(groupHolder[0]))
-                .eventually(() -> connectionManager.closePool(RECOVERY_SERVICE_ID))
+                        : terminatedConnection[0].close()))
+                .transform(TestCleanup.cleanup(() -> closeGroup(groupHolder[0])))
+                .transform(TestCleanup.cleanup(() -> connectionManager.closePool(RECOVERY_SERVICE_ID)))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }
@@ -361,10 +367,10 @@ class ConsumerGroupFaultIntegrationTest {
                                 return (Void) null;
                             });
                 })
-                .eventually(() -> {
+                .transform(TestCleanup.cleanup(() -> {
                     handlerRelease.tryComplete();
                     return closeGroup(groupHolder[0]);
-                })
+                }))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }
@@ -415,7 +421,7 @@ class ConsumerGroupFaultIntegrationTest {
                             "The replacement rebalance must remove the failed consumer's orphan assignment");
                     return (Void) null;
                 })
-                .eventually(() -> closeGroup(replacementHolder[0]))
+                .transform(TestCleanup.cleanup(() -> closeGroup(replacementHolder[0])))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }
@@ -459,11 +465,11 @@ class ConsumerGroupFaultIntegrationTest {
                     assertEquals(PgNativeConsumerGroup.State.NEW, groupHolder[0].getState());
                     return (Void) null;
                 })
-                .eventually(() -> heldConnection[0] == null
+                .transform(TestCleanup.cleanup(() -> heldConnection[0] == null
                         ? Future.<Void>succeededFuture()
-                        : heldConnection[0].close())
-                .eventually(() -> closeGroup(groupHolder[0]))
-                .eventually(() -> connectionManager.closePool(EXHAUSTED_SERVICE_ID))
+                        : heldConnection[0].close()))
+                .transform(TestCleanup.cleanup(() -> closeGroup(groupHolder[0])))
+                .transform(TestCleanup.cleanup(() -> connectionManager.closePool(EXHAUSTED_SERVICE_ID)))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }
@@ -490,7 +496,7 @@ class ConsumerGroupFaultIntegrationTest {
                         awaitHeartbeatAfter(topic, groupName, initialHeartbeat),
                         ASYNC_TIMEOUT_MS,
                         "The active partition owner did not refresh its heartbeat"))
-                .eventually(() -> closeGroup(groupHolder[0]))
+                .transform(TestCleanup.cleanup(() -> closeGroup(groupHolder[0])))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }

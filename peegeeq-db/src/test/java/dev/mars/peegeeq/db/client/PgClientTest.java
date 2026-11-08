@@ -42,6 +42,7 @@ import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Implementation of PgClientTest functionality.
@@ -106,7 +107,7 @@ public class PgClientTest {
                         Row row = rowSet.iterator().next();
                         return row.getInteger(0);
                     })
-                    .eventually(() -> connection.close());
+                    .transform(TestCleanup.cleanup(() -> connection.close()));
             })
             .onComplete(testContext.succeeding(value -> testContext.verify(() -> {
                 assertNotNull(value);
@@ -183,7 +184,7 @@ public class PgClientTest {
                         Row row = rowSet.iterator().next();
                         return row.getInteger("answer");
                     })
-                    .eventually(() -> connection.close());
+                    .transform(TestCleanup.cleanup(() -> connection.close()));
             })
             .onComplete(testContext.succeeding(answer -> testContext.verify(() -> {
                 assertEquals(42, answer, "Pool should be functional");

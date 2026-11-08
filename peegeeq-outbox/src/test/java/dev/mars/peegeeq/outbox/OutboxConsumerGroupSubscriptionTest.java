@@ -58,6 +58,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Unit tests for Outbox Consumer Group subscription and handler features.
@@ -263,7 +264,7 @@ class OutboxConsumerGroupSubscriptionTest {
                         "Messages before the timestamp must remain pending");
                     return (Void) null;
                 })
-                .eventually(group::close)
+                .transform(TestCleanup.cleanup(group::close))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
 
@@ -576,49 +577,47 @@ class OutboxConsumerGroupSubscriptionTest {
 
         @Test
         @DisplayName("should be thread-safe")
-        void testSetMessageHandler_ThreadSafety() throws Exception {
+        void testSetMessageHandler_ThreadSafety(VertxTestContext testContext) {
+            logger.info("Test: set message handler  thread safety");
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
             ExecutorService executor = Executors.newFixedThreadPool(5);
-            CyclicBarrier startBarrier = new CyclicBarrier(6);
+            CyclicBarrier startBarrier = new CyclicBarrier(5);
+            AtomicInteger successCount = new AtomicInteger(0);
+            AtomicInteger completedCount = new AtomicInteger(0);
+            List<Throwable> failures = Collections.synchronizedList(new ArrayList<>());
+            Promise<Void> workersComplete = Promise.promise();
 
-            try {
-                AtomicInteger successCount = new AtomicInteger(0);
-                AtomicInteger failureCount = new AtomicInteger(0);
-                List<Exception> exceptions = Collections.synchronizedList(new ArrayList<>());
+            // The last worker completes the Promise; the assertions run once all five have returned.
+            workersComplete.future()
+                .onSuccess(v -> testContext.verify(() -> {
+                    executor.shutdown();
+                    assertEquals(1, successCount.get(), "Exactly one thread should succeed");
+                    assertEquals(4, failures.size(), "Exactly four threads should fail");
+                    failures.forEach(failure -> assertInstanceOf(
+                        IllegalStateException.class, failure,
+                        "Every losing caller should receive IllegalStateException"));
+                    assertEquals(Set.of("test-group-default-consumer"), group.getConsumerIds(),
+                        "Concurrent registration must create exactly one default consumer");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
 
-                List<java.util.concurrent.Future<?>> futures = new ArrayList<>();
-                for (int i = 0; i < 5; i++) {
-                    logger.info("Test: set message handler  thread safety");
-                    futures.add(executor.submit(() -> {
-                        try {
-                            startBarrier.await(10, TimeUnit.SECONDS);
-                            group.setMessageHandler(msg -> Future.succeededFuture());
-                            successCount.incrementAndGet();
-                        } catch (IllegalStateException e) {
-                            failureCount.incrementAndGet();
-                            exceptions.add(e);
-                        } catch (Exception e) {
-                            exceptions.add(e);
+            for (int i = 0; i < 5; i++) {
+                executor.submit(() -> {
+                    try {
+                        startBarrier.await(10, TimeUnit.SECONDS);
+                        group.setMessageHandler(msg -> Future.succeededFuture());
+                        successCount.incrementAndGet();
+                    } catch (Throwable failure) {
+                        failures.add(failure);
+                    } finally {
+                        if (completedCount.incrementAndGet() == 5) {
+                            workersComplete.complete();
                         }
-                    }));
-                }
-
-                startBarrier.await(10, TimeUnit.SECONDS);
-
-                for (java.util.concurrent.Future<?> future : futures) {
-                    future.get(5, TimeUnit.SECONDS);
-                }
-
-                assertEquals(1, successCount.get());
-                assertEquals(4, failureCount.get());
-
-                for (Exception e : exceptions) {
-                    assertInstanceOf(IllegalStateException.class, e);
-                }
-            } finally {
-                executor.shutdown();
+                    }
+                });
             }
         }
     }

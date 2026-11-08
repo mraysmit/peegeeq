@@ -55,6 +55,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 @Tag(TestCategories.INTEGRATION)
 @ExtendWith(VertxExtension.class)
@@ -269,7 +270,7 @@ class PgPoolCircuitBreakerIntegrationTest {
             Promise<Void> result) {
         connectionManager.getReactiveConnection(serviceId)
             .compose(connection -> connection.query("SELECT 1").execute().mapEmpty()
-                .eventually(connection::close))
+                .transform(TestCleanup.cleanup(connection::close)))
             .onSuccess(ignored -> result.complete())
             .onFailure(failure -> {
                 if (System.nanoTime() >= deadlineNanos) {

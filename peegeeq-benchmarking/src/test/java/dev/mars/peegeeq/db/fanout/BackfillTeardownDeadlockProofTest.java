@@ -47,6 +47,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Targeted proof test for the deadlock described in:
@@ -134,7 +135,7 @@ public class BackfillTeardownDeadlockProofTest extends BaseIntegrationTest {
                             "DELETE FROM outbox WHERE topic = $1")
                             .execute(Tuple.of(instanceTopic))
                             .mapEmpty())
-                    .eventually(() -> connectionManager.close())
+                    .transform(TestCleanup.cleanup(() -> connectionManager.close()))
                     .onSuccess(v -> testContext.completeNow())
                     .onFailure(testContext::failNow);
         } else {

@@ -32,6 +32,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests for the queue-list SSE notification endpoint.
@@ -124,7 +125,7 @@ class SSEQueueUpdatesIntegrationTest {
                     }
                     return Future.succeededFuture();
                 })
-                .eventually(() -> { client.close(); return Future.succeededFuture(); })
+                .transform(TestCleanup.cleanup(() -> { client.close(); return Future.succeededFuture(); }))
                 .compose(ignored -> vertx.undeploy(deploymentId))
                 .onComplete(ar -> testContext.completeNow());
         } else if (deploymentId != null) {

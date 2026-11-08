@@ -51,6 +51,7 @@ import java.util.function.BooleanSupplier;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Tests for metrics collection and monitoring in the outbox pattern.
@@ -100,9 +101,9 @@ public class OutboxMetricsTest {
                 ? outboxFactory.close()
                 : Future.succeededFuture();
         closeFactory
-                .eventually(() -> manager != null
+                .transform(TestCleanup.cleanup(() -> manager != null
                         ? manager.closeReactive()
-                        : Future.succeededFuture())
+                        : Future.succeededFuture()))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }

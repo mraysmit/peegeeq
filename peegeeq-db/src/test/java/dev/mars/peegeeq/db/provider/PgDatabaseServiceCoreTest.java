@@ -4,8 +4,10 @@ package dev.mars.peegeeq.db.provider;
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
  */
 
+import dev.mars.peegeeq.api.lifecycle.PeeGeeQCloseHook;
 import dev.mars.peegeeq.db.BaseIntegrationTest;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Promise;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.Tag;
@@ -133,6 +135,41 @@ public class PgDatabaseServiceCoreTest extends BaseIntegrationTest {
                 }
             })
             .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
+    }
+
+    /**
+     * close() must leave the manager's pools open until the manager's close hooks have run. The
+     * hook stands for a queue factory whose consumer still writes to the database while it
+     * closes. The service used to close the manager's client factory before it started the
+     * manager close, so that write ran on a closed pool.
+     */
+    @Test
+    void closeRunsTheManagerCloseHooksBeforeThePoolsClose(VertxTestContext testContext) throws Exception {
+        databaseService = new PgDatabaseService(manager);
+        Promise<Integer> hookQuery = Promise.promise();
+        databaseService.registerCloseHook(new PeeGeeQCloseHook() {
+            @Override
+            public String name() {
+                return "query-during-close";
+            }
+
+            @Override
+            public Future<Void> closeReactive() {
+                return databaseService.getPool().query("SELECT 1").execute()
+                    .map(rows -> rows.iterator().next().getInteger(0))
+                    .andThen(hookQuery)
+                    .mapEmpty();
+            }
+        });
+
+        databaseService.close();
+
+        hookQuery.future()
+            .onSuccess(value -> testContext.verify(() -> {
+                assertEquals(1, value, "the close hook's query should run on an open pool");
+                testContext.completeNow();
+            }))
             .onFailure(testContext::failNow);
     }
 

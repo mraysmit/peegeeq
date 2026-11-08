@@ -44,6 +44,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Comprehensive integration tests for DatabaseSetupService using TestContainers.
@@ -369,6 +370,6 @@ public class DatabaseSetupServiceIntegrationTest {
                 .compose(rows -> rows.iterator().hasNext()
                         ? Future.<Void>succeededFuture()
                         : Future.failedFuture(new AssertionError("Database should exist: " + databaseName)))
-                .eventually(() -> pool.close());
+                .transform(TestCleanup.cleanup(() -> pool.close()));
     }
 }

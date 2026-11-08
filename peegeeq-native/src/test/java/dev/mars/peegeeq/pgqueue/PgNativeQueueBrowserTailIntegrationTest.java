@@ -50,6 +50,7 @@ import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration test for {@link dev.mars.peegeeq.api.messaging.QueueBrowser#tail} on the native
@@ -152,21 +153,21 @@ class PgNativeQueueBrowserTailIntegrationTest {
                                                 return Future.succeededFuture();
                                             })
                                             .compose(v -> consumedByRealConsumer.future())
-                                            .eventually(() -> {
+                                            .transform(TestCleanup.cleanup(() -> {
                                                 try { consumer.close(); }
                                                 catch (Exception error) {
                                                     logger.warn("Error closing consumer", error);
                                                 }
                                                 return Future.succeededFuture();
-                                            });
+                                            }));
                                 })
-                                .eventually(() -> {
+                                .transform(TestCleanup.cleanup(() -> {
                                     try { browser.close(); }
                                     catch (Exception error) {
                                         logger.warn("Error closing browser", error);
                                     }
                                     return Future.succeededFuture();
-                                }))
+                                })))
                 .onSuccess(consumedMsg -> ctx.verify(() -> {
                     assertEquals("hello-tail", consumedMsg.getPayload(),
                             "a real consumer must still receive the observed message — observe did not consume it");
@@ -204,13 +205,13 @@ class PgNativeQueueBrowserTailIntegrationTest {
     void tail_withNullHandler_failsFastWithoutHanging(VertxTestContext ctx) {
         factory.<String>createBrowser("tail-null-" + System.currentTimeMillis(), String.class)
                 .compose(browser -> browser.tail(null)
-                        .eventually(() -> {
+                        .transform(TestCleanup.cleanup(() -> {
                             try { browser.close(); }
                             catch (Exception error) {
                                 logger.warn("Error closing browser", error);
                             }
                             return Future.succeededFuture();
-                        }))
+                        })))
                 .onSuccess(v -> ctx.failNow("tail(null) must fail, not succeed"))
                 .onFailure(err -> ctx.verify(() -> {
                     assertInstanceOf(IllegalArgumentException.class, err,
@@ -229,13 +230,13 @@ class PgNativeQueueBrowserTailIntegrationTest {
                         // tail on the same browser must reject (one LISTEN connection per browser).
                         browser.tail(message -> Future.succeededFuture())
                                 .compose(v -> browser.tail(message -> Future.succeededFuture()))
-                                .eventually(() -> {
+                                .transform(TestCleanup.cleanup(() -> {
                                     try { browser.close(); }
                                     catch (Exception error) {
                                         logger.warn("Error closing browser", error);
                                     }
                                     return Future.succeededFuture();
-                                }))
+                                })))
                 .onSuccess(v -> ctx.failNow("second tail() on the same browser must fail, not succeed"))
                 .onFailure(err -> ctx.verify(() -> {
                     assertInstanceOf(IllegalStateException.class, err,
@@ -293,11 +294,11 @@ class PgNativeQueueBrowserTailIntegrationTest {
                         .compose(v -> producer.send("after-drop"))
                         // 4. The observer must reconnect and catch up to observe the gap message.
                         .compose(v -> afterObserved.future())
-                        .eventually(() -> {
+                        .transform(TestCleanup.cleanup(() -> {
                             try { browser.close(); }
                             catch (Exception error) { logger.warn("Error closing browser", error); }
                             return Future.succeededFuture();
-                        }))
+                        })))
                 .onSuccess(after -> ctx.verify(() -> {
                     assertEquals("after-drop", after.getPayload(),
                             "tail must reconnect after its LISTEN connection drops and observe the "

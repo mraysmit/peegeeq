@@ -53,6 +53,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests for OutboxConsumer error handling and edge cases.
@@ -112,7 +113,7 @@ public class OutboxConsumerErrorHandlingTest {
                 ? outboxFactory.close()
                 : Future.succeededFuture();
         closeChain
-                .eventually(() -> manager != null ? manager.closeReactive() : Future.succeededFuture())
+                .transform(TestCleanup.cleanup(() -> manager != null ? manager.closeReactive() : Future.succeededFuture()))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }

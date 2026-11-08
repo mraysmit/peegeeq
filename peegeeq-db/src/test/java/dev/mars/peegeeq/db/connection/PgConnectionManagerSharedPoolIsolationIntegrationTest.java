@@ -42,6 +42,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Regression guard for the Phase F1 root cause: {@code PgConnectionManager.createReactivePool} built a
@@ -92,8 +93,8 @@ public class PgConnectionManagerSharedPoolIsolationIntegrationTest extends BaseI
     void tearDownSharedVertx(VertxTestContext testContext) {
         Future<Void> closeA = cmA != null ? cmA.close() : Future.succeededFuture();
         Future<Void> closeB = cmB != null ? cmB.close() : Future.<Void>succeededFuture();
-        closeA.eventually(() -> closeB)
-                .eventually(() -> isolatedVertx != null ? isolatedVertx.close() : Future.<Void>succeededFuture())
+        closeA.transform(TestCleanup.cleanup(() -> closeB))
+                .transform(TestCleanup.cleanup(() -> isolatedVertx != null ? isolatedVertx.close() : Future.<Void>succeededFuture()))
                 .onComplete(ar -> testContext.completeNow());
     }
 

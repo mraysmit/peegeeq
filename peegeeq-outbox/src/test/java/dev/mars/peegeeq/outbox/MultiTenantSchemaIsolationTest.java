@@ -44,6 +44,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.BooleanSupplier;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Multi-tenant schema isolation tests for Outbox.
@@ -114,15 +115,15 @@ public class MultiTenantSchemaIsolationTest {
                 ? factoryTenantA.close()
                 : Future.succeededFuture();
         closeTenantAFactory
-                .eventually(() -> factoryTenantB != null
+                .transform(TestCleanup.cleanup(() -> factoryTenantB != null
                         ? factoryTenantB.close()
-                        : Future.succeededFuture())
-                .eventually(() -> managerTenantA != null
+                        : Future.succeededFuture()))
+                .transform(TestCleanup.cleanup(() -> managerTenantA != null
                         ? managerTenantA.closeReactive()
-                        : Future.succeededFuture())
-                .eventually(() -> managerTenantB != null
+                        : Future.succeededFuture()))
+                .transform(TestCleanup.cleanup(() -> managerTenantB != null
                         ? managerTenantB.closeReactive()
-                        : Future.succeededFuture())
+                        : Future.succeededFuture()))
                 .onSuccess(v -> tearDownContext.completeNow())
                 .onFailure(tearDownContext::failNow);
     }

@@ -49,6 +49,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Comprehensive test for ConsumerGroupExample functionality.
@@ -117,9 +118,9 @@ public class ConsumerGroupExampleTest {
                 ? factory.close()
                 : Future.succeededFuture();
         closeFactory
-                .eventually(() -> manager != null
+                .transform(TestCleanup.cleanup(() -> manager != null
                         ? manager.closeReactive()
-                        : Future.succeededFuture())
+                        : Future.succeededFuture()))
                 .onSuccess(v -> testContext.verify(() -> {
                     logger.info(" Consumer Group Example Test teardown completed");
                     testContext.completeNow();
@@ -163,7 +164,7 @@ public class ConsumerGroupExampleTest {
             .compose(v -> producer.send(new OrderEvent("ORDER-003", "customer-3", new BigDecimal("200.00"), "SHIPPED")))
             .compose(v -> allMessagesProcessed.future())
             .compose(v -> awaitCompletedMessages(vertx, "order-events", 3, 100))
-            .eventually(() -> closeResources(producer, consumer))
+            .transform(TestCleanup.cleanup(() -> closeResources(producer, consumer)))
             .onSuccess(v -> testContext.verify(() -> {
                 assertEquals(3, processedCount.intValue(), "Should have processed 3 messages");
                 assertEquals(Set.of(
@@ -216,7 +217,7 @@ public class ConsumerGroupExampleTest {
                 Map.of("priority", "NORMAL")))
             .compose(v -> allMessagesProcessed.future())
             .compose(v -> awaitCompletedMessages(vertx, "payment-events", 2, 100))
-            .eventually(() -> closeResources(producer, consumer))
+            .transform(TestCleanup.cleanup(() -> closeResources(producer, consumer)))
             .onSuccess(v -> testContext.verify(() -> {
                 assertEquals(2, processedCount.intValue(), "Should have processed 2 messages");
                 assertEquals(Set.of(
@@ -265,7 +266,7 @@ public class ConsumerGroupExampleTest {
             .compose(v -> producer.send(new OrderEvent("ANA-002", "standard-customer-2", new BigDecimal("0.01"), "COMPLETED")))
             .compose(v -> allMessagesProcessed.future())
             .compose(v -> awaitCompletedMessages(vertx, "analytics-events", 2, 100))
-            .eventually(() -> closeResources(producer, consumer))
+            .transform(TestCleanup.cleanup(() -> closeResources(producer, consumer)))
             .onSuccess(v -> testContext.verify(() -> {
                 assertEquals(2, processedCount.intValue(), "Should have processed 2 messages");
                 assertEquals(Set.of(

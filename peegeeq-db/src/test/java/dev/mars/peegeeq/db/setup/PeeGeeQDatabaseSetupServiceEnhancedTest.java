@@ -26,6 +26,7 @@ import java.util.Map;
 import io.vertx.junit5.VertxTestContext;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Enhanced tests for PeeGeeQDatabaseSetupService focusing on the new queue factory registration functionality.
@@ -865,7 +866,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
 
                     return setupService.destroySetup(setupId);
                 })
-                .eventually(() -> verifyMgr.close())
+                .transform(TestCleanup.cleanup(() -> verifyMgr.close()))
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
     }
@@ -964,7 +965,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
                                             })));
                 })
                 .compose(v -> setupService.destroySetup(setupId))
-                .eventually(() -> verifyMgr.close())
+                .transform(TestCleanup.cleanup(() -> verifyMgr.close()))
                 .onSuccess(v -> {
                     logger.info("Self-describing registry population test passed");
                     ctx.completeNow();
