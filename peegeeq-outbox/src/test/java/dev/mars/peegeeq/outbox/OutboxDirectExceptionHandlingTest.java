@@ -31,7 +31,6 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -48,6 +47,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.io.IOException;
 import java.util.Properties;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -134,14 +134,14 @@ public class OutboxDirectExceptionHandlingTest {
         
         String testMessage = "Message that causes RuntimeException";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        Checkpoint retryCheckpoint = testContext.checkpoint(3); // initial + 2 retries; strict, so a fourth attempt fails
+        CountDownLatch retryCheckpoint = testContext.checkpoint().asLatch(3); // initial + 2 retries; strict, so a fourth attempt fails
 
         // Set up consumer that throws RuntimeException directly
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: Processing attempt {} for message: {}", 
                 attempt, message.getPayload());
-            retryCheckpoint.flag();
+            retryCheckpoint.countDown();
             
             // This throws directly from the handler method - should be caught and handled
             throw new RuntimeException("INTENTIONAL FAILURE: Direct RuntimeException, attempt " + attempt);
@@ -157,13 +157,13 @@ public class OutboxDirectExceptionHandlingTest {
         
         String testMessage = "Message that causes checked exception";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        Checkpoint retryCheckpoint = testContext.checkpoint(3); // initial + 2 retries; strict, so a fourth attempt fails
+        CountDownLatch retryCheckpoint = testContext.checkpoint().asLatch(3); // initial + 2 retries; strict, so a fourth attempt fails
 
         // Set up consumer that throws checked exception (wrapped in RuntimeException)
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: Processing attempt {} for checked exception", attempt);
-            retryCheckpoint.flag();
+            retryCheckpoint.countDown();
             
             // Simulate checked exception scenario
             throw new RuntimeException("INTENTIONAL FAILURE: Wrapped IOException", 
@@ -180,13 +180,13 @@ public class OutboxDirectExceptionHandlingTest {
         
         String testMessage = "Message that causes business exception";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        Checkpoint retryCheckpoint = testContext.checkpoint(3); // initial + 2 retries; strict, so a fourth attempt fails
+        CountDownLatch retryCheckpoint = testContext.checkpoint().asLatch(3); // initial + 2 retries; strict, so a fourth attempt fails
 
         // Set up consumer that throws custom business exception
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: Processing attempt {} for business exception", attempt);
-            retryCheckpoint.flag();
+            retryCheckpoint.countDown();
             
             // Custom business exception
             throw new BusinessProcessingException("INTENTIONAL FAILURE: Order validation failed", 
@@ -203,13 +203,13 @@ public class OutboxDirectExceptionHandlingTest {
         
         String testMessage = "Message that causes NPE";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        Checkpoint retryCheckpoint = testContext.checkpoint(3); // initial + 2 retries; strict, so a fourth attempt fails
+        CountDownLatch retryCheckpoint = testContext.checkpoint().asLatch(3); // initial + 2 retries; strict, so a fourth attempt fails
 
         // Set up consumer that throws NPE
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: Processing attempt {} for NPE", attempt);
-            retryCheckpoint.flag();
+            retryCheckpoint.countDown();
 
             // Intentionally throw NPE to test exception handling
             throw new NullPointerException("INTENTIONAL TEST FAILURE: Simulated NPE for retry testing");

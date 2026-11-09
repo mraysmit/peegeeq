@@ -35,6 +35,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Duration;
 
 import java.util.Properties;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -127,12 +128,12 @@ class PollingOnlyEdgeCaseTest {
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         AtomicInteger messageCount = new AtomicInteger(0);
-        Checkpoint messagesReceived = testContext.checkpoint(5);
+        CountDownLatch messagesReceived = testContext.checkpoint().asLatch(5);
 
         Future<Void> sendChain = consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             logger.info(" Received fast polling message {}: {}", count, message.getPayload());
-            messagesReceived.flag();
+            messagesReceived.countDown();
             return Future.succeededFuture();
         });
 
@@ -163,12 +164,12 @@ class PollingOnlyEdgeCaseTest {
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         AtomicInteger messageCount = new AtomicInteger(0);
-        Checkpoint messagesReceived = testContext.checkpoint(2);
+        CountDownLatch messagesReceived = testContext.checkpoint().asLatch(2);
 
         Future<Void> subscription = consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             logger.info(" Received slow polling message {}: {}", count, message.getPayload());
-            messagesReceived.flag();
+            messagesReceived.countDown();
             return Future.succeededFuture();
         });
 
@@ -199,13 +200,13 @@ class PollingOnlyEdgeCaseTest {
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         AtomicInteger messageCount = new AtomicInteger(0);
-        Checkpoint messagesReceived = testContext.checkpoint(10);
+        CountDownLatch messagesReceived = testContext.checkpoint().asLatch(10);
 
         Future<Void> sendChain = consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             logger.info(" Received concurrent message {}: {} on thread {}",
                 count, message.getPayload(), Thread.currentThread().getName());
-            messagesReceived.flag();
+            messagesReceived.countDown();
             return Future.succeededFuture();
         });
 
@@ -237,12 +238,12 @@ class PollingOnlyEdgeCaseTest {
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         AtomicInteger messageCount = new AtomicInteger(0);
-        Checkpoint messagesReceived = testContext.checkpoint(10);
+        CountDownLatch messagesReceived = testContext.checkpoint().asLatch(10);
 
         Future<Void> sendChain = consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             logger.info(" Processed batch message {}: {}", count, message.getPayload());
-            messagesReceived.flag();
+            messagesReceived.countDown();
             return Future.succeededFuture();
         });
 
@@ -312,12 +313,12 @@ class PollingOnlyEdgeCaseTest {
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         AtomicInteger messageCount = new AtomicInteger(0);
-        Checkpoint messagesReceived = testContext.checkpoint(3);
+        CountDownLatch messagesReceived = testContext.checkpoint().asLatch(3);
 
         Future<Void> subscription = consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             logger.info(" Received resilient message {}: {}", count, message.getPayload());
-            messagesReceived.flag();
+            messagesReceived.countDown();
             return Future.succeededFuture();
         });
 

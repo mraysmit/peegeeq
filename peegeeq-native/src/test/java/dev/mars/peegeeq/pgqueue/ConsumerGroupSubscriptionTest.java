@@ -32,7 +32,6 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
@@ -51,6 +50,7 @@ import java.util.Properties;
 import java.util.Set;
 
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -640,14 +640,14 @@ class ConsumerGroupSubscriptionTest {
             // is one of the two sent and not seen before.
             List<String> expectedPayloads = List.of("Test-1", "Test-2");
             Set<String> receivedPayloads = ConcurrentHashMap.newKeySet();
-            Checkpoint messagesReceived = testContext.checkpoint(2);
+            CountDownLatch messagesReceived = testContext.checkpoint().asLatch(2);
             group.setMessageHandler(msg -> {
                 testContext.verify(() -> {
                     assertTrue(group.isActive());
                     assertTrue(expectedPayloads.contains(msg.getPayload()), "Unexpected payload: " + msg.getPayload());
                     assertTrue(receivedPayloads.add(msg.getPayload()), "Delivered twice: " + msg.getPayload());
                 });
-                messagesReceived.flag();
+                messagesReceived.countDown();
                 return Future.succeededFuture();
             });
 

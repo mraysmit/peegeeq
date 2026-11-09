@@ -52,6 +52,7 @@ import io.vertx.junit5.VertxTestContext;
 
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.CountDownLatch;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -247,7 +248,7 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
         
         // Set up tracking
         List<BiTemporalEvent<OrderEvent>> persistedEvents = Collections.synchronizedList(new ArrayList<>());
-        io.vertx.junit5.Checkpoint checkpoint = testContext.checkpoint(expectedEventCount);
+        CountDownLatch checkpoint = testContext.checkpoint().asLatch(expectedEventCount);
         
         // Set up PeeGeeQ consumer that persists to bi-temporal store
         consumer.subscribe(message -> {
@@ -278,7 +279,7 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
                     persistedEvents.add(event);
                     logger.info("Persisted to bi-temporal store: {} (Event ID: {})",
                                message.getPayload().getOrderId(), event.getEventId());
-                    checkpoint.flag();
+                    checkpoint.countDown();
                     return (Void) null;
                 });
         })

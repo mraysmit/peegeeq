@@ -25,7 +25,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.sqlclient.Tuple;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -38,6 +37,7 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 import java.util.function.Predicate;
@@ -206,19 +206,19 @@ public class OutboxConsumerGroupIntegrationTest {
         int messageCount = 10;
         // A strict checkpoint: exactly ten deliveries. Each member asserts its filter, so with five
         // A and five B messages each member receives exactly its five.
-        Checkpoint latch = testContext.checkpoint(messageCount);
+        CountDownLatch latch = testContext.checkpoint().asLatch(messageCount);
 
         consumerGroup.addConsumer("member-A", message -> {
             testContext.verify(() -> assertTrue(message.getPayload().contains("-A-"),
                     "member-A received " + message.getPayload()));
-            latch.flag();
+            latch.countDown();
             return Future.succeededFuture();
         }, msg -> msg.getPayload().contains("-A-"));
 
         consumerGroup.addConsumer("member-B", message -> {
             testContext.verify(() -> assertTrue(message.getPayload().contains("-B-"),
                     "member-B received " + message.getPayload()));
-            latch.flag();
+            latch.countDown();
             return Future.succeededFuture();
         }, msg -> msg.getPayload().contains("-B-"));
 

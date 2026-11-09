@@ -46,6 +46,7 @@ import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.core.Future;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -133,7 +134,7 @@ public class SimpleNativeQueueTest {
         MessageConsumer<String> consumer = nativeFactory.createConsumer("simple-test", String.class);
 
         // Set up message reception
-        Checkpoint checkpoint = testContext.checkpoint(1);
+        Checkpoint checkpoint = testContext.checkpoint();
         AtomicInteger processedCount = new AtomicInteger();
         String testMessage = "Hello Simple Test";
 
@@ -164,7 +165,7 @@ public class SimpleNativeQueueTest {
         MessageConsumer<String> consumer = nativeFactory.createConsumer("concurrent-test", String.class);
 
         int messageCount = 10; // Reduce count to isolate concurrency issues
-        Checkpoint checkpoint = testContext.checkpoint(messageCount);
+        CountDownLatch checkpoint = testContext.checkpoint().asLatch(messageCount);
         AtomicInteger processedCount = new AtomicInteger();
         List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
 
@@ -175,7 +176,7 @@ public class SimpleNativeQueueTest {
             logger.info("RECEIVED CONCURRENT MESSAGE: {}", message.getPayload());
             receivedMessages.add(message.getPayload());
             processedCount.incrementAndGet();
-            checkpoint.flag();
+            checkpoint.countDown();
             return Future.succeededFuture();
         }).onSuccess(ready -> {
             logger.info("Sending {} messages concurrently...", messageCount);

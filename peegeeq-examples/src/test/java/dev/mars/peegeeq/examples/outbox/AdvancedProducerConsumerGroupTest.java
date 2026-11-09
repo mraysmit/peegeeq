@@ -183,7 +183,7 @@ class AdvancedProducerConsumerGroupTest {
         
         final int messageCount = 100;
         final AtomicLong sentMessages = new AtomicLong(0);
-        var sendCheckpoint = testContext.checkpoint(messageCount);
+        var sendCheckpoint = testContext.checkpoint().asLatch(messageCount);
         
         // Send messages with different routing headers
         for (int i = 1; i <= messageCount; i++) {
@@ -194,7 +194,7 @@ class AdvancedProducerConsumerGroupTest {
             producer.send(event, headers, "correlation-" + messageId, getMessageGroup(headers))
                 .onSuccess(result -> {
                     sentMessages.incrementAndGet();
-                    sendCheckpoint.flag();
+                    sendCheckpoint.countDown();
                 })
                 .onFailure(testContext::failNow);
         }

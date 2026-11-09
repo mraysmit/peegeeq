@@ -30,7 +30,6 @@ import io.vertx.core.http.WebSocketConnectOptions;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
@@ -41,6 +40,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -362,7 +362,7 @@ class ManagementEventPublishingIntegrationTest {
     @Test @Order(8) @Timeout(value = 30, unit = TimeUnit.SECONDS)
     void testManagementEventBroadcastToAllConnectedClients(Vertx vertx, VertxTestContext testContext) {
         String q = "mgmt_bcast_" + System.currentTimeMillis();
-        Checkpoint bothReceived = testContext.checkpoint(2);
+        CountDownLatch bothReceived = testContext.checkpoint().asLatch(2);
         AtomicInteger connected = new AtomicInteger(0);
         AtomicBoolean triggered = new AtomicBoolean(false);
 
@@ -382,7 +382,7 @@ class ManagementEventPublishingIntegrationTest {
                 }
                 if ("management_event".equals(msg.getString("type"))) {
                     assertEquals("queue.creation.completed", msg.getJsonObject("data").getString("eventName"));
-                    bothReceived.flag(); // each of the two sockets must receive it
+                    bothReceived.countDown(); // each of the two sockets must receive it
                 }
             }));
         };

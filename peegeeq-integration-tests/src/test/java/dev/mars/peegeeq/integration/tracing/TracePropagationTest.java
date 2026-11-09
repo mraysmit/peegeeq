@@ -19,11 +19,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.LoggerFactory;
 
-import io.vertx.junit5.Checkpoint;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 
 @ExtendWith(VertxExtension.class)
 @Tag("tracing-verification")
@@ -144,7 +144,7 @@ public class TracePropagationTest {
     void testConcurrencyIsolation(Vertx vertx, VertxTestContext testContext) {
         final int PARALLEL_TRACES = 100;
 
-        Checkpoint checkpoint = testContext.checkpoint(PARALLEL_TRACES);
+        CountDownLatch checkpoint = testContext.checkpoint().asLatch(PARALLEL_TRACES);
 
         // Map to track: traceId -> list of observed traceIds in its worker
         java.util.concurrent.ConcurrentHashMap<String, List<String>> observedTraces =
@@ -185,7 +185,7 @@ public class TracePropagationTest {
 
                     return "done-" + index;
                 })
-                .onSuccess(result -> checkpoint.flag())
+                .onSuccess(result -> checkpoint.countDown())
                 .onFailure(testContext::failNow);
             });
         }

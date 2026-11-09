@@ -33,9 +33,9 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
 
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxTestContext;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -119,7 +119,7 @@ public class BackfillServiceConcurrencyTest extends BaseIntegrationTest {
         String topic = "test-concurrent-same-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "concurrent-group-1";
         int concurrentAttempts = 5;
-        Checkpoint latch = testContext.checkpoint(concurrentAttempts);
+        CountDownLatch latch = testContext.checkpoint().asLatch(concurrentAttempts);
 
         // Setup phase
         setupTopicAndMessages(topic, 1000)
@@ -132,11 +132,11 @@ public class BackfillServiceConcurrencyTest extends BaseIntegrationTest {
                                 .onSuccess(result -> {
                                     logger.info("Backfill attempt completed with status: {}, processed: {}",
                                             result.status(), result.processedMessages());
-                                    latch.flag();
+                                    latch.countDown();
                                 })
                                 .onFailure(err -> {
                                     logger.warn("Backfill attempt failed: {}", err.getMessage());
-                                    latch.flag();
+                                    latch.countDown();
                                 }));
                     }
                     return Future.all(futures).mapEmpty();

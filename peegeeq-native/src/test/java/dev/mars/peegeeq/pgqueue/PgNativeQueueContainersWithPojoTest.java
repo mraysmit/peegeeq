@@ -37,6 +37,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -130,12 +131,12 @@ public class PgNativeQueueContainersWithPojoTest {
         // Arrange
         int messageCount = 5;
         // A strict checkpoint: exactly five deliveries.
-        Checkpoint messagesReceived = testContext.checkpoint(messageCount);
+        CountDownLatch messagesReceived = testContext.checkpoint().asLatch(messageCount);
 
         // Act: send once LISTEN has run.
         queue.listen()
             .compose(stream -> {
-                stream.handler(message -> messagesReceived.flag());
+                stream.handler(message -> messagesReceived.countDown());
                 stream.exceptionHandler(testContext::failNow);
                 Future<Void> sends = Future.succeededFuture();
                 for (int i = 0; i < messageCount; i++) {

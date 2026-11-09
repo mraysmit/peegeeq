@@ -35,6 +35,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -213,7 +214,7 @@ class ListenNotifyOnlyEdgeCaseTest {
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class, config);
 
         // A strict checkpoint: exactly ten deliveries.
-        Checkpoint messagesReceived = testContext.checkpoint(10);
+        CountDownLatch messagesReceived = testContext.checkpoint().asLatch(10);
 
         List<MessageProducer<String>> producers = new ArrayList<>();
         for (int i = 0; i < 5; i++) {
@@ -221,7 +222,7 @@ class ListenNotifyOnlyEdgeCaseTest {
         }
 
         consumer.subscribe(message -> {
-            messagesReceived.flag();
+            messagesReceived.countDown();
             return Future.succeededFuture();
         })
         .compose(ignored -> {

@@ -16,7 +16,6 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
 import io.vertx.core.Promise;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -34,6 +33,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 
 import java.util.Properties;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -136,10 +136,10 @@ class ConsumerModeBackwardCompatibilityTest {
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         // A strict checkpoint: exactly three deliveries.
-        Checkpoint messagesReceived = testContext.checkpoint(3);
+        CountDownLatch messagesReceived = testContext.checkpoint().asLatch(3);
 
         consumer.subscribe(message -> {
-                messagesReceived.flag();
+                messagesReceived.countDown();
                 return Future.succeededFuture();
             })
             .compose(ignored -> producer.send("Legacy message 1"))
@@ -165,16 +165,16 @@ class ConsumerModeBackwardCompatibilityTest {
         MessageProducer<String> newProducer = factory.createProducer(newTopic, String.class);
 
         // One strict two-pass checkpoint per consumer: each processes exactly its two messages.
-        Checkpoint legacyReceived = testContext.checkpoint(2);
-        Checkpoint newApiReceived = testContext.checkpoint(2);
+        CountDownLatch legacyReceived = testContext.checkpoint().asLatch(2);
+        CountDownLatch newApiReceived = testContext.checkpoint().asLatch(2);
 
         Future.all(
                 legacyConsumer.subscribe(message -> {
-                    legacyReceived.flag();
+                    legacyReceived.countDown();
                     return Future.succeededFuture();
                 }),
                 newConsumer.subscribe(message -> {
-                    newApiReceived.flag();
+                    newApiReceived.countDown();
                     return Future.succeededFuture();
                 }))
             .compose(ignored -> legacyProducer.send("Mixed legacy message 1"))
@@ -201,16 +201,16 @@ class ConsumerModeBackwardCompatibilityTest {
         MessageProducer<String> hybridProducer = factory.createProducer(hybridTopic, String.class);
 
         // One strict two-pass checkpoint per consumer: each processes exactly its two messages.
-        Checkpoint legacyReceived = testContext.checkpoint(2);
-        Checkpoint hybridReceived = testContext.checkpoint(2);
+        CountDownLatch legacyReceived = testContext.checkpoint().asLatch(2);
+        CountDownLatch hybridReceived = testContext.checkpoint().asLatch(2);
 
         Future.all(
                 legacyConsumer.subscribe(message -> {
-                    legacyReceived.flag();
+                    legacyReceived.countDown();
                     return Future.succeededFuture();
                 }),
                 hybridConsumer.subscribe(message -> {
-                    hybridReceived.flag();
+                    hybridReceived.countDown();
                     return Future.succeededFuture();
                 }))
             .compose(ignored -> legacyProducer.send("Legacy default message 1"))

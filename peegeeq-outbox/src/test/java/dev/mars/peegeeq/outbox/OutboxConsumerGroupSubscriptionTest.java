@@ -213,10 +213,10 @@ class OutboxConsumerGroupSubscriptionTest {
                 "test-group", "test-topic", String.class);
 
             // A strict checkpoint: the five historical messages and no more.
-            Checkpoint messageCheckpoint = testContext.checkpoint(5);
+            CountDownLatch messageCheckpoint = testContext.checkpoint().asLatch(5);
             group.addConsumer("consumer-1", msg -> {
                 testContext.verify(() -> assertTrue(group.isActive()));
-                messageCheckpoint.flag();
+                messageCheckpoint.countDown();
                 return Future.succeededFuture();
             });
 
@@ -441,10 +441,10 @@ class OutboxConsumerGroupSubscriptionTest {
                 "test-group", "test-topic", String.class);
 
             // A strict checkpoint: exactly three deliveries.
-            Checkpoint messageCheckpoint = testContext.checkpoint(3);
+            CountDownLatch messageCheckpoint = testContext.checkpoint().asLatch(3);
 
             group.setMessageHandler(msg -> {
-                messageCheckpoint.flag();
+                messageCheckpoint.countDown();
                 return Future.succeededFuture();
             });
 
@@ -502,10 +502,10 @@ class OutboxConsumerGroupSubscriptionTest {
                 "test-group", "test-topic", String.class);
 
             // A strict checkpoint: exactly two deliveries.
-            Checkpoint messageCheckpoint = testContext.checkpoint(2);
+            CountDownLatch messageCheckpoint = testContext.checkpoint().asLatch(2);
             group.setMessageHandler(msg -> {
                 testContext.verify(() -> assertTrue(group.isActive()));
-                messageCheckpoint.flag();
+                messageCheckpoint.countDown();
                 return Future.succeededFuture();
             });
 
@@ -524,10 +524,10 @@ class OutboxConsumerGroupSubscriptionTest {
                 "test-group", "test-topic", String.class);
 
             // A strict checkpoint: the three historical messages and no more.
-            Checkpoint messageCheckpoint = testContext.checkpoint(3);
+            CountDownLatch messageCheckpoint = testContext.checkpoint().asLatch(3);
             group.setMessageHandler(msg -> {
                 testContext.verify(() -> assertTrue(group.isActive()));
-                messageCheckpoint.flag();
+                messageCheckpoint.countDown();
                 return Future.succeededFuture();
             });
 

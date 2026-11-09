@@ -132,7 +132,7 @@ public class OutboxServerSideFilteringTest {
 
         List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
         AtomicInteger seen = new AtomicInteger();
-        Checkpoint settled = testContext.checkpoint(1);
+        Checkpoint settled = testContext.checkpoint();
 
         consumer.subscribe(message -> {
             logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
@@ -181,7 +181,7 @@ public class OutboxServerSideFilteringTest {
 
         List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
         AtomicInteger seen = new AtomicInteger();
-        Checkpoint settled = testContext.checkpoint(1);
+        Checkpoint settled = testContext.checkpoint();
 
         consumer.subscribe(message -> {
             logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
@@ -231,7 +231,7 @@ public class OutboxServerSideFilteringTest {
 
         List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
         AtomicInteger seen = new AtomicInteger();
-        Checkpoint settled = testContext.checkpoint(1);
+        Checkpoint settled = testContext.checkpoint();
 
         consumer.subscribe(message -> {
             logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
@@ -278,7 +278,7 @@ public class OutboxServerSideFilteringTest {
 
         List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
         AtomicInteger seen = new AtomicInteger();
-        Checkpoint settled = testContext.checkpoint(1);
+        Checkpoint settled = testContext.checkpoint();
 
         consumer.subscribe(message -> {
             logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());

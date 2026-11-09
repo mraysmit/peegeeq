@@ -31,7 +31,6 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -48,6 +47,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 
 import java.util.Properties;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -140,14 +140,14 @@ public class OutboxExceptionHandlingDemonstrationTest {
         String testMessage = "DEMO: Message that throws direct exception";
         AtomicInteger attemptCount = new AtomicInteger(0);
         // Initial + 2 retries; a strict checkpoint, so a fourth attempt fails the test.
-        Checkpoint retryCheckpoint = testContext.checkpoint(3);
+        CountDownLatch retryCheckpoint = testContext.checkpoint().asLatch(3);
 
         // Set up consumer that throws exception DIRECTLY from the handler method
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: Processing attempt {} for message: {}",
                 attempt, message.getPayload());
-            retryCheckpoint.flag();
+            retryCheckpoint.countDown();
             throw new RuntimeException("INTENTIONAL FAILURE: Direct exception from handler, attempt " + attempt);
         }).compose(v -> producer.send(testMessage))
           .onSuccess(v -> logger.info("Sent test message: {}", testMessage))

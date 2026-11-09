@@ -34,6 +34,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Duration;
 
 import java.util.Properties;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -126,12 +127,12 @@ class HybridModeEdgeCaseTest {
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         AtomicInteger messageCount = new AtomicInteger(0);
-        Checkpoint messagesReceived = testContext.checkpoint(3);
+        CountDownLatch messagesReceived = testContext.checkpoint().asLatch(3);
 
         Future<Void> subscription = consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             logger.info(" Received HYBRID message {}: {}", count, message.getPayload());
-            messagesReceived.flag();
+            messagesReceived.countDown();
             return Future.succeededFuture();
         });
 
@@ -162,12 +163,12 @@ class HybridModeEdgeCaseTest {
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class, config);
 
         AtomicInteger messageCount = new AtomicInteger(0);
-        Checkpoint messagesReceived = testContext.checkpoint(2);
+        CountDownLatch messagesReceived = testContext.checkpoint().asLatch(2);
 
         consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             logger.info(" Received existing message {}: {}", count, message.getPayload());
-            messagesReceived.flag();
+            messagesReceived.countDown();
             return Future.succeededFuture();
         }).onFailure(testContext::failNow);
     }
@@ -192,12 +193,12 @@ class HybridModeEdgeCaseTest {
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class, config);
 
         AtomicInteger messageCount = new AtomicInteger(0);
-        Checkpoint allMessages = testContext.checkpoint(5);
+        CountDownLatch allMessages = testContext.checkpoint().asLatch(5);
 
         Future<Void> subscription = consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             logger.info(" Received hybrid message {}: {}", count, message.getPayload());
-            allMessages.flag();
+            allMessages.countDown();
             return Future.succeededFuture();
         });
 
@@ -253,12 +254,12 @@ class HybridModeEdgeCaseTest {
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         AtomicInteger messageCount = new AtomicInteger(0);
-        Checkpoint messagesReceived = testContext.checkpoint(6);
+        CountDownLatch messagesReceived = testContext.checkpoint().asLatch(6);
 
         Future<Void> sendChain = consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             logger.info(" Received ordered message {}: {}", count, message.getPayload());
-            messagesReceived.flag();
+            messagesReceived.countDown();
             return Future.succeededFuture();
         });
 
@@ -287,14 +288,14 @@ class HybridModeEdgeCaseTest {
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         AtomicInteger messageCount = new AtomicInteger(0);
-        Checkpoint messagesReceived = testContext.checkpoint(15);
+        CountDownLatch messagesReceived = testContext.checkpoint().asLatch(15);
 
         Future<Void> sendChain = consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             if (count % 3 == 0) {
                 logger.info(" Processed {} messages so far", count);
             }
-            messagesReceived.flag();
+            messagesReceived.countDown();
             return Future.succeededFuture();
         });
 

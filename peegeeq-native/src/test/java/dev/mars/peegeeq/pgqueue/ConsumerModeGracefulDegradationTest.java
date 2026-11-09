@@ -16,7 +16,6 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
@@ -152,7 +151,7 @@ class ConsumerModeGracefulDegradationTest {
                 .build());
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        Checkpoint received = testContext.checkpoint(3);
+        CountDownLatch received = testContext.checkpoint().asLatch(3);
         AtomicInteger processedCount = new AtomicInteger(0);
 
             consumer.subscribe(message -> {
@@ -161,7 +160,7 @@ class ConsumerModeGracefulDegradationTest {
                     assertTrue(message.getPayload().startsWith("Degradation test message"),
                         "Should process degradation test messages correctly"));
                 logger.info("Processed message {}: {}", count, message.getPayload());
-                received.flag();
+                received.countDown();
                 return Future.succeededFuture();
             })
             .compose(ignored -> producer.send("Degradation test message 1"))

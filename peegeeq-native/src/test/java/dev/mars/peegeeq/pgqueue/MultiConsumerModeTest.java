@@ -17,7 +17,6 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -38,6 +37,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import java.util.Properties;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -135,7 +135,7 @@ class MultiConsumerModeTest {
         // A strict checkpoint across the competing consumers: every message is processed once.
         // The teardown closes the consumers through the factory.
         List<Future<Void>> subscriptions = new ArrayList<>();
-        Checkpoint messagesReceived = testContext.checkpoint(totalMessages);
+        CountDownLatch messagesReceived = testContext.checkpoint().asLatch(totalMessages);
 
         for (int i = 0; i < consumerCount; i++) {
             MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
@@ -144,7 +144,7 @@ class MultiConsumerModeTest {
                     .pollingInterval(Duration.ofSeconds(1))
                     .build());
             subscriptions.add(consumer.subscribe(message -> {
-                messagesReceived.flag();
+                messagesReceived.countDown();
                 return Future.succeededFuture();
             }));
         }
@@ -176,9 +176,9 @@ class MultiConsumerModeTest {
         String topicName = "test-multi-different-modes";
 
         // One strict two-pass checkpoint per consumer: each processes exactly its two messages.
-        Checkpoint listenReceived = testContext.checkpoint(2);
-        Checkpoint pollingReceived = testContext.checkpoint(2);
-        Checkpoint hybridReceived = testContext.checkpoint(2);
+        CountDownLatch listenReceived = testContext.checkpoint().asLatch(2);
+        CountDownLatch pollingReceived = testContext.checkpoint().asLatch(2);
+        CountDownLatch hybridReceived = testContext.checkpoint().asLatch(2);
 
         // Create consumers with different modes
         MessageConsumer<String> listenConsumer = factory.createConsumer(topicName + "-listen", String.class,
@@ -201,15 +201,15 @@ class MultiConsumerModeTest {
         List<MessageProducer<String>> producers = new ArrayList<>();
         Future.all(List.of(
                 listenConsumer.subscribe(message -> {
-                    listenReceived.flag();
+                    listenReceived.countDown();
                     return Future.succeededFuture();
                 }),
                 pollingConsumer.subscribe(message -> {
-                    pollingReceived.flag();
+                    pollingReceived.countDown();
                     return Future.succeededFuture();
                 }),
                 hybridConsumer.subscribe(message -> {
-                    hybridReceived.flag();
+                    hybridReceived.countDown();
                     return Future.succeededFuture();
                 })))
             .compose(v -> {
@@ -243,7 +243,7 @@ class MultiConsumerModeTest {
 
         // Two competing consumers on one topic: a strict checkpoint across both, so every message
         // is processed once and none twice.
-        Checkpoint messagesReceived = testContext.checkpoint(messagesPerMode);
+        CountDownLatch messagesReceived = testContext.checkpoint().asLatch(messagesPerMode);
 
         MessageConsumer<String> pollingConsumer = factory.createConsumer(topicName, String.class,
             ConsumerConfig.builder()
@@ -260,11 +260,11 @@ class MultiConsumerModeTest {
         List<MessageProducer<String>> producers = new ArrayList<>();
         Future.all(List.of(
                 pollingConsumer.subscribe(message -> {
-                    messagesReceived.flag();
+                    messagesReceived.countDown();
                     return Future.succeededFuture();
                 }),
                 hybridConsumer.subscribe(message -> {
-                    messagesReceived.flag();
+                    messagesReceived.countDown();
                     return Future.succeededFuture();
                 })))
             .compose(v -> {
@@ -296,7 +296,7 @@ class MultiConsumerModeTest {
 
         // A strict checkpoint: exactly twenty deliveries across the four topics.
         List<Future<Void>> subscriptions = new ArrayList<>();
-        Checkpoint messagesReceived = testContext.checkpoint(totalMessages);
+        CountDownLatch messagesReceived = testContext.checkpoint().asLatch(totalMessages);
         ConsumerMode[] modes = {ConsumerMode.POLLING_ONLY, ConsumerMode.HYBRID, ConsumerMode.POLLING_ONLY, ConsumerMode.HYBRID};
 
         for (int i = 0; i < consumerCount; i++) {
@@ -310,7 +310,7 @@ class MultiConsumerModeTest {
             subscriptions.add(consumer.subscribe(message ->
                 // Simulated processing time, so handlers of different modes overlap.
                 vertx.timer(50 + (int) (Math.random() * 100)).map(tid -> {
-                    messagesReceived.flag();
+                    messagesReceived.countDown();
                     return (Void) null;
                 })));
         }
@@ -346,8 +346,8 @@ class MultiConsumerModeTest {
         int slowMessages = 5;
 
         // One strict checkpoint per consumer: each processes exactly its own messages.
-        Checkpoint fastReceived = testContext.checkpoint(fastMessages);
-        Checkpoint slowReceived = testContext.checkpoint(slowMessages);
+        CountDownLatch fastReceived = testContext.checkpoint().asLatch(fastMessages);
+        CountDownLatch slowReceived = testContext.checkpoint().asLatch(slowMessages);
 
         // Create fast consumer (LISTEN_NOTIFY_ONLY for immediate processing)
         MessageConsumer<String> fastConsumer = factory.createConsumer(topicName + "-fast", String.class,
@@ -365,11 +365,11 @@ class MultiConsumerModeTest {
         List<MessageProducer<String>> producers = new ArrayList<>();
         Future.all(List.of(
                 fastConsumer.subscribe(message -> {
-                    fastReceived.flag();
+                    fastReceived.countDown();
                     return Future.succeededFuture();
                 }),
                 slowConsumer.subscribe(message -> {
-                    slowReceived.flag();
+                    slowReceived.countDown();
                     return Future.succeededFuture();
                 })))
             .compose(v -> {
