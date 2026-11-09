@@ -32,6 +32,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -233,13 +234,13 @@ public class PgNotificationStreamCoreTest {
 
         int notificationCount = 5;
         // A strict checkpoint: a sixth notification fails the test.
-        Checkpoint messageCheckpoint = testContext.checkpoint(notificationCount);
+        CountDownLatch messageCheckpoint = testContext.checkpoint().asLatch(notificationCount);
         AtomicInteger receivedCount = new AtomicInteger(0);
 
         stream.handler(message -> testContext.verify(() -> {
             assertEquals("Notification " + receivedCount.getAndIncrement(), message,
                 "Should receive the notifications in order");
-            messageCheckpoint.flag();
+            messageCheckpoint.countDown();
         }));
 
         // Send multiple notifications

@@ -59,6 +59,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -150,7 +151,7 @@ class NativeQueueIntegrationTest {
     void testBasicNativeQueueProducerAndConsumer(VertxTestContext testContext) {
         String testMessage = "Hello, Native Queue!";
         // A strict checkpoint: a second delivery fails the test.
-        Checkpoint received = testContext.checkpoint(1);
+        Checkpoint received = testContext.checkpoint();
 
         consumer.subscribe(message -> {
             testContext.verify(() -> assertEquals(testMessage, message.getPayload()));
@@ -172,7 +173,7 @@ class NativeQueueIntegrationTest {
         );
 
         // A strict checkpoint: a second delivery fails the test.
-        Checkpoint received = testContext.checkpoint(1);
+        Checkpoint received = testContext.checkpoint();
 
         consumer.subscribe(message -> {
             testContext.verify(() -> {
@@ -194,7 +195,7 @@ class NativeQueueIntegrationTest {
         // LISTEN/NOTIFY delivers the message in real time, inside the 5 s bound.
         String testMessage = "Real-time notification test";
         // A strict checkpoint: a second delivery fails the test.
-        Checkpoint received = testContext.checkpoint(1);
+        Checkpoint received = testContext.checkpoint();
 
         consumer.subscribe(message -> {
             testContext.verify(() -> assertEquals(testMessage, message.getPayload()));
@@ -257,12 +258,12 @@ class NativeQueueIntegrationTest {
         }
 
         // A strict checkpoint across all consumers: exactly ten deliveries in total.
-        Checkpoint allReceived = testContext.checkpoint(messageCount);
+        CountDownLatch allReceived = testContext.checkpoint().asLatch(messageCount);
 
         List<Future<Void>> subscriptions = new ArrayList<>();
         for (MessageConsumer<String> cons : consumers) {
             subscriptions.add(cons.subscribe(message -> {
-                allReceived.flag();
+                allReceived.countDown();
                 return Future.succeededFuture();
             }));
         }
@@ -573,10 +574,10 @@ class NativeQueueIntegrationTest {
         int totalMessages = producerCount * messagesPerProducer;
 
         // A strict checkpoint: exactly fifteen deliveries.
-        Checkpoint allReceived = testContext.checkpoint(totalMessages);
+        CountDownLatch allReceived = testContext.checkpoint().asLatch(totalMessages);
 
         consumer.subscribe(message -> {
-            allReceived.flag();
+            allReceived.countDown();
             return Future.succeededFuture();
         })
             .compose(v -> {

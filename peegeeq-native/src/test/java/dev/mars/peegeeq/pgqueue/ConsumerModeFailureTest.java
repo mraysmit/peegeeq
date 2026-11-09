@@ -16,7 +16,6 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -42,6 +41,7 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
@@ -238,15 +238,15 @@ class ConsumerModeFailureTest {
 
         // One strict checkpoint across both consumers: each of the three messages is processed
         // once; a fourth delivery fails the test.
-        Checkpoint messagesProcessed = testContext.checkpoint(3);
+        CountDownLatch messagesProcessed = testContext.checkpoint().asLatch(3);
 
         Future.all(
                 consumer1.subscribe(message -> {
-                    messagesProcessed.flag();
+                    messagesProcessed.countDown();
                     return Future.succeededFuture();
                 }),
                 consumer2.subscribe(message -> {
-                    messagesProcessed.flag();
+                    messagesProcessed.countDown();
                     return Future.succeededFuture();
                 }))
             .compose(ignored -> producer.send("Collision test message 1"))
@@ -265,10 +265,10 @@ class ConsumerModeFailureTest {
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         // A strict checkpoint: exactly three deliveries.
-        Checkpoint messagesReceived = testContext.checkpoint(3);
+        CountDownLatch messagesReceived = testContext.checkpoint().asLatch(3);
 
         consumer.subscribe(message -> {
-                messagesReceived.flag();
+                messagesReceived.countDown();
                 return Future.succeededFuture();
             })
             .compose(ignored -> producer.send("Recovery test message 1"))
@@ -288,14 +288,14 @@ class ConsumerModeFailureTest {
         // A strict checkpoint: exactly two deliveries; the second must be the message sent after
         // the pause.
         AtomicInteger processedCount = new AtomicInteger(0);
-        Checkpoint messagesReceived = testContext.checkpoint(2);
+        CountDownLatch messagesReceived = testContext.checkpoint().asLatch(2);
 
         consumer.subscribe(message -> {
                 if (processedCount.incrementAndGet() == 2) {
                     testContext.verify(() -> assertEquals("After recovery message", message.getPayload(),
                         "Should process the recovery message last"));
                 }
-                messagesReceived.flag();
+                messagesReceived.countDown();
                 return Future.succeededFuture();
             })
             .compose(ignored -> producer.send("Before failure message"))
@@ -314,10 +314,10 @@ class ConsumerModeFailureTest {
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         // A strict checkpoint: exactly ten deliveries.
-        Checkpoint messagesReceived = testContext.checkpoint(10);
+        CountDownLatch messagesReceived = testContext.checkpoint().asLatch(10);
 
         consumer.subscribe(message -> {
-                messagesReceived.flag();
+                messagesReceived.countDown();
                 return Future.succeededFuture();
             })
             .compose(ignored -> {

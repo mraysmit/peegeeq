@@ -28,7 +28,6 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -48,6 +47,7 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -169,13 +169,13 @@ class OutboxConsumerGroupTest {
         int messageCount = 6;
         // A strict checkpoint: exactly six deliveries. Each consumer asserts its region, so with
         // three US and three EU messages each consumer receives exactly its three.
-        Checkpoint messageCheckpoint = testContext.checkpoint(messageCount);
+        CountDownLatch messageCheckpoint = testContext.checkpoint().asLatch(messageCount);
 
         consumerGroup.addConsumer("us-consumer",
             message -> {
                 testContext.verify(() -> assertEquals("US", message.getHeaders().get("region"),
                     "us-consumer received " + message.getPayload()));
-                messageCheckpoint.flag();
+                messageCheckpoint.countDown();
                 return Future.succeededFuture();
             },
             message -> "US".equals(message.getHeaders().get("region"))
@@ -185,7 +185,7 @@ class OutboxConsumerGroupTest {
             message -> {
                 testContext.verify(() -> assertEquals("EU", message.getHeaders().get("region"),
                     "eu-consumer received " + message.getPayload()));
-                messageCheckpoint.flag();
+                messageCheckpoint.countDown();
                 return Future.succeededFuture();
             },
             message -> "EU".equals(message.getHeaders().get("region"))

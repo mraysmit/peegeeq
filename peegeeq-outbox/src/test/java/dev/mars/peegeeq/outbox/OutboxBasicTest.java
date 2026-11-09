@@ -48,6 +48,7 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -242,7 +243,7 @@ class OutboxBasicTest {
         logger.info("Test: multiple messages");
         int messageCount = 5;
         // A strict checkpoint: a sixth delivery fails the test; a repeated payload fails it too.
-        Checkpoint messagesReceived = testContext.checkpoint(messageCount);
+        CountDownLatch messagesReceived = testContext.checkpoint().asLatch(messageCount);
         Set<String> receivedMessages = ConcurrentHashMap.newKeySet();
 
         consumer.subscribe(message -> {
@@ -252,7 +253,7 @@ class OutboxBasicTest {
                 assertTrue(receivedMessages.add(message.getPayload()),
                     "Delivered twice: " + message.getPayload());
             });
-            messagesReceived.flag();
+            messagesReceived.countDown();
             return Future.succeededFuture();
         })
             .compose(v -> {

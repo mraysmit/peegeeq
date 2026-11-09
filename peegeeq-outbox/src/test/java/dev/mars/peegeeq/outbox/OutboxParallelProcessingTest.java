@@ -32,7 +32,6 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -52,6 +51,7 @@ import java.util.Properties;
 import java.util.ArrayList;
 import java.util.List;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.ConcurrentHashMap;
@@ -196,10 +196,10 @@ public class OutboxParallelProcessingTest {
     void testBatchProcessing(VertxTestContext testContext) {
         int messageCount = 20;
         // A strict checkpoint: exactly twenty deliveries; a twenty-first fails the test.
-        Checkpoint completionCheckpoint = testContext.checkpoint(messageCount);
+        CountDownLatch completionCheckpoint = testContext.checkpoint().asLatch(messageCount);
 
         consumer.subscribe(message -> {
-            completionCheckpoint.flag();
+            completionCheckpoint.countDown();
             return Future.succeededFuture();
         }).compose(v -> {
             List<Future<Void>> sends = new ArrayList<>(messageCount);
@@ -219,11 +219,11 @@ public class OutboxParallelProcessingTest {
         int totalMessages = producerCount * messagesPerProducer;
 
         // A strict checkpoint: exactly fifteen deliveries; a sixteenth fails the test.
-        Checkpoint completionCheckpoint = testContext.checkpoint(totalMessages);
+        CountDownLatch completionCheckpoint = testContext.checkpoint().asLatch(totalMessages);
         List<MessageProducer<String>> concurrentProducers = new ArrayList<>();
 
         consumer.subscribe(message -> {
-            completionCheckpoint.flag();
+            completionCheckpoint.countDown();
             return Future.succeededFuture();
         }).compose(v -> {
             List<Future<Void>> sends = new ArrayList<>(totalMessages);

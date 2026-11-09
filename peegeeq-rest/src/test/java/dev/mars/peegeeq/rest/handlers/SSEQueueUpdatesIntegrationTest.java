@@ -15,7 +15,6 @@ import io.vertx.core.http.HttpMethod;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
@@ -26,6 +25,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -281,7 +281,7 @@ class SSEQueueUpdatesIntegrationTest {
         String newQueue = "sse_multi_client_" + System.currentTimeMillis();
         AtomicInteger connectedCount = new AtomicInteger(0);
         AtomicBoolean mutationTriggered = new AtomicBoolean(false);
-        Checkpoint notified = testContext.checkpoint(2);
+        CountDownLatch notified = testContext.checkpoint().asLatch(2);
 
         for (int i = 0; i < 2; i++) {
             httpClient.request(HttpMethod.GET, TEST_PORT, "localhost", sseUrl())
@@ -297,7 +297,7 @@ class SSEQueueUpdatesIntegrationTest {
                     }
 
                     if (data.contains("QUEUE_CREATED") && data.contains(newQueue)) {
-                        notified.flag();
+                        notified.countDown();
                     }
                 }))
                 .onFailure(testContext::failNow);

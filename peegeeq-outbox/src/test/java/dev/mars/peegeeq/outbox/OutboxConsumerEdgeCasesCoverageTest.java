@@ -20,7 +20,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -29,6 +28,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import java.util.Properties;
 import java.util.UUID;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -171,10 +171,10 @@ class OutboxConsumerEdgeCasesCoverageTest {
     @Timeout(value = 5, timeUnit = TimeUnit.SECONDS)
     void testMessageProcessingExecutorShutdown(Vertx vertx, VertxTestContext testContext) {
         // A strict checkpoint: a fourth delivery fails the test. The teardown closes the consumer.
-        Checkpoint messageCheckpoint = testContext.checkpoint(3);
+        CountDownLatch messageCheckpoint = testContext.checkpoint().asLatch(3);
 
         consumer.subscribe(message -> {
-            messageCheckpoint.flag();
+            messageCheckpoint.countDown();
             return Future.succeededFuture();
         }).compose(v -> producer.send("message1"))
           .compose(v -> producer.send("message2"))
@@ -216,10 +216,10 @@ class OutboxConsumerEdgeCasesCoverageTest {
     @Timeout(value = 5, timeUnit = TimeUnit.SECONDS)
     void testDLQErrorHandlersDuringPoolClosure(Vertx vertx, VertxTestContext testContext) {
         // Initial attempt + 2 retries; a strict checkpoint, so a fourth attempt fails the test.
-        Checkpoint retryCheckpoint = testContext.checkpoint(3);
+        CountDownLatch retryCheckpoint = testContext.checkpoint().asLatch(3);
 
         consumer.subscribe(message -> {
-            retryCheckpoint.flag();
+            retryCheckpoint.countDown();
             throw new RuntimeException("INTENTIONAL FAILURE to trigger retries and DLQ");
         }).compose(v -> producer.send("test-data"))
           .onFailure(testContext::failNow);

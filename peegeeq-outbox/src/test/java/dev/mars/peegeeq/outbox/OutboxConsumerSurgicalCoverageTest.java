@@ -33,6 +33,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -133,11 +134,11 @@ class OutboxConsumerSurgicalCoverageTest {
         assertEquals(4, config.getQueueConfig().getConsumerThreads(),
                 "The canonical global consumer-thread property must be applied");
         // A strict checkpoint: exactly three deliveries; a fourth fails the test.
-        Checkpoint checkpoint = testContext.checkpoint(3);
+        CountDownLatch checkpoint = testContext.checkpoint().asLatch(3);
 
         startManager(config, true)
                 .compose(v -> consumer.subscribe(message -> {
-                    checkpoint.flag();
+                    checkpoint.countDown();
                     return Future.succeededFuture();
                 }))
                 .compose(v -> Future.all(
@@ -162,11 +163,11 @@ class OutboxConsumerSurgicalCoverageTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         // A strict checkpoint: exactly five deliveries; a sixth fails the test.
-        Checkpoint checkpoint = testContext.checkpoint(5);
+        CountDownLatch checkpoint = testContext.checkpoint().asLatch(5);
 
         startManager(config, true)
                 .compose(v -> consumer.subscribe(message -> {
-                    checkpoint.flag();
+                    checkpoint.countDown();
                     return Future.succeededFuture();
                 }))
                 .compose(v -> Future.all(
@@ -194,11 +195,11 @@ class OutboxConsumerSurgicalCoverageTest {
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         // max-retries 1: the first attempt and one retry. A strict two-pass checkpoint, so a
         // third attempt fails the test.
-        Checkpoint attempts = testContext.checkpoint(2);
+        CountDownLatch attempts = testContext.checkpoint().asLatch(2);
 
         startManager(config, true)
                 .compose(v -> consumer.subscribe(message -> {
-                    attempts.flag();
+                    attempts.countDown();
                     throw new RuntimeException("Intentional failure for retry test");
                 }))
                 .compose(v -> producer.send("retry-msg"))

@@ -55,6 +55,7 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -180,7 +181,7 @@ public class OutboxConsumerCoreTest {
     void testConsumerReceivesMultipleMessages(Vertx vertx, VertxTestContext testContext) {
         int messageCount = 5;
         // A strict checkpoint: a sixth delivery fails the test; a repeated payload fails it too.
-        Checkpoint received = testContext.checkpoint(messageCount);
+        CountDownLatch received = testContext.checkpoint().asLatch(messageCount);
         Set<String> payloads = ConcurrentHashMap.newKeySet();
 
         consumer.subscribe(message -> {
@@ -188,7 +189,7 @@ public class OutboxConsumerCoreTest {
                 assertTrue(message.getPayload().startsWith("Message "), "Unexpected payload: " + message.getPayload());
                 assertTrue(payloads.add(message.getPayload()), "Delivered twice: " + message.getPayload());
             });
-            received.flag();
+            received.countDown();
             return Future.succeededFuture();
         })
             .compose(v -> {
@@ -228,12 +229,12 @@ public class OutboxConsumerCoreTest {
     void testConsumerHandlerException(Vertx vertx, VertxTestContext testContext) {
         // The first attempt fails and the message is delivered again; the second attempt
         // succeeds. A strict two-pass checkpoint: a third delivery fails the test.
-        Checkpoint attempts = testContext.checkpoint(2);
+        CountDownLatch attempts = testContext.checkpoint().asLatch(2);
         AtomicInteger attemptCount = new AtomicInteger(0);
 
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
-            attempts.flag();
+            attempts.countDown();
             if (attempt == 1) {
                 return Future.failedFuture(new RuntimeException("Handler error"));
             }

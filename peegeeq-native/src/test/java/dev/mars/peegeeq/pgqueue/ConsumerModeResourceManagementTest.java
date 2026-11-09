@@ -16,7 +16,6 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -34,6 +33,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -148,13 +148,13 @@ class ConsumerModeResourceManagementTest {
             producers.add(factory.createProducer(topicName + "-hybrid", String.class));
 
             AtomicInteger messageCount = new AtomicInteger(0);
-            Checkpoint messagesReceived = testContext.checkpoint(3);
+            CountDownLatch messagesReceived = testContext.checkpoint().asLatch(3);
 
             List<Future<?>> subscribeFutures = new ArrayList<>();
             for (int i = 0; i < consumers.size(); i++) {
                 subscribeFutures.add(consumers.get(i).subscribe(message -> {
                     messageCount.incrementAndGet();
-                    messagesReceived.flag();
+                    messagesReceived.countDown();
                     return Future.succeededFuture();
                 }));
             }
@@ -188,13 +188,13 @@ class ConsumerModeResourceManagementTest {
             }
 
             AtomicInteger messageCount = new AtomicInteger(0);
-            Checkpoint messagesReceived = testContext.checkpoint(3);
+            CountDownLatch messagesReceived = testContext.checkpoint().asLatch(3);
 
             List<Future<?>> subscribeFutures = new ArrayList<>();
             for (int i = 0; i < pollingConsumers.size(); i++) {
                 subscribeFutures.add(pollingConsumers.get(i).subscribe(message -> {
                     messageCount.incrementAndGet();
-                    messagesReceived.flag();
+                    messagesReceived.countDown();
                     return Future.succeededFuture();
                 }));
             }
@@ -228,11 +228,11 @@ class ConsumerModeResourceManagementTest {
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         AtomicInteger processedCount = new AtomicInteger(0);
-        Checkpoint messagesReceived = testContext.checkpoint(10);
+        CountDownLatch messagesReceived = testContext.checkpoint().asLatch(10);
 
             consumer.subscribe(message -> {
                 processedCount.incrementAndGet();
-                messagesReceived.flag();
+                messagesReceived.countDown();
                 return Future.succeededFuture();
             })
             .onSuccess(ignored -> {
@@ -257,11 +257,11 @@ class ConsumerModeResourceManagementTest {
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         AtomicInteger processedCount = new AtomicInteger(0);
-        Checkpoint messagesProcessed = testContext.checkpoint(2);
+        CountDownLatch messagesProcessed = testContext.checkpoint().asLatch(2);
 
             consumer.subscribe(message -> {
                 processedCount.incrementAndGet();
-                messagesProcessed.flag();
+                messagesProcessed.countDown();
                 return Future.succeededFuture();
             })
             .onSuccess(ignored -> producer.send("Shutdown test message 1")

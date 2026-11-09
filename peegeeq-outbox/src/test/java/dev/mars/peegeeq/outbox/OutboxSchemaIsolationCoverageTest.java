@@ -43,6 +43,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -532,7 +533,7 @@ public class OutboxSchemaIsolationCoverageTest {
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", props);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
 
-        Checkpoint checkpoint = testContext.checkpoint(2);
+        CountDownLatch checkpoint = testContext.checkpoint().asLatch(2);
 
         manager.start()
                 .compose(v -> {
@@ -541,7 +542,7 @@ public class OutboxSchemaIsolationCoverageTest {
                     consumerGroup = cg;
                     cg.addConsumer("member-1",
                             msg -> {
-                                checkpoint.flag();
+                                checkpoint.countDown();
                                 return Future.succeededFuture();
                             });
                     return cg.start();
@@ -693,7 +694,7 @@ public class OutboxSchemaIsolationCoverageTest {
 
         String matchHeaderKey   = "msg-type";
         String matchHeaderValue = "tc-s11-match";
-        Checkpoint matchReceived = testContext.checkpoint(3); // exactly 3 matching messages expected
+        CountDownLatch matchReceived = testContext.checkpoint().asLatch(3); // exactly 3 matching messages expected
 
         manager.start()
                 .compose(v -> {
@@ -706,7 +707,7 @@ public class OutboxSchemaIsolationCoverageTest {
 
                     Future<Void> subscribed = factory.createConsumer(topic, String.class, consumerConfig)
                             .subscribe(msg -> {
-                                matchReceived.flag();
+                                matchReceived.countDown();
                                 return Future.succeededFuture();
                             });
 

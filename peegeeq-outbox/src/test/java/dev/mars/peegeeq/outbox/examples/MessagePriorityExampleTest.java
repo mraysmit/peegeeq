@@ -34,7 +34,6 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -56,6 +55,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -170,7 +170,7 @@ public class MessagePriorityExampleTest {
         
         // Track processing order
         AtomicInteger processedCount = new AtomicInteger(0);
-        Checkpoint latch = testContext.checkpoint(5); // strict: one more delivery fails the test
+        CountDownLatch latch = testContext.checkpoint().asLatch(5); // strict: one more delivery fails the test
         
         // Set up consumer to track processing order
         consumer.subscribe(message -> {
@@ -178,7 +178,7 @@ public class MessagePriorityExampleTest {
             PriorityMessage payload = message.getPayload();
             logger.info("Processed #{}: {} (Priority: {})",
                 order, payload.getContent(), payload.getPriorityLabel());
-            latch.flag();
+            latch.countDown();
             return Future.succeededFuture();
         })
             .compose(v -> {
@@ -205,7 +205,7 @@ public class MessagePriorityExampleTest {
         MessageConsumer<PriorityMessage> consumer = factory.createConsumer("priority-levels", PriorityMessage.class);
         
         AtomicInteger processedCount = new AtomicInteger(0);
-        Checkpoint latch = testContext.checkpoint(5); // strict: one more delivery fails the test
+        CountDownLatch latch = testContext.checkpoint().asLatch(5); // strict: one more delivery fails the test
         
         // Consumer that shows priority level handling
         consumer.subscribe(message -> {
@@ -218,7 +218,7 @@ public class MessagePriorityExampleTest {
                 assertNotNull(payload.getPriorityLabel(), "Priority label should not be null");
                 assertTrue(payload.getPriorityLabel().matches("CRITICAL|HIGH|NORMAL|LOW|BULK"),
                     "Priority label should be valid");
-                latch.flag();
+                latch.countDown();
             });
             return Future.succeededFuture();
         })
@@ -243,7 +243,7 @@ public class MessagePriorityExampleTest {
         MessageConsumer<PriorityMessage> consumer = factory.createConsumer("priority-processing", PriorityMessage.class);
         
         AtomicInteger processedCount = new AtomicInteger(0);
-        Checkpoint latch = testContext.checkpoint(3); // strict: one more delivery fails the test
+        CountDownLatch latch = testContext.checkpoint().asLatch(3); // strict: one more delivery fails the test
         
         // Send messages with metadata
         Map<String, String> metadata = new HashMap<>();
@@ -265,7 +265,7 @@ public class MessagePriorityExampleTest {
                 assertNotNull(payload.getTimestamp(), "Timestamp should not be null");
                 assertNotNull(payload.getMetadata(), "Metadata should not be null");
                 assertTrue(payload.getPriority() >= 0, "Priority should be non-negative");
-                latch.flag();
+                latch.countDown();
             });
             return Future.succeededFuture();
         })

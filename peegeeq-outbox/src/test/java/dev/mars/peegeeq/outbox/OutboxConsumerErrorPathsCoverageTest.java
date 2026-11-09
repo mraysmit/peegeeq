@@ -29,6 +29,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import java.util.Properties;
 import java.util.UUID;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.ArrayList;
 import java.util.List;
@@ -141,11 +142,11 @@ public class OutboxConsumerErrorPathsCoverageTest {
     @DisplayName("Test rapid message failures to stress error paths")
     void testRapidMessageFailures(Vertx vertx, VertxTestContext testContext) throws Exception {
         int messageCount = 5;
-        Checkpoint failureCheckpoint = testContext.checkpoint(messageCount);
+        CountDownLatch failureCheckpoint = testContext.checkpoint().asLatch(messageCount);
 
         MessageHandler<TestMessage> rapidFailHandler = message -> {
             logger.info("Test: rapid message failures");
-            failureCheckpoint.flag();
+            failureCheckpoint.countDown();
             throw new RuntimeException("Rapid failure: " + message.getId());
         };
 

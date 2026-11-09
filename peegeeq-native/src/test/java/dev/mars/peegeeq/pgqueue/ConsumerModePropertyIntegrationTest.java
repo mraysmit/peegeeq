@@ -16,7 +16,6 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -35,6 +34,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Duration;
 
 import java.util.Properties;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -119,7 +119,7 @@ class ConsumerModePropertyIntegrationTest {
 
         String topicName = "test-polling-interval-property";
         AtomicInteger processedCount = new AtomicInteger(0);
-        Checkpoint messagesReceived = testContext.checkpoint(2);
+        CountDownLatch messagesReceived = testContext.checkpoint().asLatch(2);
 
         initializeManagerAndFactory(PeeGeeQTestConfig.builder()
                 .from(postgres)
@@ -139,7 +139,7 @@ class ConsumerModePropertyIntegrationTest {
                 consumer.subscribe(message -> {
                     processedCount.incrementAndGet();
                     logger.info(" Property integration processed: {}", message.getPayload());
-                    messagesReceived.flag();
+                    messagesReceived.countDown();
                     return Future.succeededFuture();
                 })
                 .onSuccess(ignored -> producer.send("Property test message 1")
@@ -157,7 +157,7 @@ class ConsumerModePropertyIntegrationTest {
 
         String topicName = "test-batch-size-property";
         AtomicInteger processedCount = new AtomicInteger(0);
-        Checkpoint messagesReceived = testContext.checkpoint(5);
+        CountDownLatch messagesReceived = testContext.checkpoint().asLatch(5);
 
         initializeManagerAndFactory(PeeGeeQTestConfig.builder()
                 .from(postgres)
@@ -178,7 +178,7 @@ class ConsumerModePropertyIntegrationTest {
                 consumer.subscribe(message -> {
                     processedCount.incrementAndGet();
                     logger.info(" Batch property processed: {}", message.getPayload());
-                    messagesReceived.flag();
+                    messagesReceived.countDown();
                     return Future.succeededFuture();
                 })
                 .onSuccess(ignored -> {
@@ -201,7 +201,7 @@ class ConsumerModePropertyIntegrationTest {
 
         String topicName = "test-visibility-timeout-property";
         AtomicInteger processedCount = new AtomicInteger(0);
-        Checkpoint messagesReceived = testContext.checkpoint(2);
+        CountDownLatch messagesReceived = testContext.checkpoint().asLatch(2);
 
         initializeManagerAndFactory(PeeGeeQTestConfig.builder()
                 .from(postgres)
@@ -221,7 +221,7 @@ class ConsumerModePropertyIntegrationTest {
                 consumer.subscribe(message -> {
                     processedCount.incrementAndGet();
                     logger.info(" Visibility timeout processed: {}", message.getPayload());
-                    messagesReceived.flag();
+                    messagesReceived.countDown();
                     return Future.succeededFuture();
                 })
                 .onSuccess(ignored -> producer.send("Visibility test message 1")
@@ -239,7 +239,7 @@ class ConsumerModePropertyIntegrationTest {
 
         String topicName = "test-multiple-properties";
         AtomicInteger processedCount = new AtomicInteger(0);
-        Checkpoint messagesReceived = testContext.checkpoint(4);
+        CountDownLatch messagesReceived = testContext.checkpoint().asLatch(4);
 
         initializeManagerAndFactory(PeeGeeQTestConfig.builder()
                 .from(postgres)
@@ -260,7 +260,7 @@ class ConsumerModePropertyIntegrationTest {
                 consumer.subscribe(message -> {
                     processedCount.incrementAndGet();
                     logger.info(" Multiple properties processed: {}", message.getPayload());
-                    messagesReceived.flag();
+                    messagesReceived.countDown();
                     return Future.succeededFuture();
                 })
                 .onSuccess(ignored -> {
@@ -283,7 +283,7 @@ class ConsumerModePropertyIntegrationTest {
 
         String topicName = "test-property-override";
         AtomicInteger processedCount = new AtomicInteger(0);
-        Checkpoint messagesReceived = testContext.checkpoint(3);
+        CountDownLatch messagesReceived = testContext.checkpoint().asLatch(3);
 
         initializeManagerAndFactory(PeeGeeQTestConfig.builder()
                 .from(postgres)
@@ -303,7 +303,7 @@ class ConsumerModePropertyIntegrationTest {
                 consumer.subscribe(message -> {
                     processedCount.incrementAndGet();
                     logger.info(" Property override processed: {}", message.getPayload());
-                    messagesReceived.flag();
+                    messagesReceived.countDown();
                     return Future.succeededFuture();
                 })
                 .onSuccess(ignored -> {

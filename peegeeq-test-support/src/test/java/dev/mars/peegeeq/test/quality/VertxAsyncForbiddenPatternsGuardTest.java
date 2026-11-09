@@ -162,6 +162,43 @@ class VertxAsyncForbiddenPatternsGuardTest {
      */
     @Test
     void testSourcesUseTheCleanupHelperInsteadOfEventually() throws IOException {
+        List<String> offenders = testSourceOffenders(EVENTUALLY, ".eventually(");
+        if (!offenders.isEmpty()) {
+            fail("Test sources call .eventually(, which discards a failed cleanup. Use\n"
+                    + ".transform(TestCleanup.cleanup(...)) or TestCleanup.run(...) from peegeeq-test-support.\n"
+                    + String.join("\n", offenders));
+        }
+    }
+
+    /**
+     * The {@code VertxTestContext} methods that vertx-junit5 5.1 deprecates: {@code checkpoint(int)},
+     * {@code laxCheckpoint(int)}, {@code failing()} and {@code completing()}. The no-argument
+     * {@code checkpoint()} and {@code laxCheckpoint()} are not deprecated.
+     */
+    private static final Pattern DEPRECATED_TEST_CONTEXT_CALL = Pattern.compile(
+            "\\.(?:checkpoint|laxCheckpoint)\\s*\\(\\s*[^)\\s]|\\.(?:failing|completing)\\s*\\(\\s*\\)");
+
+    /**
+     * Test sources must not call the deprecated {@code VertxTestContext} methods. A counted
+     * checkpoint is {@code checkpoint().asLatch(n)}: the latch flags the strict checkpoint when it
+     * reaches zero, and each count-down after that flags it again, which fails the context. The
+     * lax form is {@code laxCheckpoint().asLatch(n)}. {@code failing()} is
+     * {@code failing(e -> ...)} or {@code failingThenComplete()}; {@code completing()} is
+     * {@code succeedingThenComplete()}. Every call site was migrated, so any occurrence is a regression.
+     */
+    @Test
+    void testSourcesDoNotCallDeprecatedTestContextMethods() throws IOException {
+        List<String> offenders = testSourceOffenders(DEPRECATED_TEST_CONTEXT_CALL, "deprecated VertxTestContext call");
+        if (!offenders.isEmpty()) {
+            fail("Test sources call VertxTestContext methods that vertx-junit5 5.1 deprecates. Use\n"
+                    + "checkpoint().asLatch(n) for checkpoint(n), laxCheckpoint().asLatch(n) for laxCheckpoint(n),\n"
+                    + "failing(e -> ...) for failing(), and succeedingThenComplete() for completing().\n"
+                    + String.join("\n", offenders));
+        }
+    }
+
+    /** One line per test source file that contains {@code pattern} outside comments and strings. */
+    private static List<String> testSourceOffenders(Pattern pattern, String label) throws IOException {
         Path workspaceRoot = locateWorkspaceRoot();
         List<String> offenders = new ArrayList<>();
         try (Stream<Path> modules = Files.list(workspaceRoot)) {
@@ -181,21 +218,17 @@ class VertxAsyncForbiddenPatternsGuardTest {
                             .filter(p -> !p.toString().replace('\\', '/').contains("/target/"))
                             .toList()) {
                         int count = 0;
-                        Matcher m = EVENTUALLY.matcher(maskNonCode(Files.readString(file, StandardCharsets.UTF_8)));
+                        Matcher m = pattern.matcher(maskNonCode(Files.readString(file, StandardCharsets.UTF_8)));
                         while (m.find()) count++;
                         if (count > 0) {
                             offenders.add("  " + workspaceRoot.relativize(file).toString().replace('\\', '/')
-                                    + "  .eventually( x" + count);
+                                    + "  " + label + " x" + count);
                         }
                     }
                 }
             }
         }
-        if (!offenders.isEmpty()) {
-            fail("Test sources call .eventually(, which discards a failed cleanup. Use\n"
-                    + ".transform(TestCleanup.cleanup(...)) or TestCleanup.run(...) from peegeeq-test-support.\n"
-                    + String.join("\n", offenders));
-        }
+        return offenders;
     }
 
     // ---------------------------------------------------------------------

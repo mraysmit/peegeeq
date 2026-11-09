@@ -22,7 +22,6 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.streams.ReadStream;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.pgclient.PgConnectOptions;
@@ -37,6 +36,7 @@ import org.slf4j.LoggerFactory;
 
 
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -161,10 +161,10 @@ class OutboxQueueUnitTest {
 
     @Test
     void testSend_MultipleMessages(VertxTestContext testContext) {
-        Checkpoint cp = testContext.checkpoint(3);
-        queue.send("message 1").onSuccess(v -> cp.flag()).onFailure(testContext::failNow);
-        queue.send("message 2").onSuccess(v -> cp.flag()).onFailure(testContext::failNow);
-        queue.send("message 3").onSuccess(v -> cp.flag()).onFailure(testContext::failNow);
+        CountDownLatch cp = testContext.checkpoint().asLatch(3);
+        queue.send("message 1").onSuccess(v -> cp.countDown()).onFailure(testContext::failNow);
+        queue.send("message 2").onSuccess(v -> cp.countDown()).onFailure(testContext::failNow);
+        queue.send("message 3").onSuccess(v -> cp.countDown()).onFailure(testContext::failNow);
     }
 
     @Test
@@ -221,10 +221,10 @@ class OutboxQueueUnitTest {
 
     @Test
     void testAcknowledge_MultipleMessageIds(VertxTestContext testContext) {
-        Checkpoint cp = testContext.checkpoint(3);
-        queue.acknowledge("msg-1").onSuccess(v -> cp.flag()).onFailure(testContext::failNow);
-        queue.acknowledge("msg-2").onSuccess(v -> cp.flag()).onFailure(testContext::failNow);
-        queue.acknowledge("msg-3").onSuccess(v -> cp.flag()).onFailure(testContext::failNow);
+        CountDownLatch cp = testContext.checkpoint().asLatch(3);
+        queue.acknowledge("msg-1").onSuccess(v -> cp.countDown()).onFailure(testContext::failNow);
+        queue.acknowledge("msg-2").onSuccess(v -> cp.countDown()).onFailure(testContext::failNow);
+        queue.acknowledge("msg-3").onSuccess(v -> cp.countDown()).onFailure(testContext::failNow);
     }
 
     @Test

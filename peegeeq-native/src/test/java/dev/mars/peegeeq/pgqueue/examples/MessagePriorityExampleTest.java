@@ -50,13 +50,13 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -200,7 +200,7 @@ class MessagePriorityExampleTest {
 
         // Track processing order
         AtomicInteger processedCount = new AtomicInteger(0);
-        Checkpoint allDone = testContext.checkpoint(5);
+        CountDownLatch allDone = testContext.checkpoint().asLatch(5);
 
         // Set up consumer to track processing order
         Future<Void> sendChain = consumer.subscribe(message -> {
@@ -208,7 +208,7 @@ class MessagePriorityExampleTest {
             PriorityMessage payload = message.getPayload();
             logger.info("Processed #{}: {} (Priority: {})",
                 order, payload.getContent(), payload.getPriorityLabel());
-            allDone.flag();
+            allDone.countDown();
             return Future.succeededFuture();
         });
 
@@ -239,7 +239,7 @@ class MessagePriorityExampleTest {
         MessageConsumer<PriorityMessage> consumer = factory.createConsumer("priority-levels", PriorityMessage.class);
 
         AtomicInteger processedCount = new AtomicInteger(0);
-        Checkpoint allDone = testContext.checkpoint(5);
+        CountDownLatch allDone = testContext.checkpoint().asLatch(5);
 
         // Consumer that shows priority level handling
         Future<Void> sendChain = consumer.subscribe(message -> {
@@ -247,7 +247,7 @@ class MessagePriorityExampleTest {
             PriorityMessage payload = message.getPayload();
             logger.info("Processed #{}: [{}] {} - {}",
                 order, payload.getPriorityLabel(), payload.getMessageType(), payload.getContent());
-            allDone.flag();
+            allDone.countDown();
             return Future.succeededFuture();
         });
 
@@ -278,7 +278,7 @@ class MessagePriorityExampleTest {
         MessageConsumer<PriorityMessage> consumer = factory.createConsumer("ecommerce-orders", PriorityMessage.class);
 
         AtomicInteger processedCount = new AtomicInteger(0);
-        Checkpoint allDone = testContext.checkpoint(8);
+        CountDownLatch allDone = testContext.checkpoint().asLatch(8);
 
         // Consumer that processes e-commerce orders
         Future<Void> sendChain = consumer.subscribe(message -> {
@@ -286,7 +286,7 @@ class MessagePriorityExampleTest {
             PriorityMessage payload = message.getPayload();
             logger.info("Processing Order #{}: [{}] {} - {}",
                 order, payload.getPriorityLabel(), payload.getMessageType(), payload.getContent());
-            allDone.flag();
+            allDone.countDown();
             return Future.succeededFuture();
         });
 
@@ -327,7 +327,7 @@ class MessagePriorityExampleTest {
         MessageConsumer<PriorityMessage> consumer = factory.createConsumer("financial-transactions", PriorityMessage.class);
 
         AtomicInteger processedCount = new AtomicInteger(0);
-        Checkpoint allDone = testContext.checkpoint(7);
+        CountDownLatch allDone = testContext.checkpoint().asLatch(7);
 
         // Consumer that processes financial transactions
         Future<Void> sendChain = consumer.subscribe(message -> {
@@ -335,7 +335,7 @@ class MessagePriorityExampleTest {
             PriorityMessage payload = message.getPayload();
             logger.info("Processing Transaction #{}: [{}] {} - {}",
                 order, payload.getPriorityLabel(), payload.getMessageType(), payload.getContent());
-            allDone.flag();
+            allDone.countDown();
             return Future.succeededFuture();
         });
 
@@ -375,7 +375,7 @@ class MessagePriorityExampleTest {
         MessageConsumer<PriorityMessage> consumer = factory.createConsumer("system-monitoring", PriorityMessage.class);
 
         AtomicInteger processedCount = new AtomicInteger(0);
-        Checkpoint allDone = testContext.checkpoint(6);
+        CountDownLatch allDone = testContext.checkpoint().asLatch(6);
 
         // Consumer that processes monitoring alerts
         Future<Void> sendChain = consumer.subscribe(message -> {
@@ -383,7 +383,7 @@ class MessagePriorityExampleTest {
             PriorityMessage payload = message.getPayload();
             logger.info("Processing Alert #{}: [{}] {} - {}",
                 order, payload.getPriorityLabel(), payload.getMessageType(), payload.getContent());
-            allDone.flag();
+            allDone.countDown();
             return Future.succeededFuture();
         });
 

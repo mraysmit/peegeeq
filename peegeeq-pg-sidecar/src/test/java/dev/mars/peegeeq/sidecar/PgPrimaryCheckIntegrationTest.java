@@ -6,7 +6,6 @@ import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.ext.web.client.WebClientOptions;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
@@ -20,6 +19,8 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+
+import java.util.concurrent.CountDownLatch;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -151,7 +152,7 @@ class PgPrimaryCheckIntegrationTest {
     @DisplayName("Concurrent /primary requests (simulating HAProxy polling frequency) all return 200")
     void concurrentRequestsAllReturn200(Vertx vertx, VertxTestContext ctx) {
         int requestCount = 10;
-        Checkpoint checkpoint = ctx.checkpoint(requestCount);
+        CountDownLatch checkpoint = ctx.checkpoint().asLatch(requestCount);
 
         for (int i = 0; i < requestCount; i++) {
             webClient.get(SIDECAR_HTTP_PORT, "localhost", "/primary")
@@ -159,7 +160,7 @@ class PgPrimaryCheckIntegrationTest {
                     .onSuccess(response -> ctx.verify(() -> {
                         assertEquals(200, response.statusCode(),
                                 "Every concurrent request to a standalone primary should return 200");
-                        checkpoint.flag();
+                        checkpoint.countDown();
                     }))
                     .onFailure(ctx::failNow);
         }

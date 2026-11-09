@@ -173,7 +173,7 @@ class NativeQueueFeatureTest {
         MessageProducer<String> producer = nativeFactory.createProducer("realtime-test", String.class);
         MessageConsumer<String> consumer = nativeFactory.createConsumer("realtime-test", String.class);
 
-        var checkpoint = testContext.checkpoint(1);
+        var checkpoint = testContext.checkpoint();
         AtomicLong receiveTime = new AtomicLong();
         List<String> receivedMessages = new ArrayList<>();
         long sendTime = System.currentTimeMillis();
@@ -287,7 +287,7 @@ class NativeQueueFeatureTest {
         MessageConsumer<String> consumer = nativeFactory.createConsumer("concurrency-test", String.class);
 
         int messageCount = 20;
-        var checkpoint = testContext.checkpoint(messageCount);
+        var checkpoint = testContext.checkpoint().asLatch(messageCount);
         AtomicInteger processedCount = new AtomicInteger();
         List<String> receivedMessages = new CopyOnWriteArrayList<>();
 
@@ -296,7 +296,7 @@ class NativeQueueFeatureTest {
             try {
                 receivedMessages.add(message.getPayload());
                 processedCount.incrementAndGet();
-                checkpoint.flag();
+                checkpoint.countDown();
                 return Future.succeededFuture();
             } catch (Throwable t) {
                 testContext.failNow(t);

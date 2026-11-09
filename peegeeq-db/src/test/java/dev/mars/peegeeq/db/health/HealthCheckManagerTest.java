@@ -40,10 +40,10 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxTestContext;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -473,7 +473,7 @@ class HealthCheckManagerTest {
 
     @Test
     void testConcurrentHealthChecks(VertxTestContext testContext) {
-        Checkpoint latch = testContext.checkpoint(5);
+        CountDownLatch latch = testContext.checkpoint().asLatch(5);
         AtomicInteger completedChecks = new AtomicInteger(0);
 
         // Register multiple health checks that run concurrently
@@ -482,7 +482,7 @@ class HealthCheckManagerTest {
             healthCheckManager.registerHealthCheck("concurrent-" + i, () -> {
                 // Simulate some work with a flag
                 completedChecks.incrementAndGet();
-                latch.flag();
+                latch.countDown();
                 return Future.succeededFuture(HealthStatus.healthy("concurrent-" + checkId));
             });
         }

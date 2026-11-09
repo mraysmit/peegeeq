@@ -27,11 +27,11 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Duration;
 
 import java.util.Properties;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import io.vertx.core.Future;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -145,14 +145,14 @@ class PeeGeeQConfigurationConsumerModeTest {
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class, pollingConfig);
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        Checkpoint allDone = testContext.checkpoint(5);
+        CountDownLatch allDone = testContext.checkpoint().asLatch(5);
         AtomicInteger processedCount = new AtomicInteger(0);
 
         // Subscribe to messages
         Future<Void> sendChain = consumer.subscribe(message -> {
             int count = processedCount.incrementAndGet();
             logger.info("\ud83d\udce8 Processed message {} with batch size configuration: {}", count, message.getPayload());
-            allDone.flag();
+            allDone.countDown();
             return Future.succeededFuture();
         });
 
@@ -194,14 +194,14 @@ class PeeGeeQConfigurationConsumerModeTest {
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class, hybridConfig);
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        Checkpoint allDone = testContext.checkpoint(2);
+        CountDownLatch allDone = testContext.checkpoint().asLatch(2);
         AtomicInteger processedCount = new AtomicInteger(0);
 
         // Subscribe to messages
         Future<Void> subscription = consumer.subscribe(message -> {
             int count = processedCount.incrementAndGet();
             logger.info("\ud83d\udce8 Processed message {} with polling interval configuration: {}", count, message.getPayload());
-            allDone.flag();
+            allDone.countDown();
             return Future.succeededFuture();
         });
 
@@ -241,14 +241,14 @@ class PeeGeeQConfigurationConsumerModeTest {
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class, listenConfig);
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        Checkpoint allDone = testContext.checkpoint(2);
+        CountDownLatch allDone = testContext.checkpoint().asLatch(2);
         AtomicInteger processedCount = new AtomicInteger(0);
 
         // Subscribe to messages
         Future<Void> subscription = consumer.subscribe(message -> {
             int count = processedCount.incrementAndGet();
             logger.info("\ud83d\udce8 Processed message {} with visibility timeout configuration: {}", count, message.getPayload());
-            allDone.flag();
+            allDone.countDown();
             return Future.succeededFuture();
         });
 
@@ -290,7 +290,7 @@ class PeeGeeQConfigurationConsumerModeTest {
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class, pollingConfig);
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        Checkpoint allDone = testContext.checkpoint(3);
+        CountDownLatch allDone = testContext.checkpoint().asLatch(3);
         AtomicInteger processedCount = new AtomicInteger(0);
 
         // Subscribe to messages
@@ -298,7 +298,7 @@ class PeeGeeQConfigurationConsumerModeTest {
             int count = processedCount.incrementAndGet();
             logger.info("\ud83d\udce8 Processed message {} with consumer threads configuration: {} (Thread: {})", 
                 count, message.getPayload(), Thread.currentThread().getName());
-            allDone.flag();
+            allDone.countDown();
             return Future.succeededFuture();
         });
 
@@ -352,7 +352,7 @@ class PeeGeeQConfigurationConsumerModeTest {
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class, hybridConfig);
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        Checkpoint allDone = testContext.checkpoint(6);
+        CountDownLatch allDone = testContext.checkpoint().asLatch(6);
         AtomicInteger processedCount = new AtomicInteger(0);
 
         // Subscribe to messages
@@ -360,7 +360,7 @@ class PeeGeeQConfigurationConsumerModeTest {
             int count = processedCount.incrementAndGet();
             logger.info("\ud83d\udce8 Processed message {} with multiple configuration properties: {} (Thread: {})",
                 count, message.getPayload(), Thread.currentThread().getName());
-            allDone.flag();
+            allDone.countDown();
             return Future.succeededFuture();
         });
 
@@ -407,14 +407,14 @@ class PeeGeeQConfigurationConsumerModeTest {
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class, pollingConfig);
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        Checkpoint allDone = testContext.checkpoint(3);
+        CountDownLatch allDone = testContext.checkpoint().asLatch(3);
         AtomicInteger processedCount = new AtomicInteger(0);
 
         // Subscribe to messages
         Future<Void> subscription = consumer.subscribe(message -> {
             int count = processedCount.incrementAndGet();
             logger.info("\ud83d\udce8 Processed message {} with default configuration values: {}", count, message.getPayload());
-            allDone.flag();
+            allDone.countDown();
             return Future.succeededFuture();
         });
 

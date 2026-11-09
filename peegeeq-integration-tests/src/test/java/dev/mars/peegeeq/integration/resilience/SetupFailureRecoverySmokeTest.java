@@ -6,7 +6,6 @@ import dev.mars.peegeeq.api.setup.SetupNotFoundException;
 import dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService;
 import dev.mars.peegeeq.integration.SmokeTestBase;
 import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.Test;
@@ -15,6 +14,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.extension.ExtendWith;
 import java.util.Collections;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -80,7 +80,7 @@ public class SetupFailureRecoverySmokeTest extends SmokeTestBase {
 
         // Phase 1: verify setup fails with the expected error
         // Phase 2: verify the failed setup is not retained as active
-        Checkpoint checkpoint = testContext.checkpoint(2);
+        CountDownLatch checkpoint = testContext.checkpoint().asLatch(2);
 
         failingService.createCompleteSetup(request)
             .onSuccess(v -> testContext.failNow(new AssertionError("Expected setup to fail")))
@@ -92,7 +92,7 @@ public class SetupFailureRecoverySmokeTest extends SmokeTestBase {
                     assertTrue(setupErr.getCause().getMessage().contains("Simulated failure in Step 4"),
                             "Got: " + setupErr.getCause().getMessage());
                 });
-                checkpoint.flag();
+                checkpoint.countDown();
 
                 // Verify failed setup was not retained as active
                 failingService.getSetupStatus(setupId)
@@ -101,7 +101,7 @@ public class SetupFailureRecoverySmokeTest extends SmokeTestBase {
                     .onFailure(statusErr -> testContext.verify(() -> {
                         assertInstanceOf(SetupNotFoundException.class, statusErr,
                                 "Failed setup should not remain registered as active");
-                        checkpoint.flag();
+                        checkpoint.countDown();
                     }));
             });
     }
