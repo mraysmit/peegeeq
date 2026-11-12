@@ -829,8 +829,11 @@ for that day's revision. The rows dated 2026-10-21 and 2026-10-22 have their run
 | 7b.2 bootstrap scope B, remaining | Not implemented | A production entry point that calls `PgBootstrap`, the renewal loop, and the watchdog; resuming an interrupted `serve` (the takeover path, 7b.3). Stopped-before-release remains open. |
 | 7b.3 increment P1: guarded local promotion with CHECKPOINT | Implemented and tested, 2026-10-26 | `PgPromotionControl` and `PgSqlPromotionControl` (`pg_ctl promote`, role observation, forced and verified CHECKPOINT); `PgFailoverMonitor.promoteStandby(held)` under `promote` and `checkpoint-after-promote` receipts, with admission closed. See §9.21. Not in P1: slots, repointing standbys, the policy cutover, planned stop with release, expiry takeover. |
 | 7b.3 increment P2: a standby follows the new writer | Implemented and tested, 2026-10-26 | `PgPromotionControl.follow`, `PgWriterEndpoint` (host, port, password-file path; no password), `PgFailoverMonitor.followWriter` under a `follow-writer` receipt, no lease required. See §9.22. Not in P2: the policy cutover, slots, following after a rewind. |
-| 7b.3 increment P3: the policy cutover on the new writer | Implemented, red run recorded, green not run, 2026-11-03 | `PgTakeover.cutover(held, mode)` derives the next policy (confirmed set minus the new writer, next revision), persists it as pending, then runs the serving sequence shared with `PgBootstrap.serve`. Fixture finding: standby admission files lacked replication rules. See §9.23. |
-| 7b.3 manual takeover and re-join, remaining | Not implemented | Requires the policy cutover after promotion (P3), replication slots, old-writer exclusion by expiry, planned stop with release, repeated failover, controlled re-join, and routed production-manager assertions. |
+| 7b.3 increment P3: the policy cutover on the new writer | Implemented and tested, 2026-11-03 | `PgTakeover.cutover(held, mode)` derives the next policy (confirmed set minus the new writer, next revision), persists it as pending, then runs the serving sequence shared with `PgBootstrap.serve`. Fixture finding: standby admission files lacked replication rules. See §9.23. |
+| 7b.3 increment P4: member replication slots on the writer | Implemented and tested, 2026-11-12 | `PgNodeConfig.slotName` (derived, never stored); `PgDurabilityControl.ensureSlots` (creates missing physical slots; refuses an unbounded `max_slot_wal_keep_size` (OD-27) and a logical slot under a member name; its refusal in recovery was removed by P6, OD-35); `PgFailoverMonitor.ensureMemberSlots`; the slot step after the checkpoint in `promoteStandby` and first in `PgPolicyCutover.serve`; `follow` streams through the node's own slot; coverage fails at once for a required standby whose slot is lost (OD-33). See §9.24 and §9.25. Not in P4: slots on replicas, removing a departed member's slot. |
+| 7b.3 increment P5: replacing a lost member slot for a rebuild | Implemented and tested, 2026-11-12 | `PgDurabilityControl.replaceLostSlot` (only a lost slot is dropped, then re-created reserved) and `PgFailoverMonitor.replaceLostMemberSlot` (ownership, membership, quarantine). The fixture rebuilds the member through the new slot. See §9.26. Not in P5: the rebuild decision and the member-side commands outside the fixture (§9.20 row 10). |
+| 7b.3 increment P6: slots on standbys, advanced to published member positions | Implemented and tested, 2026-11-12 | A second coordinator port `PgMemberPositions` with its Consul adapter; every node holds the member slots (OD-35); `PgMemberSlots` publishes this node's position and advances a standby's slots to the smaller of the published and the replay position, same timeline only. Closes the gap of §9.24: a standby stopped before a takeover follows the new writer. See §9.27. Not in P6: the loop that runs it, removing a departed member's record. |
+| 7b.3 manual takeover and re-join, remaining | Not implemented | Requires old-writer exclusion by expiry, planned stop with release, repeated failover, controlled re-join, and routed production-manager assertions. |
 | G-7 full coordinator qualification | Open | Snapshot/restore, TLS, stopped-before-release, and expiry versus independent old-writer exclusion remain unverified. Component success does not close G-7. |
 
 Recorded clean installs used `mvn clean install -DskipTests -pl :<changed-module> -am`:
@@ -2711,3 +2714,367 @@ at a time, the core tests, and the guards last.
 **Not decided here.** The bound's value for a production deployment. Slots on replicas and published member
 positions. Dropping the slot of a member removed from the membership, which belongs to controlled membership
 change (§8, phase 14).
+
+**Decisions and refinements, 2026-11-12, before the P4 tests.** On 2026-11-12 the owner directed the implementer
+to proceed with best judgement. OD-27 is therefore adopted as recommended. It remains reversible, and the owner
+has not reviewed the bound's trade-off. The items below refine the contracts above. None changes the data model.
+
+- OD-27, adopted under the 2026-11-12 delegation: `ensureSlots` refuses `max_slot_wal_keep_size = -1`.
+- OD-31: the membership check in `PgNodeConfig` that refuses two members equal apart from case is deleted. The
+  refusal of colliding slot names subsumes it: two identities equal apart from case derive the same slot name, and
+  so do two equal identities. Working agreement 1 forbids keeping both. The membership rule that remains is "this
+  node is a member, and there is at least one other member". Reversible.
+- OD-32: `promoteStandby` calls the adapter's `ensureSlots` directly after the checkpoint, inside the serialized
+  promotion, with no receipt (OD-28) and no second ownership check. Promotion already demotes the node when
+  ownership is lost before the checkpoint. The public `PgFailoverMonitor.ensureMemberSlots(held)` is a separate
+  serialized operation; it runs the same step after its own ownership and quarantine checks. Reversible.
+- Contract 2, detail: one SQL statement observes the recovery state, the setting of `max_slot_wal_keep_size`, and
+  the named slots with their types. The refusals are checked in the order recovery, unbounded retention, logical
+  slot. Each missing slot is created with its own statement. One more observation then requires every named slot
+  to exist as a physical slot. The names come from `PgNodeConfig.slotName` and contain only lower-case letters,
+  digits, and the underscore, so they are quoted with single quotes and need no escaping.
+- Contract 6, detail: `primary_conninfo` and `primary_slot_name` are installed by two `ALTER SYSTEM` statements,
+  because `ALTER SYSTEM` cannot run inside the implicit transaction of a multi-statement `psql -c`. The follow
+  confirmation observes `status`, `sender_host`, `sender_port`, and `slot_name` of `pg_stat_wal_receiver`.
+- The fixture's bound is `max_slot_wal_keep_size = 256MB`, the value of check 1.
+- OD-33, added 2026-11-12 after the first P4 report: contract 2 says a `lost` slot "is reported in the failure
+  of a later coverage check". The P4 code of §9.25 did not do that: `confirmCovered` observed only
+  `pg_stat_replication`, so a required standby whose slot was lost waited out the whole budget and was reported
+  as "not connected". Refinement: each coverage observation also reads `wal_status` of the required standbys'
+  member slots. A required standby whose slot is `lost` fails coverage at once with a `PgDurabilityException`
+  that names the slot and the standby, as an identity mismatch does, because waiting cannot restore the removed
+  WAL. A missing slot changes nothing here; `serve` and `promoteStandby` create the slots before any coverage
+  wait. `ensureSlots` still accepts a lost slot and does not recreate it. Reversible.
+
+### 9.25 Phase 7b.3, Increment P4: Implementation and Verification, 2026-11-12
+
+**Status, 2026-11-12.** Implemented on `993bf2c2` plus the uncommitted P4 change. Green, mutation-probed, and the
+module's whole integration tier, core tests, and guards green. Every count below is from a run made on 2026-11-12
+on this working tree, on Vert.x 5.1.10.
+
+**What was built.**
+
+- `PgNodeConfig.slotName(nodeId)` and the refusal of colliding slot names and names over 63 bytes. The case-only
+  membership check is deleted (OD-31).
+- `PgDurabilityControl.ensureSlots(nodeIds)` and its adapter in `PgSqlDurabilityControl` (contract 2).
+- `PgFailoverMonitor.ensureMemberSlots(held)` (contract 3), and the slot step at the end of `promoteStandby`
+  (contract 4, OD-32).
+- `PgPolicyCutover.serve` runs `ensureMemberSlots` first (contract 5). `PgBootstrap.serve` and `PgTakeover.cutover`
+  both reach it.
+- `PgSqlPromotionControl.follow` installs `primary_slot_name` and confirms streaming through that slot (contract 6).
+- `PgReplicationFixture` sets `max_slot_wal_keep_size = 256MB` and takes each base backup with `-C -S <slot>`
+  (contract 7).
+
+**Tests.** 3 core tests in `PgNodeConfigTest`. 7 new tests in `PgSqlDurabilityControlIntegrationTest`, and
+`ensureSlots` added to its malformed-output and no-result tests. 2 new tests in `PgSqlPromotionControlIntegrationTest`,
+and 3 of its follow tests changed. 2 new tests in `PgPromotionIntegrationTest`. The new `PgSlotIntegrationTest`
+with 4 tests. 1 new test in `PgBootstrapServingIntegrationTest`. `PgFollowIntegrationTest` creates the follower's
+slot in its set-up, and its streaming check requires the slot. `PgTakeoverIntegrationTest`'s main test asserts the
+new writer's slots. The four test implementations of `PgDurabilityControl` pass `ensureSlots` through. Every failure
+mode of the §9.24 table has a test, except one: the design table lists "streams from the host and port without
+the slot". A receiver that streams from the right address with no slot is what probe 11 produced; the test that
+guards it is `theInstalledSettingsKeepTheIdentityNameTheSlotAndHoldNoPassword`, and the test with a deterministic
+wrong slot is `aReceiverThatStreamsFromTheWriterThroughAnotherSlotIsNotReportedAsFollowed`.
+
+| Step | Evidence under `logs/` |
+|---|---|
+| Rebuild with stubs | `rebuild-peegeeq-pg-failover-slots-stubs-20261112.log`: `BUILD SUCCESS` |
+| Red, core | `peegeeq-pg-failover-slots-config-red-20261112.log`: `Tests run: 20, Failures: 1, Errors: 2`. The 3 new tests fail: 2 on "not implemented", 1 because `[pg-node-1, pg_node_1]` was accepted |
+| Green, core | `peegeeq-pg-failover-slots-config-green-20261112.log`: `Tests run: 20, Failures: 0` |
+| Red, integration | Only the new and changed methods. Durability 9 run, 7 failures, 2 errors; promotion adapter 5 run, 1 failure, 3 errors (the refusal test with a stronger assertion passed, as its behaviour was unchanged); promotion 2 of 2 failed; slot class 4 of 4 failed; serving 1 of 1 failed; follow and takeover 2 of 2 failed, both because the follower's slot did not exist on the new writer. Logs `peegeeq-pg-failover-slots-red-*-20261112.log` |
+| Green, integration | The same method sets: 9, 5, 2, 4, 1, and 2 run, 0 failures. Logs `peegeeq-pg-failover-slots-green-*-20261112.log` |
+| SHA-256 around the probes | `peegeeq-pg-failover-slots-mutation-sha-before-20261112.log` and `...-sha-after-20261112.log`: identical for the 5 production files. Rebuilt from the restored source: `rebuild-peegeeq-pg-failover-slots-restored-20261112.log` |
+| Regression, integration, whole module | 16 classes, **244** tests, 0 failures: durability 26 (334 s), promotion adapter 19 (257 s), promotion 17 (291 s), bootstrap serving 15 (303 s), policy installation 14 (201 s), follow 10, takeover 9, slot 4, bootstrap 7, process control 11, fixture contract 4, admission gate 7, elector queueing 4, Consul coordinator 61, monitor 23, renewal loop 13. Logs `peegeeq-pg-failover-slots-regress-*-20261112.log`. These 16 are every test file in the module with the integration tag |
+| Module core tests | `peegeeq-pg-failover-slots-core-20261112.log`: `Tests run: 398, Failures: 0` across 9 classes |
+| Guards, after the last test edit | `peegeeq-test-support-slots-guards-20261112.log`: `Tests run: 77, Failures: 0` across 14 classes |
+
+Mutation probes, each one removal, a run of the guarding methods, and a restore from a copy
+(`peegeeq-pg-failover-slots-mutation<N>-red-20261112.log`). Each probe failed its guarding test:
+
+| N | Removal | Guarding test failure |
+|---|---|---|
+| 1 | Slot-name distinctness in `PgNodeConfig` | `rejectsMembersWhoseSlotNamesCollide`; also `rejectsCaseInsensitiveMemberCollision`, which OD-31 now rests on |
+| 2 | 63-byte limit in `slotName` | `rejectsAnIdentityWhoseSlotNameExceeds63Bytes` |
+| 3 | Refusal in recovery | `slotsAreRefusedOnAServerInRecoveryAndNoneIsCreated`: PostgreSQL created the slot on the standby |
+| 4 | Refusal of an unbounded retention | the adapter test and `anUnboundedSlotRetentionRefusesServingBeforeAnyPolicyIsInstalled` |
+| 5 | Refusal of a slot that is not physical | `aLogicalSlotUnderAMemberSlotNameFailsTheCallAndIsKept` |
+| 6 | Creation only of missing slots | `aSlotThatExistsIsNeitherRecreatedNorMoved...`: `replication slot "peegeeq_pg_node_2" already exists` |
+| 7 | Slot step in `promoteStandby` | both new `PgPromotionIntegrationTest` tests |
+| 8 | Ownership check in `ensureMemberSlots` | `withoutFreshOwnershipNoSlotIsCreated` |
+| 9 | Quarantine check in `ensureMemberSlots` | `aQuarantinedNodeCreatesNoSlot` |
+| 10 | Slot step in `PgPolicyCutover.serve` | `anUnboundedSlotRetentionRefusesServingBeforeAnyPolicyIsInstalled` |
+| 11 | Installation of `primary_slot_name` in `follow` | `theInstalledSettings...`: last observed `streaming\|pg-node-2\|5432\|`, a receiver with no slot |
+| 12 | Slot in the streaming confirmation | `aReceiverThatStreamsFromTheWriterThroughAnotherSlot...`. `aWriterWithoutTheFollowersSlot...` passed under this probe: with no slot on the writer the receiver never streams, so that test cannot tell the two apart |
+
+**Finding 13 on Vert.x 5.1.10.** 19 runs today had failing tests, among them every fixture-based red and probe run.
+None of their logs holds "Interrupted while waiting for command" or `RejectedExecutionException`. Under 5.0.4 every
+failing P3 run held the first line (§9.23). The one "Unexpected ERROR" entry in a red log is the red follow's own
+failure, attached to the failing test. This is an observation from these logs. It agrees with the purpose of
+`VertxTeardownAfterFailureExtension` (register, 2026-11-08), but no run here isolates that extension as the cause.
+
+**Correction after the first report: a lost slot (OD-33).** The first P4 report listed "a `lost` slot" as not
+checked. That was a wrong judgement: contract 2 claims the behaviour, and OD-27 rests on it, so it was an unmet
+contract of this increment. The red run proved the defect on a real server. With `max_slot_wal_keep_size=32MB`,
+`wal_keep_size=0`, a stopped standby, and 96 MB of WAL, the slot reached `wal_status = lost`. Coverage then waited
+its 20-second budget and reported "Required standby pg-node-3 is not connected"
+(`peegeeq-pg-failover-lostslot-red-20261112.log`). After the change, coverage fails at once with "Replication slot
+peegeeq_pg_node_3 of required standby pg-node-3 is lost" (`...-lostslot-green-20261112.log`, 1 of 1). Probe 13
+removed the check, and the test failed with the old message (`...-lostslot-mutation13-red-20261112.log`). The adapter's
+SHA-256 is `FB14304D...A66AA3` before and after (`...-lostslot-mutation-sha-before-` and `...-sha-after-20261112.log`).
+Regression after the change, every class that reaches `confirmCovered`, one at a time: durability 27, promotion 17,
+bootstrap serving 15, policy installation 14, follow 10, takeover 9, slot 4, all 0 failures
+(`peegeeq-pg-failover-lostslot-regress-*-20261112.log`). Core 398 (`...-lostslot-core-20261112.log`). With the 9
+classes of the first regression that do not reach coverage, the module's integration tier is 16 classes and 245
+tests.
+
+**Known gap, unchanged from §9.24.** A new writer's slots reserve WAL from their creation. A surviving standby that
+lagged before the takeover may need a rebuild.
+
+**Not checked.** A production entry point; nothing outside tests calls `ensureMemberSlots`. What re-join does with a
+lost slot: a rebuilt member's base backup with `-C` fails while the lost slot exists, so re-join must drop it; that
+belongs to controlled re-join (7b.3). The bound's value for a production deployment. Slots on a cascading node. The
+Jenkins build and the whole-repository gate.
+
+### 9.26 Phase 7b.3, Increment P5: Replacing a Lost Member Slot for a Rebuild, 2026-11-12 (design)
+
+**Purpose.** After OD-33 a writer reports a required standby whose slot is lost. That standby must be rebuilt
+(S31). A rebuild takes a new base backup. While the lost slot exists, a base backup with `-C -S <slot>` fails,
+because the name is taken, and one with `-S <slot>` alone fails, because a lost slot cannot be used. P5 adds the
+writer-side step of a rebuild: replace exactly a lost member slot by a new slot with a reserved position. The
+rebuild then takes its base backup through that slot, so the writer keeps the WAL the backup needs from before the
+backup starts. Who decides to rebuild, and the rebuild commands on the member, stay with §9.20 row 10, which awaits
+the owner. The fixture performs the member side, as it stands for the deployment (OD-10).
+
+**Data model.** No stored field is added. Whether a slot is lost is derived live from `wal_status` in
+`pg_replication_slots`. The slot name is derived (§9.24).
+
+**Contracts.**
+
+1. `PgDurabilityControl.replaceLostSlot(String nodeId)` (adapter `PgSqlDurabilityControl`). The same first
+   observation as `ensureSlots`, so it is refused in recovery, with an unbounded retention, and for a slot under the
+   member name that is not physical. It is also refused when the member slot does not exist, and when it exists and
+   `wal_status` is not `lost`: a slot that keeps WAL is never dropped. Otherwise it drops the slot, creates it again
+   with a reserved position, and confirms that the slot exists as a physical slot whose `wal_status` is not `lost`
+   and whose `restart_lsn` is set.
+2. `PgFailoverMonitor.replaceLostMemberSlot(held, nodeId)`. Serialized. Refused without fresh ownership of exactly
+   `held` (`PgLeaseProtocolException`), for an identity that is not another member of the membership
+   (`IllegalArgumentException`), and under quarantine (`PgLocalStateException`). Then calls `replaceLostSlot`.
+3. Member side, in the fixture: stop the member, remove its data directory, take the base backup with
+   `-S <slot> -R` and no `-C`, start it in recovery. Coverage of the member then succeeds again.
+
+**Decision of the implementer, 2026-11-12, under the owner's direction to proceed with best judgement. Reversible.**
+
+- OD-34: no receipt. The effect is observable. A rerun after a lost reply is refused, because the new slot is not
+  lost; the caller observes the slot, which is reserved. A receipt would add a record whose content the slot
+  already shows.
+
+**Dependency failure modes, each with a failing test before its code.**
+
+| Dependency | Modes | Test class |
+|---|---|---|
+| `psql` through the command runner | failed Future, no result, malformed output, budget (the shared path of `ensureSlots`) | `PgSqlDurabilityControlIntegrationTest`: the existing no-result and malformed-output tests gain the call |
+| Local server | in recovery; unbounded retention; logical slot; slot missing; slot not lost | `PgSqlDurabilityControlIntegrationTest` |
+| Elector, store, membership | no fresh ownership; quarantine; this node or a non-member | `PgSlotIntegrationTest` |
+| End to end | lost slot replaced, member rebuilt through it, coverage succeeds | `PgSlotIntegrationTest` |
+
+**Test infrastructure.** `PgReplicationFixture` gains `loseSlot` (stop the standby, restart the writer with
+`max_slot_wal_keep_size=32MB` and `wal_keep_size=0`, write 96 MB of WAL, checkpoint until the slot is lost) and
+`rebuildThroughSlot` (contract 3). The OD-33 test moves to `loseSlot`.
+
+**Status, 2026-11-12.** Implemented, green, mutation-probed, and the module green on this working tree.
+
+| Step | Evidence under `logs/` |
+|---|---|
+| Red, against stubs | `peegeeq-pg-failover-replace-red-20261112.log`: 12 run, 9 failures, 2 errors. The 11 new and changed methods fail on "not implemented" or the missing refusal. The twelfth, the OD-33 test on the new `loseSlot`, passes |
+| Green | `peegeeq-pg-failover-replace-green-20261112.log`: 12 run, 0 failures. The end-to-end test loses the slot, replaces it, rebuilds the member through it, and confirms coverage and `streaming\|peegeeq_pg_node_3` |
+| Probes 14 to 19 | `...-replace-mutation<N>-red-20261112.log`. 14: the "not lost" refusal (failure: `replication slot "peegeeq_pg_node_2" is active for PID 119`); 15: the "does not exist" refusal (the missing slot is reported as "not lost"); 16: the drop and re-creation (the adapter's own check: `wal_status 'lost'`); 17: the ownership check; 18: the membership check (the writer looks for its own slot); 19: the quarantine check. SHA-256 of both files equal before and after (`...-replace-mutation-sha-before-` and `...-sha-after-20261112.log`) |
+| Regression, integration | 16 classes, **251** tests, 0 failures: durability 29 (416 s), promotion adapter 19, promotion 17, bootstrap serving 15, policy installation 14, follow 10, takeover 9, slot 8, the five small classes 33, monitor, Consul coordinator, and renewal loop 97. Logs `peegeeq-pg-failover-p5-regress-*-20261112.log` |
+| Core | `peegeeq-pg-failover-p5-core-20261112.log`: 398, 0 failures |
+
+**Test-shape finding, fixed in the same change.** Probe 14's first run showed a defect in test structure. A test
+that judges several refusals in a chain of `transform` steps passes a failed assertion on to the next step as its
+input. That step then fails with "Unexpected type", and the first message is lost. Where the step before the
+`transform` is set-up, a set-up failure of the expected exception type is accepted as the refusal under test, so a
+test can pass for the wrong reason. Sites: 6 in `PgSqlDurabilityControlIntegrationTest`, 1 in `PgSlotIntegrationTest`,
+3 in `PgCtlProcessControlIntegrationTest`, 2 in `PgSqlPromotionControlIntegrationTest`, 2 in `PgLocalStateStoreTest`,
+and 1 each in `PgBootstrapServingIntegrationTest`, `PgTakeoverIntegrationTest`, `PgLeaseCoordinatorContract`, and
+`PgPrimaryElectorQueueingIntegrationTest`. The sites where set-up shared the expected type are
+`PgLeaseCoordinatorContract.coordinatorRejectsAcquisitionOfHeldRecord`,
+`PgLocalStateStoreTest.receiptIdentityRejectsUnsafeNames`, and
+`PgLocalStateStoreTest.quarantineClosesTheGrantAndBlocksAdmissionAcrossRestart`. Each site now attaches its
+`transform` to the operation it judges and continues with `compose`. Three classes use a `refused(outcome, prefix)`
+helper, which replaced their `assertNoResult`. After the fix the second run of probe 14 named the cause. The scan
+for the shape (a line that starts with `}).transform(`) finds no site in the module. Other shapes were not scanned.
+
+**Not checked.** Who decides a rebuild, and the member-side rebuild commands outside the fixture (§9.20 row 10,
+awaiting the owner). A rerun after a lost reply, which is refused by design (OD-34). The durability class takes
+7 minutes in one command; the tool limit is 10.
+
+### 9.27 Phase 7b.3, Increment P6: Slots on Standbys, Advanced to Published Member Positions, 2026-11-12 (design and implementation)
+
+**Purpose.** Close the known gap of §9.24. The writer's slot for a standby keeps that standby's WAL on the writer.
+When the writer's host is lost, that WAL is lost with it. The new writer kept only its own retention, so a
+standby that was behind it cannot follow it and must be rebuilt. Patroni closes this with a physical slot for
+each other member on every standby, advanced to positions that each member publishes in its coordinator (§9.20
+row 20, `member_slots_ttl` aside). This section designs the same. It changes the coordinator port and the system
+design's data model, so it is for the owner's review before any test is written.
+
+**Correction to §9.24.** The known gap names a standby that lags under `ANY 1`. The case the checks below
+reproduce is a standby that is stopped or disconnected when the writer fails, while the writer kept writing WAL.
+
+**Checks run, 2026-11-12,** on throwaway containers of `postgres:15.13-alpine3.20` (PostgreSQL 15.13): one writer
+with `wal_keep_size = 0` and `max_slot_wal_keep_size = 256MB`, and three standbys s2, s3, s4 taken with
+`-C -S`. The shell script ran from the session scratchpad and is not kept; the outputs that matter are quoted
+below, and the full output is in `logs/p6-replica-slot-checks-20261112.log` and
+`logs/p6-replica-slot-checks-control-20261112.log` on this machine. The containers were removed afterwards.
+
+1. A physical slot created on a standby with an immediately reserved position starts at the standby's last
+   restartpoint redo (`0/2000028`), not at its replay position (`0/5025A88`).
+2. `pg_replication_slot_advance` advances a physical slot on a standby to a given position. A target beyond the
+   standby's replay position is capped at that position without an error (`FFFFFFFF/0` left the slot at
+   `0/5025A88`).
+3. Across a writer checkpoint and a standby restartpoint after 96 MB of WAL, the standby keeps the WAL from its
+   slot's position: the oldest WAL file on s2 was `...05` with the slot, and `...0B` without it.
+4. A slot on a standby survives `pg_ctl promote` with its position unchanged (`rs_s3|physical|0/5025A88|reserved`).
+5. s3 and s4 stopped at `0/5025A88`. After the WAL and the promotion of s2, both were pointed at s2.
+   - With a slot on s2 for s3 advanced to s3's position, s3 streamed on timeline 2 and replayed to the new writer's
+     position. s4 also streamed, because s3's slot kept the same WAL; this run does not isolate s4.
+   - Control, with no slot on s2 before promotion and the followers' slots created after it (as P4 does): both
+     failed with `requested WAL segment 000000010000000000000005 has already been removed` and retried. This is the
+     gap, observed for the first time.
+
+**Data model.**
+
+| Datum | Source of truth or derivable | Contract |
+|---|---|---|
+| A member's WAL position: timeline and the flush position of its WAL (on a standby, `received_tli` and `flushed_lsn` of the streaming WAL receiver in `pg_stat_wal_receiver`; on the writer, the timeline of `pg_walfile_name(pg_current_wal_flush_lsn())` and that flush position) | Derived live on that member | Observed by the member's own supervisor only. A standby without a streaming receiver has no position |
+| Published member position | A copy of that observation in the coordinator, one record per member, written only by that member's supervisor | Not authority. It is used for one thing: to advance slots on standbys. It is never read for eligibility, promotion, coverage, routing, or policy. A stale value keeps more WAL, which is safe; a missing value leaves a slot unadvanced, which is also safe. No timestamp is stored |
+| Slots a node holds | Derived: the membership minus this node, on the writer and on every standby | §9.24's rule extended to standbys. The writer's slots advance by streaming; a standby's slots advance only by this design |
+| A slot's position and `wal_status` on any node | Derived live from `pg_replication_slots` | Never stored |
+
+Why a published position cannot cause loss. A slot is advanced to `min(published position, local replay position)`
+(check 2 caps the second term in PostgreSQL itself) and only when the published timeline equals the local replay
+timeline. A member's flush position never decreases within a timeline. A published value is therefore at most the
+member's present position, and a slot advanced to it still keeps every segment the member needs. Advancing never
+moves a slot backwards: the call is made only when the target is above the slot's `restart_lsn`.
+
+**Contracts.**
+
+1. A new port, `PgMemberPositions`, beside `PgLeaseCoordinator`: `publish(nodeId, timeline, lsn)` and
+   `read()` returning every published member position. Obligations: a member writes only its own record (access
+   control); a malformed, partial, filtered, or unauthenticated response fails; reads need not be linearizable,
+   because a stale value is safe. A failed or lost publish leaves the previous value. It has its own contract suite;
+   the lease contract suite is unchanged.
+2. Consul binding: KV key `peegeeq/pg/<clusterId>/<incarnation>/members/<nodeId>`, value
+   `{"timeline": n, "lsn": "X/Y"}`, plain PUT without a session. A delayed older PUT can overwrite a newer one;
+   that only keeps more WAL. ACL: each node's token may write its own member key and read the members prefix.
+3. `PgDurabilityControl.ensureSlots` no longer refuses a server in recovery. P4's refusal (§9.25 probe 3) is
+   replaced by the rule that every node holds the slots of the membership minus itself (OD-35).
+4. `PgDurabilityControl.advanceSlots(Map<nodeId, position>)` on a standby: for each member slot that exists, is
+   physical, is not lost, and whose published timeline equals the local replay timeline, advance it to
+   `min(published, local replay)` when that is above its `restart_lsn`. Every other slot is left unchanged and
+   reported in the result, not failed.
+5. `PgFailoverMonitor.publishPosition()` (any node, no lease) and `PgFailoverMonitor.advanceMemberSlots()` (a
+   standby, no lease, refused under quarantine). They run in the supervisor's loop once one exists; until then,
+   tests call them.
+6. `promoteStandby` is unchanged: its slot step (OD-32) now finds the advanced slots and keeps them (§9.24 contract
+   2, existing slots are never recreated).
+
+**Decisions of the implementer, 2026-11-12, under the owner's direction to proceed with best judgement. Reversible.
+Each one needs the owner's review before tests, because together they change the port and the system design.**
+
+- OD-35: every node holds the member slots (contract 3). The cost is WAL on each standby up to the bound.
+- OD-36: a separate port for member positions, not new operations on the lease port. Reason: the lease port's
+  obligations (linearizable reads, atomic conditions) are stricter than positions need, and its contract suite
+  qualifies writer exclusion; positions must not weaken or widen it.
+- OD-37: the writer also publishes its position, so standbys advance the writer's slot too. Without it each standby
+  keeps the writer's slot unadvanced until the bound loses it.
+- OD-38: no session or TTL on member records (Patroni ties member keys to the member's session). A departed
+  member's record stays; removing it belongs to membership change (phase 14).
+- OD-39: positions are not authority, and the system design §1.1 row "Node role, WAL positions, … Derived" gains
+  this one published, non-authoritative copy. §5.8 step 3 ("do not persist live WAL positions as authority") is
+  unchanged: coverage still observes live WAL.
+
+**Design-document changes, to be made only after review.** System design §1.1 (a row for published member
+positions), §5.10 (the second port, its obligations, and its contract suite), and §5.8's lifecycle note on
+re-join. Coordinator design §1.1 and §3.3 (the members key, its ACL). §9.20 row 20 is a dated snapshot and is not
+edited.
+
+**Dependency failure modes, each with a failing test before its code.**
+
+| Dependency | Modes | Test class |
+|---|---|---|
+| Coordinator, publish and read | failed Future, lost reply, ACL refusal, malformed value, filtered read, no record for a member | new `PgMemberPositionsContract` with a Consul suite |
+| Local server, observation | in recovery or not; no receiver position yet; malformed output; budget; no result | `PgSqlDurabilityControlIntegrationTest` (or a new class: it is near the 10-minute limit) |
+| Local server, advance | slot missing; logical; lost; other timeline; target at or below `restart_lsn`; target above replay (capped) | a new adapter test class |
+| Store | quarantine | `PgSlotIntegrationTest` |
+| End to end | the check-5 scenario on the fixture: a standby stopped, WAL written, the writer lost, the stopped standby follows the new writer and is covered; the same without positions fails | `PgTakeoverIntegrationTest` or a new class |
+
+**Order of work, after review.** P6a the port, the Consul adapter, and its contract suite. P6b `publishPosition`.
+P6c OD-35 and `advanceSlots`. P6d the end-to-end test. Each one: tests and stubs, red, implementation, green,
+probes, the touched classes, core, guards.
+
+**Not decided here.** How often a node publishes and advances (the supervisor loop does not exist yet). Removing a
+departed member's record and slots. A cascading standby.
+
+**Adopted, 2026-11-12.** The owner directed the implementer to finish P6 rather than stop for review. OD-35 to
+OD-39 are adopted as written above and stay reversible. Refinements made before the tests:
+
+- OD-40: publication and advancing live in a new class, `PgMemberSlots`, not in `PgFailoverMonitor`. Reason: the
+  monitor would need a ninth constructor argument (OD-29 avoided one), and neither step needs the monitor's
+  serialization. A published position is never authority, and advancing a slot to `min(published, local replay)` is
+  safe whatever runs at the same time. `PgMemberSlots` refuses both steps under quarantine: a quarantined node's
+  position can belong to a diverged history.
+- OD-41: the new port's failures use `PgLeaseProtocolException`, the coordinator protocol failure of the lease
+  port. Its tests are one Consul class, `ConsulMemberPositionsIntegrationTest`, written against the port. A second
+  adapter moves them into a contract class, as the lease suite is.
+- Contract 4, detail: `advanceSlots` refuses a writer (a writer's slots advance by streaming), refuses a
+  non-physical slot under a member name (as `ensureSlots` does), and skips, without failing, a missing slot, a lost
+  or unreserved slot, a member with no published position, a position on another timeline, a target at or below the
+  slot's `restart_lsn`, and a standby with no streaming WAL receiver (its timeline is then unknown). It returns the
+  members whose slots it advanced. The local timeline is `received_tli` of the streaming WAL receiver.
+- Contract 3, detail: `replaceLostSlot` keeps its refusal in recovery: a lost slot is replaced on the writer for a
+  rebuild. Only `ensureSlots` drops the refusal.
+
+**As built, where the code differs from the design text above.** The code is the record; this list states each
+difference once.
+
+- Contract 1: `publish(PgMemberPosition)` takes one validated record (`nodeId`, `timeline` of at least 1, `lsn`),
+  not three arguments. `close()` is the third operation.
+- Data model, first row: the standby position is `received_tli` and `flushed_lsn` of the streaming WAL receiver, not
+  `pg_last_wal_receive_lsn()`, so that the timeline and the position come from one row. The row above is corrected.
+- Contract 4: `advanceSlots` returns the members whose slots it advanced. The slots it left unchanged are not
+  reported. A non-physical slot under a member name fails the call (refinement above).
+- Contract 5: superseded by OD-40. The two steps are `PgMemberSlots.publishPosition` and `advanceMemberSlots`, not
+  `PgFailoverMonitor` methods. `advanceMemberSlots` first runs `ensureSlots` for the other members.
+- Dependency table: `PgMemberPositionsContract` was not written (OD-41). The Consul suite is
+  `ConsulMemberPositionsIntegrationTest`. Position observation and slot advance are tested in the new class
+  `PgSqlMemberSlotIntegrationTest`, not in `PgSqlDurabilityControlIntegrationTest`.
+
+**Status, 2026-11-12.** Implemented on the working tree, green, mutation-probed, and the module green. The system
+design (§1.1, §5.8, §5.10) and the coordinator design (§1.1, §3.3) now describe member positions and member slots.
+
+**What was built.** `PgMemberPosition` (record, validated); the port `PgMemberPositions`; its Consul adapter
+`ConsulMemberPositions`; `PgDurabilityControl.position` and `advanceSlots` with their SQL adapter; OD-35 in
+`ensureSlots`; `PgMemberSlots.publishPosition` and `advanceMemberSlots`; `PgReplicationFixture.writeWal`.
+
+| Step | Evidence under `logs/` |
+|---|---|
+| P6a red | `peegeeq-pg-failover-p6a-red-core-` and `...-red-consul-20261112.log`: the core rejection test and all 10 Consul tests fail on the stub or the missing refusal |
+| P6a green | `...-p6a-green-core-20261112.log` 2 of 2; `...-p6a-green-consul-run2-20261112.log` 10 of 10. The first green run failed one test because the test's ACL rule was wrong: a `list` rule on the prefix lets a recursive read return every value on Consul 1.22.1 (probe of the server, recorded in coordinator design §3.3). The test was corrected, not the adapter |
+| P6b to P6d red | `...-p6bcd-red-adapter-` and `...-red-slot-takeover-20261112.log`: every new and changed test fails on a stub or on P4's refusal in recovery, except `withoutSlotsOnStandbysAStandbyStoppedBeforeTheTakeoverCannotFollowTheNewWriter`, which passes before and after: it is the gap on the real fixture, the standby's log showing `has already been removed` |
+| P6b to P6d green | `...-p6bcd-green-adapter-` 11 of 11, `...-green-slot-takeover-` 5 of 5, `...-p6-green-timeline-20261112.log` 2 of 2 after the timeline assertions were added. End to end: a standby stopped before the takeover follows the new writer through the slot the new writer kept for it as a standby, is covered, and both nodes then publish positions on timeline 2 |
+| Probes 20 to 31 and 33 | 13 probes; number 32 was not used. `...-p6-mutation<N>-red-20261112.log`; SHA-256 of the 4 files equal before and after (`...-p6-mutation-sha-before-` and `...-sha-after-`). 12 of 13 detected: 20 own-node check, 21 filtered read, 22 membership of a key, 24 timeline match, 25 forward only (`cannot advance replication slot to 0/2000027, minimum is 0/2000028`), 26 unreserved or lost skip, 27 no-receiver skip, 28 writer refusal, 29 the writer's timeline (a constant 1 fails the timeline-2 assertion), 30 quarantine, 31 the slot step on a standby, 33 the record's timeline check. Not detected: 23, the cap at the replay position. PostgreSQL applies the same cap (check 2), so the code's cap is a second layer that no test can separate; it is kept because it states the rule |
+| Regression, integration | 18 classes, **276** tests, 0 failures: durability 29 (403 s), takeover 11, promotion adapter 19, promotion 17, bootstrap serving 15, policy installation 14, follow 10, slot 11, member-slot adapter 10, Consul member positions 10, the five small classes 33, monitor, Consul coordinator, and renewal loop 97. Logs `...-p6-regress-*-20261112.log` |
+| Core | `...-p6-core-20261112.log`: 400, 0 failures |
+| Javadoc correction after the regression | The `PgDurabilityControl` Javadoc of `ensureSlots`, `replaceLostSlot`, and `advanceSlots` still stated P4's refusal in recovery and called a non-physical slot a skip. Comment-only edit; `rebuild-peegeeq-pg-failover-p6-javadoc-20261112.log` BUILD SUCCESS; core and guards re-run after it (`...-p6-javadoc-core-` and `peegeeq-test-support-p6-javadoc-guards-20261112.log`) |
+
+**Simplification during P6.** `PgMemberSlots` first filtered the published positions to the other members. The read
+admits members only and a node holds no slot of its own, so the filter changed nothing and a probe of it could not
+be detected; it was deleted before the probes.
+
+**Not checked.** A lost slot on a standby (the advance skips it by the same branch as an unreserved slot, which is
+tested). A non-physical slot under a member name on a standby, which PostgreSQL 15 cannot create (logical slots on a
+standby arrive in PostgreSQL 16). How often a node publishes and advances; there is no supervisor loop yet, so
+nothing outside tests calls `PgMemberSlots`. A re-joining former writer streaming through its advanced slot. A second
+coordinator adapter.

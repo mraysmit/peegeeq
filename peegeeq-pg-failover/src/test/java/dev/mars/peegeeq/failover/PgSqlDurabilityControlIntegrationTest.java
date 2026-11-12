@@ -216,17 +216,24 @@ class PgSqlDurabilityControlIntegrationTest {
     @Test void outputThatIsNotAnObservationIsRejected(VertxTestContext context) {
         // echo exits 0 and prints its arguments, so the output is not an observation.
         var control = control(WRITER, NODES.node(WRITER).prefix(), "echo", COMMAND_TIMEOUT);
-        control.flushBoundary().transform(boundary -> {
-            assertTrue(boundary.failed(), "Unparseable output was accepted as a flush position");
-            assertInstanceOf(PgDurabilityException.class, boundary.cause());
-            assertTrue(boundary.cause().getMessage().startsWith("Malformed durability observation"),
-                boundary.cause().getMessage());
-            return control.peers();
-        }).onComplete(context.failing(failure -> context.verify(() -> {
-            assertInstanceOf(PgDurabilityException.class, failure);
-            assertTrue(failure.getMessage().startsWith("Malformed durability observation"), failure.getMessage());
-            context.completeNow();
-        })));
+        String malformed = "Malformed durability observation";
+        control.flushBoundary().transform(boundary -> refused(boundary, malformed))
+            .compose(ignored -> control.peers().transform(peers -> refused(peers, malformed)))
+            .compose(ignored -> control.ensureSlots(List.of("pg-node-9")).transform(ensured -> refused(ensured, malformed)))
+            .compose(ignored -> control.replaceLostSlot("pg-node-9").transform(replaced -> refused(replaced, malformed)))
+            .onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+    }
+
+    /**
+     * Asserts that the operation failed with a {@link PgDurabilityException} whose message starts with the prefix,
+     * and succeeds. The next step follows through {@code compose}, so a failed assertion ends the chain with its own
+     * message instead of reaching the next step as an unexpected failure.
+     */
+    private static Future<Void> refused(io.vertx.core.AsyncResult<?> outcome, String messagePrefix) {
+        assertTrue(outcome.failed(), "The operation succeeded; expected a failure starting with: " + messagePrefix);
+        assertInstanceOf(PgDurabilityException.class, outcome.cause());
+        assertTrue(outcome.cause().getMessage().startsWith(messagePrefix), outcome.cause().getMessage());
+        return Future.succeededFuture();
     }
 
     @Test void anInstallWithoutTimeToRunFailsPromptly(VertxTestContext context) {
@@ -355,31 +362,205 @@ class PgSqlDurabilityControlIntegrationTest {
     @Test void aRunnerThatReturnsNoResultFailsEveryOperation(VertxTestContext context) {
         var silent = new PgSqlDurabilityControl(vertx, new NoResultCommandRunner(runner), NODES.node(WRITER).prefix(),
             PgSupervisedContainer.PG_CTL, "psql", NODES.dataDirectory(), COMMAND_TIMEOUT);
-        silent.flushBoundary().transform(boundary -> {
-            assertNoResult(boundary);
-            return silent.peers();
-        }).transform(peers -> {
-            assertNoResult(peers);
-            return silent.confirmCovered(POLICY);
-        }).transform(coverage -> {
-            assertNoResult(coverage);
-            return silent.install(POLICY);
-        }).onComplete(context.failing(failure -> context.verify(() -> {
-            assertInstanceOf(PgDurabilityException.class, failure);
-            assertTrue(failure.getMessage().startsWith("Command returned no result"), failure.getMessage());
-            context.completeNow();
-        })));
-    }
-
-    private static void assertNoResult(io.vertx.core.AsyncResult<?> outcome) {
-        assertTrue(outcome.failed(), "An operation succeeded although its command returned no result");
-        assertInstanceOf(PgDurabilityException.class, outcome.cause());
-        assertTrue(outcome.cause().getMessage().startsWith("Command returned no result"),
-            outcome.cause().getMessage());
+        String noResult = "Command returned no result";
+        silent.flushBoundary().transform(boundary -> refused(boundary, noResult))
+            .compose(ignored -> silent.peers().transform(peers -> refused(peers, noResult)))
+            .compose(ignored -> silent.confirmCovered(POLICY).transform(coverage -> refused(coverage, noResult)))
+            .compose(ignored -> silent.install(POLICY).transform(install -> refused(install, noResult)))
+            .compose(ignored -> silent.ensureSlots(List.of("pg-node-9")).transform(ensured -> refused(ensured, noResult)))
+            .compose(ignored -> silent.replaceLostSlot("pg-node-9").transform(replaced -> refused(replaced, noResult)))
+            .onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
     }
 
     @Test void coverageWithoutTimeToRunFailsPromptly(VertxTestContext context) {
         control(WRITER, NODES.node(WRITER).prefix(), "psql", Duration.ofMillis(1)).confirmCovered(POLICY)
+            .onComplete(context.failing(failure -> context.verify(() -> {
+                assertInstanceOf(PgDurabilityException.class, failure);
+                assertTrue(failure.getMessage().startsWith("Durability budget exhausted"), failure.getMessage());
+                context.completeNow();
+            })));
+    }
+
+    // ---------------------------------------------------------------- member replication slots
+
+    @Test void missingMemberSlotsAreCreatedAsPermanentPhysicalSlotsWithAReservedPosition(VertxTestContext context) {
+        control(WRITER).ensureSlots(List.of("pg-node-8", "pg-node-9"))
+            .compose(ignored -> NODES.node(WRITER).sql(runner, "select string_agg(slot_name || '|' || slot_type || '|' "
+                + "|| temporary::text || '|' || (restart_lsn is not null)::text, ',' order by slot_name) "
+                + "from pg_replication_slots where slot_name in ('peegeeq_pg_node_8', 'peegeeq_pg_node_9')"))
+            .onSuccess(slots -> context.verify(() -> {
+                assertEquals(0, slots.exitCode(), slots.output());
+                assertEquals("peegeeq_pg_node_8|physical|false|true,peegeeq_pg_node_9|physical|false|true",
+                    slots.output().strip(), "Each missing member slot is a permanent physical slot with a reserved position");
+                context.completeNow();
+            })).onFailure(context::failNow);
+    }
+
+    @Test void aSlotThatExistsIsNeitherRecreatedNorMovedAndTheProvisionedSlotsAreKept(VertxTestContext context) {
+        var writer = NODES.node(WRITER);
+        // Created without a reserved position. A slot that ensureSlots recreated would have one.
+        writer.sql(runner, "select pg_create_physical_replication_slot('peegeeq_pg_node_9')").compose(created -> {
+            assertEquals(0, created.exitCode(), created.output());
+            List<String> members = new ArrayList<>(STANDBYS);
+            members.add("pg-node-9");
+            return control(WRITER).ensureSlots(members);
+        }).compose(ignored -> writer.sql(runner, "select coalesce(restart_lsn::text, 'none') from pg_replication_slots "
+                + "where slot_name = 'peegeeq_pg_node_9'"))
+            .compose(kept -> {
+                assertEquals("none", kept.output().strip(), "An existing slot was recreated or moved");
+                return writer.sql(runner, "select count(*) from pg_replication_slots where slot_type = 'physical' "
+                    + "and active and slot_name in ('peegeeq_pg_node_2', 'peegeeq_pg_node_3')");
+            }).onSuccess(provisioned -> context.verify(() -> {
+                assertEquals("2", provisioned.output().strip(), "A provisioned standby slot is gone or no longer in use");
+                context.completeNow();
+            })).onFailure(context::failNow);
+    }
+
+    @Test void aStandbyHoldsMemberSlotsButALostSlotIsReplacedOnlyOnTheWriter(VertxTestContext context) {
+        var standby = STANDBYS.get(0);
+        // Every node holds the member slots (OD-35); a lost slot is replaced on the writer for a rebuild (plan §9.26).
+        control(standby).ensureSlots(List.of("pg-node-9"))
+            .compose(ignored -> control(standby).replaceLostSlot("pg-node-9").transform(replaced -> refused(replaced,
+                "PostgreSQL is in recovery; a lost member slot is replaced on the writer")))
+            .compose(ignored -> NODES.node(standby).sql(runner, "select slot_type || '|' || (restart_lsn is not null)::text "
+                + "from pg_replication_slots where slot_name = 'peegeeq_pg_node_9'"))
+            .onSuccess(slot -> context.verify(() -> {
+                assertEquals("physical|true", slot.output().strip(),
+                    "The standby does not hold a reserved physical slot for the member");
+                context.completeNow();
+            })).onFailure(context::failNow);
+    }
+
+    @Test void anUnboundedSlotRetentionIsRefusedAndNoSlotIsCreated(VertxTestContext context) {
+        var writer = NODES.node(WRITER);
+        String directory = NODES.dataDirectory();
+        // A server-start option outranks postgresql.conf, as a deployment's unbounded setting would.
+        writer.forceStop(runner, directory)
+            .compose(ignored -> writer.exec(runner, PgSupervisedContainer.PG_CTL, "start", "-D", directory, "-w",
+                "-l", writer.logFile(directory), "-o", "-c max_slot_wal_keep_size=-1"))
+            .compose(started -> {
+                if (started.exitCode() != 0) {
+                    return Future.<Void>failedFuture(new AssertionError("Unbounded start failed: " + started.output()));
+                }
+                String unbounded = "max_slot_wal_keep_size is -1";
+                return control(WRITER).ensureSlots(List.of("pg-node-9")).transform(ensured -> refused(ensured, unbounded))
+                    .compose(ignored -> control(WRITER).replaceLostSlot("pg-node-9")
+                        .transform(replaced -> refused(replaced, unbounded)));
+            }).compose(ignored -> writer.sql(runner, "select count(*) from pg_replication_slots where slot_name = "
+                + "'peegeeq_pg_node_9'"))
+            .onSuccess(count -> context.verify(() -> {
+                assertEquals("0", count.output().strip(), "A refused call created a slot");
+                context.completeNow();
+            })).onFailure(context::failNow);
+    }
+
+    @Test void aLogicalSlotUnderAMemberSlotNameFailsTheCallAndIsKept(VertxTestContext context) {
+        var writer = NODES.node(WRITER);
+        String directory = NODES.dataDirectory();
+        // A logical slot needs wal_level logical, which is set at server start.
+        writer.forceStop(runner, directory)
+            .compose(ignored -> writer.exec(runner, PgSupervisedContainer.PG_CTL, "start", "-D", directory, "-w",
+                "-l", writer.logFile(directory), "-o", "-c wal_level=logical"))
+            .compose(started -> {
+                if (started.exitCode() != 0) {
+                    return Future.<PgCommandResult>failedFuture(new AssertionError("Logical start failed: " + started.output()));
+                }
+                return writer.sql(runner, "select pg_create_logical_replication_slot('peegeeq_pg_node_9', 'test_decoding')");
+            }).compose(created -> {
+                assertEquals(0, created.exitCode(), created.output());
+                String logical = "Replication slot peegeeq_pg_node_9 is a logical slot";
+                return control(WRITER).ensureSlots(List.of("pg-node-9")).transform(ensured -> refused(ensured, logical))
+                    .compose(ignored -> control(WRITER).replaceLostSlot("pg-node-9")
+                        .transform(replaced -> refused(replaced, logical)));
+            }).compose(ignored -> writer.sql(runner, "select slot_type from pg_replication_slots where slot_name = "
+                + "'peegeeq_pg_node_9'"))
+            .onSuccess(type -> context.verify(() -> {
+                assertEquals("logical", type.output().strip(), "A slot under a member name was replaced or dropped");
+                context.completeNow();
+            })).onFailure(context::failNow);
+    }
+
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.LocalCommandRunner",
+        message = "Command could not run: [/nonexistent/docker",
+        messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = IOException.class)
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgSqlDurabilityControl",
+        message = "Durability command failed: psql",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgProcessControlException.class)
+    void aCommandThatCannotRunFailsSlotCreationAndIsReported(VertxTestContext context) {
+        control(WRITER, List.of("/nonexistent/docker"), "psql", COMMAND_TIMEOUT).ensureSlots(List.of("pg-node-9"))
+            .onComplete(context.failing(failure -> context.verify(() -> {
+                assertInstanceOf(PgDurabilityException.class, failure);
+                assertInstanceOf(PgProcessControlException.class, failure.getCause());
+                context.completeNow();
+            })));
+    }
+
+    @Test
+    // Writing 96 MB of WAL and waiting for the slot to be lost can exceed the 30-second Vert.x default.
+    @io.vertx.junit5.Timeout(value = 120, timeUnit = TimeUnit.SECONDS)
+    void aRequiredStandbyWhoseSlotIsLostFailsCoverageAtOnceAndNamesTheSlot(VertxTestContext context) {
+        var writer = NODES.node(WRITER);
+        var lost = STANDBYS.get(1);
+        String slot = PgNodeConfig.slotName(lost);
+        var budget = Duration.ofSeconds(20);
+        NODES.loseSlot(vertx, runner, lost)
+            .compose(ignored -> {
+                long started = System.nanoTime();
+                return control(WRITER, writer.prefix(), "psql", budget)
+                    .confirmCovered(new PgDurabilityPolicy(2, List.of(lost))).transform(coverage -> {
+                        assertTrue(coverage.failed(), "Coverage was confirmed for a standby whose slot is lost");
+                        assertInstanceOf(PgDurabilityException.class, coverage.cause());
+                        assertFalse(coverage.cause() instanceof PgStandbyNotCoveredException,
+                            "A lost slot was reported as a wait: " + coverage.cause());
+                        assertTrue(coverage.cause().getMessage().startsWith("Replication slot " + slot
+                            + " of required standby " + lost + " is lost"), coverage.cause().getMessage());
+                        assertTrue(System.nanoTime() - started < budget.dividedBy(4).toNanos(),
+                            "A lost slot was retried until the budget ended");
+                        return Future.<Void>succeededFuture();
+                    });
+            }).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+    }
+
+    @Test
+    // Writing 96 MB of WAL and waiting for the slot to be lost can exceed the 30-second Vert.x default.
+    @io.vertx.junit5.Timeout(value = 120, timeUnit = TimeUnit.SECONDS)
+    void aLostSlotIsReplacedByAPhysicalSlotWithAReservedPosition(VertxTestContext context) {
+        var lost = STANDBYS.get(1);
+        String slot = PgNodeConfig.slotName(lost);
+        NODES.loseSlot(vertx, runner, lost).compose(ignored -> control(WRITER).replaceLostSlot(lost))
+            .compose(ignored -> NODES.node(WRITER).sql(runner, "select slot_type || '|' || coalesce(wal_status, 'none') "
+                + "|| '|' || (restart_lsn is not null)::text from pg_replication_slots where slot_name = '" + slot + "'"))
+            .onSuccess(replaced -> context.verify(() -> {
+                assertEquals("physical|reserved|true", replaced.output().strip(),
+                    "The lost slot was not replaced by a physical slot with a reserved position");
+                context.completeNow();
+            })).onFailure(context::failNow);
+    }
+
+    @Test void aSlotThatIsNotLostIsNeverReplacedAndAMissingSlotIsRefused(VertxTestContext context) {
+        var writer = NODES.node(WRITER);
+        var kept = STANDBYS.get(0);
+        control(WRITER).replaceLostSlot(kept)
+            .transform(replace -> refused(replace, "Replication slot " + PgNodeConfig.slotName(kept) + " is not lost"))
+            .compose(ignored -> control(WRITER).replaceLostSlot("pg-node-9")
+                .transform(replace -> refused(replace, "Replication slot peegeeq_pg_node_9 does not exist")))
+            .compose(ignored -> writer.sql(runner, "select string_agg(slot_name || '|' || active::text, ',' "
+                + "order by slot_name) from pg_replication_slots"))
+            .onSuccess(slots -> context.verify(() -> {
+            assertEquals("peegeeq_pg_node_2|true,peegeeq_pg_node_3|true", slots.output().strip(),
+                "A refused replacement dropped, moved, or created a slot");
+            context.completeNow();
+        })).onFailure(context::failNow);
+    }
+
+    @Test void slotCreationWithoutTimeToRunFailsPromptly(VertxTestContext context) {
+        control(WRITER, NODES.node(WRITER).prefix(), "psql", Duration.ofMillis(1)).ensureSlots(List.of("pg-node-9"))
             .onComplete(context.failing(failure -> context.verify(() -> {
                 assertInstanceOf(PgDurabilityException.class, failure);
                 assertTrue(failure.getMessage().startsWith("Durability budget exhausted"), failure.getMessage());

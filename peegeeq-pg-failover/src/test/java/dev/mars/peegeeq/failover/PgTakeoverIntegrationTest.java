@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.failover;
 
 import dev.mars.peegeeq.failover.consul.ConsulLeaseCoordinator;
+import dev.mars.peegeeq.failover.consul.ConsulMemberPositions;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.AsyncResult;
@@ -56,6 +57,7 @@ class PgTakeoverIntegrationTest {
     private static final PgReplicationFixture NODES = new PgReplicationFixture();
     @TempDir Path stateDirectory;
     private final List<PgPrimaryElector> observers = new ArrayList<>();
+    private final List<PgMemberPositions> positionAdapters = new ArrayList<>();
     private Vertx vertx;
     private WebClient admin;
     private PgCommandRunner runner;
@@ -131,6 +133,9 @@ class PgTakeoverIntegrationTest {
         for (PgPrimaryElector observer : observers) {
             closed = closed.compose(ignored -> observer.close().transform(done -> settle(done, failures)));
         }
+        for (PgMemberPositions positions : positionAdapters) {
+            closed = closed.compose(ignored -> positions.close().transform(done -> settle(done, failures)));
+        }
         closed.onSuccess(ignored -> context.verify(() -> {
             admin.close();
             if (failures.isEmpty()) {
@@ -187,9 +192,14 @@ class PgTakeoverIntegrationTest {
             }).compose(write -> {
                 assertEquals(0, write.exitCode(), "A committed write under the cut-over policy failed: " + write.output());
                 return writer.sql(runner, "select application_name || '|' || sync_state from pg_stat_replication");
-            })).onSuccess(replication -> context.verify(() -> {
+            }).compose(replication -> {
                 assertEquals(FOLLOWER + "|quorum", replication.output().strip(),
                     "The surviving standby is not the synchronous peer of the new writer");
+                return writer.sql(runner, "select string_agg(slot_name || '|' || active::text, ',' order by slot_name) "
+                    + "from pg_replication_slots");
+            })).onSuccess(slots -> context.verify(() -> {
+                assertEquals("peegeeq_pg_node_1|false,peegeeq_pg_node_3|true", slots.output().strip(),
+                    "The new writer must keep the former writer's slot for re-join and stream the follower through its own");
                 context.completeNow();
             })).onFailure(context::failNow);
     }
@@ -368,14 +378,117 @@ class PgTakeoverIntegrationTest {
         takeover(STANDBYS, null).compose(this::promoted).compose(held -> follow(held).compose(followed -> {
             coordinator.onUpdate((current, intent) ->
                 Future.failedFuture(new PgLeaseProtocolException("injected update failure")));
-            return takeoverOf(monitor).cutover(held, PgFailoverMode.MANUAL);
-        }).transform(result -> {
-            coordinator.clearHooks();
-            assertTrue(result.failed(), "The cutover continued although the pending policy was not written");
-            assertInstanceOf(PgLeaseProtocolException.class, result.cause());
-            assertFalse(elector.hasFreshOwnership(), "A failed update must retire ownership");
-            return assertUnchanged(held);
+            // The outcome judged here is the cutover's alone; a failure of the set-up steps fails the test as itself.
+            return takeoverOf(monitor).cutover(held, PgFailoverMode.MANUAL).transform(result -> {
+                coordinator.clearHooks();
+                assertTrue(result.failed(), "The cutover continued although the pending policy was not written");
+                assertInstanceOf(PgLeaseProtocolException.class, result.cause());
+                assertFalse(elector.hasFreshOwnership(), "A failed update must retire ownership");
+                return assertUnchanged(held);
+            });
         })).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+    }
+
+    // ---------------------------------------------------------------- a standby stopped before the takeover (plan §9.27)
+
+    @Test
+    // Publishing, 96 MB of WAL, the takeover, and the stopped standby's catch-up exceed the 30-second Vert.x default.
+    @io.vertx.junit5.Timeout(value = 180, timeUnit = TimeUnit.SECONDS)
+    void aStandbyStoppedBeforeTheTakeoverFollowsTheNewWriterThroughTheSlotItKeptAsAStandby(VertxTestContext context) {
+        loseTheWriterWhileTheFollowerIsStopped(true)
+            .compose(held -> NODES.control(runner, FOLLOWER).startInRecovery().compose(ignored -> follow(held)))
+            .compose(ignored -> durabilityOf(NEW_WRITER, COMMAND_TIMEOUT)
+                .confirmCovered(new PgDurabilityPolicy(2, List.of(FOLLOWER))))
+            // After the takeover both nodes publish positions on the promotion's timeline.
+            .compose(ignored -> memberSlots(NEW_WRITER, store).publishPosition())
+            .compose(ignored -> memberSlots(FOLLOWER, followerStore).publishPosition())
+            .compose(ignored -> positionsOf(NEW_WRITER).read())
+            .onSuccess(published -> context.verify(() -> {
+                assertEquals(2, published.get(NEW_WRITER).timeline(), "The new writer's position is not on timeline 2");
+                assertEquals(2, published.get(FOLLOWER).timeline(), "The follower's position is not on timeline 2");
+                context.completeNow();
+            })).onFailure(context::failNow);
+    }
+
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Local supervision operation failed on node pg-node-3",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgPromotionException.class)
+    // The same takeover; the follow then waits out its 20-second budget.
+    @io.vertx.junit5.Timeout(value = 180, timeUnit = TimeUnit.SECONDS)
+    void withoutSlotsOnStandbysAStandbyStoppedBeforeTheTakeoverCannotFollowTheNewWriter(VertxTestContext context) {
+        String log = NODES.node(FOLLOWER).logFile(NODES.dataDirectory());
+        loseTheWriterWhileTheFollowerIsStopped(false)
+            .compose(held -> NODES.control(runner, FOLLOWER).startInRecovery().compose(ignored -> follow(held)
+                .transform(follow -> {
+                    assertTrue(follow.failed(), "The stopped standby followed although no node kept the WAL it needs");
+                    assertInstanceOf(PgPromotionException.class, follow.cause());
+                    assertTrue(follow.cause().getMessage().startsWith("WAL receiver is not streaming from " + NEW_WRITER
+                        + ":5432 through slot " + PgNodeConfig.slotName(FOLLOWER)), follow.cause().getMessage());
+                    return Future.<Void>succeededFuture();
+                })))
+            .compose(ignored -> NODES.node(FOLLOWER).exec(runner, "grep", "-c", "has already been removed", log))
+            .onSuccess(removed -> context.verify(() -> {
+                assertNotEquals("0", removed.output().strip(),
+                    "The standby did not fail because the new writer had removed the WAL it needs");
+                context.completeNow();
+            })).onFailure(context::failNow);
+    }
+
+    /**
+     * The writer and the follower publish their positions and the follower stops. When {@code standbySlots}, the new
+     * writer, still a standby, advances its member slots to those positions. The writer then writes 96 MB of WAL, more
+     * than {@code wal_keep_size} keeps, and checkpoints; the new writer replays it and makes a restartpoint, which
+     * removes the WAL that nothing on it keeps. Then the takeover, which stops the former writer, and the promotion.
+     */
+    private Future<PgControlRecord> loseTheWriterWhileTheFollowerIsStopped(boolean standbySlots) {
+        Future<Void> published = !standbySlots ? Future.succeededFuture()
+            : memberStore(WRITER).compose(writerStore -> memberSlots(WRITER, writerStore).publishPosition())
+                .compose(ignored -> memberSlots(FOLLOWER, followerStore).publishPosition());
+        return published.compose(ignored -> NODES.node(FOLLOWER).forceStop(runner, NODES.dataDirectory()))
+            .compose(ignored -> !standbySlots ? Future.<Void>succeededFuture()
+                : positionsOf(NEW_WRITER).read().compose(positions -> awaitReplay(NEW_WRITER, positions.get(FOLLOWER).lsn()))
+                    .compose(caughtUp -> memberSlots(NEW_WRITER, store).advanceMemberSlots()).map(advanced -> {
+                        assertTrue(advanced.contains(FOLLOWER), "The new writer did not advance the follower's slot");
+                        return null;
+                    }))
+            .compose(ignored -> NODES.writeWal(runner, 96))
+            .compose(ignored -> NODES.node(WRITER).sql(runner, "select pg_current_wal_flush_lsn()"))
+            .compose(flush -> awaitReplay(NEW_WRITER, PgLsn.parse(flush.output().strip())))
+            .compose(ignored -> NODES.node(NEW_WRITER).sql(runner, "checkpoint"))
+            .compose(ignored -> takeover(STANDBYS, null)).compose(this::promoted);
+    }
+
+    private PgMemberSlots memberSlots(String nodeId, PgLocalStateStore nodeStore) {
+        return new PgMemberSlots(nodeConfig(nodeId, config.incarnation()), nodeStore,
+            durabilityOf(nodeId, COMMAND_TIMEOUT), positionsOf(nodeId));
+    }
+
+    private PgMemberPositions positionsOf(String nodeId) {
+        var positions = new ConsulMemberPositions(vertx, nodeConfig(nodeId, config.incarnation()), endpoint(), TOKEN);
+        positionAdapters.add(positions);
+        return positions;
+    }
+
+    private Future<PgLocalStateStore> memberStore(String nodeId) {
+        Path state = stateDirectory.resolve("member-" + nodeId);
+        return vertx.fileSystem().mkdirs(state.toString()).compose(ignored -> PgLocalStateStore.open(vertx, state, nodeId));
+    }
+
+    private Future<Void> awaitReplay(String nodeId, PgLsn target) {
+        return awaitReplay(nodeId, target, System.nanoTime() + TimeUnit.SECONDS.toNanos(60));
+    }
+
+    private Future<Void> awaitReplay(String nodeId, PgLsn target, long deadline) {
+        return NODES.node(nodeId).sql(runner, "select pg_last_wal_replay_lsn()").compose(observed -> {
+            if (PgLsn.parse(observed.output().strip()).reached(target)) return Future.<Void>succeededFuture();
+            if (System.nanoTime() >= deadline) {
+                return Future.<Void>failedFuture(new AssertionError(nodeId + " did not replay to " + target));
+            }
+            return vertx.timer(100).compose(ignored -> awaitReplay(nodeId, target, deadline));
+        });
     }
 
     // ---------------------------------------------------------------- wrapper over the real durability control
@@ -409,6 +522,16 @@ class PgTakeoverIntegrationTest {
         }
 
         @Override public Future<Void> install(PgDurabilityPolicy policy) { return real.install(policy); }
+
+        @Override public Future<Void> ensureSlots(List<String> nodeIds) { return real.ensureSlots(nodeIds); }
+
+        @Override public Future<Void> replaceLostSlot(String nodeId) { return real.replaceLostSlot(nodeId); }
+
+        @Override public Future<PgMemberPosition> position(String nodeId) { return real.position(nodeId); }
+
+        @Override public Future<java.util.Set<String>> advanceSlots(java.util.Map<String, PgMemberPosition> positions) {
+            return real.advanceSlots(positions);
+        }
     }
 
     // ---------------------------------------------------------------- helpers

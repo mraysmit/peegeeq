@@ -179,18 +179,25 @@ class PgSqlPromotionControlIntegrationTest {
 
     // ---------------------------------------------------------------- following a writer
 
-    @Test void aStandbyFollowsTheNewWriterAndStreamsFromIt(VertxTestContext context) {
+    @Test void aStandbyFollowsTheNewWriterAndStreamsFromItThroughItsOwnSlot(VertxTestContext context) {
         var follower = NODES.node(FOLLOWER);
-        control(STANDBY).promote().compose(ignored -> control(FOLLOWER).follow(FOLLOWER, writerEndpoint()))
-            .compose(ignored -> follower.sql(runner,
-                "select status || '|' || sender_host || '|' || sender_port from pg_stat_wal_receiver"))
+        var slot = PgNodeConfig.slotName(FOLLOWER);
+        // The writer was promoted through the adapter, so its slot step runs here, as promoteStandby runs it.
+        control(STANDBY).promote().compose(ignored -> durability(STANDBY).ensureSlots(List.of(FOLLOWER)))
+            .compose(ignored -> control(FOLLOWER).follow(FOLLOWER, writerEndpoint()))
+            .compose(ignored -> follower.sql(runner, "select status || '|' || sender_host || '|' || sender_port "
+                + "|| '|' || slot_name from pg_stat_wal_receiver"))
             .compose(receiver -> {
-                assertEquals("streaming|" + STANDBY + "|5432", receiver.output().strip(),
-                    "The follower does not stream from the new writer");
+                assertEquals("streaming|" + STANDBY + "|5432|" + slot, receiver.output().strip(),
+                    "The follower does not stream from the new writer through its own slot");
                 return NODES.node(STANDBY).sql(runner, "select count(*) from pg_stat_replication where "
                     + "application_name = '" + FOLLOWER + "' and usename = '" + FOLLOWER + "' and state = 'streaming'");
             }).compose(peer -> {
                 assertEquals("1", peer.output().strip(), "The new writer does not see the follower as a peer");
+                return NODES.node(STANDBY).sql(runner, "select active::text from pg_replication_slots where "
+                    + "slot_name = '" + slot + "'");
+            }).compose(active -> {
+                assertEquals("true", active.output().strip(), "The new writer's slot for the follower is not in use");
                 return follower.sql(runner, "select pg_is_in_recovery()");
             }).onSuccess(recovery -> context.verify(() -> {
                 assertEquals("t", recovery.output().strip(), "A follower must stay a standby");
@@ -198,14 +205,22 @@ class PgSqlPromotionControlIntegrationTest {
             })).onFailure(context::failNow);
     }
 
-    @Test void theInstalledConnectionStringKeepsTheIdentityAndHoldsNoPassword(VertxTestContext context) {
+    @Test void theInstalledSettingsKeepTheIdentityNameTheSlotAndHoldNoPassword(VertxTestContext context) {
         var follower = NODES.node(FOLLOWER);
-        control(STANDBY).promote().compose(ignored -> control(FOLLOWER).follow(FOLLOWER, writerEndpoint()))
+        // The base backup wrote the follower's slot name. Removing it shows that following installs it.
+        follower.sql(runner, "alter system reset primary_slot_name").compose(reset -> {
+            assertEquals(0, reset.exitCode(), reset.output());
+            return control(STANDBY).promote();
+        }).compose(ignored -> durability(STANDBY).ensureSlots(List.of(FOLLOWER)))
+            .compose(ignored -> control(FOLLOWER).follow(FOLLOWER, writerEndpoint()))
             .compose(ignored -> follower.sql(runner, "select setting from pg_settings where name = 'primary_conninfo'"))
-            .onSuccess(conninfo -> context.verify(() -> {
+            .compose(conninfo -> {
                 String installed = conninfo.output().strip();
                 assertEquals(writerEndpoint().connectionInfo(FOLLOWER), installed);
                 assertFalse(installed.contains("password"), "A password reached the connection string: " + installed);
+                return follower.sql(runner, "select setting from pg_settings where name = 'primary_slot_name'");
+            }).onSuccess(slot -> context.verify(() -> {
+                assertEquals(PgNodeConfig.slotName(FOLLOWER), slot.output().strip(), "Following did not install the slot");
                 context.completeNow();
             })).onFailure(context::failNow);
     }
@@ -215,12 +230,68 @@ class PgSqlPromotionControlIntegrationTest {
             assertTrue(follow.failed(), "A writable server was pointed at another writer");
             assertInstanceOf(PgPromotionException.class, follow.cause());
             assertTrue(follow.cause().getMessage().startsWith("PostgreSQL is writable"), follow.cause().getMessage());
-            return NODES.node(WRITER).sql(runner, "select count(*) from pg_settings where name = 'primary_conninfo' "
-                + "and setting <> ''");
+            return NODES.node(WRITER).sql(runner, "select count(*) from pg_settings where name in "
+                + "('primary_conninfo', 'primary_slot_name') and setting <> ''");
         }).onSuccess(configured -> context.verify(() -> {
-            assertEquals("0", configured.output().strip(), "A refused follow installed a connection string");
+            assertEquals("0", configured.output().strip(), "A refused follow installed a connection string or a slot");
             context.completeNow();
         })).onFailure(context::failNow);
+    }
+
+    @Test void aWriterWithoutTheFollowersSlotIsNotReportedAsFollowedAndTheWaitEndsWithinItsBudget(
+            VertxTestContext context) {
+        var budget = Duration.ofSeconds(5);
+        var control = control(FOLLOWER, NODES.node(FOLLOWER).prefix(), PgSupervisedContainer.PG_CTL, "psql", budget);
+        control(STANDBY).promote().compose(ignored -> {
+            long started = System.nanoTime();
+            return control.follow(FOLLOWER, writerEndpoint()).transform(follow -> {
+                assertTrue(follow.failed(), "A follow was confirmed although the writer has no slot for the follower");
+                assertInstanceOf(PgPromotionException.class, follow.cause());
+                assertTrue(follow.cause().getMessage().startsWith("WAL receiver is not streaming from " + STANDBY
+                    + ":5432 through slot " + PgNodeConfig.slotName(FOLLOWER)), follow.cause().getMessage());
+                assertTrue(System.nanoTime() - started < budget.plusSeconds(10).toNanos(), "The wait overran its budget");
+                return Future.<Void>succeededFuture();
+            });
+        }).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+    }
+
+    @Test void aReceiverThatStreamsFromTheWriterThroughAnotherSlotIsNotReportedAsFollowed(VertxTestContext context) {
+        var follower = NODES.node(FOLLOWER);
+        String directory = NODES.dataDirectory();
+        var control = control(FOLLOWER, follower.prefix(), PgSupervisedContainer.PG_CTL, "psql", Duration.ofSeconds(10));
+        // A server-start option outranks the slot name that following installs, so the receiver streams from
+        // the requested address through another slot. That slot exists on both writers.
+        createSlot(WRITER, "peegeeq_elsewhere").compose(ignored -> control(STANDBY).promote())
+            .compose(ignored -> durability(STANDBY).ensureSlots(List.of(FOLLOWER)))
+            .compose(ignored -> createSlot(STANDBY, "peegeeq_elsewhere"))
+            .compose(ignored -> follower.forceStop(runner, directory))
+            .compose(ignored -> follower.exec(runner, PgSupervisedContainer.PG_CTL, "start", "-D", directory, "-w",
+                "-l", follower.logFile(directory), "-o", "-c primary_slot_name=peegeeq_elsewhere"))
+            .compose(started -> {
+                assertEquals(0, started.exitCode(), "Override start failed: " + started.output());
+                return control.follow(FOLLOWER, writerEndpoint()).transform(follow -> {
+                    assertTrue(follow.failed(), "A receiver that uses another slot was reported as following");
+                    assertInstanceOf(PgPromotionException.class, follow.cause());
+                    assertTrue(follow.cause().getMessage().startsWith("WAL receiver is not streaming from " + STANDBY
+                        + ":5432 through slot " + PgNodeConfig.slotName(FOLLOWER)), follow.cause().getMessage());
+                    assertTrue(follow.cause().getMessage().endsWith("last observed: streaming|" + STANDBY
+                        + "|5432|peegeeq_elsewhere"), follow.cause().getMessage());
+                    return Future.<Void>succeededFuture();
+                });
+            }).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+    }
+
+    private Future<Void> createSlot(String nodeId, String slot) {
+        return NODES.node(nodeId).sql(runner, "select pg_create_physical_replication_slot('" + slot + "', true)")
+            .map(created -> {
+                assertEquals(0, created.exitCode(), created.output());
+                return null;
+            });
+    }
+
+    private PgDurabilityControl durability(String nodeId) {
+        return new PgSqlDurabilityControl(vertx, runner, NODES.node(nodeId).prefix(), PgSupervisedContainer.PG_CTL,
+            "psql", NODES.dataDirectory(), COMMAND_TIMEOUT);
     }
 
     @Test void aStoppedServerFailsToFollow(VertxTestContext context) {
@@ -286,27 +357,24 @@ class PgSqlPromotionControlIntegrationTest {
     @Test void aRunnerThatReturnsNoResultFailsEveryOperation(VertxTestContext context) {
         var silent = new PgSqlPromotionControl(vertx, new NoResultCommandRunner(runner), NODES.node(STANDBY).prefix(),
             PgSupervisedContainer.PG_CTL, "psql", NODES.dataDirectory(), COMMAND_TIMEOUT);
-        silent.inRecovery().transform(recovery -> {
-            assertNoResult(recovery);
-            return silent.promote();
-        }).transform(promotion -> {
-            assertNoResult(promotion);
-            return silent.checkpoint();
-        }).transform(checkpoint -> {
-            assertNoResult(checkpoint);
-            return silent.follow(FOLLOWER, writerEndpoint());
-        }).onComplete(context.failing(failure -> context.verify(() -> {
-            assertInstanceOf(PgPromotionException.class, failure);
-            assertTrue(failure.getMessage().startsWith("Command returned no result"), failure.getMessage());
-            context.completeNow();
-        })));
+        String noResult = "Command returned no result";
+        silent.inRecovery().transform(recovery -> refused(recovery, noResult))
+            .compose(ignored -> silent.promote().transform(promotion -> refused(promotion, noResult)))
+            .compose(ignored -> silent.checkpoint().transform(checkpoint -> refused(checkpoint, noResult)))
+            .compose(ignored -> silent.follow(FOLLOWER, writerEndpoint()).transform(follow -> refused(follow, noResult)))
+            .onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
     }
 
-    private static void assertNoResult(io.vertx.core.AsyncResult<?> outcome) {
-        assertTrue(outcome.failed(), "An operation succeeded although its command returned no result");
+    /**
+     * Asserts that the operation failed with a {@link PgPromotionException} whose message starts with the prefix, and
+     * succeeds. The next step follows through {@code compose}, so a failed assertion ends the chain with its own
+     * message instead of reaching the next step as an unexpected failure.
+     */
+    private static Future<Void> refused(io.vertx.core.AsyncResult<?> outcome, String messagePrefix) {
+        assertTrue(outcome.failed(), "The operation succeeded; expected a failure starting with: " + messagePrefix);
         assertInstanceOf(PgPromotionException.class, outcome.cause());
-        assertTrue(outcome.cause().getMessage().startsWith("Command returned no result"),
-            outcome.cause().getMessage());
+        assertTrue(outcome.cause().getMessage().startsWith(messagePrefix), outcome.cause().getMessage());
+        return Future.succeededFuture();
     }
 
     @Test void anOperationWithoutTimeToRunFailsPromptly(VertxTestContext context) {
@@ -315,24 +383,14 @@ class PgSqlPromotionControlIntegrationTest {
         long started = System.nanoTime();
         var hurried = control(STANDBY, NODES.node(STANDBY).prefix(), PgSupervisedContainer.PG_CTL, "psql",
             Duration.ofMillis(1));
-        hurried.promote().transform(promotion -> {
-            assertTrue(promotion.failed());
-            assertInstanceOf(PgPromotionException.class, promotion.cause());
-            assertTrue(promotion.cause().getMessage().startsWith("Promotion budget exhausted"),
-                promotion.cause().getMessage());
-            return hurried.checkpoint();
-        }).transform(checkpoint -> {
-            assertTrue(checkpoint.failed());
-            assertInstanceOf(PgPromotionException.class, checkpoint.cause());
-            assertTrue(checkpoint.cause().getMessage().startsWith("Promotion budget exhausted"),
-                checkpoint.cause().getMessage());
-            return hurried.follow(FOLLOWER, writerEndpoint());
-        }).onComplete(context.failing(failure -> context.verify(() -> {
-            assertInstanceOf(PgPromotionException.class, failure);
-            assertTrue(failure.getMessage().startsWith("Promotion budget exhausted"), failure.getMessage());
-            assertTrue(System.nanoTime() - started < TimeUnit.SECONDS.toNanos(30));
-            context.completeNow();
-        })));
+        String exhausted = "Promotion budget exhausted";
+        hurried.promote().transform(promotion -> refused(promotion, exhausted))
+            .compose(ignored -> hurried.checkpoint().transform(checkpoint -> refused(checkpoint, exhausted)))
+            .compose(ignored -> hurried.follow(FOLLOWER, writerEndpoint()).transform(follow -> refused(follow, exhausted)))
+            .onSuccess(ignored -> context.verify(() -> {
+                assertTrue(System.nanoTime() - started < TimeUnit.SECONDS.toNanos(30));
+                context.completeNow();
+            })).onFailure(context::failNow);
     }
 
     private PgPromotionControl control(String nodeId) {

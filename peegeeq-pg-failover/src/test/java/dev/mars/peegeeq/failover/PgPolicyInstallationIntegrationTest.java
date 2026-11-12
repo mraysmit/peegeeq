@@ -461,6 +461,16 @@ class PgPolicyInstallationIntegrationTest {
                 return installed;
             });
         }
+
+        @Override public Future<Void> ensureSlots(List<String> nodeIds) { return real.ensureSlots(nodeIds); }
+
+        @Override public Future<Void> replaceLostSlot(String nodeId) { return real.replaceLostSlot(nodeId); }
+
+        @Override public Future<PgMemberPosition> position(String nodeId) { return real.position(nodeId); }
+
+        @Override public Future<java.util.Set<String>> advanceSlots(java.util.Map<String, PgMemberPosition> positions) {
+            return real.advanceSlots(positions);
+        }
     }
 
     /**
@@ -487,6 +497,16 @@ class PgPolicyInstallationIntegrationTest {
 
         @Override public Future<Void> install(PgDurabilityPolicy policy) {
             return vertx.fileSystem().mkdirs(blockedFile.toString()).compose(ignored -> real.install(policy));
+        }
+
+        @Override public Future<Void> ensureSlots(List<String> nodeIds) { return real.ensureSlots(nodeIds); }
+
+        @Override public Future<Void> replaceLostSlot(String nodeId) { return real.replaceLostSlot(nodeId); }
+
+        @Override public Future<PgMemberPosition> position(String nodeId) { return real.position(nodeId); }
+
+        @Override public Future<java.util.Set<String>> advanceSlots(java.util.Map<String, PgMemberPosition> positions) {
+            return real.advanceSlots(positions);
         }
     }
 

@@ -65,8 +65,9 @@ public final class PgBootstrap {
 
     /**
      * Completes first-start bootstrap on the writer that {@link #start} left running with admission
-     * closed and withdrawn intent. In order: install the pending policy, confirm revision 1 by moving
-     * the pending policy into the control record's confirmed policy, prepare the grant for that
+     * closed and withdrawn intent. In order: ensure a replication slot for every other member, install the
+     * pending policy, confirm revision 1 by moving the pending policy into the control record's confirmed
+     * policy, prepare the grant for that
      * revision, publish {@code SERVING} intent, and activate the matching grant. Returns the serving
      * record. A failure at any step stops the sequence; admission stays closed and the control
      * record stays as the failed step left it. The caller keeps the renewal loop running and the

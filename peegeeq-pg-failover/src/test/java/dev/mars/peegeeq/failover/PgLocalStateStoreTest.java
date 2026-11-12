@@ -314,12 +314,13 @@ class PgLocalStateStoreTest {
                 return store.grant();
             }).compose(grant -> {
                 assertEquals(PgGrantState.CLOSED, grant.orElseThrow().state());
-                return store.prepare(PgFailoverMode.MANUAL, 4, OPERATION, 3);
-            }).transform(preparation -> {
-                assertTrue(preparation.failed(), "A quarantined node cannot prepare a writer grant");
-                assertInstanceOf(PgLocalStateException.class, preparation.cause());
-                return store.clearQuarantine();
-            }).compose(ignored -> store.prepare(PgFailoverMode.MANUAL, 4, OPERATION, 3)))
+                return store.prepare(PgFailoverMode.MANUAL, 4, OPERATION, 3).transform(preparation -> {
+                    assertTrue(preparation.failed(), "A quarantined node cannot prepare a writer grant");
+                    assertInstanceOf(PgLocalStateException.class, preparation.cause());
+                    return Future.<Void>succeededFuture();
+                });
+            }).compose(ignored -> store.clearQuarantine())
+                .compose(ignored -> store.prepare(PgFailoverMode.MANUAL, 4, OPERATION, 3)))
             .onSuccess(prepared -> context.verify(() -> {
                 assertEquals(PgGrantState.PREPARED, prepared.state());
                 context.completeNow();
@@ -486,19 +487,21 @@ class PgLocalStateStoreTest {
         minOccurrences = 3,
         maxOccurrences = 3)
     void receiptIdentityRejectsUnsafeNames(Vertx vertx, VertxTestContext context) {
+        // Each refusal is judged on its own call; a failure to open the store fails the test as itself.
         PgLocalStateStore.open(vertx, directory, NODE).compose(store ->
-            store.begin(3, OPERATION, "../grant", NODE, new JsonObject()).transform(traversal -> {
-                assertTrue(traversal.failed());
-                assertInstanceOf(PgLocalStateException.class, traversal.cause());
-                return store.begin(3, "not-a-uuid", "promote", NODE, new JsonObject());
-            }).transform(operation -> {
-                assertTrue(operation.failed());
-                assertInstanceOf(PgLocalStateException.class, operation.cause());
-                return store.begin(0, OPERATION, "promote", NODE, new JsonObject());
-            })).onComplete(context.failing(failure -> context.verify(() -> {
-                assertInstanceOf(PgLocalStateException.class, failure);
-                context.completeNow();
-            })));
+            store.begin(3, OPERATION, "../grant", NODE, new JsonObject()).transform(PgLocalStateStoreTest::refused)
+                .compose(ignored -> store.begin(3, "not-a-uuid", "promote", NODE, new JsonObject())
+                    .transform(PgLocalStateStoreTest::refused))
+                .compose(ignored -> store.begin(0, OPERATION, "promote", NODE, new JsonObject())
+                    .transform(PgLocalStateStoreTest::refused)))
+            .onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+    }
+
+    /** Asserts that the operation failed with a {@link PgLocalStateException}, and succeeds. */
+    private static Future<Void> refused(io.vertx.core.AsyncResult<?> outcome) {
+        assertTrue(outcome.failed(), "An unsafe receipt identity was accepted");
+        assertInstanceOf(PgLocalStateException.class, outcome.cause());
+        return Future.succeededFuture();
     }
 
     @Test

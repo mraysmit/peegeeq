@@ -25,9 +25,10 @@ public interface PgPromotionControl {
     Future<Void> checkpoint();
 
     /**
-     * Points the local standby at another writer and confirms that its WAL receiver streams from it.
-     * Refused when the server is not in recovery. The built connection string holds the node identity
-     * as user and application name, and the path of a password file; it holds no password.
+     * Points the local standby at another writer and confirms that its WAL receiver streams from it through
+     * the node's own slot ({@link PgNodeConfig#slotName}), which the writer must hold. Refused when the server
+     * is not in recovery. The built connection string holds the node identity as user and application name,
+     * and the path of a password file; it holds no password.
      */
     Future<Void> follow(String nodeId, PgWriterEndpoint writer);
 }

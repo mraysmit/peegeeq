@@ -19,10 +19,13 @@ public record PgNodeConfig(String clusterId, String incarnation, String nodeId,
         requireIdentity(nodeId);
         memberNodeIds = List.copyOf(memberNodeIds);
         memberNodeIds.forEach(PgNodeConfig::requireIdentity);
-        if (!memberNodeIds.contains(nodeId) || memberNodeIds.size() < 2
-                || memberNodeIds.stream().map(id -> id.toLowerCase(Locale.ROOT)).distinct().count()
-                    != memberNodeIds.size()) {
-            throw new IllegalArgumentException("Membership must contain this node and distinct peers");
+        if (!memberNodeIds.contains(nodeId) || memberNodeIds.size() < 2) {
+            throw new IllegalArgumentException("Membership must contain this node and at least one peer");
+        }
+        // Equal identities, and identities equal apart from case, derive one slot name, so this also keeps
+        // every member distinct (OD-31).
+        if (memberNodeIds.stream().map(PgNodeConfig::slotName).distinct().count() != memberNodeIds.size()) {
+            throw new IllegalArgumentException("Members must derive distinct replication slot names");
         }
         // The range a coordinator accepts for a lease TTL is validated by its adapter.
         positiveMillis(Objects.requireNonNull(leaseTtl, "leaseTtl"));
@@ -55,6 +58,21 @@ public record PgNodeConfig(String clusterId, String incarnation, String nodeId,
     /** Name of the one control record for this cluster incarnation. */
     public String controlName() {
         return "peegeeq/pg/" + clusterId + "/" + incarnation + "/primary-lock";
+    }
+
+    /**
+     * The physical replication slot that a writer keeps for the member with this identity: {@code peegeeq_},
+     * then the identity in lower case with {@code -} and {@code .} replaced by {@code _}. Derived, never
+     * stored (plan §9.24).
+     */
+    public static String slotName(String nodeId) {
+        requireIdentity(nodeId);
+        // An identity is ASCII, so the length in characters is the length in bytes.
+        String name = "peegeeq_" + nodeId.toLowerCase(Locale.ROOT).replace('-', '_').replace('.', '_');
+        if (name.length() > 63) {
+            throw new IllegalArgumentException("The replication slot name of " + nodeId + " exceeds 63 bytes");
+        }
+        return name;
     }
 
     /** Timeout requested from a watchdog device when one is used: half the lease TTL. */

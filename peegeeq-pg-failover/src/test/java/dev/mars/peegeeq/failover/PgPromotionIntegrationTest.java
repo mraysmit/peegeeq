@@ -183,6 +183,56 @@ class PgPromotionIntegrationTest {
             })).onFailure(context::failNow);
     }
 
+    @Test void promotionLeavesTheNewWriterHoldingAReservedPhysicalSlotForEveryOtherMember(VertxTestContext context) {
+        takeover(elector, STANDBYS).compose(held -> monitor.promoteStandby(held))
+            .compose(ignored -> NODES.node(TARGET).sql(runner, "select string_agg(slot_name || '|' || slot_type || '|' "
+                + "|| (restart_lsn is not null)::text, ',' order by slot_name) from pg_replication_slots"))
+            .onSuccess(slots -> context.verify(() -> {
+                // The former writer's slot keeps its WAL from now on for re-join; the other standby's slot lets it follow.
+                assertEquals("peegeeq_pg_node_1|physical|true,peegeeq_pg_node_3|physical|true", slots.output().strip(),
+                    "The new writer does not hold a reserved slot for each other member");
+                context.completeNow();
+            })).onFailure(context::failNow);
+    }
+
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Local supervision operation failed on node pg-node-2",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgDurabilityException.class)
+    void aFailedSlotStepFailsTheCallAfterTheCheckpointAndARerunCreatesTheSlotsWithoutASecondCheckpoint(
+            VertxTestContext context) {
+        var target = NODES.node(TARGET);
+        var failing = new PgFailoverMonitor(config, elector, store, process, gate, watchdog,
+            new FailingSlotsDurabilityControl(durability), promotion);
+        takeover(elector, STANDBYS).compose(held -> failing.promoteStandby(held).transform(result -> {
+            assertTrue(result.failed(), "A promotion whose slots were not created was reported as success");
+            assertInstanceOf(PgDurabilityException.class, result.cause());
+            return store.receipt(held.generation(), operationId(held), PgFailoverMonitor.CHECKPOINT_AFTER_PROMOTE,
+                config.nodeId());
+        }).compose(checkpoint -> {
+            assertEquals(PgActionResult.COMPLETED, checkpoint.orElseThrow().result(), "The slot step ran before the checkpoint");
+            return target.sql(runner, "select pg_is_in_recovery()");
+        }).compose(recovery -> {
+            assertEquals("f", recovery.output().strip(), "A failed slot step must leave the promoted node writable");
+            return target.applicationSql(runner, "select 1");
+        }).compose(application -> {
+            assertNotEquals(0, application.exitCode(), "A failed slot step left admission open");
+            return target.sql(runner, "select checkpoint_lsn from pg_control_checkpoint()");
+        }).compose(first -> monitor.promoteStandby(held)
+            .compose(ignored -> target.sql(runner, "select checkpoint_lsn from pg_control_checkpoint()"))
+            .map(second -> {
+                assertEquals(first.output().strip(), second.output().strip(), "The rerun took a second checkpoint");
+                return null;
+            })).compose(ignored -> target.sql(runner, "select count(*) from pg_replication_slots where "
+                + "slot_type = 'physical' and slot_name in ('peegeeq_pg_node_1', 'peegeeq_pg_node_3')")))
+            .onSuccess(slots -> context.verify(() -> {
+                assertEquals("2", slots.output().strip(), "The rerun did not create the missing slots");
+                context.completeNow();
+            })).onFailure(context::failNow);
+    }
+
     @Test void promotionClosesAnOpenGrantAndAdmissionBeforeItChangesAnything(VertxTestContext context) {
         var target = NODES.node(TARGET);
         takeover(elector, STANDBYS).compose(held ->
@@ -520,6 +570,29 @@ class PgPromotionIntegrationTest {
         @Override public Future<Void> checkpoint() { return real.checkpoint(); }
 
         @Override public Future<Void> follow(String nodeId, PgWriterEndpoint writer) { return real.follow(nodeId, writer); }
+    }
+
+    /** Wraps the real durability control. The slot step fails and has no effect. */
+    private record FailingSlotsDurabilityControl(PgDurabilityControl real) implements PgDurabilityControl {
+        @Override public Future<PgLsn> flushBoundary() { return real.flushBoundary(); }
+
+        @Override public Future<List<PgReplicationPeer>> peers() { return real.peers(); }
+
+        @Override public Future<Void> confirmCovered(PgDurabilityPolicy policy) { return real.confirmCovered(policy); }
+
+        @Override public Future<Void> install(PgDurabilityPolicy policy) { return real.install(policy); }
+
+        @Override public Future<Void> ensureSlots(List<String> nodeIds) {
+            return Future.failedFuture(new PgDurabilityException("The slot step failed (injected)"));
+        }
+
+        @Override public Future<Void> replaceLostSlot(String nodeId) { return real.replaceLostSlot(nodeId); }
+
+        @Override public Future<PgMemberPosition> position(String nodeId) { return real.position(nodeId); }
+
+        @Override public Future<java.util.Set<String>> advanceSlots(java.util.Map<String, PgMemberPosition> positions) {
+            return real.advanceSlots(positions);
+        }
     }
 
     // ---------------------------------------------------------------- helpers

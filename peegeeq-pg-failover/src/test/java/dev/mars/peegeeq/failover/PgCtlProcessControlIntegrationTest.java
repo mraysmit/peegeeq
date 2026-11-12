@@ -144,60 +144,41 @@ class PgCtlProcessControlIntegrationTest {
 
     @Test void missingDataDirectoryFailsStatusStartAndStop(VertxTestContext context) {
         PgProcessControl absent = control(PgSupervisedContainer.PG_CTL, "/var/lib/postgresql/absent");
-        absent.status().transform(status -> {
-            assertTrue(status.failed());
-            assertInstanceOf(PgProcessControlException.class, status.cause());
-            return absent.startPrimary();
-        }).transform(start -> {
-            assertTrue(start.failed());
-            assertInstanceOf(PgProcessControlException.class, start.cause());
-            return absent.stop(STOP_BUDGET);
-        }).onComplete(context.failing(failure -> context.verify(() -> {
-            assertInstanceOf(PgProcessControlException.class, failure);
-            context.completeNow();
-        })));
+        absent.status().transform(status -> refused(status, ""))
+            .compose(ignored -> absent.startPrimary().transform(start -> refused(start, "")))
+            .compose(ignored -> absent.stop(STOP_BUDGET).transform(stop -> refused(stop, "")))
+            .onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
     }
 
     @Test void missingControlBinaryFailsEveryOperation(VertxTestContext context) {
         PgProcessControl broken = control("/nonexistent/pg_ctl", dataDirectory);
-        broken.status().transform(status -> {
-            assertTrue(status.failed());
-            assertInstanceOf(PgProcessControlException.class, status.cause());
-            return broken.startInRecovery();
-        }).transform(start -> {
-            assertTrue(start.failed());
-            assertInstanceOf(PgProcessControlException.class, start.cause());
-            return broken.stop(STOP_BUDGET);
-        }).onComplete(context.failing(failure -> context.verify(() -> {
-            assertInstanceOf(PgProcessControlException.class, failure);
-            context.completeNow();
-        })));
+        broken.status().transform(status -> refused(status, ""))
+            .compose(ignored -> broken.startInRecovery().transform(start -> refused(start, "")))
+            .compose(ignored -> broken.stop(STOP_BUDGET).transform(stop -> refused(stop, "")))
+            .onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
     }
 
     @Test void aRunnerThatReturnsNoResultFailsEveryOperation(VertxTestContext context) {
         var silent = new PgCtlProcessControl(new NoResultCommandRunner(runner), POSTGRES.prefix(),
             PgSupervisedContainer.PG_CTL, dataDirectory, POSTGRES.logFile(dataDirectory), COMMAND_TIMEOUT);
-        silent.status().transform(status -> {
-            assertNoResult(status);
-            return silent.startPrimary();
-        }).transform(start -> {
-            assertNoResult(start);
-            return silent.startInRecovery();
-        }).transform(recovery -> {
-            assertNoResult(recovery);
-            return silent.stop(STOP_BUDGET);
-        }).onComplete(context.failing(failure -> context.verify(() -> {
-            assertInstanceOf(PgProcessControlException.class, failure);
-            assertTrue(failure.getMessage().startsWith("Command returned no result"), failure.getMessage());
-            context.completeNow();
-        })));
+        String noResult = "Command returned no result";
+        silent.status().transform(status -> refused(status, noResult))
+            .compose(ignored -> silent.startPrimary().transform(start -> refused(start, noResult)))
+            .compose(ignored -> silent.startInRecovery().transform(recovery -> refused(recovery, noResult)))
+            .compose(ignored -> silent.stop(STOP_BUDGET).transform(stop -> refused(stop, noResult)))
+            .onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
     }
 
-    private static void assertNoResult(io.vertx.core.AsyncResult<?> outcome) {
-        assertTrue(outcome.failed(), "An operation succeeded although its command returned no result");
+    /**
+     * Asserts that the operation failed with a {@link PgProcessControlException} whose message starts with the prefix,
+     * and succeeds. The next step follows through {@code compose}, so a failed assertion ends the chain with its own
+     * message instead of reaching the next step as an unexpected failure.
+     */
+    private static Future<Void> refused(io.vertx.core.AsyncResult<?> outcome, String messagePrefix) {
+        assertTrue(outcome.failed(), "The operation succeeded; expected a failure starting with: " + messagePrefix);
         assertInstanceOf(PgProcessControlException.class, outcome.cause());
-        assertTrue(outcome.cause().getMessage().startsWith("Command returned no result"),
-            outcome.cause().getMessage());
+        assertTrue(outcome.cause().getMessage().startsWith(messagePrefix), outcome.cause().getMessage());
+        return Future.succeededFuture();
     }
 
     @Test void stopThatCannotFinishFailsWithinItsBudget(VertxTestContext context) {

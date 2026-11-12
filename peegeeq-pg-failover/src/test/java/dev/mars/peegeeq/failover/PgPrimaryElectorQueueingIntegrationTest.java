@@ -169,15 +169,16 @@ class PgPrimaryElectorQueueingIntegrationTest {
             return entered.future().compose(ignored -> {
                 Future<PgControlRecord> queued = elector.renew();
                 release.complete();
+                // Each renewal is judged on its own outcome; a set-up failure fails the test as itself.
                 return failing.transform(first -> {
                     assertTrue(first.failed());
-                    return queued;
-                });
+                    return Future.<Void>succeededFuture();
+                }).compose(firstFailed -> queued.transform(second -> {
+                    assertTrue(second.failed(), "An operation queued behind a failed one ran on retired ownership");
+                    assertInstanceOf(PgLeaseProtocolException.class, second.cause());
+                    return Future.<Void>succeededFuture();
+                }));
             });
-        }).transform(second -> {
-            assertTrue(second.failed(), "An operation queued behind a failed one ran on retired ownership");
-            assertInstanceOf(PgLeaseProtocolException.class, second.cause());
-            return Future.<Void>succeededFuture();
         }).onSuccess(ignored -> context.verify(() -> {
             assertFalse(elector.hasFreshOwnership());
             assertEquals(1, coordinator.renewStarts().size(), "The queued renewal reached the coordinator");
