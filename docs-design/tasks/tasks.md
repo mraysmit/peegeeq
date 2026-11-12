@@ -734,9 +734,75 @@ Phases:
    (`peegeeq-test-support` core) 61/61. Not run: the Jenkins build and the whole-repository gate.
    **7b.3 update, 2026-11-03:** increment P4, member replication slots on the writer, is designed (plan
    §9.24). Not implemented. OD-27 (an unbounded `max_slot_wal_keep_size` is refused) needs owner review.
-   **OPEN — 7b.3 remaining:** replication slots (P4), takeover after
-   real lease expiry, planned stop with release, manual takeover, repeated failover, and controlled
-   re-join.
+   **7b.3 update, 2026-11-12, re-verification of `993bf2c2`:** the module's whole integration tier
+   passes on Vert.x 5.1.10, after the `TestCleanup` migration and the `VertxTeardownAfterFailureExtension`
+   change of 2026-11-08. No production or test code changed for this entry. Rebuild
+   (`-pl :peegeeq-pg-failover,:peegeeq-test-support -am`) succeeded. Fifteen `-Pintegration-tests`
+   classes, each run alone except the last three, which ran together: `PgBootstrapIntegrationTest` 7,
+   `PgSqlDurabilityControlIntegrationTest` 19, `PgSqlPromotionControlIntegrationTest` 17,
+   `PgBootstrapServingIntegrationTest` 14, `PgPromotionIntegrationTest` 15, `PgFollowIntegrationTest` 10,
+   `PgTakeoverIntegrationTest` 9, `PgFailoverMonitorIntegrationTest` 23,
+   `ConsulLeaseCoordinatorIntegrationTest` 61, `PgRenewalLoopIntegrationTest` 13,
+   `PgPolicyInstallationIntegrationTest` 14, `PgCtlProcessControlIntegrationTest` 11,
+   `PgHbaAdmissionGateIntegrationTest` 7, `PgPrimaryElectorQueueingIntegrationTest` 4,
+   `PgFixtureLeftoverServerContractIntegrationTest` 4: 228 tests, no failure, error, or skip. These 15
+   are every file in the module's test sources that carries the integration tag. Module core 395/395
+   (9 classes). Guards (`peegeeq-test-support` core) 77/77 (14 classes; 61 before the 2026-11-08 additions).
+   `.eventually(` occurrences in the module: 0. Logs `logs/*-reverify-*-20261112.log`. The P1 to P3 logs
+   named in plan §9.21 to §9.23 were not in `logs/` on this machine on 2026-11-12, and a search of
+   `C:\Users\markr` found none; this run is the evidence for the current code. Not run: a failing
+   pg-failover test with the 5.1.10 teardown extension, the Jenkins build, and the whole-repository gate.
+   **7b.3 update, 2026-11-12:** increment P4, member replication slots on the writer, is implemented and
+   tested (plan §9.24 decisions of 2026-11-12, and §9.25). The owner directed the implementer to proceed with
+   best judgement; OD-27 (an unbounded `max_slot_wal_keep_size` is refused) is adopted as recommended and stays
+   reversible. New implementer decisions OD-31 (the case-only membership check is deleted; the slot-name
+   collision refusal subsumes it) and OD-32 (the slot step in `promoteStandby` has no receipt and no second
+   ownership check). Red before green for every new and changed test; 12 mutation probes, each failed its
+   guarding test, and the 5 production files have the same SHA-256 before and after. Regression on the
+   working tree: `-Pintegration-tests`, 16 classes, 244 tests, 0 failures; core 398/398; guards 77/77, run
+   after the last test edit. Logs `logs/*-slots-*-20261112.log`. In 19 runs with failing tests, no log holds
+   finding 13's "Interrupted while waiting for command" line or `RejectedExecutionException`. Not run: the
+   Jenkins build and the whole-repository gate. Nothing outside tests calls `ensureMemberSlots`.
+   **7b.3 correction, 2026-11-12, OD-33:** the first P4 report left the `lost` slot as "not checked",
+   although contract 2 claims it and OD-27 rests on it. Red on a real server: a lost slot made coverage
+   wait out its budget and report only "not connected". Now coverage fails at once and names the lost
+   slot. Red, green, probe 13 detected, SHA-256 equal; every class that reaches `confirmCovered` re-run
+   (27 + 17 + 15 + 14 + 10 + 9 + 4, 0 failures); core 398. Module integration tier: 16 classes, 245 tests.
+   Open: re-join must drop a member's lost slot before its base backup (`-C` fails while it exists).
+   **7b.3 update, 2026-11-12, P5:** replacing a lost member slot for a rebuild (plan §9.26) is implemented and
+   tested. `replaceLostSlot` drops only a slot whose `wal_status` is `lost` and re-creates it reserved;
+   `replaceLostMemberSlot` adds the ownership, membership, and quarantine checks; OD-34 (no receipt). End to end:
+   lose the slot, replace it, rebuild the member through it, coverage holds again. Red 11 of 12 (the twelfth
+   was the moved OD-33 test), green 12 of 12, probes 14 to 19 each detected, SHA-256 equal. The same change fixed
+   a test-structure defect found by probe 14: chained `transform` steps passed an assertion failure, or a set-up
+   failure of the expected type, on as the outcome under test (18 sites in 9 test files, three of which could pass
+   on a set-up failure; list in plan §9.26). Regression: `-Pintegration-tests`, 16 classes, 251 tests, 0 failures;
+   core 398; guards after the last edit. Open: the rebuild decision and member-side commands (§9.20 row 10, owner).
+   **7b.3 update, 2026-11-12, P6 design (for review, no code):** slots on standbys advanced to published member
+   positions (plan §9.27). Checks on PostgreSQL 15.13 show the gap for the first time: with no slot on the
+   promoted standby, two standbys stopped before the takeover failed to follow it ("requested WAL segment ... has
+   already been removed"); with a standby slot advanced to the member's position, the standby followed. Also
+   checked: a slot on a standby survives promotion; `pg_replication_slot_advance` on a standby caps at the replay
+   position. The design adds a second coordinator port for member positions and changes P4's recovery refusal
+   (OD-35 to OD-39). It changes the system design's data model and port, so it waits for the owner's review.
+   **7b.3 update, 2026-11-12, P6 implemented:** the owner directed the implementer to finish P6. OD-35 to OD-39
+   adopted; OD-40 (`PgMemberSlots`, a new class, not the monitor) and OD-41 (the new port's failures are
+   `PgLeaseProtocolException`; its tests are one Consul class until a second adapter). Built: the port
+   `PgMemberPositions` and `ConsulMemberPositions`; position observation and slot advance in
+   `PgSqlDurabilityControl`; member slots on standbys; `PgMemberSlots`. System design §1.1, §5.8, §5.10 and
+   coordinator design §1.1, §3.3 updated. End to end on the fixture: a standby stopped before the takeover follows
+   the new writer and is covered; without standby slots the same standby fails for removed WAL. Red before green;
+   13 probes (20 to 31 and 33), 12 detected, 23 not (PostgreSQL applies the same cap); SHA-256 equal. Regression:
+   `-Pintegration-tests`, 18 classes, 276 tests, 0 failures; core 400; guards after the last edit. Open: the
+   supervisor loop that publishes and advances; removing a departed member's record (phase 14).
+   **7b.3 correction, 2026-11-12, P6 records:** the first P6 report said "13 of 14 probes". The logs hold 13
+   probes; number 32 was never run. The `PgDurabilityControl` Javadoc still stated P4's refusal in recovery; it is
+   corrected (comment only, rebuild, core, and guards re-run). Plan §9.27 gains an "as built" list of the places
+   where the code differs from the design text (publish signature, standby position source, advance result,
+   OD-40, OD-41).
+   **OPEN — 7b.3 remaining:** takeover after real lease expiry, planned stop with release, manual
+   takeover, repeated failover, controlled re-join, the production entry point and supervisor loop, and the
+   real-device watchdog run on Linux.
 8. **OPEN.** Enable autonomous initiation on the verified common boundary (8a), complete
    per-node authority/bootstrap reconciliation (8b), infrastructure fault tests including
    S54 to S58 (8c), and automatic database safety acceptance (8d). No second provider or

@@ -179,6 +179,37 @@ class PgBootstrapServingIntegrationTest {
 
     @Test
     @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Local supervision operation failed on node pg-node-1",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgDurabilityException.class)
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgBootstrap",
+        message = "Bootstrap admission failed on node pg-node-1",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgDurabilityException.class)
+    void anUnboundedSlotRetentionRefusesServingBeforeAnyPolicyIsInstalled(VertxTestContext context) {
+        // A later line of postgresql.conf overrides an earlier one, as a deployment's unbounded setting would.
+        NODES.node(WRITER).exec(runner, "sh", "-c", "printf 'max_slot_wal_keep_size = -1\\n' >> "
+                + NODES.dataDirectory() + "/postgresql.conf")
+            .compose(appended -> {
+                assertEquals(0, appended.exitCode(), appended.output());
+                return started(bootstrap(durability(COMMAND_TIMEOUT), gate));
+            }).compose(start -> start.bootstrap.serve(start.held, PgFailoverMode.MANUAL).transform(serving -> {
+                assertTrue(serving.failed(), "A writer was served with an unbounded slot retention");
+                assertInstanceOf(PgDurabilityException.class, serving.cause());
+                assertTrue(serving.cause().getMessage().startsWith("max_slot_wal_keep_size is -1"),
+                    serving.cause().getMessage());
+                return store.receipt(start.held.generation(), operationId(start.held), PgFailoverMonitor.INSTALL_POLICY,
+                    config.nodeId());
+            }).compose(receipt -> {
+                assertTrue(receipt.isEmpty(), "A policy was installed although the slot retention is unbounded");
+                return assertWithdrawnAndClosed(start.held);
+            })).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+    }
+
+    @Test
+    @ExpectedErrorLog(
         logger = "dev.mars.peegeeq.failover.PgBootstrap",
         message = "Bootstrap admission failed on node pg-node-1",
         throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
@@ -346,15 +377,15 @@ class PgBootstrapServingIntegrationTest {
                 ? Future.failedFuture(new PgLeaseProtocolException("injected update failure"))
                 : coordinator.realUpdate(held, intent));
             return start.bootstrap.serve(start.held, PgFailoverMode.MANUAL).transform(first -> {
-                assertTrue(first.failed());
                 coordinator.clearHooks();
+                assertTrue(first.failed());
                 assertFalse(elector.hasFreshOwnership(), "A failed update must retire ownership");
-                return start.bootstrap.serve(start.held, PgFailoverMode.MANUAL);
-            }).transform(second -> {
+                return Future.<Void>succeededFuture();
+            }).compose(ignored -> start.bootstrap.serve(start.held, PgFailoverMode.MANUAL).transform(second -> {
                 assertTrue(second.failed(), "A serve ran without ownership");
                 assertInstanceOf(PgLeaseProtocolException.class, second.cause());
-                return store.grant();
-            });
+                return Future.<Void>succeededFuture();
+            })).compose(ignored -> store.grant());
         }).onSuccess(grant -> context.verify(() -> {
             assertEquals(PgGrantState.PREPARED, grant.orElseThrow().state(), "The rerun changed the prepared grant");
             context.completeNow();
@@ -611,6 +642,16 @@ class PgBootstrapServingIntegrationTest {
         @Override public Future<Void> install(PgDurabilityPolicy policy) {
             return real.install(policy).compose(installed ->
                 awaitStale(vertx, elector, System.nanoTime() + TimeUnit.SECONDS.toNanos(60)));
+        }
+
+        @Override public Future<Void> ensureSlots(List<String> nodeIds) { return real.ensureSlots(nodeIds); }
+
+        @Override public Future<Void> replaceLostSlot(String nodeId) { return real.replaceLostSlot(nodeId); }
+
+        @Override public Future<PgMemberPosition> position(String nodeId) { return real.position(nodeId); }
+
+        @Override public Future<java.util.Set<String>> advanceSlots(java.util.Map<String, PgMemberPosition> positions) {
+            return real.advanceSlots(positions);
         }
     }
 

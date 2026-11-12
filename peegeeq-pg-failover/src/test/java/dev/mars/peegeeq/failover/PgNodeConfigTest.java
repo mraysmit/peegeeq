@@ -35,6 +35,31 @@ class PgNodeConfigTest {
                 List.of("pg-node-1", "PG-NODE-1")));
     }
 
+    @Test void slotNameIsTheIdentityInLowerCaseWithHyphensAndDotsAsUnderscores() {
+        assertEquals("peegeeq_pg_node_2", PgNodeConfig.slotName("pg-node-2"));
+        assertEquals("peegeeq_db_east_1", PgNodeConfig.slotName("Db.East-1"));
+        assertThrows(IllegalArgumentException.class, () -> PgNodeConfig.slotName("../other"));
+    }
+
+    @Test void rejectsMembersWhoseSlotNamesCollide() {
+        // Equal apart from case, or apart from the characters a slot name cannot hold: one slot for two members.
+        for (List<String> members : List.of(List.of("pg-node-1", "pg_node_1"), List.of("pg-node-1", "pg.node.1"),
+                List.of("pg-node-1", "PG-NODE-1"))) {
+            var failure = assertThrows(IllegalArgumentException.class,
+                () -> PgNodeConfig.defaults("cluster", "incarnation", "pg-node-1", members), members.toString());
+            assertEquals("Members must derive distinct replication slot names", failure.getMessage());
+        }
+    }
+
+    @Test void rejectsAnIdentityWhoseSlotNameExceeds63Bytes() {
+        String longest = "n".repeat(55);
+        assertEquals(63, PgNodeConfig.slotName(longest).length());
+        String tooLong = "n".repeat(56);
+        assertThrows(IllegalArgumentException.class, () -> PgNodeConfig.slotName(tooLong));
+        assertThrows(IllegalArgumentException.class,
+            () -> PgNodeConfig.defaults("cluster", "incarnation", "pg-node-1", List.of("pg-node-1", tooLong)));
+    }
+
     @Test void rejectsUnknownLocalNode() {
         assertThrows(IllegalArgumentException.class,
             () -> PgNodeConfig.defaults("cluster", "incarnation", "unknown", MEMBERS));

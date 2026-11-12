@@ -109,7 +109,12 @@ class PgFollowIntegrationTest {
                 held = taken;
                 var newWriter = promotionControl(NEW_WRITER);
                 return newWriter.promote().compose(promoted -> newWriter.checkpoint());
-            }).compose(ignored -> {
+            })
+            // The new writer was promoted through the adapter, so its slot step runs here, as promoteStandby runs it.
+            .compose(ignored -> new PgSqlDurabilityControl(vertx, runner, NODES.node(NEW_WRITER).prefix(),
+                PgSupervisedContainer.PG_CTL, "psql", NODES.dataDirectory(), COMMAND_TIMEOUT)
+                .ensureSlots(List.of(FOLLOWER)))
+            .compose(ignored -> {
                 var follower = NODES.node(FOLLOWER);
                 String directory = NODES.dataDirectory();
                 promotion = promotionControl(FOLLOWER);
@@ -354,10 +359,10 @@ class PgFollowIntegrationTest {
     // ---------------------------------------------------------------- helpers
 
     private Future<Void> assertStreamingFromTheNewWriter() {
-        return NODES.node(FOLLOWER).sql(runner,
-            "select status || '|' || sender_host || '|' || sender_port from pg_stat_wal_receiver").map(receiver -> {
-                assertEquals("streaming|" + NEW_WRITER + "|5432", receiver.output().strip(),
-                    "The follower does not stream from the new writer");
+        return NODES.node(FOLLOWER).sql(runner, "select status || '|' || sender_host || '|' || sender_port || '|' "
+            + "|| slot_name from pg_stat_wal_receiver").map(receiver -> {
+                assertEquals("streaming|" + NEW_WRITER + "|5432|" + PgNodeConfig.slotName(FOLLOWER),
+                    receiver.output().strip(), "The follower does not stream from the new writer through its own slot");
                 return null;
             });
     }

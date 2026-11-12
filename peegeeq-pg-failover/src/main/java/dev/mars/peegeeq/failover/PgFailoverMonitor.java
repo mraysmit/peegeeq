@@ -68,7 +68,9 @@ public final class PgFailoverMonitor {
      * writable is accepted only when this operation holds a {@value #PROMOTE} receipt, which a rerun
      * after a lost reply completes. Ownership lost while the node was promoted demotes it and fails
      * the call. The {@value #CHECKPOINT_AFTER_PROMOTE} receipt then covers the forced checkpoint; a
-     * completed one is not run again. The control record, the policy, and the grant are not changed.
+     * completed one is not run again. Last, a physical replication slot is ensured for every other member,
+     * with no receipt (OD-32). A failed slot step leaves the node writable with admission closed, and a rerun
+     * repeats only the missing work. The control record, the policy, and the grant are not changed.
      */
     public Future<Void> promoteStandby(PgControlRecord held) {
         return serialized(() -> {
@@ -91,13 +93,16 @@ public final class PgFailoverMonitor {
                     : confirmEarlierPromotion(held, operation))
                 .compose(ignored -> elector.hasFreshOwnership() ? Future.<Void>succeededFuture()
                     : demoteAfterPromotion(held))
-                .compose(ignored -> checkpointAfterPromotion(held, operation));
+                .compose(ignored -> checkpointAfterPromotion(held, operation))
+                // The slots exist before any coverage wait on this writer begins (plan §9.24, OD-32).
+                .compose(ignored -> durability.ensureSlots(otherMembers()));
         });
     }
 
     /**
      * Points the local standby at the writer that {@code observed} names, and confirms that its WAL
-     * receiver streams from {@code writer}. The follower holds no lease, so no ownership is required.
+     * receiver streams from {@code writer} through this node's slot on that writer. The follower holds no
+     * lease, so no ownership is required.
      * Refused before any effect and with no receipt: a record that names this node as writer
      * ({@link PgLeaseProtocolException}), quarantine ({@link PgLocalStateException}), and a server that
      * is not in recovery ({@link PgPromotionException}); a writable server needs a rewind, not a follow.
@@ -125,6 +130,46 @@ public final class PgFailoverMonitor {
                 .compose(ignored -> underReceipt(observed, intent.getString("operationId"), FOLLOW_WRITER,
                     parameters, () -> promotion.follow(config.nodeId(), writer)));
         });
+    }
+
+    /**
+     * Ensures that this writer holds a physical replication slot for every other member of the membership, so
+     * that each member's WAL is kept within the configured bound (plan §9.24). Refused without fresh ownership
+     * of exactly {@code held} ({@link PgLeaseProtocolException}) and under quarantine
+     * ({@link PgLocalStateException}). No receipt: the slots are the evidence (OD-28).
+     */
+    public Future<Void> ensureMemberSlots(PgControlRecord held) {
+        return serialized(() -> {
+            Objects.requireNonNull(held, "held");
+            if (!elector.holds(held)) {
+                throw new PgLeaseProtocolException("Member slots require fresh ownership of the writer lease");
+            }
+            return requireNoQuarantine().compose(ignored -> durability.ensureSlots(otherMembers()));
+        });
+    }
+
+    /**
+     * Replaces the lost slot of another member, so that the member can be rebuilt through it (plan §9.26). Refused
+     * without fresh ownership of exactly {@code held} ({@link PgLeaseProtocolException}), for an identity that is not
+     * another member ({@link IllegalArgumentException}), and under quarantine ({@link PgLocalStateException}). No
+     * receipt (OD-34): a rerun after a lost reply is refused, because the new slot is not lost.
+     */
+    public Future<Void> replaceLostMemberSlot(PgControlRecord held, String nodeId) {
+        return serialized(() -> {
+            Objects.requireNonNull(held, "held");
+            if (!elector.holds(held)) {
+                throw new PgLeaseProtocolException("Replacing a member slot requires fresh ownership of the writer lease");
+            }
+            if (!otherMembers().contains(nodeId)) {
+                throw new IllegalArgumentException(nodeId + " is not another member of the membership");
+            }
+            return requireNoQuarantine().compose(ignored -> durability.replaceLostSlot(nodeId));
+        });
+    }
+
+    /** The members whose slots this node keeps while it is the writer: the membership without this node. */
+    private List<String> otherMembers() {
+        return config.memberNodeIds().stream().filter(member -> !member.equals(config.nodeId())).toList();
     }
 
     /** Begins the receipt, promotes, and records the result. A failed promotion records {@code UNKNOWN}. */

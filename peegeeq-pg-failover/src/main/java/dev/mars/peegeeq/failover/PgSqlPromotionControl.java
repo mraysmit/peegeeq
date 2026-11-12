@@ -27,8 +27,8 @@ public final class PgSqlPromotionControl implements PgPromotionControl {
         + "'walTimeline', ('x' || substr(pg_walfile_name(pg_current_wal_lsn()), 1, 8))::bit(32)::int) "
         + "from pg_control_checkpoint()";
     private static final String RECEIVER = "select status || '|' || coalesce(sender_host, '') || '|' "
-        + "|| coalesce(sender_port::text, '') from pg_stat_wal_receiver";
-    private static final Pattern RECEIVER_OBSERVATION = Pattern.compile("[a-z]+\\|[^|]*\\|[0-9]*");
+        + "|| coalesce(sender_port::text, '') || '|' || coalesce(slot_name, '') from pg_stat_wal_receiver";
+    private static final Pattern RECEIVER_OBSERVATION = Pattern.compile("[a-z]+\\|[^|]*\\|[0-9]*\\|[a-z0-9_]*");
     private final Vertx vertx;
     private final PgCommandRunner runner;
     private final List<String> commandPrefix;
@@ -93,35 +93,43 @@ public final class PgSqlPromotionControl implements PgPromotionControl {
     @Override
     public Future<Void> follow(String nodeId, PgWriterEndpoint writer) {
         Objects.requireNonNull(writer, "writer");
-        // Built from validated parts only: it holds no single quote and no password.
+        // Built from validated parts only: neither holds a single quote, and the connection string holds no password.
         String connectionInfo = writer.connectionInfo(nodeId);
+        String slot = PgNodeConfig.slotName(nodeId);
         long deadline = deadline();
         return inRecovery(deadline).compose(recovering -> {
             if (!recovering) {
                 throw new PgPromotionException(
                     "PostgreSQL is writable; a writable server cannot follow a writer without a rewind");
             }
+            // Two commands: ALTER SYSTEM cannot run inside the implicit transaction of a multi-statement command.
             return sql(deadline, "alter system set primary_conninfo = '" + connectionInfo + "'");
-        }).compose(ignored -> run(deadline, pgCtl, "reload", "-D", dataDirectory))
+        }).compose(ignored -> sql(deadline, "alter system set primary_slot_name = '" + slot + "'"))
+            .compose(ignored -> run(deadline, pgCtl, "reload", "-D", dataDirectory))
             .map(result -> requireSuccess(result, "pg_ctl reload"))
-            .compose(ignored -> awaitStreaming(deadline, writer));
+            .compose(ignored -> awaitStreaming(deadline, writer, slot));
     }
 
-    /** A reload is asynchronous. It is confirmed when the WAL receiver streams from exactly the requested address. */
-    private Future<Void> awaitStreaming(long deadline, PgWriterEndpoint writer) {
+    /**
+     * A reload is asynchronous. It is confirmed when the WAL receiver streams from exactly the requested address
+     * through exactly the requested slot.
+     */
+    private Future<Void> awaitStreaming(long deadline, PgWriterEndpoint writer, String slot) {
         long started = System.nanoTime();
         return sql(deadline, RECEIVER).compose(output -> {
             if (!output.isEmpty() && !RECEIVER_OBSERVATION.matcher(output).matches()) {
                 throw new PgPromotionException("Malformed promotion observation: " + output);
             }
-            if (output.equals("streaming|" + writer.host() + "|" + writer.port())) return Future.<Void>succeededFuture();
+            if (output.equals("streaming|" + writer.host() + "|" + writer.port() + "|" + slot)) {
+                return Future.<Void>succeededFuture();
+            }
             long observation = System.nanoTime() - started;
             if (deadline - System.nanoTime() < 2 * observation + TimeUnit.MILLISECONDS.toNanos(POLL_MILLIS)) {
                 return Future.<Void>failedFuture(new PgPromotionException("WAL receiver is not streaming from "
-                    + writer.host() + ":" + writer.port() + " within the budget; last observed: "
+                    + writer.host() + ":" + writer.port() + " through slot " + slot + " within the budget; last observed: "
                     + (output.isEmpty() ? "no WAL receiver" : output)));
             }
-            return vertx.timer(POLL_MILLIS).compose(ignored -> awaitStreaming(deadline, writer));
+            return vertx.timer(POLL_MILLIS).compose(ignored -> awaitStreaming(deadline, writer, slot));
         });
     }
 

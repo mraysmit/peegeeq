@@ -50,6 +50,7 @@ owns the canonical field contract. This document creates no second writer author
 | Operator takeover request | Authoritative authenticated request in transition intent | Manual target and operation approval. Not a separate lease or provider-owned authority. |
 | Quarantine, local action receipts, and local writer grants | Authoritative node-local supervisor storage | Reuse existing receipt/grant contracts locally. Load admission closed on restart. Receipts never authorise writing by themselves. |
 | Lease freshness, safe deadline, watchdog health, PostgreSQL role, WAL, peer coverage, and eligibility | Derived live observations | Recompute on each required check and after restart. No persisted reusable expiry or watchdog-ready flag. |
+| `peegeeq/pg/<clusterId>/<incarnation>/members/<nodeId>` | Coordinator; a non-authoritative copy of that member's live WAL position, written only by its supervisor | Used only to advance member slots on standbys ([system design §1.1](PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md#11-data-model-and-safety-contracts)). Never an eligibility, promotion, or policy input. |
 | Provisioning evidence | Authoritative deployment evidence referenced by immutable bootstrap receipt parameters | New cluster/incarnation/membership/initial writer. Empty Consul state is not evidence. |
 | Credentials | Deployment secret store | Separate application, sidecar observation, supervisor mutation, local process control, and watchdog privileges. |
 
@@ -145,6 +146,8 @@ The elector imports no coordinator product type and makes no product API call.
 | Release | One transaction: `check-session`, `check-index`, `unlock`, `get` |
 | Access control | ACL tokens scoped to the control key and the node's own sessions. ACLs restrict clients; they do not impose lock ownership on otherwise authorised writes |
 | Transport | HTTPS. Loopback HTTP is accepted for local fixtures only |
+| Member positions (`ConsulMemberPositions`) | KV key `peegeeq/pg/<clusterId>/<incarnation>/members/<nodeId>`, value `{"timeline": n, "lsn": "X/Y"}`, plain PUT with no session. Read is a recursive list of the members prefix. A response that ACLs filtered (`X-Consul-Results-Filtered-By-ACLs`), a malformed value, or a key of a node outside the membership fails the read |
+| Member position access control | Each node's token may write its own member key and read the members prefix. It holds no `list` rule on the prefix: on Consul 1.22.1 a `list` rule lets a recursive read return every value |
 
 The adapter validates the range Consul accepts for a session TTL and sends the TTL explicitly.
 It does not copy Patroni's Consul TTL conversion. Node deregistration and session destruction

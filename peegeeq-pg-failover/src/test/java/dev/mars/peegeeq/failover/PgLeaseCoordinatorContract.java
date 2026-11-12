@@ -905,13 +905,14 @@ public abstract class PgLeaseCoordinatorContract {
                 // The caller claims the record is unowned. The service still holds the lease.
                 var claimedUnowned = new PgControlRecord(held.controlName(), held.generation(),
                     held.revision(), null, held.intent());
+                // Only the acquisition's outcome is judged; a set-up failure fails the test as itself.
                 return tracked(otherConfig, coordinator)
-                    .acquireAfterRelease(claimedUnowned, takeoverIntent(held, "pg-node-2"));
-            }).transform(result -> {
-                assertTrue(result.failed());
-                assertInstanceOf(PgLeaseProtocolException.class, result.cause());
-                return owner.read();
-            }).map(current -> {
+                    .acquireAfterRelease(claimedUnowned, takeoverIntent(held, "pg-node-2")).transform(result -> {
+                        assertTrue(result.failed());
+                        assertInstanceOf(PgLeaseProtocolException.class, result.cause());
+                        return Future.<Void>succeededFuture();
+                    });
+            }).compose(ignored -> owner.read()).map(current -> {
                 assertEquals(held, current.orElseThrow());
                 return current;
             })).onSuccess(current -> context.verify(() -> {

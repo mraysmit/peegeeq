@@ -144,7 +144,9 @@ This is a target design. A requirement here is not a claim that code implements 
 | `durabilityPolicy`: revision and required standby node IDs | Control record in both modes; authoritative confirmed policy intent eligible for serving | Require every named standby. The acknowledgement count is computed from the set. The record is not a stored observation of replication health. Retain it while preparing a replacement. It is absent before the first confirmed bootstrap policy; absence never permits serving or ordinary promotion. |
 | `pendingDurabilityPolicy`: next revision and required standby node IDs | Same profile authority; authoritative proposed policy intent | Persist before configuration effects. It grants no target eligibility. Remove it when the verified policy replaces `durabilityPolicy`. Revisions increase within an incarnation. |
 | Manual transition request: operation ID and requested target | Authoritative authenticated operator request persisted in the control record's transition intent | B disables autonomous takeover. The requested node still acquires the writer lease and applies its watchdog mode. Operator permission is not an alternative authority. |
-| Node role, WAL positions, timeline, reachability, routing eligibility, and readiness | Derived from live observations and current authority | Compute them. Do not store independent primary or healthy flags as authority. |
+| Node role, WAL positions, timeline, reachability, routing eligibility, and readiness | Derived from live observations and current authority | Compute them. Do not store independent primary or healthy flags as authority. The one published copy of a WAL position is the next row. |
+| Published member position: a member's timeline and WAL flush position | Coordinator, one record per member under the incarnation's namespace, written only by that member's supervisor; a non-authoritative copy of a live observation | Used only to advance that member's replication slots on standbys (§5.8). Never read for eligibility, promotion, coverage, routing, or policy. A stale or missing value keeps more WAL and is safe. It has no lease and no expiry. |
+| Member replication slots | Derived: every node holds one physical slot for each other member; positions and WAL status are observed live | The writer's slots advance by streaming. A standby's slots advance to the smaller of the published position and its own replay position, on the same timeline only. Retention is bounded by `max_slot_wal_keep_size`; an unbounded setting is refused. |
 | Durable subscription identity, filters, lifecycle, `last_processed_id`, and replay lease owner, generation, and expiry | Existing tenant-local `bitemporal_subscriptions`; authoritative subscription progress and ownership | Reuse the existing schema and writer-barrier replay contract in §6.6. Do not create a second failover cursor or acknowledgement table. |
 | Lease freshness/deadline, watchdog health, replay upper boundary, retry attempt identity, channel acknowledgements, catch-up completion, and client eligibility response | Derived runtime observations | Never persist a reusable lease deadline or watchdog-ready flag. Recompute after restart. Do not create a second cursor or writer authority. |
 | Caller idempotency result | Existing application operation contract; authoritative outcome when provided | A stable operation identity is required for automatic reconciliation of unknown commits. Failover does not create a generic result table or guarantee external exactly-once effects. |
@@ -563,6 +565,14 @@ The concrete three-node lifecycle is:
 | Node 1 starts as restricted standby | node 2 | node 3 | `ANY 1 ("pg-node-3")` | Node 1 is excluded while catching up |
 | Re-join policy cutover completes | node 2 | nodes 1 and 3 | `ANY 2 ("pg-node-1", "pg-node-3")` | Both named standbys are covered |
 
+**WAL retention across a takeover.** Every node holds a physical replication slot for each other
+member. A standby advances its slots to the positions the members publish (§5.10, member positions),
+never beyond its own replay position and only on its own timeline. When the writer's host is lost, its
+slots are lost with it; the promoted standby still holds a slot for each other member, so a standby that
+was stopped or disconnected when the writer failed can follow the replacement instead of being rebuilt.
+A member that stays away beyond `max_slot_wal_keep_size` loses its slot, coverage reports it at once,
+and it is rebuilt through a replaced slot.
+
 The reduction to one required peer happens only after fencing and promotion, while admission
 is closed. It remains synchronous. Loss of a standby while the current writer is serving does
 not automatically reduce its required set. After any later promotion, require every remaining
@@ -671,6 +681,15 @@ visibly. A timeout or lost reply never counts as success.
 **One contract suite.** A single coordinator contract test suite states these obligations as
 tests. Every adapter runs the same suite against its real service. An adapter is not selectable
 until it passes.
+
+**Member positions.** A second, separate port, `PgMemberPositions`, carries each member's published
+WAL position (§1.1). It has three operations: publish this node's own position, read every member's
+position, and close. Its obligations are weaker than the lease port's, because a position is never
+authority: a member writes only its own record (access control); a malformed, partial, filtered, or
+unauthenticated response fails; reads need not be linearizable; a lost or delayed older publication is
+safe. It has no lease and no expiry. The lease port and its contract suite are unchanged. Each adapter
+of the lease port also implements this port against the same service; the Consul binding is in the
+coordinator design §3.3.
 
 **Selection.** `peegeeq.pg.coordinator.type` names the adapter. One adapter serves an
 incarnation. Manual profile B uses the same coordinator as A. Changing the coordinator requires
