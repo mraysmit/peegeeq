@@ -8,7 +8,9 @@ import org.slf4j.LoggerFactory;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Per-node supervision of the local PostgreSQL process under the node's own writer lease.
@@ -36,23 +38,136 @@ public final class PgFailoverMonitor {
     private final PgWatchdog watchdog;
     private final PgDurabilityControl durability;
     private final PgPromotionControl promotion;
+    private final PgMemberPositions positions;
     private volatile PgControlRecord lastHeld;
     // Derived at run time: whether this monitor armed the watchdog and has not disarmed it.
     private volatile boolean armed;
     private Future<?> tail = Future.succeededFuture();
 
-    /** @param watchdog used only when the configured watchdog mode is not {@code OFF} */
-    public PgFailoverMonitor(PgNodeConfig config, PgPrimaryElector elector, PgLocalStateStore store,
-                             PgProcessControl process, PgAdmissionGate gate, PgWatchdog watchdog,
-                             PgDurabilityControl durability, PgPromotionControl promotion) {
-        this.config = Objects.requireNonNull(config, "config");
-        this.elector = Objects.requireNonNull(elector, "elector");
-        this.store = Objects.requireNonNull(store, "store");
-        this.process = Objects.requireNonNull(process, "process");
-        this.gate = Objects.requireNonNull(gate, "gate");
-        this.watchdog = Objects.requireNonNull(watchdog, "watchdog");
-        this.durability = Objects.requireNonNull(durability, "durability");
-        this.promotion = Objects.requireNonNull(promotion, "promotion");
+    private PgFailoverMonitor(Builder builder) {
+        this.config = builder.config;
+        this.elector = builder.elector;
+        this.store = builder.store;
+        this.process = builder.process;
+        this.gate = builder.gate;
+        this.watchdog = builder.watchdog;
+        this.durability = builder.durability;
+        this.promotion = builder.promotion;
+        this.positions = builder.positions;
+    }
+
+    /** A builder that requires every dependency (plan §9.28, P7c). */
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    /** Sets the monitor's dependencies. {@link #build()} refuses a missing one by name. */
+    public static final class Builder {
+        private PgNodeConfig config;
+        private PgPrimaryElector elector;
+        private PgLocalStateStore store;
+        private PgProcessControl process;
+        private PgAdmissionGate gate;
+        private PgWatchdog watchdog;
+        private PgDurabilityControl durability;
+        private PgPromotionControl promotion;
+        private PgMemberPositions positions;
+
+        private Builder() {
+        }
+
+        public Builder config(PgNodeConfig value) { config = value; return this; }
+
+        public Builder elector(PgPrimaryElector value) { elector = value; return this; }
+
+        public Builder store(PgLocalStateStore value) { store = value; return this; }
+
+        public Builder process(PgProcessControl value) { process = value; return this; }
+
+        public Builder gate(PgAdmissionGate value) { gate = value; return this; }
+
+        /** Used only when the configured watchdog mode is not {@code OFF}. */
+        public Builder watchdog(PgWatchdog value) { watchdog = value; return this; }
+
+        public Builder durability(PgDurabilityControl value) { durability = value; return this; }
+
+        public Builder promotion(PgPromotionControl value) { promotion = value; return this; }
+
+        public Builder positions(PgMemberPositions value) { positions = value; return this; }
+
+        public PgFailoverMonitor build() {
+            Objects.requireNonNull(config, "config");
+            Objects.requireNonNull(elector, "elector");
+            Objects.requireNonNull(store, "store");
+            Objects.requireNonNull(process, "process");
+            Objects.requireNonNull(gate, "gate");
+            Objects.requireNonNull(watchdog, "watchdog");
+            Objects.requireNonNull(durability, "durability");
+            Objects.requireNonNull(promotion, "promotion");
+            Objects.requireNonNull(positions, "positions");
+            return new PgFailoverMonitor(this);
+        }
+    }
+
+    /**
+     * Observes this node's WAL position and publishes it (plan §9.27, OD-37; §9.28, P7c). No lease is required: a
+     * published position is never authority for exclusion. Refused under quarantine ({@link PgLocalStateException}),
+     * because a quarantined node's position can belong to a diverged history.
+     */
+    public Future<Void> publishPosition() {
+        return serialized(() -> requireNoQuarantine().compose(ignored -> durability.position(config.nodeId()))
+            .compose(positions::publish));
+    }
+
+    /**
+     * Whether this node is a preferred takeover candidate for the observed record (plan §9.28, P7d). Refused when the
+     * record's confirmed policy does not name this node ({@link PgLeaseProtocolException}), and under quarantine. Not
+     * preferred when another member of the confirmed policy published a position on a higher timeline, or on the same
+     * timeline beyond this node's candidate position. A member with no published position is ignored.
+     */
+    public Future<PgCandidacy> takeoverCandidacy(PgControlRecord observed) {
+        return serialized(() -> {
+            Objects.requireNonNull(observed, "observed");
+            JsonObject confirmed = observed.intent().getJsonObject("durabilityPolicy");
+            if (confirmed == null || !confirmed.getJsonArray("requiredStandbyNodeIds").contains(config.nodeId())) {
+                throw new PgLeaseProtocolException("Takeover candidacy requires a confirmed durability policy that names "
+                    + "this node");
+            }
+            List<String> rivals = PgDurabilityPolicy.fromJson(confirmed).requiredStandbyNodeIds().stream()
+                .filter(standby -> !standby.equals(config.nodeId())).toList();
+            return requireNoQuarantine().compose(ignored -> durability.candidatePosition(config.nodeId()))
+                .compose(own -> positions.read().map(published -> candidacy(own, rivals, published)));
+        });
+    }
+
+    /**
+     * Not preferred when a rival published a position on a higher timeline, or on the same timeline beyond this node's.
+     * A published position is at most the rival's present position, so this node defers only to a rival that is ahead.
+     */
+    private static PgCandidacy candidacy(PgMemberPosition own, List<String> rivals, Map<String, PgMemberPosition> published) {
+        for (String rival : rivals) {
+            PgMemberPosition other = published.get(rival);
+            if (other == null) continue;
+            if (other.timeline() > own.timeline()
+                    || other.timeline() == own.timeline() && other.lsn().compareTo(own.lsn()) > 0) {
+                return new PgCandidacy(false, rival + " published timeline " + other.timeline() + " at " + other.lsn()
+                    + ", ahead of this node's timeline " + own.timeline() + " at " + own.lsn());
+            }
+        }
+        return new PgCandidacy(true, "No other covered candidate published a position ahead of this node's timeline "
+            + own.timeline() + " at " + own.lsn());
+    }
+
+    /**
+     * On a standby: ensures a slot for every other member, reads the published positions, and advances each slot to the
+     * smaller of the published and the local replay position (plan §9.27, contract 4). Returns the members whose slots
+     * were advanced. Refused under quarantine ({@link PgLocalStateException}). The read admits members only, and this
+     * node holds no slot of its own, so its own published position advances nothing.
+     */
+    public Future<Set<String>> advanceMemberSlots() {
+        return serialized(() -> requireNoQuarantine().compose(ignored -> durability.ensureSlots(otherMembers()))
+            .compose(ignored -> positions.read())
+            .compose(durability::advanceSlots));
     }
 
     /**

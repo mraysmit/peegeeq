@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.failover;
 
 import dev.mars.peegeeq.failover.consul.ConsulLeaseCoordinator;
+import dev.mars.peegeeq.failover.consul.ConsulMemberPositions;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.Future;
@@ -60,6 +61,7 @@ class PgRenewalLoopIntegrationTest {
     private PgProcessControl process;
     private PgFailoverMonitor monitor;
     private PgRenewalLoop loop;
+    private PgMemberPositions positions;
 
     @BeforeAll static void startContainers() {
         CONSUL.start();
@@ -102,7 +104,10 @@ class PgRenewalLoopIntegrationTest {
                     PgSupervisedContainer.PG_CTL, "psql", dataDirectory, Duration.ofSeconds(20));
                 var promotion = new PgSqlPromotionControl(vertx, runner, POSTGRES.prefix(),
                     PgSupervisedContainer.PG_CTL, "psql", dataDirectory, Duration.ofSeconds(20));
-                monitor = new PgFailoverMonitor(config, elector, store, process, gate, watchdog, durability, promotion);
+                positions = new ConsulMemberPositions(vertx, config, endpoint(), "consul-1", TOKEN);
+                monitor = PgFailoverMonitor.builder().config(config).elector(elector).store(store).process(process)
+                    .gate(gate).watchdog(watchdog).durability(durability).promotion(promotion).positions(positions)
+                    .build();
                 loop = new PgRenewalLoop(vertx, config, elector, monitor);
                 context.completeNow();
             })).onFailure(context::failNow);
@@ -111,6 +116,7 @@ class PgRenewalLoopIntegrationTest {
     @AfterEach void tearDown(VertxTestContext context) {
         loop.stop().compose(ignored -> POSTGRES.forceStop(runner, dataDirectory))
             .transform(TestCleanup.cleanup(() -> elector.close()))
+            .transform(TestCleanup.cleanup(() -> positions == null ? Future.<Void>succeededFuture() : positions.close()))
             .transform(TestCleanup.cleanup(() -> {
                 admin.close();
                 return Future.<Void>succeededFuture();

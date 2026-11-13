@@ -57,6 +57,7 @@ class PgSlotIntegrationTest {
     private static final PgReplicationFixture NODES = new PgReplicationFixture();
     @TempDir Path stateDirectory;
     private final List<PgMemberPositions> positionAdapters = new ArrayList<>();
+    private final List<PgPrimaryElector> memberElectors = new ArrayList<>();
     private Vertx vertx;
     private WebClient admin;
     private PgCommandRunner runner;
@@ -104,14 +105,16 @@ class PgSlotIntegrationTest {
                 // This host has no watchdog device. The mode is OFF, so it is never used.
                 var watchdog = new PgDeviceWatchdog(vertx, stateDirectory.resolve("no-watchdog"),
                     stateDirectory.resolve("no-watchdog-timeout"));
-                monitor = new PgFailoverMonitor(config, elector, store, NODES.control(runner, WRITER), gate, watchdog,
-                    writerDurability(), promotion);
+                monitor = PgFailoverMonitor.builder().config(config).elector(elector).store(store)
+                    .process(NODES.control(runner, WRITER)).gate(gate).watchdog(watchdog).durability(writerDurability())
+                    .promotion(promotion).positions(positionsFor(WRITER)).build();
                 context.completeNow();
             })).onFailure(context::failNow);
     }
 
     @AfterEach void tearDown(VertxTestContext context) {
         TestCleanup.run(() -> NODES.forceStopAll(runner), () -> elector.close(),
+            () -> Future.join(memberElectors.stream().map(PgPrimaryElector::close).toList()),
             () -> Future.join(positionAdapters.stream().map(PgMemberPositions::close).toList()), () -> {
             admin.close();
             return Future.<Void>succeededFuture();
@@ -302,13 +305,14 @@ class PgSlotIntegrationTest {
     // Publishing, stopping a standby, and waiting for the other standby's replay can exceed the 30-second default.
     @io.vertx.junit5.Timeout(value = 120, timeUnit = TimeUnit.SECONDS)
     void aStandbyAdvancesItsMemberSlotsToThePositionsTheMembersPublished(VertxTestContext context) {
-        memberSlotsOf(WRITER).compose(writer -> writer.slots().publishPosition())
-            .compose(ignored -> memberSlotsOf(STOPPED)).compose(stopped -> stopped.slots().publishPosition())
+        memberMonitorOf(WRITER).compose(writer -> writer.monitor().publishPosition())
+            .compose(ignored -> memberMonitorOf(STOPPED)).compose(stopped -> stopped.monitor().publishPosition())
             .compose(ignored -> NODES.node(STOPPED).forceStop(runner, NODES.dataDirectory()))
             .compose(ignored -> positionsFor(STANDBY).read()).compose(published -> {
                 PgLsn stoppedAt = published.get(STOPPED).lsn();
                 return awaitReplay(STANDBY, stoppedAt, System.nanoTime() + TimeUnit.SECONDS.toNanos(30))
-                    .compose(ignored -> memberSlotsOf(STANDBY)).compose(standby -> standby.slots().advanceMemberSlots())
+                    .compose(ignored -> memberMonitorOf(STANDBY))
+                    .compose(standby -> standby.monitor().advanceMemberSlots())
                     .compose(advanced -> {
                         assertEquals(Set.of(WRITER, STOPPED), advanced, "Not every member's slot was advanced");
                         return restartOn(STANDBY, PgNodeConfig.slotName(STOPPED));
@@ -322,22 +326,18 @@ class PgSlotIntegrationTest {
 
     @Test
     @ExpectedErrorLog(
-        logger = "dev.mars.peegeeq.failover.PgMemberSlots",
-        message = "Member position publication failed on node pg-node-2",
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Local supervision operation failed on node pg-node-2",
         throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
-        throwableType = PgLocalStateException.class)
-    @ExpectedErrorLog(
-        logger = "dev.mars.peegeeq.failover.PgMemberSlots",
-        message = "Member slot advance failed on node pg-node-2",
-        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
-        throwableType = PgLocalStateException.class)
+        throwableType = PgLocalStateException.class,
+        minOccurrences = 2, maxOccurrences = 2)
     void aQuarantinedNodeNeitherPublishesNorAdvances(VertxTestContext context) {
-        memberSlotsOf(STANDBY).compose(standby -> standby.store().quarantine("diverged history")
-            .compose(ignored -> standby.slots().publishPosition().transform(publish -> {
+        memberMonitorOf(STANDBY).compose(standby -> standby.store().quarantine("diverged history")
+            .compose(ignored -> standby.monitor().publishPosition().transform(publish -> {
                 assertTrue(publish.failed(), "A quarantined node published its position");
                 assertInstanceOf(PgLocalStateException.class, publish.cause());
                 return Future.<Void>succeededFuture();
-            })).compose(ignored -> standby.slots().advanceMemberSlots().transform(advance -> {
+            })).compose(ignored -> standby.monitor().advanceMemberSlots().transform(advance -> {
                 assertTrue(advance.failed(), "A quarantined node advanced its slots");
                 assertInstanceOf(PgLocalStateException.class, advance.cause());
                 return Future.<Void>succeededFuture();
@@ -352,37 +352,57 @@ class PgSlotIntegrationTest {
 
     @Test
     @ExpectedErrorLog(
-        logger = "dev.mars.peegeeq.failover.PgMemberSlots",
-        message = "Member position publication failed on node pg-node-2",
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Local supervision operation failed on node pg-node-2",
         throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
-        throwableType = PgLeaseProtocolException.class)
-    @ExpectedErrorLog(
-        logger = "dev.mars.peegeeq.failover.PgMemberSlots",
-        message = "Member slot advance failed on node pg-node-2",
-        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
-        throwableType = PgLeaseProtocolException.class)
+        throwableType = PgMemberPositionException.class,
+        minOccurrences = 2, maxOccurrences = 2)
     void aCoordinatorThatCannotBeReachedFailsBothStepsAndIsReported(VertxTestContext context) {
         var unreachable = track(new ConsulMemberPositions(vertx, memberConfig(STANDBY), URI.create("http://127.0.0.1:1"),
-            TOKEN));
-        memberStore(STANDBY).map(standbyStore -> new PgMemberSlots(memberConfig(STANDBY), standbyStore, durabilityOf(STANDBY), unreachable))
+            "consul-1", TOKEN));
+        memberMonitorOf(STANDBY, unreachable).map(MemberMonitorOf::monitor)
             .compose(standby -> standby.publishPosition().transform(publish -> {
                 assertTrue(publish.failed(), "A publication to an unreachable coordinator was reported as stored");
-                assertInstanceOf(PgLeaseProtocolException.class, publish.cause());
+                assertInstanceOf(PgMemberPositionException.class, publish.cause());
                 return Future.<Void>succeededFuture();
             }).compose(ignored -> standby.advanceMemberSlots().transform(advance -> {
                 assertTrue(advance.failed(), "Slots were advanced without readable positions");
-                assertInstanceOf(PgLeaseProtocolException.class, advance.cause());
+                assertInstanceOf(PgMemberPositionException.class, advance.cause());
                 return Future.<Void>succeededFuture();
             }))).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
     }
 
     // ---------------------------------------------------------------- helpers
 
-    private record MemberSlotsOf(PgLocalStateStore store, PgMemberSlots slots) { }
+    private record MemberMonitorOf(PgLocalStateStore store, PgFailoverMonitor monitor) { }
 
-    private Future<MemberSlotsOf> memberSlotsOf(String nodeId) {
-        return memberStore(nodeId).map(nodeStore -> new MemberSlotsOf(nodeStore,
-            new PgMemberSlots(memberConfig(nodeId), nodeStore, durabilityOf(nodeId), positionsFor(nodeId))));
+    private Future<MemberMonitorOf> memberMonitorOf(String nodeId) {
+        return memberMonitorOf(nodeId, positionsFor(nodeId));
+    }
+
+    private Future<MemberMonitorOf> memberMonitorOf(String nodeId, PgMemberPositions positions) {
+        return memberStore(nodeId).map(nodeStore -> new MemberMonitorOf(nodeStore,
+            memberMonitor(nodeId, nodeStore, positions)));
+    }
+
+    /** A member's own supervisor. Publication and slot advancing need no lease, so its elector never acquires one. */
+    private PgFailoverMonitor memberMonitor(String nodeId, PgLocalStateStore nodeStore, PgMemberPositions positions) {
+        var node = NODES.node(nodeId);
+        String directory = NODES.dataDirectory();
+        var nodeConfig = memberConfig(nodeId);
+        var nodeElector = new PgPrimaryElector(nodeConfig,
+            new ConsulLeaseCoordinator(vertx, nodeConfig, endpoint(), "consul-1", TOKEN));
+        memberElectors.add(nodeElector);
+        return PgFailoverMonitor.builder().config(nodeConfig).elector(nodeElector).store(nodeStore)
+            .process(NODES.control(runner, nodeId))
+            .gate(new PgHbaAdmissionGate(vertx, runner, node.prefix(), PgSupervisedContainer.PG_CTL, "psql", directory,
+                node.openHba(directory), node.closedHba(directory), COMMAND_TIMEOUT))
+            .watchdog(new PgDeviceWatchdog(vertx, stateDirectory.resolve("no-watchdog"),
+                stateDirectory.resolve("no-watchdog-timeout")))
+            .durability(durabilityOf(nodeId))
+            .promotion(new PgSqlPromotionControl(vertx, runner, node.prefix(), PgSupervisedContainer.PG_CTL, "psql",
+                directory, COMMAND_TIMEOUT))
+            .positions(positions).build();
     }
 
     private Future<PgLocalStateStore> memberStore(String nodeId) {
@@ -391,7 +411,7 @@ class PgSlotIntegrationTest {
     }
 
     private PgMemberPositions positionsFor(String nodeId) {
-        return track(new ConsulMemberPositions(vertx, memberConfig(nodeId), endpoint(), TOKEN));
+        return track(new ConsulMemberPositions(vertx, memberConfig(nodeId), endpoint(), "consul-1", TOKEN));
     }
 
     private PgMemberPositions track(PgMemberPositions positions) {

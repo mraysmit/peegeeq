@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.failover;
 
 import dev.mars.peegeeq.failover.consul.ConsulLeaseCoordinator;
+import dev.mars.peegeeq.failover.consul.ConsulMemberPositions;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.AsyncResult;
@@ -68,6 +69,7 @@ class PgFollowIntegrationTest {
     private PgPromotionControl promotion;
     private PgFailoverMonitor monitor;
     private PgControlRecord held;
+    private PgMemberPositions positions;
 
     @BeforeAll static void startContainers() {
         CONSUL.start();
@@ -96,6 +98,7 @@ class PgFollowIntegrationTest {
             new ConsulLeaseCoordinator(vertx, writerConfig, endpoint(), "consul-1", TOKEN));
         followerElector = new PgPrimaryElector(followerConfig,
             new ConsulLeaseCoordinator(vertx, followerConfig, endpoint(), "consul-1", TOKEN));
+        positions = new ConsulMemberPositions(vertx, followerConfig, endpoint(), "consul-1", TOKEN);
         waitForLeader(System.nanoTime() + TimeUnit.SECONDS.toNanos(30))
             .compose(ignored -> NODES.provision(runner))
             .compose(ignored -> NODES.control(runner, WRITER).startPrimary())
@@ -127,8 +130,7 @@ class PgFollowIntegrationTest {
                     stateDirectory.resolve("no-watchdog-timeout"));
                 return PgLocalStateStore.open(vertx, stateDirectory, FOLLOWER).map(opened -> {
                     store = opened;
-                    monitor = new PgFailoverMonitor(followerConfig, followerElector, store,
-                        NODES.control(runner, FOLLOWER), gate, watchdog, durability, promotion);
+                    monitor = followerMonitor(durability, watchdog, promotion);
                     return null;
                 });
             }).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
@@ -141,6 +143,7 @@ class PgFollowIntegrationTest {
             .compose(ignored -> historyElector.close().transform(closed -> settle(closed, failures)))
             .compose(ignored -> writerElector.close().transform(closed -> settle(closed, failures)))
             .compose(ignored -> followerElector.close().transform(closed -> settle(closed, failures)))
+            .compose(ignored -> positions.close().transform(closed -> settle(closed, failures)))
             .onSuccess(ignored -> context.verify(() -> {
                 admin.close();
                 if (failures.isEmpty()) {
@@ -391,8 +394,14 @@ class PgFollowIntegrationTest {
             "psql", directory, COMMAND_TIMEOUT);
         var watchdog = new PgDeviceWatchdog(vertx, stateDirectory.resolve("no-watchdog"),
             stateDirectory.resolve("no-watchdog-timeout"));
-        return new PgFailoverMonitor(followerConfig, followerElector, store, NODES.control(runner, FOLLOWER), gate,
-            watchdog, durability, control);
+        return followerMonitor(durability, watchdog, control);
+    }
+
+    private PgFailoverMonitor followerMonitor(PgDurabilityControl durability, PgWatchdog watchdog,
+                                              PgPromotionControl control) {
+        return PgFailoverMonitor.builder().config(followerConfig).elector(followerElector).store(store)
+            .process(NODES.control(runner, FOLLOWER)).gate(gate).watchdog(watchdog).durability(durability)
+            .promotion(control).positions(positions).build();
     }
 
     private PgPromotionControl promotionControl(String nodeId) {

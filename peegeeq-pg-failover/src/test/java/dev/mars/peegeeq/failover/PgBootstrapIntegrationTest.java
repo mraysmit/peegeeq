@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.failover;
 
 import dev.mars.peegeeq.failover.consul.ConsulLeaseCoordinator;
+import dev.mars.peegeeq.failover.consul.ConsulMemberPositions;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.Future;
@@ -66,6 +67,7 @@ class PgBootstrapIntegrationTest {
     private String operationId;
     private final List<PgPrimaryElector> electors = new ArrayList<>();
     private final List<PgRenewalLoop> loops = new ArrayList<>();
+    private final List<PgMemberPositions> positionAdapters = new ArrayList<>();
 
     @BeforeAll static void startContainers() {
         CONSUL.start();
@@ -112,7 +114,9 @@ class PgBootstrapIntegrationTest {
                 Future<Void> closed = Future.succeededFuture();
                 for (PgPrimaryElector elector : electors) closed = closed.compose(ignored -> elector.close());
                 return closed;
-            })).transform(TestCleanup.cleanup(() -> {
+            })).transform(TestCleanup.cleanup(() -> Future.join(positionAdapters.stream()
+                .map(PgMemberPositions::close).toList()).mapEmpty()))
+            .transform(TestCleanup.cleanup(() -> {
                 admin.close();
                 return Future.<Void>succeededFuture();
             })).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
@@ -322,7 +326,10 @@ class PgBootstrapIntegrationTest {
             "psql", dataDirectory, Duration.ofSeconds(20));
         var promotion = new PgSqlPromotionControl(vertx, runner, POSTGRES.prefix(), PgSupervisedContainer.PG_CTL,
             "psql", dataDirectory, Duration.ofSeconds(20));
-        var monitor = new PgFailoverMonitor(nodeConfig, elector, store, control, gate, watchdog, durability, promotion);
+        var positions = new ConsulMemberPositions(vertx, nodeConfig, endpoint(), "consul-1", TOKEN);
+        positionAdapters.add(positions);
+        var monitor = PgFailoverMonitor.builder().config(nodeConfig).elector(elector).store(store).process(control)
+            .gate(gate).watchdog(watchdog).durability(durability).promotion(promotion).positions(positions).build();
         var loop = new PgRenewalLoop(vertx, nodeConfig, elector, monitor);
         loops.add(loop);
         return new PgBootstrap(vertx, nodeConfig, elector, store, monitor, loop);

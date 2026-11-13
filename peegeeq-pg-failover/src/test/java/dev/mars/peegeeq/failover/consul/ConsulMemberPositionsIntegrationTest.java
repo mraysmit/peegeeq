@@ -1,66 +1,54 @@
 package dev.mars.peegeeq.failover.consul;
 
-import dev.mars.peegeeq.failover.PgLeaseProtocolException;
 import dev.mars.peegeeq.failover.PgLsn;
 import dev.mars.peegeeq.failover.PgMemberPosition;
+import dev.mars.peegeeq.failover.PgMemberPositionException;
 import dev.mars.peegeeq.failover.PgMemberPositions;
+import dev.mars.peegeeq.failover.PgMemberPositionsContract;
 import dev.mars.peegeeq.failover.PgNodeConfig;
 import dev.mars.peegeeq.failover.PgWatchdogMode;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import dev.mars.peegeeq.test.vertx.TestCleanup;
 import io.vertx.core.Future;
-import io.vertx.core.Vertx;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.http.HttpServer;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
-import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Timeout;
-import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import java.net.URI;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * The member-position port against a real Consul server with ACLs and node-scoped tokens (plan §9.27, OD-41). Each
- * case states an obligation of the port: a member writes only its own record, and a malformed, filtered, rejected,
- * unanswered, or unreachable response fails.
+ * Consul binding of the member-position contract (plan §9.28, P7a and P7b): one real Consul server with ACLs and
+ * node-scoped tokens. Cases declared here assert Consul wire details: the member session, the ACL that binds a record
+ * to its member, and the adapter's own argument checks.
  */
 @Tag(TestCategories.INTEGRATION)
-@ExtendWith(VertxExtension.class)
 @Isolated
-@Timeout(value = 120, unit = TimeUnit.SECONDS)
-class ConsulMemberPositionsIntegrationTest {
-    private static final List<String> MEMBERS = List.of("pg-node-1", "pg-node-2", "pg-node-3");
+class ConsulMemberPositionsIntegrationTest extends PgMemberPositionsContract {
     private static final String ADMIN_TOKEN = "00000000-0000-0000-0000-000000000001";
+    private static final String CONSUL_NODE = "consul-1";
     private static final GenericContainer<?> CONSUL = new GenericContainer<>("hashicorp/consul:1.22.1")
         .withExposedPorts(8500)
         .withEnv("CONSUL_LOCAL_CONFIG", new JsonObject().put("log_level", "warn")
             .put("acl", new JsonObject().put("enabled", true).put("default_policy", "deny")
                 .put("tokens", new JsonObject().put("initial_management", ADMIN_TOKEN))).encode())
-        .withCommand("agent", "-server", "-bootstrap-expect=1", "-node=consul-1", "-client=0.0.0.0")
+        .withCommand("agent", "-server", "-bootstrap-expect=1", "-node=" + CONSUL_NODE, "-client=0.0.0.0")
         .waitingFor(Wait.forHttp("/v1/status/leader").forPort(8500).withStartupTimeout(Duration.ofSeconds(60)));
-    private final List<PgMemberPositions> opened = new ArrayList<>();
-    private Vertx vertx;
     private WebClient admin;
-    private String incarnation;
     private HttpServer silent;
 
     @BeforeAll static void startConsul() {
@@ -71,51 +59,91 @@ class ConsulMemberPositionsIntegrationTest {
         CONSUL.stop();
     }
 
-    @BeforeEach void setUp(Vertx vertx, VertxTestContext context) {
-        this.vertx = vertx;
+    // ---------------------------------------------------------------- contract binding
+
+    @Override protected Future<Void> prepareBinding() {
         admin = WebClient.create(vertx);
-        incarnation = "inc-" + UUID.randomUUID();
+        silent = null;
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
-        waitForLeader(deadline).compose(ignored -> waitForRegisteredServer(deadline))
-            .onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+        return waitForLeader(deadline).compose(ignored -> waitForRegisteredServer(deadline));
     }
 
-    @AfterEach void tearDown(VertxTestContext context) {
-        TestCleanup.run(() -> Future.join(opened.stream().map(PgMemberPositions::close).toList()),
-            () -> silent == null ? Future.succeededFuture() : silent.close(),
-            () -> {
-                admin.close();
-                return Future.<Void>succeededFuture();
-            }).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+    @Override protected Future<Void> releaseBinding() {
+        Future<Void> closed = silent == null ? Future.succeededFuture() : silent.close();
+        return closed.compose(ignored -> {
+            admin.close();
+            return Future.<Void>succeededFuture();
+        });
     }
 
-    @Test void everyPublishedPositionIsReadBackByEveryMember(VertxTestContext context) {
-        var first = new PgMemberPosition("pg-node-1", 1, PgLsn.parse("0/A000028"));
-        var second = new PgMemberPosition("pg-node-2", 1, PgLsn.parse("0/9FFF000"));
-        positionsOf("pg-node-1").compose(one -> one.publish(first))
-            .compose(ignored -> positionsOf("pg-node-2")).compose(two -> two.publish(second))
-            .compose(ignored -> positionsOf("pg-node-3")).compose(PgMemberPositions::read)
-            .onSuccess(read -> context.verify(() -> {
-                assertEquals(Map.of("pg-node-1", first, "pg-node-2", second), read);
-                context.completeNow();
-            })).onFailure(context::failNow);
+    @Override protected PgNodeConfig nodeConfig(String nodeId) {
+        // The lease TTL is the member session's TTL. Ten seconds is the shortest Consul accepts.
+        return new PgNodeConfig("positions-tests", incarnation, nodeId, MEMBERS, Duration.ofSeconds(10),
+            Duration.ofMillis(250), Duration.ofSeconds(1), Duration.ofSeconds(1), PgWatchdogMode.OFF);
     }
 
-    @Test void aLaterPublicationReplacesTheEarlierOne(VertxTestContext context) {
-        var earlier = new PgMemberPosition("pg-node-2", 1, PgLsn.parse("0/5000000"));
-        var later = new PgMemberPosition("pg-node-2", 2, PgLsn.parse("0/6000000"));
-        positionsOf("pg-node-2").compose(two -> two.publish(earlier).compose(ignored -> two.publish(later))
-            .compose(ignored -> two.read()))
-            .onSuccess(read -> context.verify(() -> {
-                assertEquals(Map.of("pg-node-2", later), read);
-                context.completeNow();
-            })).onFailure(context::failNow);
+    @Override protected Future<PgMemberPositions> positions(PgNodeConfig node) {
+        return scopedToken(node.nodeId()).map(token -> adapter(node, endpoint(), token));
     }
 
-    @Test void anEmptyNamespaceReadsAsNoPositions(VertxTestContext context) {
-        positionsOf("pg-node-1").compose(PgMemberPositions::read)
-            .onSuccess(read -> context.verify(() -> {
-                assertEquals(Map.of(), read, "A member that never published must be absent");
+    @Override protected Future<PgMemberPositions> writeRejectedPositions(PgNodeConfig node) {
+        // The token may create sessions and read the members, and write no key: Consul answers the write with HTTP 403.
+        return token("key_prefix \"" + prefix() + "\" { policy = \"read\" } " + sessionRules())
+            .map(token -> adapter(node, endpoint(), token));
+    }
+
+    @Override protected Future<PgMemberPositions> filteredPositions(PgNodeConfig node) {
+        // This token can read its own member's record only, so Consul filters every other record from the listing. A
+        // list rule on the prefix would return every value (observed on Consul 1.22.1), so the token has none.
+        return token("key \"" + prefix() + node.nodeId() + "\" { policy = \"read\" } " + sessionRules())
+            .map(token -> adapter(node, endpoint(), token));
+    }
+
+    @Override protected Future<PgMemberPositions> silentPositions(PgNodeConfig node) {
+        // A local server that accepts every request and never answers: a lost reply.
+        return vertx.createHttpServer().requestHandler(request -> { }).listen(0, "127.0.0.1").map(server -> {
+            silent = server;
+            return adapter(node, URI.create("http://127.0.0.1:" + server.actualPort()), ADMIN_TOKEN);
+        });
+    }
+
+    @Override protected PgMemberPositions unreachablePositions(PgNodeConfig node) {
+        return adapter(node, URI.create("http://127.0.0.1:1"), ADMIN_TOKEN);
+    }
+
+    @Override protected Future<Void> storeExternally(String member, String value, boolean held) {
+        Future<String> query = held ? adminSession().map(session -> "?acquire=" + session) : Future.succeededFuture("");
+        return query.compose(suffix -> admin.putAbs(endpoint() + "/v1/kv/" + prefix() + member + suffix)
+            .putHeader("X-Consul-Token", ADMIN_TOKEN).timeout(1000).sendBuffer(Buffer.buffer(value)))
+            .map(response -> {
+                assertEquals(200, response.statusCode(), response.bodyAsString());
+                assertEquals("true", response.bodyAsString().strip(), "Consul did not store the external record");
+                return null;
+            });
+    }
+
+    // ---------------------------------------------------------------- Consul wire details
+
+    @Test void aPublishedRecordIsHeldByAMemberSessionThatOnlyItsTtlEnds(VertxTestContext context) {
+        member("pg-node-2").compose(two -> two.publish(new PgMemberPosition("pg-node-2", 1, PgLsn.parse("0/5000000"))))
+            .compose(ignored -> admin.getAbs(endpoint() + "/v1/kv/" + prefix() + "pg-node-2")
+                .putHeader("X-Consul-Token", ADMIN_TOKEN).timeout(1000).send())
+            .compose(stored -> {
+                assertEquals(200, stored.statusCode(), stored.bodyAsString());
+                String session = stored.bodyAsJsonArray().getJsonObject(0).getString("Session");
+                assertNotNull(session, "The record is not held by a session");
+                return admin.getAbs(endpoint() + "/v1/session/info/" + session)
+                    .putHeader("X-Consul-Token", ADMIN_TOKEN).timeout(1000).send();
+            }).onSuccess(info -> context.verify(() -> {
+                JsonObject session = info.bodyAsJsonArray().getJsonObject(0);
+                assertEquals("10s", session.getString("TTL"));
+                assertEquals("delete", session.getString("Behavior"), "The session's end must delete the record");
+                assertEquals(0L, session.getLong("LockDelay"));
+                assertEquals(CONSUL_NODE, session.getString("Node"));
+                for (String field : List.of("Checks", "NodeChecks", "ServiceChecks")) {
+                    JsonArray checks = session.getJsonArray(field);
+                    assertTrue(checks == null || checks.isEmpty(), field + " must hold no failure detector");
+                }
                 context.completeNow();
             })).onFailure(context::failNow);
     }
@@ -125,12 +153,12 @@ class ConsulMemberPositionsIntegrationTest {
         logger = "dev.mars.peegeeq.failover.consul.ConsulMemberPositions",
         message = "Consul request rejected before sending",
         throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
-        throwableType = PgLeaseProtocolException.class)
+        throwableType = PgMemberPositionException.class)
     void aNodeCannotPublishAnotherMembersPositionThroughTheAdapterOrItsToken(VertxTestContext context) {
         var foreign = new PgMemberPosition("pg-node-2", 1, PgLsn.parse("0/5000000"));
-        positionsOf("pg-node-1").compose(one -> one.publish(foreign).transform(refusal -> {
+        member("pg-node-1").compose(one -> one.publish(foreign).transform(refusal -> {
             assertTrue(refusal.failed(), "A node published another member's position");
-            assertInstanceOf(PgLeaseProtocolException.class, refusal.cause());
+            assertInstanceOf(PgMemberPositionException.class, refusal.cause());
             return Future.<Void>succeededFuture();
         })).compose(ignored -> scopedToken("pg-node-1"))
             // The node's own token cannot write another member's key either: the ACL binds the record to its member.
@@ -143,108 +171,81 @@ class ConsulMemberPositionsIntegrationTest {
             })).onFailure(context::failNow);
     }
 
-    @Test void aPublicationThatConsulRejectsFails(VertxTestContext context) {
-        // A token that may read the members but write nothing: Consul answers HTTP 403.
-        readOnlyToken().map(token -> track(new ConsulMemberPositions(vertx, nodeConfig("pg-node-1"), endpoint(), token)))
-            .compose(one -> one.publish(new PgMemberPosition("pg-node-1", 1, PgLsn.parse("0/5000000"))))
-            .onComplete(context.failing(failure -> context.verify(() -> {
-                assertInstanceOf(PgLeaseProtocolException.class, failure);
-                assertTrue(failure.getMessage().contains("HTTP 403"), failure.getMessage());
+    @Test void aPublicationWhoseMemberSessionCannotBeCreatedFailsAndStoresNothing(VertxTestContext context) {
+        // The token may write its own key and may not create a session: Consul answers the session request with 403.
+        token("key \"" + prefix() + "pg-node-1\" { policy = \"write\" } key_prefix \"" + prefix() + "\" { policy = \"read\" }")
+            .map(token -> track(adapter(nodeConfig("pg-node-1"), endpoint(), token)))
+            .compose(one -> one.publish(new PgMemberPosition("pg-node-1", 1, PgLsn.parse("0/5000000"))).transform(publish -> {
+                assertTrue(publish.failed(), "A publication without a member session was reported as stored");
+                assertInstanceOf(PgMemberPositionException.class, publish.cause());
+                assertTrue(publish.cause().getMessage().contains("HTTP 403"), publish.cause().getMessage());
+                return member("pg-node-2").compose(PgMemberPositions::read);
+            })).onSuccess(read -> context.verify(() -> {
+                assertEquals(java.util.Map.of(), read, "A refused publication stored a position");
                 context.completeNow();
-            })));
+            })).onFailure(context::failNow);
     }
 
-    @Test void aMalformedValueOrARecordOfANonMemberFailsTheRead(VertxTestContext context) {
-        putAsAdmin("pg-node-2", "not-json")
-            .compose(ignored -> positionsOf("pg-node-1")).compose(one -> one.read().transform(read -> {
-                assertTrue(read.failed(), "A malformed member record was read as a position");
-                assertInstanceOf(PgLeaseProtocolException.class, read.cause());
+    @Test void aMemberSessionWhoseSettingsDifferOnReadBackFailsThePublication(VertxTestContext context) {
+        // A proxy forwards to Consul and reports the created session with Behavior=release, which would keep the record
+        // after the member stops publishing.
+        WebClient forward = WebClient.create(vertx);
+        vertx.createHttpServer().requestHandler(request -> request.body().compose(body -> forward.requestAbs(
+                request.method(), endpoint() + request.uri()).putHeader("X-Consul-Token", ADMIN_TOKEN).timeout(1000)
+                .sendBuffer(body)).compose(response -> {
+                    Buffer reply = response.body() == null ? Buffer.buffer() : response.body();
+                    if (request.path().startsWith("/v1/session/info/")) {
+                        JsonArray sessions = response.bodyAsJsonArray();
+                        sessions.getJsonObject(0).put("Behavior", "release");
+                        reply = Buffer.buffer(sessions.encode());
+                    }
+                    return request.response().setStatusCode(response.statusCode()).end(reply);
+                }).onFailure(failure -> request.response().setStatusCode(502).end()
+                    .onFailure(context::failNow)))
+            .listen(0, "127.0.0.1").compose(server -> {
+                silent = server;
+                var proxied = track(adapter(nodeConfig("pg-node-1"), URI.create("http://127.0.0.1:" + server.actualPort()),
+                    ADMIN_TOKEN));
+                return proxied.publish(new PgMemberPosition("pg-node-1", 1, PgLsn.parse("0/5000000")));
+            }).transform(TestCleanup.cleanup(() -> {
+                forward.close();
                 return Future.<Void>succeededFuture();
-            }).compose(ignored -> putAsAdmin("pg-node-2", new JsonObject().put("timeline", 1).put("lsn", "0/5000000").encode()))
-                .compose(ignored -> putAsAdmin("pg-node-9", new JsonObject().put("timeline", 1).put("lsn", "0/5000000").encode()))
-                .compose(ignored -> one.read().transform(read -> {
-                    assertTrue(read.failed(), "A record of a node outside the membership was read as a position");
-                    assertInstanceOf(PgLeaseProtocolException.class, read.cause());
-                    return Future.<Void>succeededFuture();
-                }))).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
-    }
-
-    @Test void aReadThatAclsFilteredFails(VertxTestContext context) {
-        String value = new JsonObject().put("timeline", 1).put("lsn", "0/5000000").encode();
-        putAsAdmin("pg-node-1", value).compose(ignored -> putAsAdmin("pg-node-2", value))
-            // This token can read pg-node-1's record only, so Consul filters pg-node-2's from the listing. A list rule on
-            // the prefix would return every value (observed on Consul 1.22.1), so the token has none.
-            .compose(ignored -> token("key \"" + prefix() + "pg-node-1\" { policy = \"read\" }"))
-            .map(token -> track(new ConsulMemberPositions(vertx, nodeConfig("pg-node-1"), endpoint(), token)))
-            .compose(PgMemberPositions::read)
-            .onComplete(context.failing(failure -> context.verify(() -> {
-                assertInstanceOf(PgLeaseProtocolException.class, failure);
+            })).onComplete(context.failing(failure -> context.verify(() -> {
+                assertInstanceOf(PgMemberPositionException.class, failure);
+                assertTrue(failure.getMessage().startsWith("Member session settings differ"), failure.getMessage());
                 context.completeNow();
             })));
     }
 
-    @Test void aCoordinatorThatDoesNotAnswerFailsBothOperationsWithinTheRequestDeadline(VertxTestContext context) {
-        // A local server that accepts every request and never answers: a lost reply.
-        vertx.createHttpServer().requestHandler(request -> { }).listen(0, "127.0.0.1").compose(server -> {
-            silent = server;
-            var positions = track(new ConsulMemberPositions(vertx, nodeConfig("pg-node-1"),
-                URI.create("http://127.0.0.1:" + server.actualPort()), ADMIN_TOKEN));
-            long started = System.nanoTime();
-            return positions.publish(new PgMemberPosition("pg-node-1", 1, PgLsn.parse("0/5000000")))
-                .transform(publish -> {
-                    assertTrue(publish.failed(), "An unanswered publication was reported as stored");
-                    assertInstanceOf(PgLeaseProtocolException.class, publish.cause());
-                    return Future.<Void>succeededFuture();
-                }).compose(ignored -> positions.read().transform(read -> {
-                    assertTrue(read.failed(), "An unanswered read returned positions");
-                    assertInstanceOf(PgLeaseProtocolException.class, read.cause());
-                    assertTrue(System.nanoTime() - started < TimeUnit.SECONDS.toNanos(10),
-                        "The request deadline was not honoured");
-                    return Future.<Void>succeededFuture();
-                }));
-        }).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
-    }
-
-    @Test void anUnreachableCoordinatorFailsBothOperations(VertxTestContext context) {
-        var positions = track(new ConsulMemberPositions(vertx, nodeConfig("pg-node-1"), URI.create("http://127.0.0.1:1"),
+    @Test void theAdapterRejectsPlainHttpToANonLoopbackEndpointAMissingTokenABadNodeNameAndAnOutOfRangeTtl() {
+        var node = nodeConfig("pg-node-1");
+        URI remote = URI.create("http://consul.example.test:8500");
+        URI local = endpoint();
+        assertThrows(IllegalArgumentException.class, () -> new ConsulMemberPositions(vertx, node, remote, CONSUL_NODE,
             ADMIN_TOKEN));
-        positions.publish(new PgMemberPosition("pg-node-1", 1, PgLsn.parse("0/5000000"))).transform(publish -> {
-            assertTrue(publish.failed());
-            assertInstanceOf(PgLeaseProtocolException.class, publish.cause());
-            return Future.<Void>succeededFuture();
-        }).compose(ignored -> positions.read().transform(read -> {
-            assertTrue(read.failed());
-            assertInstanceOf(PgLeaseProtocolException.class, read.cause());
-            return Future.<Void>succeededFuture();
-        })).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
-    }
-
-    @Test void theAdapterRejectsPlainHttpToANonLoopbackEndpointAndAMissingToken() {
-        assertThrows(IllegalArgumentException.class, () -> new ConsulMemberPositions(vertx, nodeConfig("pg-node-1"),
-            URI.create("http://consul.example.test:8500"), ADMIN_TOKEN));
-        assertThrows(IllegalArgumentException.class, () -> new ConsulMemberPositions(vertx, nodeConfig("pg-node-1"),
-            endpoint(), " "));
+        assertThrows(IllegalArgumentException.class, () -> new ConsulMemberPositions(vertx, node, local, CONSUL_NODE, " "));
+        assertThrows(IllegalArgumentException.class, () -> new ConsulMemberPositions(vertx, node, local, "consul node",
+            ADMIN_TOKEN));
+        var shortTtl = new PgNodeConfig("positions-tests", incarnation, "pg-node-1", MEMBERS, Duration.ofSeconds(9),
+            Duration.ofMillis(250), Duration.ofSeconds(1), Duration.ofSeconds(1), PgWatchdogMode.OFF);
+        assertThrows(IllegalArgumentException.class, () -> new ConsulMemberPositions(vertx, shortTtl, local, CONSUL_NODE,
+            ADMIN_TOKEN));
     }
 
     // ---------------------------------------------------------------- fixture
 
-    private Future<PgMemberPositions> positionsOf(String nodeId) {
-        return scopedToken(nodeId).map(token -> track(new ConsulMemberPositions(vertx, nodeConfig(nodeId), endpoint(), token)));
+    private PgMemberPositions adapter(PgNodeConfig node, URI uri, String token) {
+        return new ConsulMemberPositions(vertx, node, uri, CONSUL_NODE, token);
     }
 
-    private PgMemberPositions track(PgMemberPositions positions) {
-        opened.add(positions);
-        return positions;
-    }
-
-    /** The ACL of OD-41's binding: a node writes its own member key and reads the members prefix. */
+    /** The ACL of the binding: a node writes its own member key, reads the members prefix, and owns its sessions. */
     private Future<String> scopedToken(String nodeId) {
         return token("key \"" + prefix() + nodeId + "\" { policy = \"write\" } key_prefix \"" + prefix()
-            + "\" { policy = \"read\" }");
+            + "\" { policy = \"read\" } " + sessionRules());
     }
 
-    private Future<String> readOnlyToken() {
-        return token("key_prefix \"" + prefix() + "\" { policy = \"read\" }");
+    private static String sessionRules() {
+        return "session \"" + CONSUL_NODE + "\" { policy = \"write\" } session_prefix \"\" { policy = \"read\" }";
     }
 
     private Future<String> token(String rules) {
@@ -262,21 +263,19 @@ class ConsulMemberPositionsIntegrationTest {
             });
     }
 
-    private Future<Void> putAsAdmin(String member, String value) {
-        return admin.putAbs(endpoint() + "/v1/kv/" + prefix() + member).putHeader("X-Consul-Token", ADMIN_TOKEN)
-            .timeout(1000).sendBuffer(Buffer.buffer(value)).map(response -> {
+    /** A live session of the management token, so that an external record is held as a publication's record is. */
+    private Future<String> adminSession() {
+        return admin.putAbs(endpoint() + "/v1/session/create").putHeader("X-Consul-Token", ADMIN_TOKEN).timeout(1000)
+            .sendJsonObject(new JsonObject().put("Node", CONSUL_NODE).put("TTL", "60s").put("Behavior", "delete")
+                .put("LockDelay", "0s").put("NodeChecks", new JsonArray()).put("ServiceChecks", new JsonArray()))
+            .map(response -> {
                 assertEquals(200, response.statusCode(), response.bodyAsString());
-                return null;
+                return response.bodyAsJsonObject().getString("ID");
             });
     }
 
     private String prefix() {
         return "peegeeq/pg/positions-tests/" + incarnation + "/members/";
-    }
-
-    private PgNodeConfig nodeConfig(String nodeId) {
-        return new PgNodeConfig("positions-tests", incarnation, nodeId, MEMBERS, Duration.ofSeconds(10),
-            Duration.ofMillis(250), Duration.ofSeconds(1), Duration.ofSeconds(1), PgWatchdogMode.OFF);
     }
 
     private static URI endpoint() {
@@ -297,7 +296,7 @@ class ConsulMemberPositionsIntegrationTest {
         return admin.getAbs(endpoint() + "/v1/catalog/nodes").putHeader("X-Consul-Token", ADMIN_TOKEN)
             .timeout(1000).send().compose(response -> {
                 if (response.statusCode() == 200 && response.bodyAsJsonArray().stream()
-                        .anyMatch(node -> "consul-1".equals(((JsonObject) node).getString("Node")))) {
+                        .anyMatch(node -> CONSUL_NODE.equals(((JsonObject) node).getString("Node")))) {
                     return Future.<Void>succeededFuture();
                 }
                 if (System.nanoTime() >= deadline) {

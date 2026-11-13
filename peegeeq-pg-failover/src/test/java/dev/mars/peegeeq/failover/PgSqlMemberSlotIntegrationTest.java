@@ -102,6 +102,64 @@ class PgSqlMemberSlotIntegrationTest {
             })));
     }
 
+    // ---------------------------------------------------------------- the candidate position (plan §9.28, P7d)
+
+    @Test void aStreamingStandbysCandidatePositionIsOnItsReceiverTimelineBetweenItsReplayAndTheWritersFlush(
+            VertxTestContext context) {
+        NODES.node(STANDBY).sql(runner, "select pg_last_wal_replay_lsn()").compose(replay ->
+            control(STANDBY).candidatePosition(STANDBY).compose(candidate -> NODES.node(WRITER)
+                .sql(runner, "select pg_current_wal_flush_lsn()").map(flush -> {
+                    assertEquals(STANDBY, candidate.nodeId());
+                    assertEquals(1, candidate.timeline(), "The candidate position is not on the receiver's timeline");
+                    assertTrue(candidate.lsn().reached(PgLsn.parse(replay.output().strip())),
+                        "The candidate position is behind the standby's replay position: " + candidate);
+                    assertTrue(PgLsn.parse(flush.output().strip()).reached(candidate.lsn()),
+                        "The candidate position is beyond the writer's flush position: " + candidate);
+                    return null;
+                }))).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+    }
+
+    @Test void aStandbyWhoseWriterIsGoneKeepsItsCandidatePosition(VertxTestContext context) {
+        var standby = control(STANDBY);
+        standby.candidatePosition(STANDBY).compose(before -> NODES.node(WRITER).forceStop(runner, NODES.dataDirectory())
+            .compose(ignored -> awaitNoStreamingReceiver(STANDBY, deadline()))
+            .compose(ignored -> standby.candidatePosition(STANDBY)).map(after -> {
+                assertEquals(1, after.timeline(), "Without a receiver the candidate position lost its timeline");
+                assertTrue(after.lsn().reached(before.lsn()),
+                    "The candidate position moved back when the writer was lost: " + before + " then " + after);
+                return null;
+            })).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+    }
+
+    @Test
+    // Writing WAL and waiting for the standby to receive it can approach the 30-second Vert.x default.
+    @io.vertx.junit5.Timeout(value = 90, timeUnit = TimeUnit.SECONDS)
+    void aStandbyWhoseReplayIsPausedRanksByTheWalItReceived(VertxTestContext context) {
+        var standby = NODES.node(STANDBY);
+        // With replay paused, the standby keeps receiving WAL that it does not replay.
+        standby.sql(runner, "select pg_wal_replay_pause()").compose(paused -> {
+            assertEquals(0, paused.exitCode(), paused.output());
+            return NODES.writeWal(runner, 1);
+        }).compose(ignored -> NODES.node(WRITER).sql(runner, "select pg_current_wal_flush_lsn()"))
+            .compose(flush -> awaitReceived(STANDBY, PgLsn.parse(flush.output().strip()), deadline())
+                .compose(ignored -> standby.sql(runner, "select pg_last_wal_replay_lsn()"))
+                .compose(replay -> control(STANDBY).candidatePosition(STANDBY).map(candidate -> {
+                    assertTrue(candidate.lsn().reached(PgLsn.parse(flush.output().strip())),
+                        "The candidate position does not include the WAL the standby received: " + candidate);
+                    assertTrue(PgLsn.parse(replay.output().strip()).compareTo(candidate.lsn()) < 0,
+                        "The precondition failed: replay was not behind the received WAL");
+                    return null;
+                }))).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+    }
+
+    @Test void aWriterIsNotATakeoverCandidate(VertxTestContext context) {
+        control(WRITER).candidatePosition(WRITER).onComplete(context.failing(failure -> context.verify(() -> {
+            assertInstanceOf(PgDurabilityException.class, failure);
+            assertTrue(failure.getMessage().startsWith("PostgreSQL is not in recovery"), failure.getMessage());
+            context.completeNow();
+        })));
+    }
+
     // ---------------------------------------------------------------- advancing member slots on a standby
 
     @Test void aStandbysMemberSlotsAdvanceToPublishedPositionsCappedAtItsReplayPosition(VertxTestContext context) {
@@ -200,26 +258,27 @@ class PgSqlMemberSlotIntegrationTest {
         messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
         throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
         throwableType = IOException.class,
-        minOccurrences = 2, maxOccurrences = 2)
+        minOccurrences = 3, maxOccurrences = 3)
     @ExpectedErrorLog(
         logger = "dev.mars.peegeeq.failover.PgSqlDurabilityControl",
         message = "Durability command failed: psql",
         throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
         throwableType = PgProcessControlException.class,
-        minOccurrences = 2, maxOccurrences = 2)
-    void aCommandThatCannotRunFailsBothOperationsAndIsReported(VertxTestContext context) {
-        var broken = control(STANDBY, List.of("/nonexistent/docker"), "psql", COMMAND_TIMEOUT);
-        broken.position(STANDBY).transform(position -> cannotRun(position))
+        minOccurrences = 3, maxOccurrences = 3)
+    void aCommandThatCannotRunFailsEveryOperationAndIsReported(VertxTestContext context) {
+        var broken = control(List.of("/nonexistent/docker"), "psql", COMMAND_TIMEOUT);
+        broken.position(STANDBY).transform(this::cannotRun)
             .compose(ignored -> broken.advanceSlots(Map.of()).transform(this::cannotRun))
+            .compose(ignored -> broken.candidatePosition(STANDBY).transform(this::cannotRun))
             .onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
     }
 
     @Test void malformedOutputNoResultAndNoBudgetFailBothOperations(VertxTestContext context) {
         // echo exits 0 and prints its arguments, so the output is not an observation.
-        var echo = control(STANDBY, NODES.node(STANDBY).prefix(), "echo", COMMAND_TIMEOUT);
+        var echo = control(NODES.node(STANDBY).prefix(), "echo", COMMAND_TIMEOUT);
         var silent = new PgSqlDurabilityControl(vertx, new NoResultCommandRunner(runner), NODES.node(STANDBY).prefix(),
             PgSupervisedContainer.PG_CTL, "psql", NODES.dataDirectory(), COMMAND_TIMEOUT);
-        var hurried = control(STANDBY, NODES.node(STANDBY).prefix(), "psql", Duration.ofMillis(1));
+        var hurried = control(NODES.node(STANDBY).prefix(), "psql", Duration.ofMillis(1));
         String malformed = "Malformed durability observation";
         String noResult = "Command returned no result";
         String exhausted = "Durability budget exhausted";
@@ -229,6 +288,9 @@ class PgSqlMemberSlotIntegrationTest {
             .compose(ignored -> silent.advanceSlots(Map.of()).transform(outcome -> refused(outcome, noResult)))
             .compose(ignored -> hurried.position(STANDBY).transform(outcome -> refused(outcome, exhausted)))
             .compose(ignored -> hurried.advanceSlots(Map.of()).transform(outcome -> refused(outcome, exhausted)))
+            .compose(ignored -> echo.candidatePosition(STANDBY).transform(outcome -> refused(outcome, malformed)))
+            .compose(ignored -> silent.candidatePosition(STANDBY).transform(outcome -> refused(outcome, noResult)))
+            .compose(ignored -> hurried.candidatePosition(STANDBY).transform(outcome -> refused(outcome, exhausted)))
             .onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
     }
 
@@ -280,15 +342,26 @@ class PgSqlMemberSlotIntegrationTest {
             });
     }
 
+    private Future<Void> awaitReceived(String nodeId, PgLsn target, long deadline) {
+        return NODES.node(nodeId).sql(runner, "select pg_last_wal_receive_lsn()").compose(observed -> {
+            if (PgLsn.parse(observed.output().strip()).reached(target)) return Future.<Void>succeededFuture();
+            if (System.nanoTime() >= deadline) {
+                return Future.<Void>failedFuture(new AssertionError(nodeId + " did not receive WAL to " + target
+                    + "; last received " + observed.output().strip()));
+            }
+            return vertx.timer(100).compose(ignored -> awaitReceived(nodeId, target, deadline));
+        });
+    }
+
     private static long deadline() {
         return System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
     }
 
     private PgDurabilityControl control(String nodeId) {
-        return control(nodeId, NODES.node(nodeId).prefix(), "psql", COMMAND_TIMEOUT);
+        return control(NODES.node(nodeId).prefix(), "psql", COMMAND_TIMEOUT);
     }
 
-    private PgDurabilityControl control(String nodeId, List<String> prefix, String psql, Duration timeout) {
+    private PgDurabilityControl control(List<String> prefix, String psql, Duration timeout) {
         return new PgSqlDurabilityControl(vertx, runner, prefix, PgSupervisedContainer.PG_CTL, psql,
             NODES.dataDirectory(), timeout);
     }
