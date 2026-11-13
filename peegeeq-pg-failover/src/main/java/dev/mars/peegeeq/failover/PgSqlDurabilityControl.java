@@ -43,6 +43,14 @@ public final class PgSqlDurabilityControl implements PgDurabilityControl {
         + "'lsn', pg_current_wal_flush_lsn()::text) end, "
         + "'receiver', (select json_build_object('timeline', received_tli, 'lsn', flushed_lsn::text) "
         + "from pg_stat_wal_receiver where status = 'streaming' and flushed_lsn is not null))";
+    /**
+     * A standby's candidate position (plan §9.28, P7d): its received and replayed WAL positions, the timeline of a running
+     * WAL receiver, and the timeline of its last restartpoint. Both positions keep their values after the receiver ends.
+     */
+    private static final String CANDIDATE = "select json_build_object('inRecovery', pg_is_in_recovery(), "
+        + "'receiverTimeline', (select received_tli from pg_stat_wal_receiver where received_tli > 0), "
+        + "'checkpointTimeline', (select timeline_id from pg_control_checkpoint()), "
+        + "'received', pg_last_wal_receive_lsn()::text, 'replayed', pg_last_wal_replay_lsn()::text)";
     private static final String PEERS ="select coalesce(json_agg(json_build_object('role', usename, "
         + "'applicationName', application_name, 'state', state, 'syncState', sync_state, "
         + "'flushLsn', flush_lsn::text, 'replayLsn', replay_lsn::text)), '[]'::json) from pg_stat_replication";
@@ -159,6 +167,31 @@ public final class PgSqlDurabilityControl implements PgDurabilityControl {
             }
             return observation(output, () -> new PgMemberPosition(nodeId, timeline.longValue(),
                 PgLsn.parse(position.getString("lsn"))));
+        });
+    }
+
+    @Override
+    public Future<PgMemberPosition> candidatePosition(String nodeId) {
+        PgNodeConfig.requireIdentity(nodeId);
+        return sql(deadline(), CANDIDATE).map(output -> {
+            JsonObject observed = observation(output, () -> new JsonObject(output));
+            if (!(observed.getValue("inRecovery") instanceof Boolean inRecovery)) {
+                throw new PgDurabilityException("Malformed durability observation: " + output);
+            }
+            if (!inRecovery) {
+                throw new PgDurabilityException("PostgreSQL is not in recovery; a writer is not a takeover candidate");
+            }
+            // The receiver's timeline while one runs; after the writer is lost, the timeline of the last restartpoint.
+            Object timeline = observed.getValue("receiverTimeline") instanceof Number receiver
+                ? receiver : observed.getValue("checkpointTimeline");
+            if (!(timeline instanceof Number line)) throw new PgDurabilityException("Malformed durability observation: " + output);
+            PgLsn received = observation(output, () -> lsn(observed.getString("received")));
+            PgLsn replayed = observation(output, () -> lsn(observed.getString("replayed")));
+            if (received == null && replayed == null) {
+                throw new PgDurabilityException("The standby has neither received nor replayed WAL; it has no candidate position");
+            }
+            PgLsn larger = received == null || replayed != null && replayed.compareTo(received) > 0 ? replayed : received;
+            return observation(output, () -> new PgMemberPosition(nodeId, line.longValue(), larger));
         });
     }
 

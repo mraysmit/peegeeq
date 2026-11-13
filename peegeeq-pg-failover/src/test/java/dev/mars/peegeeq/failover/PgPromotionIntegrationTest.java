@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.failover;
 
 import dev.mars.peegeeq.failover.consul.ConsulLeaseCoordinator;
+import dev.mars.peegeeq.failover.consul.ConsulMemberPositions;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.AsyncResult;
@@ -71,6 +72,7 @@ class PgPromotionIntegrationTest {
     private PgDurabilityControl durability;
     private PgPromotionControl promotion;
     private PgFailoverMonitor monitor;
+    private PgMemberPositions positions;
 
     @BeforeAll static void startContainers() {
         CONSUL.start();
@@ -95,6 +97,7 @@ class PgPromotionIntegrationTest {
         historyElector = new PgPrimaryElector(historyConfig,
             new ConsulLeaseCoordinator(vertx, historyConfig, endpoint(), "consul-1", TOKEN));
         elector = new PgPrimaryElector(config, new ConsulLeaseCoordinator(vertx, config, endpoint(), "consul-1", TOKEN));
+        positions = new ConsulMemberPositions(vertx, config, endpoint(), "consul-1", TOKEN);
         waitForLeader(System.nanoTime() + TimeUnit.SECONDS.toNanos(30))
             .compose(ignored -> NODES.provision(runner))
             .compose(ignored -> NODES.control(runner, WRITER).startPrimary())
@@ -134,6 +137,7 @@ class PgPromotionIntegrationTest {
             .compose(ignored -> elector.close().transform(closed -> settle(closed, failures)))
             .compose(ignored -> modeElector == null ? Future.<Void>succeededFuture()
                 : modeElector.close().transform(closed -> settle(closed, failures)))
+            .compose(ignored -> positions.close().transform(closed -> settle(closed, failures)))
             .onSuccess(ignored -> context.verify(() -> {
                 admin.close();
                 if (failures.isEmpty()) {
@@ -204,8 +208,7 @@ class PgPromotionIntegrationTest {
     void aFailedSlotStepFailsTheCallAfterTheCheckpointAndARerunCreatesTheSlotsWithoutASecondCheckpoint(
             VertxTestContext context) {
         var target = NODES.node(TARGET);
-        var failing = new PgFailoverMonitor(config, elector, store, process, gate, watchdog,
-            new FailingSlotsDurabilityControl(durability), promotion);
+        var failing = monitorOf(config, elector, new FailingSlotsDurabilityControl(durability), promotion);
         takeover(elector, STANDBYS).compose(held -> failing.promoteStandby(held).transform(result -> {
             assertTrue(result.failed(), "A promotion whose slots were not created was reported as success");
             assertInstanceOf(PgDurabilityException.class, result.cause());
@@ -515,8 +518,7 @@ class PgPromotionIntegrationTest {
         var requiredConfig = nodeConfig(TARGET, config.incarnation(), PgWatchdogMode.REQUIRED);
         modeElector = new PgPrimaryElector(requiredConfig,
             new ConsulLeaseCoordinator(vertx, requiredConfig, endpoint(), "consul-1", TOKEN));
-        var required = new PgFailoverMonitor(requiredConfig, modeElector, store, process, gate, watchdog, durability,
-            promotion);
+        var required = monitorOf(requiredConfig, modeElector, durability, promotion);
         takeover(modeElector, STANDBYS).compose(held -> required.promoteStandby(held).transform(result -> {
             assertTrue(result.failed(), "A standby was promoted in required mode without a watchdog");
             assertInstanceOf(PgWatchdogException.class, result.cause());
@@ -590,6 +592,8 @@ class PgPromotionIntegrationTest {
 
         @Override public Future<PgMemberPosition> position(String nodeId) { return real.position(nodeId); }
 
+        @Override public Future<PgMemberPosition> candidatePosition(String nodeId) { return real.candidatePosition(nodeId); }
+
         @Override public Future<java.util.Set<String>> advanceSlots(java.util.Map<String, PgMemberPosition> positions) {
             return real.advanceSlots(positions);
         }
@@ -633,7 +637,13 @@ class PgPromotionIntegrationTest {
     }
 
     private PgFailoverMonitor monitor(PgPromotionControl promotionControl) {
-        return new PgFailoverMonitor(config, elector, store, process, gate, watchdog, durability, promotionControl);
+        return monitorOf(config, elector, durability, promotionControl);
+    }
+
+    private PgFailoverMonitor monitorOf(PgNodeConfig nodeConfig, PgPrimaryElector owner,
+                                        PgDurabilityControl durabilityControl, PgPromotionControl promotionControl) {
+        return PgFailoverMonitor.builder().config(nodeConfig).elector(owner).store(store).process(process).gate(gate)
+            .watchdog(watchdog).durability(durabilityControl).promotion(promotionControl).positions(positions).build();
     }
 
     private PgDurabilityControl writerDurability() {

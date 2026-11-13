@@ -5,6 +5,7 @@ import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgCommitOutcomeUnknownException;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.failover.consul.ConsulLeaseCoordinator;
+import dev.mars.peegeeq.failover.consul.ConsulMemberPositions;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.Future;
@@ -60,6 +61,7 @@ class PgBootstrapServingIntegrationTest {
     private static final PgReplicationFixture NODES = new PgReplicationFixture();
     @TempDir Path stateDirectory;
     private final List<PgPrimaryElector> observers = new ArrayList<>();
+    private final List<PgMemberPositions> positionAdapters = new ArrayList<>();
     private Vertx vertx;
     private WebClient admin;
     private PgCommandRunner runner;
@@ -119,7 +121,9 @@ class PgBootstrapServingIntegrationTest {
             Future<Void> closed = elector.close();
             for (PgPrimaryElector observer : observers) closed = closed.compose(ignored -> observer.close());
             return closed;
-        })).transform(TestCleanup.cleanup(() -> {
+        })).transform(TestCleanup.cleanup(() -> Future.join(positionAdapters.stream()
+            .map(PgMemberPositions::close).toList()).mapEmpty()))
+        .transform(TestCleanup.cleanup(() -> {
             admin.close();
             return Future.<Void>succeededFuture();
         })).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
@@ -650,6 +654,8 @@ class PgBootstrapServingIntegrationTest {
 
         @Override public Future<PgMemberPosition> position(String nodeId) { return real.position(nodeId); }
 
+        @Override public Future<PgMemberPosition> candidatePosition(String nodeId) { return real.candidatePosition(nodeId); }
+
         @Override public Future<java.util.Set<String>> advanceSlots(java.util.Map<String, PgMemberPosition> positions) {
             return real.advanceSlots(positions);
         }
@@ -740,8 +746,10 @@ class PgBootstrapServingIntegrationTest {
                               PgAdmissionGate admission) {
         var promotion = new PgSqlPromotionControl(vertx, runner, NODES.node(WRITER).prefix(),
             PgSupervisedContainer.PG_CTL, "psql", NODES.dataDirectory(), COMMAND_TIMEOUT);
-        var monitor = new PgFailoverMonitor(nodeConfig, owner, store, process, admission, watchdog, durability,
-            promotion);
+        var positions = new ConsulMemberPositions(vertx, nodeConfig, endpoint(), "consul-1", TOKEN);
+        positionAdapters.add(positions);
+        var monitor = PgFailoverMonitor.builder().config(nodeConfig).elector(owner).store(store).process(process)
+            .gate(admission).watchdog(watchdog).durability(durability).promotion(promotion).positions(positions).build();
         var loop = new PgRenewalLoop(vertx, nodeConfig, owner, monitor);
         return new Parts(new PgBootstrap(vertx, nodeConfig, owner, store, monitor, loop), monitor);
     }

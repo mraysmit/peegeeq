@@ -400,8 +400,8 @@ class PgTakeoverIntegrationTest {
             .compose(ignored -> durabilityOf(NEW_WRITER, COMMAND_TIMEOUT)
                 .confirmCovered(new PgDurabilityPolicy(2, List.of(FOLLOWER))))
             // After the takeover both nodes publish positions on the promotion's timeline.
-            .compose(ignored -> memberSlots(NEW_WRITER, store).publishPosition())
-            .compose(ignored -> memberSlots(FOLLOWER, followerStore).publishPosition())
+            .compose(ignored -> monitor.publishPosition())
+            .compose(ignored -> followerMonitor.publishPosition())
             .compose(ignored -> positionsOf(NEW_WRITER).read())
             .onSuccess(published -> context.verify(() -> {
                 assertEquals(2, published.get(NEW_WRITER).timeline(), "The new writer's position is not on timeline 2");
@@ -445,12 +445,13 @@ class PgTakeoverIntegrationTest {
      */
     private Future<PgControlRecord> loseTheWriterWhileTheFollowerIsStopped(boolean standbySlots) {
         Future<Void> published = !standbySlots ? Future.succeededFuture()
-            : memberStore(WRITER).compose(writerStore -> memberSlots(WRITER, writerStore).publishPosition())
-                .compose(ignored -> memberSlots(FOLLOWER, followerStore).publishPosition());
+            : memberStore(WRITER).compose(writerStore -> monitorOf(nodeConfig(WRITER, config.incarnation()),
+                    historyElector, writerStore, WRITER, durabilityOf(WRITER, COMMAND_TIMEOUT)).publishPosition())
+                .compose(ignored -> followerMonitor.publishPosition());
         return published.compose(ignored -> NODES.node(FOLLOWER).forceStop(runner, NODES.dataDirectory()))
             .compose(ignored -> !standbySlots ? Future.<Void>succeededFuture()
                 : positionsOf(NEW_WRITER).read().compose(positions -> awaitReplay(NEW_WRITER, positions.get(FOLLOWER).lsn()))
-                    .compose(caughtUp -> memberSlots(NEW_WRITER, store).advanceMemberSlots()).map(advanced -> {
+                    .compose(caughtUp -> monitor.advanceMemberSlots()).map(advanced -> {
                         assertTrue(advanced.contains(FOLLOWER), "The new writer did not advance the follower's slot");
                         return null;
                     }))
@@ -461,13 +462,8 @@ class PgTakeoverIntegrationTest {
             .compose(ignored -> takeover(STANDBYS, null)).compose(this::promoted);
     }
 
-    private PgMemberSlots memberSlots(String nodeId, PgLocalStateStore nodeStore) {
-        return new PgMemberSlots(nodeConfig(nodeId, config.incarnation()), nodeStore,
-            durabilityOf(nodeId, COMMAND_TIMEOUT), positionsOf(nodeId));
-    }
-
     private PgMemberPositions positionsOf(String nodeId) {
-        var positions = new ConsulMemberPositions(vertx, nodeConfig(nodeId, config.incarnation()), endpoint(), TOKEN);
+        var positions = new ConsulMemberPositions(vertx, nodeConfig(nodeId, config.incarnation()), endpoint(), "consul-1", TOKEN);
         positionAdapters.add(positions);
         return positions;
     }
@@ -528,6 +524,8 @@ class PgTakeoverIntegrationTest {
         @Override public Future<Void> replaceLostSlot(String nodeId) { return real.replaceLostSlot(nodeId); }
 
         @Override public Future<PgMemberPosition> position(String nodeId) { return real.position(nodeId); }
+
+        @Override public Future<PgMemberPosition> candidatePosition(String nodeId) { return real.candidatePosition(nodeId); }
 
         @Override public Future<java.util.Set<String>> advanceSlots(java.util.Map<String, PgMemberPosition> positions) {
             return real.advanceSlots(positions);
@@ -613,8 +611,9 @@ class PgTakeoverIntegrationTest {
         // This host has no watchdog device. The mode is OFF, so it is never used.
         var watchdog = new PgDeviceWatchdog(vertx, stateDirectory.resolve("no-watchdog"),
             stateDirectory.resolve("no-watchdog-timeout"));
-        return new PgFailoverMonitor(nodeConfig, owner, nodeStore, NODES.control(runner, nodeId), gate, watchdog,
-            durability, promotion);
+        return PgFailoverMonitor.builder().config(nodeConfig).elector(owner).store(nodeStore)
+            .process(NODES.control(runner, nodeId)).gate(gate).watchdog(watchdog).durability(durability)
+            .promotion(promotion).positions(positionsOf(nodeId)).build();
     }
 
     private PgDurabilityControl durabilityOf(String nodeId, Duration budget) {

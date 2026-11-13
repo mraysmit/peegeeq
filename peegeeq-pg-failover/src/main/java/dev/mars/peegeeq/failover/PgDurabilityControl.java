@@ -61,6 +61,13 @@ public interface PgDurabilityControl {
     Future<PgMemberPosition> position(String nodeId);
 
     /**
+     * This standby's position as a takeover candidate (plan §9.28, P7d): the larger of its received and replayed WAL
+     * position, on the timeline of its WAL receiver, or of its last restartpoint when it has no receiver. It is observed
+     * after the writer is lost, when the standby no longer streams. Refused on a writer, which is not a candidate.
+     */
+    Future<PgMemberPosition> candidatePosition(String nodeId);
+
+    /**
      * Advances the standby's member slots to published positions and returns the members whose slots it advanced
      * (plan §9.27, contract 4). A slot moves to the smaller of the published position and the local replay position,
      * only forward, and only when the published timeline is the timeline of the streaming WAL receiver. A missing,

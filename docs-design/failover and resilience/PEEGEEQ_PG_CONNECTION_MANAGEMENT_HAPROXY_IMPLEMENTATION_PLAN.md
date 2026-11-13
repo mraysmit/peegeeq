@@ -3078,3 +3078,95 @@ tested). A non-physical slot under a member name on a standby, which PostgreSQL 
 standby arrive in PostgreSQL 16). How often a node publishes and advances; there is no supervisor loop yet, so
 nothing outside tests calls `PgMemberSlots`. A re-joining former writer streaming through its advanced slot. A second
 coordinator adapter.
+
+### 9.28 Owner Decisions of 2026-11-13, and Increment P7: Session-Bound Member Positions, Their Contract, the Monitor Builder, and Candidate Ranking (design)
+
+**Owner decisions, 2026-11-13.** The owner answered fifteen questions on the open decisions of §9.20, §9.24, and §9.27,
+then directed: "After verification proceed with implementation. Do not stop to ask me any questions." The questions
+were asked before the whole document set and the module were read. The full reading was done afterwards, on the same
+day: the five design documents, this plan, the Task 8 register entries, every production file of
+`peegeeq-pg-failover`, and its test classes. Each row below states the decision and every conflict that reading found,
+with its location. Where a decision conflicts with a design document, the document is changed in the increment that
+implements the decision, not before.
+
+| # | Item | Decision | Conflicts found, and what changes |
+|---|---|---|---|
+| 1 | OD-27 | Kept: an unbounded `max_slot_wal_keep_size` is refused | None. OD-27 is reviewed |
+| 2 | OD-35 | Kept: every node holds a slot for each other member | None |
+| 3 | OD-36 | Kept: member positions have their own port | None |
+| 4 | OD-37 | Kept: the writer publishes its position too | None |
+| 5 | OD-38 | Reversed: each member's record is held by that member's own coordinator session, and disappears when the session expires (Patroni's member keys) | System design §1.1, row "Published member position" ("It has no lease and no expiry"); §5.10, "Member positions" ("It has no lease and no expiry"); coordinator design §3.3, row "Member positions" ("plain PUT with no session"). Built code: `ConsulMemberPositions`. Increment P7b |
+| 6 | OD-39 | Reversed in part: published positions rank the takeover candidates, as Patroni's leader race does | System design §1.1, same row ("Never read for eligibility, promotion, coverage, routing, or policy"); §5.10 ("a position is never authority"); coordinator design §1.1 ("Never an eligibility, promotion, or policy input"); OD-17 (§9.21). Eligibility stays membership in the last confirmed policy (system design §5.8 "Only nodes covered by the prior acknowledged-commit policy are eligible targets"; S40). A position only orders eligible candidates; it never makes a node eligible. Increment P7d |
+| 7 | OD-40 | Reversed: publication and slot advancing move into `PgFailoverMonitor`, which is built by a builder instead of a constructor | OD-21 (§9.22), OD-29 (§9.24), and OD-40 each avoided a ninth constructor argument. That reason is removed. OD-21 and OD-29 keep their placement, which has other reasons. Increment P7c |
+| 8 | OD-41 | Reversed: the positions port gets its own exception and a contract suite now, with Consul as the first binding | None beyond §9.27 "As built". Increment P7a |
+| 9 | §9.20 row 10 | Rewind and rebuild are automatic; when a rewind fails, the data directory is removed and the member is rebuilt | Reverses P-6 (§5, "Rewind or rebuild is operator-controlled under quarantine"). Consistent with S31 and system design §5.9: quarantine is kept during the rewind or rebuild, a failed rewind is followed by a rebuild, and admission waits for standby validation (invariant 6). Operator reconciliation stays required for missing history, unexpected key deletion, two writable nodes, and restored coordination state (system design §5.7), and for missing policy history or conflicting receipts (§5.8). Coordinator design §6 rewind prerequisites apply. Its own increment |
+| 10 | §9.20 row 9 | Restart (conditional and scheduled), reload, and `pending_restart` | Not in the design. Its own increment |
+| 11 | §9.20 row 19 | Member tags `nofailover`, `nosync`, `noloadbalance`, `clonefrom` | `nosync`: a member that is never in a required set is never covered, so it is never a promotion target (§5.8); `nosync` therefore implies no promotion. `noloadbalance` needs a read-only replica endpoint, which does not exist (§9.20 row 16). `clonefrom` selects a rebuild source (row 10). Its own increment |
+| 12 | §9.20 row 15 | Cluster-wide settings in the coordinator, changed by a guarded edit | System design §1.1, row "Lease TTL, HA-loop interval, retry budget, watchdog mode/device, and manual/automatic mode" ("Authoritative cluster configuration"); §5.4. Identity, membership, endpoints, the coordinator selection, and credentials stay in deployment configuration, because the supervisor needs them to reach the coordinator, and membership changes stay with phase 14 (S39). Every stored value must satisfy the timing rule of §5.4. Its own increment |
+| 13 | §9.20 row 17 | `/cluster`, `/history`, a node status endpoint, and `/metrics` | Sidecar guide §1.1 and system design §9.1 ("Other paths: 404"); the sidecar is read-only and observes only eligibility. The supervisor has no HTTP server. The placement is decided in that increment's design. Its own increment |
+| 14 | §9.20 row 23 | Callbacks `on_start`, `on_stop`, `on_restart`, `on_reload`, `on_role_change`; each failure logged at ERROR, none blocks the operation | The optional-step pattern of the coding principles §3 applies. Its own increment |
+| 15 | §9.20 row 26 | Adopting an existing cluster is not supported | None; bootstrap keeps refusing existing history (§5.11) |
+
+The owner also asked for these decisions not to be lost. They are this table; the register entry of 2026-11-13 points
+to it.
+
+**Order of work.** P7 (answers 5 to 8) comes first, because the next item of §9.27, takeover after a real lease
+expiry, depends on the monitor's construction and on the candidate rule. Then, in order: takeover after real lease
+expiry; planned stop with release (OD-15); member tags (11); automatic rewind and rebuild (9); restart and reload (10);
+coordinator configuration (12); the status and metrics endpoints (13); callbacks (14). Each is designed in its own
+section before its tests.
+
+#### P7 data model
+
+| Datum | Source of truth or derivable | Contract |
+|---|---|---|
+| Published member position | Coordinator record per member, under the incarnation's `members/` prefix, held by that member's own session; a copy of the member's live observation | It exists only while the member's session lives. A member that stops publishing loses its record when the session expires. It is never authority for exclusion, coverage, policy, or routing. It orders covered candidates (P7d) |
+| Member session | Coordinator metadata, created and renewed by the adapter; its identifier is held in the adapter's memory only | One per member supervisor, separate from the writer lease, so the lease port and its contract are unchanged (OD-36). TTL equals the lease TTL. Expiry deletes the records it holds. Closing the adapter does not destroy it: the record ends at expiry |
+| Candidate order | Derived on each call from this node's live position and the published positions of the other covered candidates | Never stored |
+| Candidate position of a standby | Derived live: the larger of its received and replayed WAL position, on the timeline of its WAL receiver, or of its last restartpoint when it has no receiver | Observed after the writer is lost, when the standby no longer streams. Never published |
+
+#### P7 contracts
+
+1. **P7a, own exception and contract suite.** Every failure of `PgMemberPositions` is a `PgMemberPositionException`,
+   including a synchronous throw. `PgMemberPositionsContract` states the port's obligations as tests: a publication is
+   read back by every member; a later one replaces the earlier; an empty namespace reads as no positions; another
+   node's position is refused before anything is sent; a publication the service rejects fails; a malformed record and
+   a record of a non-member fail the read; a filtered read fails; an unanswered request fails within the request
+   deadline; an unreachable service fails both operations. `ConsulMemberPositionsIntegrationTest` becomes its binding
+   and keeps the Consul wire cases.
+2. **P7b, session-bound records.** `ConsulMemberPositions` takes the Consul node name, as the lease adapter does, and
+   validates it and the TTL range. `publish` renews the adapter's session, or creates one when it has none or the
+   renewal finds it gone, and then writes the record with `?acquire=<session>`. The session has the lease TTL,
+   `Behavior=delete`, `LockDelay=0s`, and no checks; it is read back and any differing setting fails. A write that
+   Consul does not acquire (`false`) fails. `read` fails on a record that no session holds, because it is not a
+   session-bound publication. Contract additions: a record whose member stops publishing disappears after the session
+   TTL; a record without a session fails the read. ACL: each node's token writes its own member key, reads the prefix
+   without a `list` rule (§3.3), and writes sessions on its own Consul node.
+3. **P7c, the monitor builder.** `PgFailoverMonitor.builder()` sets the configuration, elector, store, process control,
+   gate, watchdog, durability control, promotion control, and member positions; `build()` refuses a missing one by name.
+   The public constructor is deleted. `PgFailoverMonitor.publishPosition()` and `advanceMemberSlots()` replace
+   `PgMemberSlots`, with its contract, and run serialized with the other local effects. `PgMemberSlots` is deleted.
+   Their failures are logged by the monitor's single boundary log line.
+4. **P7d, candidate ranking.** `PgDurabilityControl.candidatePosition(nodeId)` observes the candidate position of the
+   table above; it is refused on a writer. `PgFailoverMonitor.takeoverCandidacy(observed)` is refused when the observed
+   record's confirmed policy does not name this node (`PgLeaseProtocolException`), and under quarantine. It reads this
+   node's candidate position and the published positions, and returns `PgCandidacy(preferred, reason)`: not preferred
+   when another member of the confirmed policy published a position on a higher timeline, or on the same timeline
+   strictly beyond this node's position. A missing or expired record is ignored, as Patroni ignores a member it cannot
+   reach. Equal positions leave both preferred; the lease acquisition decides. A published position is at most the
+   member's present position, so a node defers only to a member that is ahead. Manual takeover names its target and is
+   not ranked. The automatic initiation that acts on the result is phase 8a.
+
+#### P7 dependency failure modes, each with a failing test before its code
+
+| Dependency | Modes | Test class |
+|---|---|---|
+| Positions port, every adapter | failed request, rejected write, malformed or filtered read, non-member record, unanswered request, unreachable service, another node's position | `PgMemberPositionsContract` through its Consul binding |
+| Consul member session | creation rejected; setting differs on read-back; renewal finds the session gone; record not acquired; record expires with the session | `ConsulMemberPositionsIntegrationTest` |
+| Monitor builder | each dependency missing | `PgFailoverMonitorBuilderTest` (core) |
+| Monitor publication and advance | quarantine; unreachable coordinator; the advance end to end | `PgSlotIntegrationTest`, `PgTakeoverIntegrationTest` |
+| Candidate position | writer; streaming standby; standby without a receiver; command failure; malformed output; no result; no budget | `PgSqlMemberSlotIntegrationTest` |
+| Candidacy | not named by the confirmed policy; quarantine; another candidate ahead; equal; another candidate's record expired; unreachable coordinator | `PgCandidacyIntegrationTest` |
+
+**Order of work.** P7a, P7b, P7c, P7d, each with tests and stubs, red, implementation, green, probes with SHA-256
+records, the touched classes, core, and the guards last.

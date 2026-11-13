@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.failover;
 
 import dev.mars.peegeeq.failover.consul.ConsulLeaseCoordinator;
+import dev.mars.peegeeq.failover.consul.ConsulMemberPositions;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.Future;
@@ -64,6 +65,7 @@ class PgPolicyInstallationIntegrationTest {
     private PgAdmissionGate gate;
     private PgWatchdog watchdog;
     private PgFailoverMonitor monitor;
+    private PgMemberPositions positions;
 
     @BeforeAll static void startContainers() {
         CONSUL.start();
@@ -87,6 +89,7 @@ class PgPolicyInstallationIntegrationTest {
             Duration.ofSeconds(80), Duration.ofMillis(250), Duration.ofSeconds(2), Duration.ofSeconds(8),
             PgWatchdogMode.OFF);
         elector = new PgPrimaryElector(config, new ConsulLeaseCoordinator(vertx, config, endpoint(), "consul-1", TOKEN));
+        positions = new ConsulMemberPositions(vertx, config, endpoint(), "consul-1", TOKEN);
         waitForLeader(System.nanoTime() + TimeUnit.SECONDS.toNanos(30))
             .compose(ignored -> NODES.provision(runner))
             .compose(ignored -> {
@@ -107,7 +110,8 @@ class PgPolicyInstallationIntegrationTest {
     }
 
     @AfterEach void tearDown(VertxTestContext context) {
-        NODES.forceStopAll(runner).transform(TestCleanup.cleanup(() -> elector.close())).transform(TestCleanup.cleanup(() -> {
+        NODES.forceStopAll(runner).transform(TestCleanup.cleanup(() -> elector.close()))
+            .transform(TestCleanup.cleanup(() -> positions.close())).transform(TestCleanup.cleanup(() -> {
             admin.close();
             return Future.<Void>succeededFuture();
         })).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
@@ -468,6 +472,8 @@ class PgPolicyInstallationIntegrationTest {
 
         @Override public Future<PgMemberPosition> position(String nodeId) { return real.position(nodeId); }
 
+        @Override public Future<PgMemberPosition> candidatePosition(String nodeId) { return real.candidatePosition(nodeId); }
+
         @Override public Future<java.util.Set<String>> advanceSlots(java.util.Map<String, PgMemberPosition> positions) {
             return real.advanceSlots(positions);
         }
@@ -505,6 +511,8 @@ class PgPolicyInstallationIntegrationTest {
 
         @Override public Future<PgMemberPosition> position(String nodeId) { return real.position(nodeId); }
 
+        @Override public Future<PgMemberPosition> candidatePosition(String nodeId) { return real.candidatePosition(nodeId); }
+
         @Override public Future<java.util.Set<String>> advanceSlots(java.util.Map<String, PgMemberPosition> positions) {
             return real.advanceSlots(positions);
         }
@@ -527,7 +535,8 @@ class PgPolicyInstallationIntegrationTest {
     private PgFailoverMonitor monitor(PgDurabilityControl durability) {
         var promotion = new PgSqlPromotionControl(vertx, runner, NODES.node(WRITER).prefix(),
             PgSupervisedContainer.PG_CTL, "psql", NODES.dataDirectory(), COMMAND_TIMEOUT);
-        return new PgFailoverMonitor(config, elector, store, process, gate, watchdog, durability, promotion);
+        return PgFailoverMonitor.builder().config(config).elector(elector).store(store).process(process).gate(gate)
+            .watchdog(watchdog).durability(durability).promotion(promotion).positions(positions).build();
     }
 
     private PgDurabilityControl durability(Duration budget) {
