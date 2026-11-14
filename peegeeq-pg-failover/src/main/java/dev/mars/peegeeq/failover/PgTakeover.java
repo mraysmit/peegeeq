@@ -7,10 +7,12 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 
 /**
- * Takeover steps that run on the new writer after it holds the lease. This increment has one: the
- * policy cutover after promotion. Every failure and refusal is logged once at ERROR and returned.
+ * Takeover steps of the new writer: acquiring the lease after the former one expired or was released
+ * (plan §9.29), and the policy cutover after promotion (plan §9.23). Every failure and refusal is logged
+ * once at ERROR and returned.
  */
 public final class PgTakeover {
     private static final Logger logger = LoggerFactory.getLogger(PgTakeover.class);
@@ -29,10 +31,74 @@ public final class PgTakeover {
 
     /**
      * Takes over the observed control record after the former writer's lease expired or was released (plan §9.29).
-     * Stub: the tests of plan §9.29 are written against it before the implementation.
+     * The intent names this node as writer and the observed writer as previous writer, has a new operation, is
+     * withdrawn, and carries the confirmed and pending policies unchanged. Returns the acquired record. The caller
+     * starts its renewal loop directly afterwards, before promotion.
+     *
+     * <p>Refused before any coordinator write, so the elector stays available for a later attempt: a record that
+     * still has a lease holder, a record that names this node as writer (that is a re-join), or a confirmed policy that
+     * does not name this node ({@link PgLeaseProtocolException}); quarantine ({@link PgLocalStateException}); in
+     * {@code AUTOMATIC} mode, a candidacy that is not preferred ({@link PgLeaseProtocolException}). A manual takeover
+     * names its target and is not ranked. The successor never waits for a reply from the former writer: its exclusion
+     * is the former writer's own supervisor's demotion before the lease can expire.
      */
     public Future<PgControlRecord> acquire(PgControlRecord observed, PgFailoverMode mode) {
-        return Future.failedFuture(new UnsupportedOperationException("not implemented"));
+        return Future.<Void>succeededFuture()
+            .compose(ignored -> {
+                Objects.requireNonNull(observed, "observed");
+                Objects.requireNonNull(mode, "mode");
+                requireTakeoverCandidate(observed);
+                return requireNoQuarantine();
+            })
+            .compose(ignored -> mode == PgFailoverMode.AUTOMATIC ? requirePreferred(observed)
+                : Future.<Void>succeededFuture())
+            .compose(ignored -> elector.acquireAfterRelease(observed, takeoverIntent(observed)))
+            // andThen, not onFailure: the caller sees the failure only after it is logged.
+            .andThen(outcome -> {
+                if (outcome.failed()) {
+                    logger.error("Takeover acquisition failed on node {}", config.nodeId(), outcome.cause());
+                }
+            });
+    }
+
+    private void requireTakeoverCandidate(PgControlRecord observed) {
+        JsonObject intent = observed.intent();
+        JsonObject confirmed = intent.getJsonObject("durabilityPolicy");
+        if (observed.leaseHolder() != null) {
+            throw new PgLeaseProtocolException("The control record is still owned; a takeover waits until the former "
+                + "lease expires or is released");
+        }
+        if (config.nodeId().equals(intent.getString("writerNodeId"))) {
+            throw new PgLeaseProtocolException("The control record names this node as writer; its return is a re-join, "
+                + "not a takeover");
+        }
+        if (confirmed == null || !confirmed.getJsonArray("requiredStandbyNodeIds").contains(config.nodeId())) {
+            throw new PgLeaseProtocolException("A takeover requires a confirmed durability policy that names this node");
+        }
+    }
+
+    /** In automatic mode only a preferred candidate acquires (plan §9.28, P7d). */
+    private Future<Void> requirePreferred(PgControlRecord observed) {
+        return monitor.takeoverCandidacy(observed).map(candidacy -> {
+            if (!candidacy.preferred()) {
+                throw new PgLeaseProtocolException("This node is not a preferred takeover candidate: "
+                    + candidacy.reason());
+            }
+            return null;
+        });
+    }
+
+    /** Withdrawn intent for this node, with the observed writer as previous writer and both policies carried. */
+    private JsonObject takeoverIntent(PgControlRecord observed) {
+        JsonObject history = observed.intent();
+        JsonObject intent = new JsonObject().put("writerNodeId", config.nodeId()).put("phase", "WITHDRAWN")
+            .put("operationId", UUID.randomUUID().toString())
+            .put("previousWriterNodeId", history.getString("writerNodeId"))
+            .put("durabilityPolicy", history.getJsonObject("durabilityPolicy"));
+        if (history.containsKey("pendingDurabilityPolicy")) {
+            intent.put("pendingDurabilityPolicy", history.getJsonObject("pendingDurabilityPolicy"));
+        }
+        return intent;
     }
 
     /**
