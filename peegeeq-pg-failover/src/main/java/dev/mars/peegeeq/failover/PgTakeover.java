@@ -75,6 +75,9 @@ public final class PgTakeover {
         if (confirmed == null || !confirmed.getJsonArray("requiredStandbyNodeIds").contains(config.nodeId())) {
             throw new PgLeaseProtocolException("A takeover requires a confirmed durability policy that names this node");
         }
+        if (!config.tagsOf(config.nodeId()).eligibleForTakeover()) {
+            throw new PgLeaseProtocolException("This node is tagged nofailover or nosync; it is never a takeover target");
+        }
     }
 
     /** In automatic mode only a preferred candidate acquires (plan §9.28, P7d). */
@@ -175,8 +178,9 @@ public final class PgTakeover {
     private Future<PgControlRecord> withNextPolicyPending(PgControlRecord held) {
         JsonObject intent = held.intent();
         PgDurabilityPolicy confirmed = PgDurabilityPolicy.fromJson(intent.getJsonObject("durabilityPolicy"));
+        // A member tagged nosync is never in a required set (plan §9.31).
         List<String> remaining = confirmed.requiredStandbyNodeIds().stream()
-            .filter(standby -> !standby.equals(config.nodeId())).toList();
+            .filter(standby -> !standby.equals(config.nodeId()) && !config.tagsOf(standby).noSync()).toList();
         if (remaining.isEmpty()) {
             throw new PgDurabilityException("No standby of the confirmed policy remains after the promotion of "
                 + config.nodeId() + "; committed-write admission stays closed until a standby is restored");

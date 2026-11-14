@@ -831,8 +831,13 @@ Phases:
    successor acquires (order asserted). Red 7 of 7 on the stub; green 7 of 7; 5 probes detected (the writer check
    after its test was rebuilt); takeover class 11, core 410, guards 77. Jenkins build #38 (`ec62d499`, before this
    increment) SUCCESS: `peegeeq-pg-failover` 706 and all downstream modules and UI suites green.
-   **OPEN — 7b.3 remaining:** planned stop with release (OD-15), manual takeover, repeated failover, controlled
-   re-join, the production entry point and supervisor loop, the real-device watchdog run on Linux, and the new
+   **7b.3 update, 2026-11-14, planned stop with release (plan §9.30, OD-15, `ed29d191`):**
+   `PgFailoverMonitor.stopAndRelease(held, reason)` stops local PostgreSQL as a demotion does and releases the lease
+   only after every local step succeeded; an unconfirmed stop quarantines and keeps the lease to expire. New
+   `PgPlannedStopIntegrationTest`: the release hook observes PostgreSQL stopped when the release is sent, and the
+   successor acquires before the lease could expire. Red 4 of 4 on the stub; green 4 of 4; 4 probes detected; monitor
+   23, renewal loop 13, bootstrap 7, promotion 17, takeover 11, takeover after expiry 7, core 410, guards 77.
+   **OPEN — 7b.3 remaining:** manual takeover, repeated failover, controlled re-join, the production entry point and supervisor loop, the real-device watchdog run on Linux, and the new
    scope of the 2026-11-13 owner decisions (plan §9.28 rows 9 to 14: member tags, automatic rewind and rebuild,
    restart and reload, coordinator configuration, status and metrics endpoints, callbacks).
 8. **OPEN.** Enable autonomous initiation on the verified common boundary (8a), complete

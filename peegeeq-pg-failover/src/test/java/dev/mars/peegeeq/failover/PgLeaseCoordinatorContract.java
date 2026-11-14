@@ -212,6 +212,26 @@ public abstract class PgLeaseCoordinatorContract {
     @Test
     @ExpectedErrorLog(
         logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
+        message = "Coordinator request rejected",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    public void aNewPolicyNamingANosyncMemberCannotCreateOwnership(VertxTestContext context) {
+        // pg-node-3 is tagged nosync (plan §9.31), so no new policy may require it.
+        var tagged = config.withMemberTags(java.util.Map.of("pg-node-3", new PgMemberTags(false, true, false, null)));
+        coordinator(tagged).compose(coordinator -> elector(tagged, coordinator).createInitialIntent(initialIntent("pg-node-1"))
+            .transform(acquisition -> {
+                assertTrue(acquisition.failed(), "A policy requiring a nosync member created ownership");
+                assertInstanceOf(PgLeaseProtocolException.class, acquisition.cause());
+                return owner.read();
+            })).onSuccess(read -> context.verify(() -> {
+                assertTrue(read.isEmpty(), "A refused initial intent was written");
+                context.completeNow();
+            })).onFailure(context::failNow);
+    }
+
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgPrimaryElector",
         message = "Coordinator operation failed",
         throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
         throwableType = PgLeaseProtocolException.class)

@@ -3,17 +3,28 @@ package dev.mars.peegeeq.failover;
 import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 
 /**
- * Authoritative node identity, timing inputs, and watchdog mode. Lease deadlines, the watchdog
- * timeout, and the ownership budget are derived.
+ * Authoritative node identity, timing inputs, watchdog mode, and the member tags of every member
+ * (plan §9.31). Lease deadlines, the watchdog timeout, and the ownership budget are derived.
  */
 public record PgNodeConfig(String clusterId, String incarnation, String nodeId,
                            List<String> memberNodeIds, Duration leaseTtl,
                            Duration loopInterval, Duration requestTimeout,
-                           Duration stopTimeout, PgWatchdogMode watchdogMode) {
+                           Duration stopTimeout, PgWatchdogMode watchdogMode,
+                           Map<String, PgMemberTags> memberTags) {
+    /** A configuration in which no member has tags. */
+    public PgNodeConfig(String clusterId, String incarnation, String nodeId, List<String> memberNodeIds,
+                        Duration leaseTtl, Duration loopInterval, Duration requestTimeout, Duration stopTimeout,
+                        PgWatchdogMode watchdogMode) {
+        this(clusterId, incarnation, nodeId, memberNodeIds, leaseTtl, loopInterval, requestTimeout, stopTimeout,
+            watchdogMode, Map.of());
+    }
+
     public PgNodeConfig {
+        memberTags = memberTags == null ? Map.of() : Map.copyOf(memberTags);
         requireIdentity(clusterId);
         requireIdentity(incarnation);
         requireIdentity(nodeId);
@@ -26,6 +37,16 @@ public record PgNodeConfig(String clusterId, String incarnation, String nodeId,
         // every member distinct (OD-31).
         if (memberNodeIds.stream().map(PgNodeConfig::slotName).distinct().count() != memberNodeIds.size()) {
             throw new IllegalArgumentException("Members must derive distinct replication slot names");
+        }
+        // Member tags (plan §9.31): keyed by members; a clone source is another member.
+        for (Map.Entry<String, PgMemberTags> entry : memberTags.entrySet()) {
+            if (!memberNodeIds.contains(entry.getKey())) {
+                throw new IllegalArgumentException("Tags name a node outside the membership: " + entry.getKey());
+            }
+            String cloneFrom = Objects.requireNonNull(entry.getValue(), "tags").cloneFrom();
+            if (cloneFrom != null && (cloneFrom.equals(entry.getKey()) || !memberNodeIds.contains(cloneFrom))) {
+                throw new IllegalArgumentException("The clone source of " + entry.getKey() + " must be another member");
+            }
         }
         // The range a coordinator accepts for a lease TTL is validated by its adapter.
         positiveMillis(Objects.requireNonNull(leaseTtl, "leaseTtl"));
@@ -53,6 +74,17 @@ public record PgNodeConfig(String clusterId, String incarnation, String nodeId,
         return new PgNodeConfig(clusterId, incarnation, nodeId, memberNodeIds,
             Duration.ofSeconds(30), Duration.ofSeconds(5), Duration.ofSeconds(3), Duration.ofSeconds(5),
             PgWatchdogMode.AUTOMATIC);
+    }
+
+    /** This configuration with the given member tags (plan §9.31). */
+    public PgNodeConfig withMemberTags(Map<String, PgMemberTags> tags) {
+        return new PgNodeConfig(clusterId, incarnation, nodeId, memberNodeIds, leaseTtl, loopInterval, requestTimeout,
+            stopTimeout, watchdogMode, tags);
+    }
+
+    /** The tags of a member; a member without an entry has none. */
+    public PgMemberTags tagsOf(String member) {
+        return memberTags.getOrDefault(member, PgMemberTags.NONE);
     }
 
     /** Name of the one control record for this cluster incarnation. */

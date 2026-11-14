@@ -314,6 +314,23 @@ class PgTakeoverIntegrationTest {
         logger = "dev.mars.peegeeq.failover.PgTakeover",
         message = "Takeover cutover failed on node pg-node-2",
         throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgDurabilityException.class)
+    void aCutoverWhoseOnlyRemainingStandbyIsTaggedNosyncIsRefusedBeforeAnyEffect(VertxTestContext context) {
+        // The follower is tagged nosync (plan §9.31): it is never in a required set, so no standby remains.
+        var tagged = config.withMemberTags(java.util.Map.of(FOLLOWER, new PgMemberTags(false, true, false, null)));
+        takeover(STANDBYS, null).compose(this::promoted).compose(held -> new PgTakeover(tagged, elector, store, monitor)
+            .cutover(held, PgFailoverMode.MANUAL).transform(refusal -> {
+                assertTrue(refusal.failed(), "A nosync standby was required by the cut-over policy");
+                assertInstanceOf(PgDurabilityException.class, refusal.cause());
+                return assertUnchanged(held);
+            })).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+    }
+
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgTakeover",
+        message = "Takeover cutover failed on node pg-node-2",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
         throwableType = PgPromotionException.class)
     void aCutoverBeforeThisOperationsPromotionCompletedIsRefusedBeforeAnyEffect(VertxTestContext context) {
         takeover(STANDBYS, null).compose(held -> takeoverOf(monitor).cutover(held, PgFailoverMode.MANUAL)

@@ -133,8 +133,10 @@ public final class PgFailoverMonitor {
                 throw new PgLeaseProtocolException("Takeover candidacy requires a confirmed durability policy that names "
                     + "this node");
             }
+            // A rival tagged nofailover or nosync can never take over, so it is no reason to defer (plan §9.31).
             List<String> rivals = PgDurabilityPolicy.fromJson(confirmed).requiredStandbyNodeIds().stream()
-                .filter(standby -> !standby.equals(config.nodeId())).toList();
+                .filter(standby -> !standby.equals(config.nodeId()) && config.tagsOf(standby).eligibleForTakeover())
+                .toList();
             return requireNoQuarantine().compose(ignored -> durability.candidatePosition(config.nodeId()))
                 .compose(own -> positions.read().map(published -> candidacy(own, rivals, published)));
         });
@@ -198,6 +200,9 @@ public final class PgFailoverMonitor {
                     || !confirmed.getJsonArray("requiredStandbyNodeIds").contains(config.nodeId())) {
                 throw new PgLeaseProtocolException("Promotion requires fresh ownership of a withdrawn takeover "
                     + "record whose confirmed durability policy names this node");
+            }
+            if (!config.tagsOf(config.nodeId()).eligibleForTakeover()) {
+                throw new PgLeaseProtocolException("This node is tagged nofailover or nosync; it is never promoted");
             }
             String operation = intent.getString("operationId");
             return requireNoQuarantine().compose(ignored -> store.closeGrant())
