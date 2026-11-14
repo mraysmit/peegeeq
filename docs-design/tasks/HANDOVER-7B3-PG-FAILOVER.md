@@ -110,7 +110,8 @@ acquire-refusal mutation probe with SHA-256 restored. Details in plan §9.28.
    `PgBootstrapServingIntegrationTest`; `loseTheWriterWhileTheFollowerIsStopped` in `PgTakeoverIntegrationTest`;
    `acquisitionAfterExpiryNeedsNoReplyFromFormerOwner` in `PgLeaseCoordinatorContract`.
 4. Done 2026-11-14 (`ed29d191`): planned stop with release (OD-15, plan §9.30, `PgFailoverMonitor.stopAndRelease`).
-5. Member tags (answer 11).
+5. Done 2026-11-14 (`f2b03bb1`): member tags (answer 11, plan §9.31; owner: deployment configuration, all four tags
+   accepted now).
 6. Automatic rewind and rebuild (answer 9).
 7. Restart, reload, `pending_restart` (answer 10).
 8. Coordinator configuration (answer 12).

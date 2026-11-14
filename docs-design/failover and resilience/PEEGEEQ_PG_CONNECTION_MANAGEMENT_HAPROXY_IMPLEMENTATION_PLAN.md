@@ -3445,3 +3445,19 @@ bootstrap, cutover, and any later policy change.
 
 **Order of work.** Tests and stubs; red; implementation; green; mutation probes with SHA-256 records; the touched
 classes; core; guards last.
+
+**Status, 2026-11-14.** Implemented (`f2b03bb1`), green, mutation-probed, and the touched classes, core, and guards
+green. Runs on the Jenkins host, logs in `/var/lib/jenkins/peegeeq-work/logs`.
+
+| Step | Evidence |
+|---|---|
+| Red, against the stubs | `tags-chain6-20261114.log`. Configuration: 26 run, 4 failures (the eligibility rule and both validations; the stub copied the map, so the immutability test passed). Elector: "A policy requiring a nosync member created ownership". Takeover: 3 run, 2 failures and 1 error: a tagged node acquired, a tagged node was promoted, and the candidate deferred to the tagged rival. Cutover: "A refused or failed cutover changed the control record" |
+| Green | `tags-chain7-20261114.log`: configuration 26, elector 1, takeover 3, cutover 1 |
+| Probes | Same log; SHA-256 of the five changed files `4ca01500...16411a41` before and after. 1 eligibility rule, 2 membership validation, 3 the elector's `nosync` check, 4 the takeover check, 5 the cutover filter, 6 the promotion check, 7 the candidacy filter (the candidate then deferred: "pg-node-3 published timeline 1 at 0/5273568, ahead of this node's"): each failed its target test |
+| Touched classes | Consul lease coordinator 62, takeover 12, takeover after expiry 10, candidacy 6, promotion 17, planned stop 4, all 0 failures |
+| Core | 416, 0 failures |
+| Guards | after the last test edit: 77, 0 failures |
+
+**Not checked.** A tag change while the cluster runs: tags are deployment configuration, and a node reads them at
+construction. How a deployment supplies the map: no production entry point builds a `PgNodeConfig` yet.
+`noloadbalance` and `clonefrom` have no effect to test.

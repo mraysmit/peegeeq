@@ -837,9 +837,18 @@ Phases:
    `PgPlannedStopIntegrationTest`: the release hook observes PostgreSQL stopped when the release is sent, and the
    successor acquires before the lease could expire. Red 4 of 4 on the stub; green 4 of 4; 4 probes detected; monitor
    23, renewal loop 13, bootstrap 7, promotion 17, takeover 11, takeover after expiry 7, core 410, guards 77.
-   **OPEN — 7b.3 remaining:** manual takeover, repeated failover, controlled re-join, the production entry point and supervisor loop, the real-device watchdog run on Linux, and the new
-   scope of the 2026-11-13 owner decisions (plan §9.28 rows 9 to 14: member tags, automatic rewind and rebuild,
-   restart and reload, coordinator configuration, status and metrics endpoints, callbacks).
+   **7b.3 update, 2026-11-14, member tags (plan §9.31, owner answer 11, `f2b03bb1`):** owner ruled tags are
+   deployment configuration and all four are accepted now. `PgNodeConfig.memberTags` (`PgMemberTags`): a node
+   tagged `nofailover` or `nosync` is refused by `PgTakeover.acquire` and `promoteStandby`; the elector refuses any
+   new policy that requires a `nosync` member; the cutover leaves `nosync` members out; candidacy ignores tagged
+   rivals. `noloadbalance` and `clonefrom` are validated and have no effect yet. Red on the stubs; green; 7 probes
+   detected; touched classes 62 + 12 + 10 + 6 + 17 + 4; core 416; guards 77. Jenkins build #39 (`ed29d191`):
+   SUCCESS: `peegeeq-pg-failover` 717, examples 178, benchmarking 153, migrations 56, integration tests 109;
+   Management UI 128 and 419, Utilities UI 836 and 246; no flaky test.
+   **OPEN — 7b.3 remaining:** manual takeover, repeated failover, controlled re-join, the production entry point
+   and supervisor loop, the real-device watchdog run on Linux, and the rest of the 2026-11-13 owner scope (plan
+   §9.28 rows 9, 10, 12 to 14: automatic rewind and rebuild, restart and reload, coordinator configuration, status
+   and metrics endpoints, callbacks).
 8. **OPEN.** Enable autonomous initiation on the verified common boundary (8a), complete
    per-node authority/bootstrap reconciliation (8b), infrastructure fault tests including
    S54 to S58 (8c), and automatic database safety acceptance (8d). No second provider or
