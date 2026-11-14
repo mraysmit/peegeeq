@@ -833,6 +833,7 @@ for that day's revision. The rows dated 2026-10-21 and 2026-10-22 have their run
 | 7b.3 increment P4: member replication slots on the writer | Implemented and tested, 2026-11-12 | `PgNodeConfig.slotName` (derived, never stored); `PgDurabilityControl.ensureSlots` (creates missing physical slots; refuses an unbounded `max_slot_wal_keep_size` (OD-27) and a logical slot under a member name; its refusal in recovery was removed by P6, OD-35); `PgFailoverMonitor.ensureMemberSlots`; the slot step after the checkpoint in `promoteStandby` and first in `PgPolicyCutover.serve`; `follow` streams through the node's own slot; coverage fails at once for a required standby whose slot is lost (OD-33). See §9.24 and §9.25. Not in P4: slots on replicas, removing a departed member's slot. |
 | 7b.3 increment P5: replacing a lost member slot for a rebuild | Implemented and tested, 2026-11-12 | `PgDurabilityControl.replaceLostSlot` (only a lost slot is dropped, then re-created reserved) and `PgFailoverMonitor.replaceLostMemberSlot` (ownership, membership, quarantine). The fixture rebuilds the member through the new slot. See §9.26. Not in P5: the rebuild decision and the member-side commands outside the fixture (§9.20 row 10). |
 | 7b.3 increment P6: slots on standbys, advanced to published member positions | Implemented and tested, 2026-11-12 | A second coordinator port `PgMemberPositions` with its Consul adapter; every node holds the member slots (OD-35); `PgMemberSlots` publishes this node's position and advances a standby's slots to the smaller of the published and the replay position, same timeline only. Closes the gap of §9.24: a standby stopped before a takeover follows the new writer. See §9.27. Not in P6: the loop that runs it, removing a departed member's record. |
+| 7b.3 increment P7: session-bound member positions, their contract, the monitor builder, candidate ranking | Implemented and tested, 2026-11-13; module green on Jenkins build #36 | `PgMemberPositionException` and `PgMemberPositionsContract` with the Consul binding; each member record is held by the member's own Consul session and disappears at its expiry, which removes a departed member's record; `PgFailoverMonitor.builder()`, with `publishPosition` and `advanceMemberSlots` as serialized monitor operations (`PgMemberSlots` deleted); `PgDurabilityControl.candidatePosition` and `PgFailoverMonitor.takeoverCandidacy`. See §9.28. Not in P7: the automatic initiation that acts on the candidacy (phase 8a), the supervisor loop. |
 | 7b.3 manual takeover and re-join, remaining | Not implemented | Requires old-writer exclusion by expiry, planned stop with release, repeated failover, controlled re-join, and routed production-manager assertions. |
 | G-7 full coordinator qualification | Open | Snapshot/restore, TLS, stopped-before-release, and expiry versus independent old-writer exclusion remain unverified. Component success does not close G-7. |
 
@@ -2332,7 +2333,7 @@ synchronous coverage.
 local role changes). The adapter refuses a server that is not in recovery, builds
 `host=H port=P user=<nodeId> application_name=<nodeId> passfile=<path>`, installs it with `ALTER SYSTEM`,
 reloads with `pg_ctl reload`, and polls `pg_stat_wal_receiver` until the receiver is streaming from H and P
-or the budget ends. `PgWriterEndpoint` rejects a host or a password-file path outside a restricted character
+through the node's slot and waits in its streaming loop (`wait_event = WalReceiverMain`), or the budget ends. `PgWriterEndpoint` rejects a host or a password-file path outside a restricted character
 set, so the built string needs no quoting.
 
 **Decisions of the implementer, 2026-10-26, not reviewed by the owner and reversible.**
@@ -2735,7 +2736,12 @@ has not reviewed the bound's trade-off. The items below refine the contracts abo
   digits, and the underscore, so they are quoted with single quotes and need no escaping.
 - Contract 6, detail: `primary_conninfo` and `primary_slot_name` are installed by two `ALTER SYSTEM` statements,
   because `ALTER SYSTEM` cannot run inside the implicit transaction of a multi-statement `psql -c`. The follow
-  confirmation observes `status`, `sender_host`, `sender_port`, and `slot_name` of `pg_stat_wal_receiver`.
+  confirmation observes `status`, `sender_host`, `sender_port`, and `slot_name` of `pg_stat_wal_receiver`, and
+  the receiver's `wait_event` in `pg_stat_activity`; it requires `WalReceiverMain`. PostgreSQL 15 sets `status`
+  to `streaming` and records the sender address before `START_REPLICATION` runs, so without the wait event a
+  receiver whose slot is missing on the writer was confirmed (Jenkins build #37, 2026-11-14). Probe on 15.13: with
+  no slot, 2 of 3000 samples showed `streaming`, the address, and the slot with no wait event; with the slot, 3000
+  of 3000 showed `WalReceiverMain`. Test: `aReceiverObservedBeforeItsReplicationStartsIsNotReportedAsFollowed`.
 - The fixture's bound is `max_slot_wal_keep_size = 256MB`, the value of check 1.
 - OD-33, added 2026-11-12 after the first P4 report: contract 2 says a `lost` slot "is reported in the failure
   of a later coverage check". The P4 code of §9.25 did not do that: `confirmCovered` observed only
