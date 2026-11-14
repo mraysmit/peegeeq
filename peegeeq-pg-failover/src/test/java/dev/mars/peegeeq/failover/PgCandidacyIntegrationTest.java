@@ -44,6 +44,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 @Isolated
 @Timeout(value = 300, unit = TimeUnit.SECONDS)
+@io.vertx.junit5.Timeout(value = 300, timeUnit = TimeUnit.SECONDS)
 class PgCandidacyIntegrationTest {
     private static final List<String> MEMBERS = List.of("pg-node-1", "pg-node-2", "pg-node-3");
     private static final String AHEAD = "pg-node-2";
