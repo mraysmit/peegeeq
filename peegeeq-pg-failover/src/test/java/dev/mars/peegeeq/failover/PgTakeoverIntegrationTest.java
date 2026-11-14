@@ -43,6 +43,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 @Isolated
 @Timeout(value = 300, unit = TimeUnit.SECONDS)
+@io.vertx.junit5.Timeout(value = 300, timeUnit = TimeUnit.SECONDS)
 class PgTakeoverIntegrationTest {
     private static final List<String> MEMBERS = List.of("pg-node-1", "pg-node-2", "pg-node-3");
     private static final String NEW_WRITER = "pg-node-2";
