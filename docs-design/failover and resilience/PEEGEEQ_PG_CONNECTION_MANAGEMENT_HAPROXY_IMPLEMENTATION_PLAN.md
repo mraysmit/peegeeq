@@ -3322,3 +3322,58 @@ renewal without sending it, so its Consul session expires as under a partition.
 exclusion claim without one; no device on the test host). A real network partition rather than a renewal hook. Consul
 invalidating a session later than its TTL under load (the tests wait up to 60 seconds). The automatic initiation that
 reads the record, waits, and calls `acquire` (phase 8a). Downstream modules on this working tree.
+
+### 9.30 Phase 7b.3: Planned Stop with Release (OD-15), 2026-11-14 (design)
+
+The next item of §9.28's order of work. OD-15 (§9.20, owner decision 2026-10-26): a planned supervisor stop stops local
+PostgreSQL, confirms the stop, then releases the lease through the guarded release; the same order as a planned
+switchover. Until now closing the elector never releases, so a planned stop leaves the lease until it expires.
+
+**Purpose.** A writer that is taken down on purpose hands the lease back as soon as its PostgreSQL is confirmed stopped,
+so a successor acquires at once instead of after expiry (system design §5.6: "In a planned switchover, the old node stops
+locally before releasing its lease"). Success: the record is unowned history with the writer's intent unchanged, the
+writer's PostgreSQL was stopped before the release, and a successor's `PgTakeover.acquire` succeeds without waiting for
+expiry.
+
+**Data model.** No stored field is added.
+
+| Datum | Source of truth or derivable | Contract |
+|---|---|---|
+| Released record | Coordinator (existing): the record with no lease holder, generation and intent unchanged | Written by `PgPrimaryElector.release`, which retires the elector whatever the outcome |
+| Confirmed local stop | Derived: `PgProcessControl.stop` observed the process stopped and the restart inhibitor in place | Recorded in the existing `stop-writer` receipt with the reason |
+| Quarantine after an unconfirmed stop | Node-local store (existing) | As in a forced demotion |
+
+**Contract of `PgFailoverMonitor.stopAndRelease(held, reason)`** (new). The caller stops its `PgRenewalLoop` first.
+
+1. Refused before any effect, with no receipt: no fresh ownership of exactly `held` (`PgLeaseProtocolException`).
+2. Logged at INFO, because the caller requested it. Then the local stop of a demotion, every step run even when an
+   earlier one fails: close the grant; begin the `stop-writer` receipt with the reason; stop PostgreSQL within the stop
+   budget and record `COMPLETED`, disarming a watchdog this monitor armed; close the gate.
+3. Only when every step of 2 succeeded: `PgPrimaryElector.release(held)`. The result is the released record.
+4. An unconfirmed stop quarantines the node, records `UNKNOWN`, and releases nothing (coordinator design §4.2: "Do not
+   voluntarily release until exclusion is confirmed"). Any failed step fails the call without a release and retires
+   the elector; the lease then expires.
+5. A failed release leaves PostgreSQL stopped and fails the call; the elector is retired by the release, and the lease
+   expires.
+
+**Decisions of the implementer, 2026-11-14, not reviewed by the owner and reversible.**
+
+- OD-45: the operation belongs to the monitor. Reason: the local stop and the receipt are the monitor's; the release
+  must follow the confirmed stop inside one serialized operation, so no other local effect runs between them.
+- OD-46: the release requires every local step to succeed, not only the process stop. Reason: a release is never
+  needed for safety, because the lease expires; withholding it on any doubt costs only the expiry wait.
+- OD-47: the elector's own `close` still never releases (coordinator design §3.1); `stopAndRelease` is the one path
+  that releases on a planned stop.
+
+**Dependency failure modes, each with a failing test before its code** (`PgPlannedStopIntegrationTest`, new, 10-second
+lease TTL).
+
+| Dependency | Mode | Test |
+|---|---|---|
+| All steps | none fails; the release follows the confirmed stop, and the successor acquires before the lease could expire | `aPlannedStopReleasesAfterTheConfirmedStopAndTheSuccessorAcquiresAtOnce` |
+| Process control | the stop is not confirmed | `anUnconfirmedStopQuarantinesTheNodeAndKeepsTheLease` |
+| Elector | a record this node does not hold | `aRecordThisNodeDoesNotHoldIsRefusedBeforeAnyEffect` |
+| Coordinator release | fails | `aFailedReleaseLeavesPostgreSQLStoppedAndTheLeaseToExpire` |
+
+**Order of work.** Tests and a stub that fails with "not implemented"; red; implementation; green; mutation probes
+with SHA-256 records; the touched classes; core; guards last.

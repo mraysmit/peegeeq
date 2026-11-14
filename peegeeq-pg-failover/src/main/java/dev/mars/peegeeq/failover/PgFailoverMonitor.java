@@ -603,6 +603,32 @@ public final class PgFailoverMonitor {
     }
 
     /**
+     * Planned stop with release (plan §9.30, OD-15): stops local PostgreSQL as a demotion does, and releases the lease
+     * only after every local step succeeded, so a successor acquires without waiting for expiry. Returns the released
+     * record. The caller stops its renewal loop first. Refused before any effect without fresh ownership of exactly
+     * {@code held} ({@link PgLeaseProtocolException}). An unconfirmed stop quarantines the node; it and any other failed
+     * step fail the call with no release, and the elector is retired, so the lease expires. A failed release leaves
+     * PostgreSQL stopped; the release has retired the elector.
+     */
+    public Future<PgControlRecord> stopAndRelease(PgControlRecord held, String reason) {
+        return serialized(() -> {
+            Objects.requireNonNull(held, "held");
+            Objects.requireNonNull(reason, "reason");
+            if (!elector.holds(held)) {
+                throw new PgLeaseProtocolException("A planned stop with release requires fresh ownership of exactly the "
+                    + "held record");
+            }
+            logger.info("Stopping local PostgreSQL on node {} before releasing the lease: {}", config.nodeId(), reason);
+            return stopLocally(held, reason).transform(stopped -> {
+                if (stopped.succeeded()) return elector.release(held);
+                // No release without a confirmed stop: the lease expires instead.
+                elector.retire();
+                return Future.<PgControlRecord>failedFuture(stopped.cause());
+            });
+        });
+    }
+
+    /**
      * Retires local ownership, closes admission, and stops PostgreSQL within the stop budget.
      * Succeeds only when the grant is closed, the process is observed stopped, and the gate is
      * closed for the next start. An unconfirmed stop quarantines the node and fails.
@@ -625,6 +651,14 @@ public final class PgFailoverMonitor {
 
     private Future<Void> demoteNow(PgControlRecord held, String reason) {
         elector.retire();
+        return stopLocally(held, reason);
+    }
+
+    /**
+     * Closes the grant, stops PostgreSQL under the {@value #STOP_WRITER} receipt, and closes the gate. Ownership is not
+     * changed here. Succeeds only when every step succeeded; an unconfirmed stop quarantines the node.
+     */
+    private Future<Void> stopLocally(PgControlRecord held, String reason) {
         List<Throwable> failures = new ArrayList<>();
         String operation = held == null ? null : held.intent().getString("operationId");
         // Every step runs even when an earlier one fails: a storage fault must not leave the writer running.
