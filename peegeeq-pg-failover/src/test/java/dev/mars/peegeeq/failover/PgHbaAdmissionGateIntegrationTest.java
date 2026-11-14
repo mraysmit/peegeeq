@@ -27,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 @Isolated
 @Timeout(value = 120, unit = TimeUnit.SECONDS)
+@io.vertx.junit5.Timeout(value = 120, timeUnit = TimeUnit.SECONDS)
 class PgHbaAdmissionGateIntegrationTest {
     private static final Duration COMMAND_TIMEOUT = Duration.ofSeconds(20);
     private static final Duration BUDGET = Duration.ofSeconds(10);
