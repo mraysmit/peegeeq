@@ -811,6 +811,17 @@ Phases:
    `peegeeq-pg-failover` 30 classes, 704 tests, 0 failures; downstream modules and both UI suites green. System
    design §1.1 and §5.10 and coordinator design §1.1 and §3.3 now describe session-bound records and candidate
    ordering. The red, green, and probe logs named in the 2026-11-13 handover are not in `logs/` on this machine.
+   **7b.3 update, 2026-11-14, two defects from Jenkins build #37:** (1) `PgSqlPromotionControl.follow` confirmed a
+   receiver whose slot was missing on the writer: PostgreSQL 15 shows `streaming` with the writer's address and the
+   slot before `START_REPLICATION` fails. The confirmation now requires the receiver's `wait_event` to be
+   `WalReceiverMain` (probe on 15.13; test `aReceiverObservedBeforeItsReplicationStartsIsNotReportedAsFollowed`, red
+   three times on the pre-fix code, promotion class 20 of 20 with the fix). (2) Integration test methods ran under the
+   30-second Vert.x default although their classes declare 120 to 300 seconds; 20 classes now declare
+   `io.vertx.junit5.Timeout` equal to the JUnit limit. Runs on the Jenkins host (`/var/lib/jenkins/peegeeq-work/logs`):
+   module integration tier 19 classes, 296 tests, 1 failure (the new test's earlier assertion, since replaced); guards 77
+   of 77 after the last test edit; core tier 11 classes, 410 tests, 0 failures. Acquire-refusal mutation probe
+   detected, SHA-256 restored. Details in plan §9.28. Not yet run on this code: the downstream modules (a Jenkins job
+   build after a push).
    **OPEN — 7b.3 remaining:** takeover after real lease expiry, planned stop with release, manual
    takeover, repeated failover, controlled re-join, the production entry point and supervisor loop, and the
    real-device watchdog run on Linux.
