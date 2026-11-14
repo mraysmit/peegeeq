@@ -37,6 +37,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * to its member, and the adapter's own argument checks.
  */
 @Tag(TestCategories.INTEGRATION)
+@io.vertx.junit5.Timeout(value = 120, timeUnit = TimeUnit.SECONDS)
 @Isolated
 class ConsulMemberPositionsIntegrationTest extends PgMemberPositionsContract {
     private static final String ADMIN_TOKEN = "00000000-0000-0000-0000-000000000001";
