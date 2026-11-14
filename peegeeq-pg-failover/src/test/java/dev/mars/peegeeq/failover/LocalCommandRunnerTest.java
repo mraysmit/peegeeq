@@ -28,6 +28,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.CORE)
 @ExtendWith(VertxExtension.class)
 @Timeout(value = 60, unit = TimeUnit.SECONDS)
+@io.vertx.junit5.Timeout(value = 60, timeUnit = TimeUnit.SECONDS)
 class LocalCommandRunnerTest {
     private static final String JAVA = Path.of(System.getProperty("java.home"), "bin", "java").toString();
     @TempDir Path directory;
