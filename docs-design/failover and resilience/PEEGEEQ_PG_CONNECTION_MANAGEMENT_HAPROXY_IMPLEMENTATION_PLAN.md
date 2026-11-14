@@ -3293,9 +3293,32 @@ its lease TTL is 10 seconds, the Consul minimum, so expiry happens inside a test
 | Former writer's coordinator link | renewals fail while PostgreSQL runs | `aFormerWriterCutOffFromTheCoordinatorIsStoppedBeforeTheSuccessorAcquires` |
 | Coordinator record | still owned when observed; the refusal must leave the elector able to acquire after expiry (an elector refuses every acquisition after its first attempt) | `anAcquisitionWhileTheFormerLeaseIsLiveIsRefusedAndALaterOneAfterExpirySucceeds` |
 | Confirmed policy | does not name this node | `aNodeTheConfirmedPolicyDoesNotNameCannotAcquire` |
-| Observed record | names this node as writer | `theFormerWriterCannotTakeOverItsOwnLease` |
+| Observed record | names this node as writer, and its carried confirmed policy names it too: the new writer's lease lapsed before the cutover | `aNodeTheRecordNamesAsWriterCannotTakeItOverAgain` |
 | Node-local store | quarantine | `aQuarantinedNodeCannotAcquire` |
 | Candidacy (automatic) | another covered candidate published a position ahead | `inAutomaticModeACandidateBehindAnotherDoesNotAcquireAndTheOneAheadDoes` |
 
 **Order of work.** Tests and a stub that fails with "not implemented"; red; implementation; green; mutation probes
 with SHA-256 records; the touched classes; core; guards last.
+
+**Status, 2026-11-14.** Implemented (stub and tests `bafe52b2`, implementation `6ac4b5b3`; the rebuilt writer-check
+test is on the working tree), green, mutation-probed, and the touched classes, core, and guards green. Runs on the Jenkins host, logs in `/var/lib/jenkins/peegeeq-work/logs`.
+
+| Step | Evidence |
+|---|---|
+| Red, against the stub | `expiry-red-20261114.log`: 7 run, 5 failures and 2 errors, every one `UnsupportedOperationException: not implemented`. In the cut-off test the former writer's demotion ran (existing code); the successor failed on the stub |
+| Green | `expiry-green-20261114.log` 7 of 7; after the writer-check test was rebuilt (below), `expiry-green2-20261114.log` 7 of 7 |
+| Probes | `expiry-mutations-20261114.log`, `expiry-chain3-20261114.log`; SHA-256 of `PgTakeover.java` `1fec6936...69d547` before and after both sets. 1 holder check: the elector refused the owned record and used up its attempt, so the acquisition after expiry failed ("Acquisition after release is unavailable"). 2 writer check: not detected by the first version of its test, because the policy check refused first (a former writer is never named by its own confirmed policy); the test was rebuilt on a record whose carried policy names its writer, and probe 2b failed it ("A node took over a record that names it as writer"). 3 policy check, 4 quarantine, 5 automatic candidacy: each failed its test with its own message |
+| Touched classes | `expiry-regress-takeover-20261114.log`: `PgTakeoverIntegrationTest` 11 of 11 |
+| Core | `expiry-core-20261114.log`: 410, 0 failures |
+| Guards | `expiry-guards-20261114.log`, after the last test edit: 77, 0 failures |
+
+**As built.** The cut-off test observes the order directly: the former writer's renewal loop ends only after its
+demotion has stopped PostgreSQL, and the successor polls only for expiry, in parallel. The test asserts that the end
+of the former loop precedes the successor's acquisition, the former writer's `stop-writer` receipt is `COMPLETED`, and
+its PostgreSQL is stopped. The cut-off is a renewal hook on the former writer's coordinator wrapper that fails each
+renewal without sending it, so its Consul session expires as under a partition.
+
+**Not checked.** Expiry with an armed watchdog and a dead or paused former supervisor (system design §5.5 makes no
+exclusion claim without one; no device on the test host). A real network partition rather than a renewal hook. Consul
+invalidating a session later than its TTL under load (the tests wait up to 60 seconds). The automatic initiation that
+reads the record, waits, and calls `acquire` (phase 8a). Downstream modules on this working tree.
