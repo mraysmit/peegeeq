@@ -10,7 +10,7 @@ import java.util.function.Function;
 
 /**
  * Wraps a real coordinator. It records when each renewal starts and lets a test replace or hold
- * the renewal or update call. Every other call, and every call without a hook, reaches the real
+ * the renewal, update, or release call. Every other call, and every call without a hook, reaches the real
  * coordinator unchanged.
  */
 public final class ObservedLeaseCoordinator implements PgLeaseCoordinator {
@@ -18,6 +18,7 @@ public final class ObservedLeaseCoordinator implements PgLeaseCoordinator {
     private final List<Long> renewStarts = new CopyOnWriteArrayList<>();
     private volatile Function<PgControlRecord, Future<PgControlRecord>> renewHook;
     private volatile BiFunction<PgControlRecord, JsonObject, Future<PgControlRecord>> updateHook;
+    private volatile Function<PgControlRecord, Future<PgControlRecord>> releaseHook;
 
     public ObservedLeaseCoordinator(PgLeaseCoordinator delegate) {
         this.delegate = delegate;
@@ -33,9 +34,19 @@ public final class ObservedLeaseCoordinator implements PgLeaseCoordinator {
         updateHook = hook;
     }
 
+    /** Replaces the release call. Its hook may call {@link #realRelease} after a condition is checked. */
+    public void onRelease(Function<PgControlRecord, Future<PgControlRecord>> hook) {
+        releaseHook = hook;
+    }
+
     public void clearHooks() {
         renewHook = null;
         updateHook = null;
+        releaseHook = null;
+    }
+
+    public Future<PgControlRecord> realRelease(PgControlRecord held) {
+        return delegate.release(held);
     }
 
     /** Nanosecond timestamps of every renewal call, in call order. */
@@ -75,7 +86,8 @@ public final class ObservedLeaseCoordinator implements PgLeaseCoordinator {
     }
 
     @Override public Future<PgControlRecord> release(PgControlRecord held) {
-        return delegate.release(held);
+        var hook = releaseHook;
+        return hook == null ? delegate.release(held) : hook.apply(held);
     }
 
     @Override public Future<Void> close() {

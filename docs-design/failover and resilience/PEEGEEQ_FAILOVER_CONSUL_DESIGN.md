@@ -113,6 +113,9 @@ meet, and the single contract suite every adapter must pass. This section define
 - It allows one ownership-sensitive operation at a time.
 - Only the node-local lease holder renews. Closing the elector preserves the lease and the
   control history. Generic cleanup, an exception handler, or an exit hook never releases.
+  Besides a planned switchover, the one path that releases is the supervisor's planned stop
+  (`PgFailoverMonitor.stopAndRelease`, OD-15): it releases only after every local stop step,
+  including the confirmed PostgreSQL stop, has succeeded.
 
 The elector imports no coordinator product type and makes no product API call.
 
