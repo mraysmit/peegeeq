@@ -1,7 +1,8 @@
 # Handover: phase 7b.3, PostgreSQL failover supervisor
 
 **Written:** 2026-10-26, at the end of the P2 session. **Updated:** 2026-11-03 (P3, P4 design), 2026-11-12 (P4 to P6),
-and 2026-11-13, at the end of the P7 session, after the owner stopped the regression run.
+2026-11-13, at the end of the P7 session, after the owner stopped the regression run, and 2026-11-14, after the P7
+regression, two defect fixes from Jenkins build #37, and the P7 records.
 **For:** the next session that continues Task 8, phase 7b.3, in `peegeeq-pg-failover`.
 **Status of this document:** a briefing, not state. Status lives in code, tests, and logs. Check each claim against the
 artifact before relying on it. The authoritative records are plan §9.20 to §9.28 in
@@ -39,11 +40,14 @@ entries in `docs-design/tasks/tasks.md`.
     `advanceMemberSlots()` are monitor operations, serialized; `PgMemberSlots` is deleted.
   - P7d: `PgDurabilityControl.candidatePosition` (larger of received and replayed WAL; timeline of the receiver, else of
     the last restartpoint; refused on a writer); `PgCandidacy`; `PgFailoverMonitor.takeoverCandidacy(observed)`.
-- **Git.** HEAD is `c038a4ba` on `master`, committed by the owner at 13:09 on 2026-11-13. It holds all of P7 and plan
-  §9.28 (23 files). It is not pushed (`master` is one commit ahead of `origin/master`). The working tree was clean when
-  this handover was written, apart from this file. On 2026-11-13 the owner asked to "unstage the changes"; nothing was
-  staged. `git reset HEAD~1` was proposed and not run, pending the owner's confirmation. The owner makes all commits. Do
-  not commit, reset, or push without the owner's instruction.
+- **Done 2026-11-14.** P7 regression green on Jenkins (build #36). Two defects found by build #37 fixed:
+  `PgSqlPromotionControl.follow` now requires the WAL receiver's `wait_event = WalReceiverMain` (PostgreSQL 15 shows
+  `streaming` with the writer's address and slot before `START_REPLICATION` fails on a missing slot); 20 integration
+  classes declare `io.vertx.junit5.Timeout` equal to their JUnit class limit. P7 records written (plan §8.1, §9.28;
+  system design §1.1, §5.10; coordinator design §1.1, §3.3; `tasks.md`).
+- **Git.** `origin/master` is `ec62d499`; the owner pushed the 26 one-file commits of 2026-11-14 (`14e52639` to
+  `ec62d499`). The owner makes all commits unless they ask Claude to commit; do not reset or push without the owner's
+  instruction.
 
 ## 2. What exists in the module
 
@@ -59,7 +63,16 @@ entries in `docs-design/tasks/tasks.md`.
 | `PgMemberPositionsContract` | Abstract contract: read-back, replace, empty, expiry, keep-alive, re-publish after expiry, unheld record, rejected write, malformed, non-member, filtered, unanswered, unreachable |
 | Everything listed in the 2026-11-12 handover | Unchanged: promotion, follow, slots, lost-slot replacement, policy cutover, bootstrap, renewal loop, watchdog modes, admission gate, local store |
 
-## 3. Evidence of 2026-11-13 (logs under `logs/`, this machine only)
+## 3. Evidence
+
+**2026-11-14.** Jenkins build #36 (`4b1e2a87`): `peegeeq-pg-failover` 704 tests, downstream modules and UI suites
+green. Jenkins build #38 (`ec62d499`): `peegeeq-pg-failover` 706 tests, 0 failures; for the downstream modules read
+the build. Runs on the Jenkins host, logs in `/var/lib/jenkins/peegeeq-work/logs`: red runs of the follow test on the
+pre-fix code (`red2-` to `red4-`), promotion class 20 of 20, integration tier 296 tests, core 410, guards 77,
+acquire-refusal mutation probe with SHA-256 restored. Details in plan §9.28.
+
+**2026-11-13, as reported at that handover.** The logs named below are not in `logs/` on the owner's workstation
+(checked 2026-11-14); the numbers were not re-checked.
 
 - **Red, then green, per increment.**
   - P7a/P7b red: `peegeeq-pg-failover-p7ab-red-20261113.log` (16 run, 12 failures, each the old exception type, no
@@ -87,19 +100,9 @@ entries in `docs-design/tasks/tasks.md`.
 
 ## 4. Next steps, in order
 
-1. **Finish the P7 regression on the final code**, one command each, under the 10-minute limit: takeover; slot; follow;
-   policy installation; member-slot adapter (whole class, 14 tests); monitor, Consul lease coordinator, and renewal loop
-   together; bootstrap, process control, fixture contract, admission gate, and elector queueing together. Then the core
-   tests, then the guards (`mvn test -pl :peegeeq-test-support`) last.
-2. **Finish the P7 records.**
-   - Plan §9.28: a status table with the evidence above, an "As built" list (P7a and P7b were done in one TDD cycle;
-     candidate-position SQL; the paused-replay test), and the PostgreSQL 15.13 facts below.
-   - Plan §8.1: a P7 row. §5 row P-6: mark it reversed by §9.28 answer 9 when that increment lands, not before.
-   - System design §1.1 (row "Published member position"; row "Member replication slots" unchanged) and §5.10
-     ("Member positions"): session-bound records; positions order covered candidates and are never eligibility,
-     exclusion, coverage, policy, or routing authority.
-   - Coordinator design §1.1 (members row) and §3.3 (members binding and ACL: `session "<node>" write` is required).
-   - `tasks.md`: the Task 8 entry of 2026-11-13 pointing to §9.28.
+1. Done 2026-11-14: the P7 regression and the P7 records. §5 row P-6 is marked reversed by §9.28 answer 9 only when
+   that increment lands.
+2. Done 2026-11-14: the follow-confirmation and Vert.x timeout defects from build #37 (plan §9.28).
 3. **Takeover after real lease expiry** (the item that was next before P7): `promoteStandby`, `followWriter`,
    `PgTakeover.cutover` with the former writer excluded by expiry. Use `takeoverCandidacy` before the acquisition in the
    automatic path. Write §9.29 before any test. Helpers: `expiringOwnership` and `awaitStale` in
@@ -157,8 +160,15 @@ logs, Windows quoting, Git Bash paths, stale IDE diagnostics, no Python, Jenkins
   own key and read on the prefix.
 - **Unexpected-ERROR gate in a contract.** A refusal before sending is logged under the adapter's own logger, so that
   case lives in the binding, not in the neutral contract.
-- **New tests and the 30-second Vert.x default.** A test body that writes WAL and waits for a standby can exceed it;
-  give it `@io.vertx.junit5.Timeout`.
+- **Vert.x test-context timeout.** The extension reads only `io.vertx.junit5.Timeout` (method, then class; not
+  inherited). Since 2026-11-14 each integration class declares it equal to its JUnit limit; a new class must do the same,
+  and a concrete subclass of an abstract contract declares it itself.
+- **Docker runs without Docker on the workstation.** Run probes and targeted tests on the Jenkins host through
+  `Invoke-QraftJenkinsShell` (`.env/jenkins-tools.ps1`): a clone under `/var/lib/jenkins/peegeeq-work`, changed files
+  copied in base64 chunks below 64 KB, long commands started with `nohup` and read from their log. Do not run there
+  while a PeeGeeQ job build runs (shared `.m2`).
+- **WAL receiver observations.** `pg_stat_wal_receiver` shows `streaming` with the sender address and slot before
+  replication has started. Only `wait_event = WalReceiverMain` shows a receiver inside its streaming loop.
 - **PostgreSQL 15.13 facts (observed in tests and probe 49).** After the writer is stopped, a standby has no
   `pg_stat_wal_receiver` row with a timeline, `pg_last_wal_receive_lsn()` keeps its last value, and
   `pg_control_checkpoint().timeline_id` was 1. With `pg_wal_replay_pause()`, the receiver keeps receiving while replay
@@ -168,9 +178,8 @@ logs, Windows quoting, Git Bash paths, stale IDE diagnostics, no Python, Jenkins
 
 ## 7. Not checked at handover
 
-- The P7 regression on the final code, for the classes in §4 item 1, the core tests after P7d, and the guards. Those
-  runs had not been made when the owner stopped the session.
-- The design documents and `tasks.md` do not yet describe P7 (§4 item 2).
+- The follow confirmation rests on PostgreSQL 15 behaviour: the REL_15_STABLE source and one 3000-sample probe on
+  15.13. Other major versions were not checked.
 - `twoCandidatesAtTheSamePositionAreBothPreferred` assumes both standbys received the same WAL before the writer stopped;
   it passed once. Whether it can be timing-dependent under load was not measured.
 - The items carried from 2026-11-12: takeover after real expiry, re-join through an advanced slot, a lost slot on a

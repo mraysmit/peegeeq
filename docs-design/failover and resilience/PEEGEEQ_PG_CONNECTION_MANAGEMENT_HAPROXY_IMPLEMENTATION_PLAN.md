@@ -3176,3 +3176,126 @@ section before its tests.
 
 **Order of work.** P7a, P7b, P7c, P7d, each with tests and stubs, red, implementation, green, probes with SHA-256
 records, the touched classes, core, and the guards last.
+
+**As built, where the code differs from the design text above.**
+
+- P7a and P7b were written as one TDD cycle: one red run covered the exception type, the session, and the argument
+  checks.
+- P7c: the builder test was written after the builder code; probe 43 (the builder's null check) is its red.
+- P7d: `PgSqlDurabilityControl.CANDIDATE` reads `pg_last_wal_receive_lsn()`, `pg_last_wal_replay_lsn()`,
+  `received_tli` of the receiver, and `pg_control_checkpoint().timeline_id`. The adapter takes the larger of the two
+  positions, on the receiver's timeline, else on the checkpoint's; a standby with neither position fails. A
+  paused-replay test shows that the received position is used when replay is behind.
+- PostgreSQL 15.13 facts used by P7d: after the writer is stopped, a standby has no `pg_stat_wal_receiver` row with a
+  timeline, `pg_last_wal_receive_lsn()` keeps its last value, and `pg_control_checkpoint().timeline_id` was 1; with
+  `pg_wal_replay_pause()` the receiver keeps receiving while replay stays behind.
+- One positions adapter per member: a second adapter for the same member cannot acquire the key while the first
+  adapter's session lives. Test added 2026-11-14:
+  `aPublicationThatConsulDoesNotAcquireFailsAndLeavesTheHeldRecord`.
+
+**Status, 2026-11-14.** Implemented (commits `c038a4ba`, `4b1e2a87`, `025ec74d`), green, and the module green on
+Jenkins. The design documents describe P7 (system design §1.1 and §5.10; coordinator design §1.1 and §3.3). The red,
+green, and probe logs of 2026-11-13 that the handover names (`peegeeq-pg-failover-p7*-20261113.log`, probes 34 to 50)
+are not in `logs/` on the owner's workstation; their results are as reported in the handover and were not re-checked.
+
+| Step | Evidence |
+|---|---|
+| Module on `4b1e2a87` | Jenkins build #36: `all` from `peegeeq-pg-failover`, SUCCESS in 101 minutes; `peegeeq-pg-failover` 30 classes, 704 tests, 0 failures, errors, or skips; downstream modules and both UI suites green |
+| Acquire refusal | `aPublicationThatConsulDoesNotAcquireFailsAndLeavesTheHeldRecord` on `025ec74d`: Jenkins build #37, `ConsulMemberPositionsIntegrationTest` 19 of 19. Probe on the Jenkins host (`logs/mutation-acquire-20261114.log`): with the `"true"` check removed the test fails ("A write that Consul did not acquire was reported as stored"); SHA-256 of `ConsulMemberPositions.java` `20d3f01b...7a180d68` before and after, equal to the handover's record |
+| Build #37 defects | Build #37 failed two tests on `025ec74d`. (1) `aWriterWithoutTheFollowersSlotIsNotReportedAsFollowedAndTheWaitEndsWithinItsBudget`: `follow` confirmed a receiver whose slot did not exist on the writer. Fixed below. (2) `aStoppedServerFailsTheInstall` timed out at the 30-second Vert.x default. Fixed below |
+
+**Follow confirmation, 2026-11-14 (defect from build #37).** PostgreSQL 15 sets `status = streaming` in
+`pg_stat_wal_receiver` when the receiver starts, and records `sender_host` and `sender_port` once it has connected;
+only then does it send `START_REPLICATION` with the slot, which fails when the slot is missing (walreceiver.c,
+REL_15_STABLE). `follow` accepted the first row showing the writer's address and the slot, so a poll inside that window
+confirmed a follow that never started, and `PgFailoverMonitor.followWriter` recorded a `FOLLOW_WRITER` receipt for it.
+The confirmation now also requires the receiver's `wait_event` in `pg_stat_activity` to be `WalReceiverMain`, which the
+receiver waits on only inside its streaming loop. Probe on PostgreSQL 15.13 (Jenkins host, two containers, 3000
+samples each): with no slot, 2998 samples had no receiver row and 2 showed `streaming`, the address, and the slot with no
+wait event; after the slot was created, 3000 of 3000 showed `WalReceiverMain`.
+
+| Step | Evidence under `logs/` on the Jenkins host (`/var/lib/jenkins/peegeeq-work`) |
+|---|---|
+| Test | `aReceiverObservedBeforeItsReplicationStartsIsNotReportedAsFollowed`, with `ReceiverWindowCommandRunner`: the receiver query runs on the real follower, repeated inside one `DO` block until the row shows the writer's address and the slot, and that real result is returned. A short `wal_retrieve_retry_interval` makes the window recur. The test also asserts that at least one observation from inside the window was returned |
+| Red | `red2-` and `red3-receiver-window-20261114.log`, and `red4-` with the committed test: on the pre-fix code, `follow` reported the receiver as following. The first attempt (`red-`) failed for a test defect: `CREATE FUNCTION` is refused on a read-only standby |
+| Green | `green2-promotion-class-20261114.log`: `PgSqlPromotionControlIntegrationTest` 20 of 20 |
+| Module | `green-module-20261114.log`: 19 classes, 296 tests, 1 failure, the new test's earlier assertion that the last observation lies inside the window, which the committed test replaced with the count above |
+| Core | `core-pg-failover-20261114.log`: 11 classes, 410 tests, 0 failures |
+| Guards | `guards2-20261114.log`, after the last test edit: 77 tests, 0 failures |
+
+**Vert.x test-context timeouts, 2026-11-14 (defect from build #37).** The integration classes declare a JUnit class
+timeout of 120 to 300 seconds, but the Vert.x extension reads only `io.vertx.junit5.Timeout` (method, then class;
+checked in the 5.1.10 bytecode; the annotation is not inherited), so every method without its own annotation had 30
+seconds. `aStoppedServerFailsTheInstall` runs a forced stop with a 20-second `pg_ctl` wait and an install with a
+20-second budget, and timed out at 30.58 seconds. Each of the 18 classes that declare a JUnit class timeout, and the
+two Consul subclasses of the abstract contracts, now declares `io.vertx.junit5.Timeout` equal to its JUnit limit (20
+classes). In the module run above every class passed with these limits, apart from the one failure named there.
+
+### 9.29 Phase 7b.3: Takeover after Real Lease Expiry, 2026-11-14 (design)
+
+The next item of §9.28's order of work. §9.21 to §9.23 recorded the gap: every takeover test uses a released lease,
+and the former writer is stopped with `pg_ctl` before the successor acquires.
+
+**Purpose.** When the writer stops renewing its lease, because its host is lost or its supervisor is cut off from the
+coordinator, a standby covered by the last confirmed policy takes over once the lease has expired, with no reply from
+the former writer. The former writer is excluded by its own supervisor before the earliest moment the successor can
+acquire (system design §5.5, §5.6; coordinator design §3.2, §4.1). The successor then promotes, the surviving standby
+follows, and the policy is cut over (§9.21 to §9.23). Success: the successor serves with the cut-over policy, and the
+former writer was stopped before the successor held the lease.
+
+**Data model.** No stored field is added.
+
+| Datum | Source of truth or derivable | Contract |
+|---|---|---|
+| Expiry of the former lease | Derived: an authoritative read returns the record with no lease holder | TTL-only (system design §5.5); the successor never shortens it. Consul can invalidate a session later than its TTL |
+| Takeover intent | Derived from the observed unowned record: `writerNodeId` this node, `phase` `WITHDRAWN`, a new `operationId`, `previousWriterNodeId` the observed writer, `durabilityPolicy` and `pendingDurabilityPolicy` carried unchanged | Written by `acquireAfterRelease` at the observed revision; the elector already checks history preservation and the generation advance |
+| Eligibility | Derived: the observed confirmed policy names this node | A pending policy is never used (§5.8) |
+| Candidate preference | Derived: `takeoverCandidacy` (§9.28, P7d) | Consulted in `AUTOMATIC` mode only; a manual takeover names its target. Never stored |
+| Former writer's exclusion | Local to the former writer: its supervisor's demotion within the ownership budget, recorded in its own `stop-writer` receipt; a qualified watchdog when the supervisor cannot act | The successor does not observe it. `PgNodeConfig` keeps one loop-and-retry cycle and the stop budget inside the lease TTL, so a running former supervisor stops PostgreSQL before the lease can expire |
+| `FENCING` and `PROMOTING` phases | Named by the system design (§1.1, §5.6); not written | OD-42 below |
+
+**Contract of `PgTakeover.acquire(observed, mode)`** (new).
+
+1. Refused before any coordinator write, with no receipt:
+   - `observed` has a lease holder: the former lease is live or not yet expired (`PgLeaseProtocolException`);
+   - `observed` names this node as writer: that is a re-join, not a takeover (`PgLeaseProtocolException`);
+   - no confirmed policy, or it does not name this node (`PgLeaseProtocolException`);
+   - quarantine (`PgLocalStateException`);
+   - in `AUTOMATIC` mode, `takeoverCandidacy(observed)` is not preferred (`PgLeaseProtocolException` carrying the
+     candidacy reason). Its own refusals propagate.
+2. `PgPrimaryElector.acquireAfterRelease(observed, intent)` with the derived takeover intent. An owner that appeared
+   since the read, or a changed revision, fails the acquisition and changes nothing (coordinator design §3.2).
+3. The result is the acquired record. Every failure and refusal is logged once at ERROR by `PgTakeover`
+   (`Takeover acquisition failed on node <id>`), through `andThen`.
+4. The caller starts `PgRenewalLoop` directly after the acquisition and before promotion (its Javadoc), then calls
+   `promoteStandby`; the surviving standby's own supervisor calls `followWriter`; then `cutover`.
+
+**Decisions of the implementer, 2026-11-14, not reviewed by the owner and reversible.**
+
+- OD-42: `FENCING` and `PROMOTING` are not written. Reason: no component reads them; old-writer exclusion is
+  established by expiry and the former writer's own supervisor, which the successor cannot observe; promotion is
+  derived from the `promote` receipt and the live role. Writing them would store derivable state. The intent schema
+  keeps accepting them. The system design and coordinator design state-machine tables are unchanged by this decision
+  and differ from the code here.
+- OD-43: `acquire` belongs to `PgTakeover`, not to the monitor. Reason: it is a takeover step that writes the
+  coordinator (OD-22); the monitor owns local effects. `PgTakeover` gains no constructor argument: the monitor
+  provides `takeoverCandidacy`, the store provides quarantine.
+- OD-44: the acquisition does not check the local role. Reason: holding the lease has no PostgreSQL effect;
+  `promoteStandby` refuses a writable node without its own `promote` receipt.
+
+**Dependency failure modes, each with a failing test before its code** (`PgTakeoverAfterExpiryIntegrationTest`, new:
+its lease TTL is 10 seconds, the Consul minimum, so expiry happens inside a test; `PgTakeoverIntegrationTest` keeps
+80 seconds).
+
+| Dependency | Mode | Test |
+|---|---|---|
+| Former writer's host | lost: PostgreSQL stopped hard, no renewal, no release | `aTakeoverAfterTheFormerWritersHostIsLostServesTheNewWriter` |
+| Former writer's coordinator link | renewals fail while PostgreSQL runs | `aFormerWriterCutOffFromTheCoordinatorIsStoppedBeforeTheSuccessorAcquires` |
+| Coordinator record | still owned when observed | `anAcquisitionWhileTheFormerLeaseIsLiveIsRefusedAndChangesNothing` |
+| Confirmed policy | does not name this node | `aNodeTheConfirmedPolicyDoesNotNameCannotAcquire` |
+| Observed record | names this node as writer | `theFormerWriterCannotTakeOverItsOwnExpiredLease` |
+| Node-local store | quarantine | `aQuarantinedNodeCannotAcquire` |
+| Candidacy (automatic) | another covered candidate published a position ahead | `inAutomaticModeACandidateBehindAnotherDoesNotAcquireAndTheOneAheadDoes` |
+
+**Order of work.** Tests and a stub that fails with "not implemented"; red; implementation; green; mutation probes
+with SHA-256 records; the touched classes; core; guards last.

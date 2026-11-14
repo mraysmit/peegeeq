@@ -28,6 +28,14 @@ public final class PgTakeover {
     }
 
     /**
+     * Takes over the observed control record after the former writer's lease expired or was released (plan §9.29).
+     * Stub: the tests of plan §9.29 are written against it before the implementation.
+     */
+    public Future<PgControlRecord> acquire(PgControlRecord observed, PgFailoverMode mode) {
+        return Future.failedFuture(new UnsupportedOperationException("not implemented"));
+    }
+
+    /**
      * Cuts the durability policy over to the standbys that remain after this node's promotion, and
      * serves. The record is the takeover record that {@link PgFailoverMonitor#promoteStandby} accepted,
      * or that record with the pending policy this method wrote. Returns the serving record.
