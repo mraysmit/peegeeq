@@ -3291,9 +3291,9 @@ its lease TTL is 10 seconds, the Consul minimum, so expiry happens inside a test
 |---|---|---|
 | Former writer's host | lost: PostgreSQL stopped hard, no renewal, no release | `aTakeoverAfterTheFormerWritersHostIsLostServesTheNewWriter` |
 | Former writer's coordinator link | renewals fail while PostgreSQL runs | `aFormerWriterCutOffFromTheCoordinatorIsStoppedBeforeTheSuccessorAcquires` |
-| Coordinator record | still owned when observed | `anAcquisitionWhileTheFormerLeaseIsLiveIsRefusedAndChangesNothing` |
+| Coordinator record | still owned when observed; the refusal must leave the elector able to acquire after expiry (an elector refuses every acquisition after its first attempt) | `anAcquisitionWhileTheFormerLeaseIsLiveIsRefusedAndALaterOneAfterExpirySucceeds` |
 | Confirmed policy | does not name this node | `aNodeTheConfirmedPolicyDoesNotNameCannotAcquire` |
-| Observed record | names this node as writer | `theFormerWriterCannotTakeOverItsOwnExpiredLease` |
+| Observed record | names this node as writer | `theFormerWriterCannotTakeOverItsOwnLease` |
 | Node-local store | quarantine | `aQuarantinedNodeCannotAcquire` |
 | Candidacy (automatic) | another covered candidate published a position ahead | `inAutomaticModeACandidateBehindAnotherDoesNotAcquireAndTheOneAheadDoes` |
 
