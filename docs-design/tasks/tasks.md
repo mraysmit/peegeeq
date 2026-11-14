@@ -800,6 +800,17 @@ Phases:
    corrected (comment only, rebuild, core, and guards re-run). Plan §9.27 gains an "as built" list of the places
    where the code differs from the design text (publish signature, standby position source, advance result,
    OD-40, OD-41).
+   **7b.3 update, 2026-11-13, owner decisions and P7:** the owner answered fifteen open decisions; they are
+   recorded verbatim, with every conflict found, in plan §9.28, first table (OD-27 and OD-35 to OD-37 kept;
+   OD-38 to OD-41 reversed; new scope rows 9 to 14; adoption of an existing cluster not supported). P7 implements
+   answers 5 to 8: `PgMemberPositionException` and `PgMemberPositionsContract` (Consul binding); member records
+   held by each member's own Consul session (`?acquire`, `Behavior=delete`, TTL = lease TTL), so a departed
+   member's record disappears at session expiry; `PgFailoverMonitor.builder()` with `publishPosition` and
+   `advanceMemberSlots` (`PgMemberSlots` deleted); `candidatePosition` and `takeoverCandidacy`. Commits `c038a4ba`
+   and `4b1e2a87`. Jenkins build #36 (`4b1e2a87`, `all` from `peegeeq-pg-failover`): SUCCESS, 101 minutes;
+   `peegeeq-pg-failover` 30 classes, 704 tests, 0 failures; downstream modules and both UI suites green. System
+   design §1.1 and §5.10 and coordinator design §1.1 and §3.3 now describe session-bound records and candidate
+   ordering. The red, green, and probe logs named in the 2026-11-13 handover are not in `logs/` on this machine.
    **OPEN — 7b.3 remaining:** takeover after real lease expiry, planned stop with release, manual
    takeover, repeated failover, controlled re-join, the production entry point and supervisor loop, and the
    real-device watchdog run on Linux.
