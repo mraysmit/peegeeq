@@ -44,6 +44,7 @@ import dev.mars.peegeeq.test.vertx.TestCleanup;
 @ExtendWith(VertxExtension.class)
 @Isolated
 @Timeout(value = 240, unit = TimeUnit.SECONDS)
+@io.vertx.junit5.Timeout(value = 240, timeUnit = TimeUnit.SECONDS)
 class PgPolicyInstallationIntegrationTest {
     private static final List<String> MEMBERS = List.of("pg-node-1", "pg-node-2", "pg-node-3");
     private static final String TOKEN = "unused-without-acls";
