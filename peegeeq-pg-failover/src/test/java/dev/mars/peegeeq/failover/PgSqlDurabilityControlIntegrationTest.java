@@ -32,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 @Isolated
 @Timeout(value = 180, unit = TimeUnit.SECONDS)
+@io.vertx.junit5.Timeout(value = 180, timeUnit = TimeUnit.SECONDS)
 class PgSqlDurabilityControlIntegrationTest {
     private static final Duration COMMAND_TIMEOUT = Duration.ofSeconds(20);
     private static final PgDurabilityPolicy POLICY = new PgDurabilityPolicy(1, STANDBYS);
