@@ -103,13 +103,13 @@ acquire-refusal mutation probe with SHA-256 restored. Details in plan §9.28.
 1. Done 2026-11-14: the P7 regression and the P7 records. §5 row P-6 is marked reversed by §9.28 answer 9 only when
    that increment lands.
 2. Done 2026-11-14: the follow-confirmation and Vert.x timeout defects from build #37 (plan §9.28).
-3. Done 2026-11-14 (`bafe52b2`, `6ac4b5b3`; the rebuilt writer-check test is uncommitted): takeover after real lease expiry (plan §9.29, `PgTakeover.acquire`). The
+3. Done 2026-11-14 (`bafe52b2`, `6ac4b5b3`, `c5c44640`): takeover after real lease expiry (plan §9.29, `PgTakeover.acquire`). The
    original item text follows for reference. **Takeover after real lease expiry** (the item that was next before P7): `promoteStandby`, `followWriter`,
    `PgTakeover.cutover` with the former writer excluded by expiry. Use `takeoverCandidacy` before the acquisition in the
    automatic path. Write §9.29 before any test. Helpers: `expiringOwnership` and `awaitStale` in
    `PgBootstrapServingIntegrationTest`; `loseTheWriterWhileTheFollowerIsStopped` in `PgTakeoverIntegrationTest`;
    `acquisitionAfterExpiryNeedsNoReplyFromFormerOwner` in `PgLeaseCoordinatorContract`.
-4. Planned stop with release (OD-15).
+4. Done 2026-11-14 (`ed29d191`): planned stop with release (OD-15, plan §9.30, `PgFailoverMonitor.stopAndRelease`).
 5. Member tags (answer 11).
 6. Automatic rewind and rebuild (answer 9).
 7. Restart, reload, `pending_restart` (answer 10).

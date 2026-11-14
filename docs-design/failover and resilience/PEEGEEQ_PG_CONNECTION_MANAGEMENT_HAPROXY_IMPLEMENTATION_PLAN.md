@@ -3300,8 +3300,8 @@ its lease TTL is 10 seconds, the Consul minimum, so expiry happens inside a test
 **Order of work.** Tests and a stub that fails with "not implemented"; red; implementation; green; mutation probes
 with SHA-256 records; the touched classes; core; guards last.
 
-**Status, 2026-11-14.** Implemented (stub and tests `bafe52b2`, implementation `6ac4b5b3`; the rebuilt writer-check
-test is on the working tree), green, mutation-probed, and the touched classes, core, and guards green. Runs on the Jenkins host, logs in `/var/lib/jenkins/peegeeq-work/logs`.
+**Status, 2026-11-14.** Implemented (stub and tests `bafe52b2`, implementation `6ac4b5b3`, rebuilt writer-check test
+`c5c44640`), green, mutation-probed, and the touched classes, core, and guards green. Runs on the Jenkins host, logs in `/var/lib/jenkins/peegeeq-work/logs`.
 
 | Step | Evidence |
 |---|---|
@@ -3377,3 +3377,71 @@ lease TTL).
 
 **Order of work.** Tests and a stub that fails with "not implemented"; red; implementation; green; mutation probes
 with SHA-256 records; the touched classes; core; guards last.
+
+**Status, 2026-11-14.** Implemented (`ed29d191`), green, mutation-probed, and the touched classes, core, and guards
+green. Runs on the Jenkins host, logs in `/var/lib/jenkins/peegeeq-work/logs`.
+
+| Step | Evidence |
+|---|---|
+| Red, against the stub | `planned-stop-red-20261114.log`: 4 run, 3 failures and 1 error, each `UnsupportedOperationException: not implemented` |
+| Green | `planned-stop-green-20261114.log`: 4 of 4 |
+| Probes | `planned-stop-chain5-20261114.log`; SHA-256 of `PgFailoverMonitor.java` `c9cf160c...97d18f38` before and after. 1 release after an unconfirmed stop: "An unconfirmed stop was reported as a completed planned stop". 2 release before the stop: "The lease was released while PostgreSQL still ran". 3 ownership check: "A refused planned stop began a stop receipt". 4 retire after a failed stop: "An unconfirmed stop must retire ownership, so it cannot renew" |
+| Touched classes | The demotion was split into `demoteNow` (retire, then the local stop) and `stopLocally`, and `ObservedLeaseCoordinator` gained a release hook: monitor 23, renewal loop 13, bootstrap 7, promotion 17, takeover 11, takeover after expiry 7, all 0 failures |
+| Core | `planned-stop-core-20261114.log`: 410, 0 failures |
+| Guards | `planned-stop-guards-20261114.log`, after the last test edit: 77, 0 failures |
+
+Coordinator design §3.1 names `stopAndRelease` as the one release path besides a planned switchover (OD-47).
+
+**Not checked.** A planned stop with an armed watchdog (the disarm after the confirmed stop is the existing demotion
+code). The supervisor process that calls `stopAndRelease` on a shutdown signal: there is no production entry point yet.
+Downstream modules on `ed29d191`.
+
+### 9.31 Phase 7b.3: Member Tags (Owner Answer 11), 2026-11-14 (design)
+
+**Owner rulings, 2026-11-14.** Asked where tags live and how the two tags without a feature are handled: "Deployment
+config (Recommended)"; "Accept all four now". So every node's configuration lists the tags of every member, as it
+lists the membership, and `noloadbalance` and `clonefrom` are validated and kept although no feature reads them yet.
+
+**Purpose.** An operator keeps a member out of promotion (`nofailover`) or out of every required standby set
+(`nosync`, which implies no promotion: §9.28 row 11), as Patroni's member tags do. Success: a tagged member is never a
+takeover target, a `nosync` member is never written into a new policy, and an automatic candidate does not defer to a
+tagged rival.
+
+**Data model.**
+
+| Datum | Source of truth or derivable | Contract |
+|---|---|---|
+| Member tags: `nofailover`, `nosync`, `noloadbalance`, `clonefrom` | Deployment configuration: `PgNodeConfig.memberTags`, a map from member identity to `PgMemberTags`, the same on every node | Keys are members. `clonefrom` names another member. A member without an entry has no tags. Never stored elsewhere |
+| Takeover eligibility | Derived: named by the confirmed policy, and neither `nofailover` nor `nosync` | A policy naming a tagged member stays valid history; the tag withdraws eligibility |
+| Next required standby set | Derived (§9.23): the confirmed set minus the new writer, minus `nosync` members | Empty: refused, admission stays closed |
+| Effect of `noloadbalance`, `clonefrom` | None yet | `noloadbalance` waits for a read-only replica endpoint (§9.20 row 16); `clonefrom` for the automatic rebuild (answer 9) |
+
+**Contracts.**
+
+1. `PgNodeConfig` refuses tags for a non-member, and a `clonefrom` that is not another member. The existing
+   constructor keeps its signature and has no tags; `withMemberTags(map)` returns a copy with tags; `tagsOf(id)`
+   returns a member's tags or none.
+2. `PgPrimaryElector` refuses a new policy, initial or by update, that names a `nosync` member
+   (`PgLeaseProtocolException`). A policy carried unchanged from history may name one, as it may name the writer.
+3. `PgTakeover.acquire` and `PgFailoverMonitor.promoteStandby` refuse, before any effect, on a node tagged
+   `nofailover` or `nosync` (`PgLeaseProtocolException`).
+4. `PgTakeover.cutover` derives the next set without `nosync` members.
+5. `PgFailoverMonitor.takeoverCandidacy` ignores rivals tagged `nofailover` or `nosync`: they can never take over, so a
+   position they published is no reason to defer.
+
+**Decision of the implementer, 2026-11-14, reversible.** OD-48: the `nosync` rule is enforced in the elector, which
+validates every new policy before it is written, not separately in each caller. Reason: one enforcement point covers
+bootstrap, cutover, and any later policy change.
+
+**Dependency failure modes, each with a failing test before its code.**
+
+| Dependency | Mode | Test |
+|---|---|---|
+| Configuration | tags for a non-member; `clonefrom` itself or a non-member; all four tags kept; no tags by default | `PgNodeConfigTest` (core) |
+| Elector | a new policy names a `nosync` member | `PgLeaseCoordinatorContract.aNewPolicyNamingANosyncMemberCannotCreateOwnership` |
+| Takeover | this node is `nofailover`; this node is `nosync`; automatic candidacy with a `nofailover` rival ahead | `PgTakeoverAfterExpiryIntegrationTest` |
+| Promotion | this node is `nofailover` | `PgTakeoverAfterExpiryIntegrationTest` |
+| Cutover | the only remaining standby is `nosync` | `PgTakeoverIntegrationTest` |
+
+**Order of work.** Tests and stubs; red; implementation; green; mutation probes with SHA-256 records; the touched
+classes; core; guards last.

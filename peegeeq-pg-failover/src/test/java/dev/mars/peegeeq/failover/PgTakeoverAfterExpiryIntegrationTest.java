@@ -360,6 +360,76 @@ class PgTakeoverAfterExpiryIntegrationTest {
             })).onFailure(context::failNow);
     }
 
+    // ---------------------------------------------------------------- member tags (plan §9.31)
+
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgTakeover",
+        message = "Takeover acquisition failed on node pg-node-2",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class,
+        minOccurrences = 2, maxOccurrences = 2)
+    void aNodeTaggedNofailoverOrNosyncCannotAcquire(VertxTestContext context) {
+        var noFailover = config.withMemberTags(java.util.Map.of(NEW_WRITER, new PgMemberTags(true, false, false, null)));
+        var noSync = config.withMemberTags(java.util.Map.of(NEW_WRITER, new PgMemberTags(false, true, false, null)));
+        formerServing(STANDBYS).compose(formerElector::release).compose(released ->
+            new PgTakeover(noFailover, elector, store, monitor).acquire(released, PgFailoverMode.MANUAL).transform(first -> {
+                assertTrue(first.failed(), "A node tagged nofailover acquired the lease");
+                assertInstanceOf(PgLeaseProtocolException.class, first.cause());
+                return new PgTakeover(noSync, elector, store, monitor).acquire(released, PgFailoverMode.MANUAL);
+            }).transform(second -> {
+                assertTrue(second.failed(), "A node tagged nosync acquired the lease");
+                assertInstanceOf(PgLeaseProtocolException.class, second.cause());
+                return assertUnchanged(released);
+            })).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+    }
+
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Local supervision operation rejected on node pg-node-2",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLeaseProtocolException.class)
+    void aNodeTaggedNofailoverIsNotPromoted(VertxTestContext context) {
+        // The node acquired before the tag was set; the promotion still refuses it.
+        var noFailover = config.withMemberTags(java.util.Map.of(NEW_WRITER, new PgMemberTags(true, false, false, null)));
+        var tagged = monitorOf(noFailover, elector, store, NEW_WRITER);
+        formerServing(STANDBYS).compose(formerElector::release)
+            .compose(released -> takeoverOf(monitor).acquire(released, PgFailoverMode.MANUAL))
+            .compose(held -> tagged.promoteStandby(held).transform(promotion -> {
+                assertTrue(promotion.failed(), "A node tagged nofailover was promoted");
+                assertInstanceOf(PgLeaseProtocolException.class, promotion.cause());
+                return NODES.node(NEW_WRITER).sql(runner, "select pg_is_in_recovery()");
+            })).onSuccess(recovery -> context.verify(() -> {
+                assertEquals("t", recovery.output().strip(), "A refused promotion changed the role");
+                context.completeNow();
+            })).onFailure(context::failNow);
+    }
+
+    @Test
+    void inAutomaticModeARivalTaggedNofailoverIsIgnoredEvenWhenAhead(VertxTestContext context) {
+        // As in the automatic test above, the follower is ahead; here the follower is tagged nofailover, so it can
+        // never take over, and the node behind it is preferred.
+        var rivalTagged = config.withMemberTags(java.util.Map.of(FOLLOWER, new PgMemberTags(true, false, false, null)));
+        var taggedMonitor = monitorOf(rivalTagged, elector, store, NEW_WRITER);
+        String directory = NODES.dataDirectory();
+        NODES.node(NEW_WRITER).forceStop(runner, directory)
+            .compose(ignored -> NODES.writeWal(runner, 16))
+            .compose(ignored -> NODES.node(WRITER).sql(runner, "select pg_current_wal_flush_lsn()"))
+            .compose(flush -> awaitReplay(FOLLOWER, PgLsn.parse(flush.output().strip())))
+            .compose(ignored -> followerMonitor.publishPosition())
+            .compose(ignored -> formerServing(STANDBYS))
+            .compose(formerElector::release)
+            .compose(released -> NODES.node(WRITER).forceStop(runner, directory)
+                .compose(ignored -> NODES.control(runner, NEW_WRITER).startInRecovery())
+                .compose(ignored -> new PgTakeover(rivalTagged, elector, store, taggedMonitor)
+                    .acquire(released, PgFailoverMode.AUTOMATIC)))
+            .onSuccess(acquired -> context.verify(() -> {
+                assertEquals(NEW_WRITER, acquired.intent().getString("writerNodeId"));
+                context.completeNow();
+            })).onFailure(context::failNow);
+    }
+
     // ---------------------------------------------------------------- helpers
 
     /** The former writer acquires the lease and confirms revision 1 of the policy for {@code policyStandbys}. */

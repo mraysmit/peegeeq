@@ -55,6 +55,7 @@ public final class PgPrimaryElector {
         return cycle(current, started, () -> {
             JsonObject value = validateIntent(intent);
             requireNewPoliciesExcludeWriter(value, null);
+            requireNewPoliciesExcludeNoSync(value, null);
             if (!config.nodeId().equals(value.getString("writerNodeId"))
                     || !"WITHDRAWN".equals(value.getString("phase"))
                     || value.containsKey("previousWriterNodeId") || value.containsKey("durabilityPolicy")
@@ -174,6 +175,7 @@ public final class PgPrimaryElector {
         return finish(current, deadline, () -> {
             JsonObject value = validateIntent(intent);
             requireNewPoliciesExcludeWriter(value, expected.intent());
+            requireNewPoliciesExcludeNoSync(value, expected.intent());
             if (!config.nodeId().equals(value.getString("writerNodeId"))
                     || !expected.intent().getString("operationId").equals(value.getString("operationId"))) {
                 throw protocol("Update cannot replace writer or operation identity");
@@ -392,6 +394,23 @@ public final class PgPrimaryElector {
             boolean carried = inherited != null && (policy.equals(inherited.getJsonObject("durabilityPolicy"))
                 || policy.equals(inherited.getJsonObject("pendingDurabilityPolicy")));
             if (!carried) throw protocol("A new policy cannot require the writer as its own standby");
+        }
+    }
+
+    /**
+     * A policy this node introduces must not require a member tagged {@code nosync} (plan §9.31, OD-48). A policy carried
+     * unchanged from history may: the tag can be set after the policy was confirmed.
+     */
+    private void requireNewPoliciesExcludeNoSync(JsonObject value, JsonObject inherited) {
+        for (String field : new String[] {"durabilityPolicy", "pendingDurabilityPolicy"}) {
+            JsonObject policy = value.getJsonObject(field);
+            if (policy == null || policy.getJsonArray("requiredStandbyNodeIds").stream()
+                    .noneMatch(standby -> config.tagsOf((String) standby).noSync())) {
+                continue;
+            }
+            boolean carried = inherited != null && (policy.equals(inherited.getJsonObject("durabilityPolicy"))
+                || policy.equals(inherited.getJsonObject("pendingDurabilityPolicy")));
+            if (!carried) throw protocol("A new policy cannot require a member tagged nosync");
         }
     }
 

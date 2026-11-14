@@ -157,6 +157,54 @@ class PgNodeConfigTest {
         assertThrows(UnsupportedOperationException.class, () -> config.memberNodeIds().clear());
     }
 
+    // ---------------------------------------------------------------- member tags (plan §9.31)
+
+    @Test void aMemberWithoutAnEntryHasNoTags() {
+        var config = PgNodeConfig.defaults("cluster", "incarnation", "pg-node-1", MEMBERS);
+        assertEquals(PgMemberTags.NONE, config.tagsOf("pg-node-2"));
+        assertTrue(config.tagsOf("pg-node-2").eligibleForTakeover());
+    }
+
+    @Test void allFourTagsAreKept() {
+        var tags = new PgMemberTags(true, true, true, "pg-node-1");
+        var config = PgNodeConfig.defaults("cluster", "incarnation", "pg-node-1", MEMBERS)
+            .withMemberTags(java.util.Map.of("pg-node-3", tags));
+        assertEquals(tags, config.tagsOf("pg-node-3"));
+        assertFalse(config.tagsOf("pg-node-3").eligibleForTakeover());
+        assertEquals(PgMemberTags.NONE, config.tagsOf("pg-node-2"));
+    }
+
+    @Test void nofailoverAndNosyncEachWithdrawTakeoverEligibility() {
+        assertFalse(new PgMemberTags(true, false, false, null).eligibleForTakeover());
+        assertFalse(new PgMemberTags(false, true, false, null).eligibleForTakeover());
+        assertTrue(new PgMemberTags(false, false, true, "pg-node-1").eligibleForTakeover());
+    }
+
+    @Test void rejectsTagsForANodeOutsideTheMembership() {
+        var config = PgNodeConfig.defaults("cluster", "incarnation", "pg-node-1", MEMBERS);
+        assertThrows(IllegalArgumentException.class,
+            () -> config.withMemberTags(java.util.Map.of("pg-node-9", new PgMemberTags(true, false, false, null))));
+    }
+
+    @Test void rejectsACloneSourceThatIsNotAnotherMember() {
+        var config = PgNodeConfig.defaults("cluster", "incarnation", "pg-node-1", MEMBERS);
+        assertThrows(IllegalArgumentException.class,
+            () -> config.withMemberTags(java.util.Map.of("pg-node-3", new PgMemberTags(false, false, false, "pg-node-3"))),
+            "A member cannot clone from itself");
+        assertThrows(IllegalArgumentException.class,
+            () -> config.withMemberTags(java.util.Map.of("pg-node-3", new PgMemberTags(false, false, false, "pg-node-9"))),
+            "A clone source must be a member");
+    }
+
+    @Test void memberTagsAreImmutable() {
+        var mutable = new java.util.HashMap<String, PgMemberTags>();
+        mutable.put("pg-node-3", new PgMemberTags(true, false, false, null));
+        var config = PgNodeConfig.defaults("cluster", "incarnation", "pg-node-1", MEMBERS).withMemberTags(mutable);
+        mutable.clear();
+        assertTrue(config.tagsOf("pg-node-3").noFailover());
+        assertThrows(UnsupportedOperationException.class, () -> config.memberTags().clear());
+    }
+
     @Test void metadataAndIntentAreImmutable() {
         var intent = new JsonObject().put("phase", "WITHDRAWN");
         var record = new PgControlRecord("name", 1, 2, "holder", intent);
