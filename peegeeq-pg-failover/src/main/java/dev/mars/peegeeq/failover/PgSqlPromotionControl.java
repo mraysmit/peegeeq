@@ -26,9 +26,14 @@ public final class PgSqlPromotionControl implements PgPromotionControl {
         + "'checkpointTimeline', timeline_id, "
         + "'walTimeline', ('x' || substr(pg_walfile_name(pg_current_wal_lsn()), 1, 8))::bit(32)::int) "
         + "from pg_control_checkpoint()";
-    private static final String RECEIVER = "select status || '|' || coalesce(sender_host, '') || '|' "
-        + "|| coalesce(sender_port::text, '') || '|' || coalesce(slot_name, '') from pg_stat_wal_receiver";
-    private static final Pattern RECEIVER_OBSERVATION = Pattern.compile("[a-z]+\\|[^|]*\\|[0-9]*\\|[a-z0-9_]*");
+    // The wait event is part of the observation: the receiver waits on WalReceiverMain only inside its streaming loop,
+    // which it enters after START_REPLICATION has succeeded (PostgreSQL 15 walreceiver.c).
+    private static final String RECEIVER = "select r.status || '|' || coalesce(r.sender_host, '') || '|' "
+        + "|| coalesce(r.sender_port::text, '') || '|' || coalesce(r.slot_name, '') || '|' || coalesce(a.wait_event, '') "
+        + "from pg_stat_wal_receiver r left join pg_stat_activity a on a.pid = r.pid";
+    private static final String STREAMING_WAIT_EVENT = "WalReceiverMain";
+    private static final Pattern RECEIVER_OBSERVATION =
+        Pattern.compile("[a-z]+\\|[^|]*\\|[0-9]*\\|[a-z0-9_]*\\|[A-Za-z]*");
     private final Vertx vertx;
     private final PgCommandRunner runner;
     private final List<String> commandPrefix;
@@ -112,7 +117,9 @@ public final class PgSqlPromotionControl implements PgPromotionControl {
 
     /**
      * A reload is asynchronous. It is confirmed when the WAL receiver streams from exactly the requested address
-     * through exactly the requested slot.
+     * through exactly the requested slot, and waits in its streaming loop. The status, address, and slot alone are not
+     * evidence: PostgreSQL reports {@code streaming} with them as soon as the receiver has connected, before
+     * {@code START_REPLICATION} runs, and a missing slot fails it after that.
      */
     private Future<Void> awaitStreaming(long deadline, PgWriterEndpoint writer, String slot) {
         long started = System.nanoTime();
@@ -120,7 +127,8 @@ public final class PgSqlPromotionControl implements PgPromotionControl {
             if (!output.isEmpty() && !RECEIVER_OBSERVATION.matcher(output).matches()) {
                 throw new PgPromotionException("Malformed promotion observation: " + output);
             }
-            if (output.equals("streaming|" + writer.host() + "|" + writer.port() + "|" + slot)) {
+            if (output.equals("streaming|" + writer.host() + "|" + writer.port() + "|" + slot + "|"
+                + STREAMING_WAIT_EVENT)) {
                 return Future.<Void>succeededFuture();
             }
             long observation = System.nanoTime() - started;
