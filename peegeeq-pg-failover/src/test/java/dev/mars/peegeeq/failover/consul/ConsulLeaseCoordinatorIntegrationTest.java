@@ -44,6 +44,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * node-scoped tokens, and a fault proxy. Cases declared here assert Consul wire details.
  */
 @Tag(TestCategories.INTEGRATION)
+@io.vertx.junit5.Timeout(value = 120, timeUnit = TimeUnit.SECONDS)
 @Isolated
 class ConsulLeaseCoordinatorIntegrationTest extends PgLeaseCoordinatorContract {
     private static final Logger logger = LoggerFactory.getLogger(ConsulLeaseCoordinatorIntegrationTest.class);
