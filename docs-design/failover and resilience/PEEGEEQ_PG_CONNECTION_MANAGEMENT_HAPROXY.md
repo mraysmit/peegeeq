@@ -145,7 +145,7 @@ This is a target design. A requirement here is not a claim that code implements 
 | `pendingDurabilityPolicy`: next revision and required standby node IDs | Same profile authority; authoritative proposed policy intent | Persist before configuration effects. It grants no target eligibility. Remove it when the verified policy replaces `durabilityPolicy`. Revisions increase within an incarnation. |
 | Manual transition request: operation ID and requested target | Authoritative authenticated operator request persisted in the control record's transition intent | B disables autonomous takeover. The requested node still acquires the writer lease and applies its watchdog mode. Operator permission is not an alternative authority. |
 | Node role, WAL positions, timeline, reachability, routing eligibility, and readiness | Derived from live observations and current authority | Compute them. Do not store independent primary or healthy flags as authority. The one published copy of a WAL position is the next row. |
-| Published member position: a member's timeline and WAL flush position | Coordinator, one record per member under the incarnation's namespace, written only by that member's supervisor; a non-authoritative copy of a live observation | Used only to advance that member's replication slots on standbys (§5.8). Never read for eligibility, promotion, coverage, routing, or policy. A stale or missing value keeps more WAL and is safe. It has no lease and no expiry. |
+| Published member position: a member's timeline and WAL flush position | Coordinator, one record per member under the incarnation's namespace, written only by that member's supervisor and held by that member's own coordinator session; a non-authoritative copy of a live observation | Used to advance that member's replication slots on standbys (§5.8) and to order the covered takeover candidates (§5.10). It never makes a node eligible and is never read for exclusion, coverage, routing, or policy. A stale or missing value keeps more WAL and is safe. The record exists only while the member's session lives: a member that stops publishing loses its record when the session expires. |
 | Member replication slots | Derived: every node holds one physical slot for each other member; positions and WAL status are observed live | The writer's slots advance by streaming. A standby's slots advance to the smaller of the published position and its own replay position, on the same timeline only. Retention is bounded by `max_slot_wal_keep_size`; an unbounded setting is refused. |
 | Durable subscription identity, filters, lifecycle, `last_processed_id`, and replay lease owner, generation, and expiry | Existing tenant-local `bitemporal_subscriptions`; authoritative subscription progress and ownership | Reuse the existing schema and writer-barrier replay contract in §6.6. Do not create a second failover cursor or acknowledgement table. |
 | Lease freshness/deadline, watchdog health, replay upper boundary, retry attempt identity, channel acknowledgements, catch-up completion, and client eligibility response | Derived runtime observations | Never persist a reusable lease deadline or watchdog-ready flag. Recompute after restart. Do not create a second cursor or writer authority. |
@@ -685,10 +685,17 @@ until it passes.
 **Member positions.** A second, separate port, `PgMemberPositions`, carries each member's published
 WAL position (§1.1). It has three operations: publish this node's own position, read every member's
 position, and close. Its obligations are weaker than the lease port's, because a position is never
-authority: a member writes only its own record (access control); a malformed, partial, filtered, or
-unauthenticated response fails; reads need not be linearizable; a lost or delayed older publication is
-safe. It has no lease and no expiry. The lease port and its contract suite are unchanged. Each adapter
-of the lease port also implements this port against the same service; the Consul binding is in the
+authority for eligibility, exclusion, coverage, policy, or routing: a member writes only its own record
+(access control); a malformed, partial, filtered, or unauthenticated response fails; reads need not be
+linearizable; a lost or delayed older publication is safe. Every failure is a `PgMemberPositionException`,
+and `PgMemberPositionsContract` states the obligations as tests. Each record is held by its member's own
+coordinator session, separate from the writer lease and with the lease TTL; when the member stops
+publishing, the record disappears at session expiry, and a read fails on a record that no session holds.
+Positions order the candidates for an automatic takeover: among the nodes covered by the last confirmed
+policy, a node is not preferred when another covered member published a higher timeline, or the same
+timeline beyond this node's candidate position. A position never makes a node eligible; manual takeover
+names its target and is not ranked. The lease port and its contract suite are unchanged. Each adapter of
+the lease port also implements this port against the same service; the Consul binding is in the
 coordinator design §3.3.
 
 **Selection.** `peegeeq.pg.coordinator.type` names the adapter. One adapter serves an
