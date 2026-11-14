@@ -283,20 +283,29 @@ class PgTakeoverAfterExpiryIntegrationTest {
     @Test
     @ExpectedErrorLog(
         logger = "dev.mars.peegeeq.failover.PgTakeover",
-        message = "Takeover acquisition failed on node pg-node-1",
+        message = "Takeover acquisition failed on node pg-node-2",
         throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
         throwableType = PgLeaseProtocolException.class)
-    void theFormerWriterCannotTakeOverItsOwnLease(VertxTestContext context) {
-        var formerAgain = new PgPrimaryElector(formerConfig,
-            new ConsulLeaseCoordinator(vertx, formerConfig, endpoint(), "consul-1", TOKEN));
-        observers.add(formerAgain);
+    void aNodeTheRecordNamesAsWriterCannotTakeItOverAgain(VertxTestContext context) {
+        // After a takeover the record names the new writer, and the confirmed policy carried from the former writer
+        // still names it until the cutover. When the new writer's lease lapses before the cutover, the record names
+        // that node twice: as writer and in the confirmed policy. Only the writer check can refuse it.
+        var again = new PgPrimaryElector(config, new ConsulLeaseCoordinator(vertx, config, endpoint(), "consul-1", TOKEN));
+        observers.add(again);
         formerServing(STANDBYS).compose(formerElector::release)
-            .compose(released -> new PgTakeover(formerConfig, formerAgain, formerStore, formerMonitor)
-                .acquire(released, PgFailoverMode.MANUAL).transform(refusal -> {
-                    assertTrue(refusal.failed(), "The former writer took over its own lease; that is a re-join");
-                    assertInstanceOf(PgLeaseProtocolException.class, refusal.cause());
-                    return assertUnchanged(released);
-                })).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+            .compose(released -> takeoverOf(monitor).acquire(released, PgFailoverMode.MANUAL))
+            .compose(elector::release)
+            .compose(lapsed -> {
+                assertEquals(NEW_WRITER, lapsed.intent().getString("writerNodeId"));
+                assertTrue(lapsed.intent().getJsonObject("durabilityPolicy").getJsonArray("requiredStandbyNodeIds")
+                    .contains(NEW_WRITER), "The precondition failed: the carried policy does not name the new writer");
+                return new PgTakeover(config, again, store, monitor).acquire(lapsed, PgFailoverMode.MANUAL)
+                    .transform(refusal -> {
+                        assertTrue(refusal.failed(), "A node took over a record that names it as writer");
+                        assertInstanceOf(PgLeaseProtocolException.class, refusal.cause());
+                        return assertUnchanged(lapsed);
+                    });
+            }).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
     }
 
     @Test

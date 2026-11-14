@@ -822,9 +822,19 @@ Phases:
    of 77 after the last test edit; core tier 11 classes, 410 tests, 0 failures. Acquire-refusal mutation probe
    detected, SHA-256 restored. Details in plan §9.28. Not yet run on this code: the downstream modules (a Jenkins job
    build after a push).
-   **OPEN — 7b.3 remaining:** takeover after real lease expiry, planned stop with release, manual
-   takeover, repeated failover, controlled re-join, the production entry point and supervisor loop, and the
-   real-device watchdog run on Linux.
+   **7b.3 update, 2026-11-14, takeover after real lease expiry (plan §9.29, `bafe52b2`, `6ac4b5b3`):**
+   `PgTakeover.acquire(observed, mode)`
+   builds the withdrawn takeover intent from an unowned record and acquires it; refused before any coordinator write
+   for a record still owned, a record naming this node as writer, a node outside the confirmed policy, quarantine, and
+   in automatic mode a non-preferred candidacy. New `PgTakeoverAfterExpiryIntegrationTest` (10-second lease TTL): a
+   lost former host, and a former writer cut off from the coordinator whose own supervisor stops PostgreSQL before the
+   successor acquires (order asserted). Red 7 of 7 on the stub; green 7 of 7; 5 probes detected (the writer check
+   after its test was rebuilt); takeover class 11, core 410, guards 77. Jenkins build #38 (`ec62d499`, before this
+   increment) SUCCESS: `peegeeq-pg-failover` 706 and all downstream modules and UI suites green.
+   **OPEN — 7b.3 remaining:** planned stop with release (OD-15), manual takeover, repeated failover, controlled
+   re-join, the production entry point and supervisor loop, the real-device watchdog run on Linux, and the new
+   scope of the 2026-11-13 owner decisions (plan §9.28 rows 9 to 14: member tags, automatic rewind and rebuild,
+   restart and reload, coordinator configuration, status and metrics endpoints, callbacks).
 8. **OPEN.** Enable autonomous initiation on the verified common boundary (8a), complete
    per-node authority/bootstrap reconciliation (8b), infrastructure fault tests including
    S54 to S58 (8c), and automatic database safety acceptance (8d). No second provider or
