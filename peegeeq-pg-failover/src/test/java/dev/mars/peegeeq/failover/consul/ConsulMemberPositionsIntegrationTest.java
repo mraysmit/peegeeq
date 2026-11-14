@@ -186,6 +186,25 @@ class ConsulMemberPositionsIntegrationTest extends PgMemberPositionsContract {
             })).onFailure(context::failNow);
     }
 
+    @Test void aPublicationThatConsulDoesNotAcquireFailsAndLeavesTheHeldRecord(VertxTestContext context) {
+        // A second adapter for the same member has its own session. While the first adapter's session holds the key,
+        // Consul answers the second adapter's acquiring write with false and stores nothing.
+        var held = new PgMemberPosition("pg-node-2", 1, PgLsn.parse("0/5000000"));
+        var refused = new PgMemberPosition("pg-node-2", 1, PgLsn.parse("0/6000000"));
+        member("pg-node-2").compose(first -> first.publish(held)
+            .compose(ignored -> member("pg-node-2"))
+            .compose(second -> second.publish(refused).transform(publish -> {
+                assertTrue(publish.failed(), "A write that Consul did not acquire was reported as stored");
+                assertInstanceOf(PgMemberPositionException.class, publish.cause());
+                assertTrue(publish.cause().getMessage().startsWith(
+                    "Consul did not store the member position under the member's session"), publish.cause().getMessage());
+                return first.read();
+            }))).onSuccess(read -> context.verify(() -> {
+                assertEquals(java.util.Map.of("pg-node-2", held), read, "A refused publication replaced the held record");
+                context.completeNow();
+            })).onFailure(context::failNow);
+    }
+
     @Test void aMemberSessionWhoseSettingsDifferOnReadBackFailsThePublication(VertxTestContext context) {
         // A proxy forwards to Consul and reports the created session with Behavior=release, which would keep the record
         // after the member stops publishing.
