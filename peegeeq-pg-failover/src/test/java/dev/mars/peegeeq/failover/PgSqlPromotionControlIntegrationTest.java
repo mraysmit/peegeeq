@@ -31,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 @Isolated
 @Timeout(value = 180, unit = TimeUnit.SECONDS)
+@io.vertx.junit5.Timeout(value = 180, timeUnit = TimeUnit.SECONDS)
 class PgSqlPromotionControlIntegrationTest {
     private static final Duration COMMAND_TIMEOUT = Duration.ofSeconds(20);
     private static final String STANDBY = STANDBYS.get(0);
@@ -255,6 +256,32 @@ class PgSqlPromotionControlIntegrationTest {
         }).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
     }
 
+    @Test void aReceiverObservedBeforeItsReplicationStartsIsNotReportedAsFollowed(VertxTestContext context) {
+        // The new writer has no slot for the follower, so START_REPLICATION fails after the receiver has connected.
+        // Until it fails, pg_stat_wal_receiver shows streaming with the writer's address and the slot. The wrapper
+        // returns the receiver observation from inside that window; a short retry interval makes the window recur.
+        var budget = Duration.ofSeconds(5);
+        var follower = NODES.node(FOLLOWER);
+        var writer = writerEndpoint();
+        String slot = PgNodeConfig.slotName(FOLLOWER);
+        var windowed = new ReceiverWindowCommandRunner(runner, writer.host(), writer.port(), slot);
+        var control = new PgSqlPromotionControl(vertx, windowed, follower.prefix(), PgSupervisedContainer.PG_CTL, "psql",
+            NODES.dataDirectory(), budget);
+        follower.sql(runner, "alter system set wal_retrieve_retry_interval = '100ms'").compose(set -> {
+            assertEquals(0, set.exitCode(), set.output());
+            return control(STANDBY).promote();
+        }).compose(ignored -> control.follow(FOLLOWER, writer).transform(follow -> {
+            assertTrue(follow.failed(), "A receiver that has not started replication through the slot was reported as "
+                + "following");
+            assertInstanceOf(PgPromotionException.class, follow.cause());
+            String message = follow.cause().getMessage();
+            assertTrue(message.startsWith("WAL receiver is not streaming from " + writer.host() + ":" + writer.port()
+                + " through slot " + slot), message);
+            assertTrue(windowed.windowObservations() > 0, "The receiver was never observed inside the window: " + message);
+            return Future.<Void>succeededFuture();
+        })).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+    }
+
     @Test void aReceiverThatStreamsFromTheWriterThroughAnotherSlotIsNotReportedAsFollowed(VertxTestContext context) {
         var follower = NODES.node(FOLLOWER);
         String directory = NODES.dataDirectory();
@@ -275,7 +302,7 @@ class PgSqlPromotionControlIntegrationTest {
                     assertTrue(follow.cause().getMessage().startsWith("WAL receiver is not streaming from " + STANDBY
                         + ":5432 through slot " + PgNodeConfig.slotName(FOLLOWER)), follow.cause().getMessage());
                     assertTrue(follow.cause().getMessage().endsWith("last observed: streaming|" + STANDBY
-                        + "|5432|peegeeq_elsewhere"), follow.cause().getMessage());
+                        + "|5432|peegeeq_elsewhere|WalReceiverMain"), follow.cause().getMessage());
                     return Future.<Void>succeededFuture();
                 });
             }).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
