@@ -32,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 @Isolated
 @Timeout(value = 240, unit = TimeUnit.SECONDS)
+@io.vertx.junit5.Timeout(value = 240, timeUnit = TimeUnit.SECONDS)
 class PgFixtureLeftoverServerContractIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(PgFixtureLeftoverServerContractIntegrationTest.class);
     private static final Duration COMMAND_TIMEOUT = Duration.ofSeconds(20);
