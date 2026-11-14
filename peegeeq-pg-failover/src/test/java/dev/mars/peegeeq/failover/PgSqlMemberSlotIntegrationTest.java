@@ -33,6 +33,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 @Isolated
 @Timeout(value = 180, unit = TimeUnit.SECONDS)
+@io.vertx.junit5.Timeout(value = 180, timeUnit = TimeUnit.SECONDS)
 class PgSqlMemberSlotIntegrationTest {
     private static final Duration COMMAND_TIMEOUT = Duration.ofSeconds(20);
     private static final String STANDBY = STANDBYS.get(0);
