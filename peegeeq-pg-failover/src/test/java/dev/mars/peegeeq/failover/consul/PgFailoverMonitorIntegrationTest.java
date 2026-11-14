@@ -69,6 +69,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 @Isolated
 @Timeout(value = 180, unit = TimeUnit.SECONDS)
+@io.vertx.junit5.Timeout(value = 180, timeUnit = TimeUnit.SECONDS)
 class PgFailoverMonitorIntegrationTest {
     private static final List<String> MEMBERS = List.of("pg-node-1", "pg-node-2", "pg-node-3");
     private static final String TOKEN = "unused-without-acls";
