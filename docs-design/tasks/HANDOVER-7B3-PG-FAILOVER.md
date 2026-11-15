@@ -194,5 +194,6 @@ logs, Windows quoting, Git Bash paths, stale IDE diagnostics, no Python, Jenkins
   adapter, an armed watchdog, password-file provisioning, member address configuration, any production entry point, and
   a Jenkins build from `beginning` (the whole-repository gate). Takeover after real expiry is done (plan §9.29), and
   Jenkins job builds of the module ran (#36 to #40).
-- Task 8 phase 5: the repaired `HaProxyConnectionFailoverTest` (`f391a7f0`) has never run on Jenkins (checked
-  2026-11-15, `tasks.md` Task 8 phase 5).
+- Task 8 phase 5: the repaired `HaProxyConnectionFailoverTest` (`f391a7f0`) has never run in a Jenkins job build
+  (checked 2026-11-15). On 2026-11-15 it ran on the Jenkins host at `b3f7ddc9`: 6 tests, 0 failures
+  (`tasks.md` Task 8 phase 5). The phase closes on a Jenkins build from `beginning`.

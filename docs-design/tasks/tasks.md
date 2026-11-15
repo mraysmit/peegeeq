@@ -658,6 +658,13 @@ Phases:
    day), and failed on the old assertion. Build 32 (`core` from `beginning`, 2026-10-25) failed
    cloning the repository and ran no test. Builds 33 to 40 started at `peegeeq-pg-failover`
    (build 40, `b3f7ddc9`, 2026-11-15: SUCCESS, `peegeeq-pg-failover` 728 tests).
+   **Jenkins host run, 2026-11-15:** a fresh clone at `b3f7ddc9` on the host,
+   `mvn clean install -DskipTests -pl :peegeeq-db -am` (BUILD SUCCESS), then
+   `mvn test -Pintegration-tests -pl :peegeeq-db -Dtest=HaProxyConnectionFailoverTest`:
+   6 tests, 0 failures, 0 errors, 0 skipped. All six methods are in the surefire report,
+   `testFailbackAfterPrimaryRecovery` among them. Logs: `/var/lib/jenkins/peegeeq-work/logs/phase5-*-20261115.log`.
+   This is targeted evidence on the CI machine. The closing condition above (a Jenkins build from
+   `beginning`) is still not met.
 6. **COMPLETE — documentation contracts, 2026-10-08.** Five documents define the data model,
    admission and generation barrier, synchronous policy lifecycle, finite replay, bootstrap,
    coordinator gate, and corrected transition order. Static document checks do not qualify
