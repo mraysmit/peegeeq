@@ -656,7 +656,8 @@ Phases:
    **Checked 2026-11-15:** no Jenkins build has run `peegeeq-db` with the repair. Build 30 (from
    `beginning`) checked out `f318b68d` (17:20 on 2026-10-11), before `f391a7f0` (22:53 the same
    day), and failed on the old assertion. Build 32 (`core` from `beginning`, 2026-10-25) failed
-   cloning the repository and ran no test. Builds 33 to 40 started at `peegeeq-pg-failover`.
+   cloning the repository and ran no test. Builds 33 to 40 started at `peegeeq-pg-failover`
+   (build 40, `b3f7ddc9`, 2026-11-15: SUCCESS, `peegeeq-pg-failover` 728 tests).
 6. **COMPLETE — documentation contracts, 2026-10-08.** Five documents define the data model,
    admission and generation barrier, synchronous policy lifecycle, finite replay, bootstrap,
    coordinator gate, and corrected transition order. Static document checks do not qualify

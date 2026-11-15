@@ -70,8 +70,10 @@ green. Jenkins build #38 (`ec62d499`): `peegeeq-pg-failover` 706 tests, 0 failur
 the build. Runs on the Jenkins host, logs in `/var/lib/jenkins/peegeeq-work/logs`: red runs of the follow test on the
 pre-fix code (`red2-` to `red4-`), promotion class 20 of 20, integration tier 296 tests, core 410, guards 77,
 acquire-refusal mutation probe with SHA-256 restored. Details in plan §9.28. Jenkins build #39 (`ed29d191`):
-SUCCESS, `peegeeq-pg-failover` 717 tests and every module after it green. Jenkins build #40 (`b3f7ddc9`, member tags)
-started 2026-11-15. The test step of these builds runs only the seven reactor modules from `peegeeq-pg-failover` on.
+SUCCESS, `peegeeq-pg-failover` 717 tests and every module after it green. Jenkins build #40 (`b3f7ddc9`, member tags,
+2026-11-15): SUCCESS. Test step: `peegeeq-pg-failover` 728, examples 178, benchmarking 153, migrations 56,
+integration-tests 109, OpenAPI none ("No tests to run."). UI stage: management UI 128 unit and 419 e2e, utilities UI
+836 unit and 246 e2e. The test step of these builds runs only the seven reactor modules from `peegeeq-pg-failover` on.
 
 **2026-11-13, as reported at that handover.** The logs named below are not in `logs/` on the owner's workstation
 (checked 2026-11-14); the numbers were not re-checked.
