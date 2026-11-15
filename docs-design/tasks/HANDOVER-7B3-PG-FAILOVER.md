@@ -45,8 +45,8 @@ entries in `docs-design/tasks/tasks.md`.
   `streaming` with the writer's address and slot before `START_REPLICATION` fails on a missing slot); 20 integration
   classes declare `io.vertx.junit5.Timeout` equal to their JUnit class limit. P7 records written (plan §8.1, §9.28;
   system design §1.1, §5.10; coordinator design §1.1, §3.3; `tasks.md`).
-- **Git.** `origin/master` is `ec62d499`; the owner pushed the 26 one-file commits of 2026-11-14 (`14e52639` to
-  `ec62d499`). The owner makes all commits unless they ask Claude to commit; do not reset or push without the owner's
+- **Git.** `origin/master` is `b3f7ddc9` (checked 2026-11-15; local `master` equal, working tree clean before the
+  2026-11-15 record corrections). The owner makes all commits unless they ask Claude to commit; do not reset or push without the owner's
   instruction.
 
 ## 2. What exists in the module
@@ -69,7 +69,9 @@ entries in `docs-design/tasks/tasks.md`.
 green. Jenkins build #38 (`ec62d499`): `peegeeq-pg-failover` 706 tests, 0 failures; for the downstream modules read
 the build. Runs on the Jenkins host, logs in `/var/lib/jenkins/peegeeq-work/logs`: red runs of the follow test on the
 pre-fix code (`red2-` to `red4-`), promotion class 20 of 20, integration tier 296 tests, core 410, guards 77,
-acquire-refusal mutation probe with SHA-256 restored. Details in plan §9.28.
+acquire-refusal mutation probe with SHA-256 restored. Details in plan §9.28. Jenkins build #39 (`ed29d191`):
+SUCCESS, `peegeeq-pg-failover` 717 tests and every module after it green. Jenkins build #40 (`b3f7ddc9`, member tags)
+started 2026-11-15. The test step of these builds runs only the seven reactor modules from `peegeeq-pg-failover` on.
 
 **2026-11-13, as reported at that handover.** The logs named below are not in `logs/` on the owner's workstation
 (checked 2026-11-14); the numbers were not re-checked.
@@ -182,9 +184,13 @@ logs, Windows quoting, Git Bash paths, stale IDE diagnostics, no Python, Jenkins
 
 - The follow confirmation rests on PostgreSQL 15 behaviour: the REL_15_STABLE source and one 3000-sample probe on
   15.13. Other major versions were not checked.
-- `twoCandidatesAtTheSamePositionAreBothPreferred` assumes both standbys received the same WAL before the writer stopped;
-  it passed once. Whether it can be timing-dependent under load was not measured.
-- The items carried from 2026-11-12: takeover after real expiry, re-join through an advanced slot, a lost slot on a
-  standby, the production retention bound, the publication and advance cadence, Consul token provisioning outside tests,
-  a second coordinator adapter, an armed watchdog, password-file provisioning, member address configuration, any
-  production entry point, the Jenkins build, and the `-Pall-tests` gate.
+- `twoCandidatesAtTheSamePositionAreBothPreferred` assumes both standbys received the same WAL before the writer stopped.
+  `PgCandidacyIntegrationTest` ran 6 of 6 in each of Jenkins builds #36 to #39 (checked 2026-11-15). Whether it can be
+  timing-dependent under heavier load was not measured.
+- The items carried from 2026-11-12: re-join through an advanced slot, a lost slot on a standby, the production
+  retention bound, the publication and advance cadence, Consul token provisioning outside tests, a second coordinator
+  adapter, an armed watchdog, password-file provisioning, member address configuration, any production entry point, and
+  a Jenkins build from `beginning` (the whole-repository gate). Takeover after real expiry is done (plan §9.29), and
+  Jenkins job builds of the module ran (#36 to #40).
+- Task 8 phase 5: the repaired `HaProxyConnectionFailoverTest` (`f391a7f0`) has never run on Jenkins (checked
+  2026-11-15, `tasks.md` Task 8 phase 5).
