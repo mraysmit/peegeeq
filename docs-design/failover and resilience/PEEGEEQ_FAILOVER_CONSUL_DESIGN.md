@@ -295,6 +295,12 @@ A two-node pair cannot resume required writes after promotion until a standby is
 The local supervisor keeps former-writer startup closed. Rewind requires checksums or
 `wal_log_hints=on`, `full_page_writes=on`, and usable WAL. Failure requires rebuild.
 Validate identity, recovery mode, timeline, and observed replay before standby admission.
+Rewind and rebuild are automatic (`PgFailoverMonitor.rejoin`, implementation plan §9.32): the
+member stays quarantined throughout; it rewinds against the writer, and removes its data
+directory and takes a new base backup only when the rewind does not produce a caught-up standby.
+Before any removal the writer must hold the lease, be writable, share the member's system
+identifier, and hold the member's usable slot. A different system identifier, or an unreadable
+data directory outside an interrupted re-join, is left for the operator.
 [PostgreSQL rewind](https://www.postgresql.org/docs/current/app-pgrewind.html)
 
 ## 7. Configuration and Time Budgets

@@ -621,7 +621,11 @@ to proxies and operators. Node-control access can stop databases and must be sep
 
 Re-join requires usable WAL, `wal_log_hints=on` or checksums, and `full_page_writes=on` for rewind.
 If rewind fails, preserve quarantine and rebuild from a new base backup. Verify replication by
-WAL progress, not only recovery mode. Failover restores service; a validated standby restores
+WAL progress, not only recovery mode. The rewind and the rebuild are automatic, under the member's
+own supervisor (implementation plan §9.32). The rewind connects to the writer as the node's
+replication role, so the deployment grants that role `EXECUTE` on `pg_ls_dir`, `pg_stat_file`,
+and `pg_read_binary_file`, and admits it to database `postgres` on every node. A rewind or a base
+backup copies the source's configuration files; the supervisor keeps the node's own. Failover restores service; a validated standby restores
 redundancy. Backups and point-in-time recovery remain separate operational requirements.
 [PostgreSQL pg_rewind](https://www.postgresql.org/docs/current/app-pgrewind.html)
 

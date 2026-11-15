@@ -61,6 +61,9 @@ entries in `docs-design/tasks/tasks.md`.
 | `PgDurabilityControl.candidatePosition(nodeId)` | Standby only. SQL in `PgSqlDurabilityControl.CANDIDATE` |
 | `PgMemberPositions` / `ConsulMemberPositions` | Port and adapter as in §1. Failures are `PgMemberPositionException` |
 | `PgMemberPositionsContract` | Abstract contract: read-back, replace, empty, expiry, keep-alive, re-publish after expiry, unheld record, rejected write, malformed, non-member, filtered, unanswered, unreachable |
+| `PgFailoverMonitor.rejoin(observed, writer, budget)` | Added 2026-11-15 (plan §9.32). Automatic rewind, and a rebuild when the rewind does not produce a caught-up standby, under the re-join quarantine. Refuses a record naming this node or with no lease holder, and a foreign quarantine. Checks the source (writable, same system, usable slot) before the stop and again before any removal. Another system or an unreadable directory outside an interrupted re-join gets the operator quarantine |
+| `PgProcessControl.inspect`, `rewind`, `rebuild` | Added 2026-11-15. `pg_ctl status`, `pg_controldata` (C locale), `pg_rewind`, `pg_basebackup -S <own slot>`; binaries derived from the `pg_ctl` path. The node's top-level `*.conf` files are saved to `<data directory>.rejoin-saved` and restored; the inhibitor is recreated after every rewind and base backup |
+| `PgPromotionControl.observeSource`, `confirmCaughtUp` | Added 2026-11-15. `IDENTIFY_SYSTEM`, `READ_REPLICATION_SLOT`, and `pg_is_in_recovery()` through the node's replication role; catch-up = same system, streaming from the writer's address on its timeline, replay at or after its flush position |
 | Everything listed in the 2026-11-12 handover | Unchanged: promotion, follow, slots, lost-slot replacement, policy cutover, bootstrap, renewal loop, watchdog modes, admission gate, local store |
 
 ## 3. Evidence
@@ -116,7 +119,8 @@ integration-tests 109, OpenAPI none ("No tests to run."). UI stage: management U
 4. Done 2026-11-14 (`ed29d191`): planned stop with release (OD-15, plan §9.30, `PgFailoverMonitor.stopAndRelease`).
 5. Done 2026-11-14 (`f2b03bb1`): member tags (answer 11, plan §9.31; owner: deployment configuration, all four tags
    accepted now).
-6. Automatic rewind and rebuild (answer 9).
+6. Done 2026-11-15 (`4aa9dc8e` and the uncommitted test additions): automatic rewind and rebuild (answer 9, plan
+   §9.32, `PgFailoverMonitor.rejoin`). §5 row P-6 is marked reversed.
 7. Restart, reload, `pending_restart` (answer 10).
 8. Coordinator configuration (answer 12).
 9. Status and metrics endpoints (answer 13).
@@ -181,6 +185,24 @@ logs, Windows quoting, Git Bash paths, stale IDE diagnostics, no Python, Jenkins
   stays behind.
 - **The `PgDurabilityControl` port grew a method.** Five test wrappers implement it (takeover, bootstrap serving, policy
   installation twice, promotion); each passes `candidatePosition` through.
+
+New on 2026-11-15 (plan §9.32):
+
+- **`pg_rewind` removes `standby.signal`** and copies the source's `postgresql.auto.conf`, `pg_hba.conf`, and
+  `pg_ident.conf`. A base backup without `-R` writes no `standby.signal`. Either would start the node writable; the
+  adapter recreates the inhibitor after both.
+- **`pg_rewind` cannot complete crash recovery while `standby.signal` exists** ("standby mode is not supported by
+  single-user servers"). The adapter starts the target in recovery with `primary_conninfo=''` and stops it fast first.
+  A test of the rewind must put the inhibitor in place, as the monitor's stop does; without it `pg_rewind` recovers the
+  target itself and the adapter's step is not exercised (probe 53).
+- **`pg_ctl status` exit 4** is both "no such directory" and "not a database cluster directory". Absence is `test -e`.
+- **A server started in recovery does not write its parameters to the control file.** To make a test target without
+  `wal_log_hints`, run it once outside recovery and check `pg_controldata`.
+- **Surefire `-Dtest`**: classes are separated by commas, methods of one class by `+`. `A#m+B#n` runs only `A#m`.
+- **Host tooling.** `.env/jenkins-tools.ps1` fails under Windows PowerShell 5.1 (`powershell.exe`,
+  `NullReferenceException` in `Invoke-WebRequest`); call it from `pwsh.exe`. A poll loop must not send stderr to
+  `/dev/null` and must have a deadline: the 2026-11-15 build-#40 poller looped for 12 hours. In a PowerShell sync
+  script, keep a one-item file list an array (`@(...)`); splatting a string passes its characters.
 
 ## 7. Not checked at handover
 

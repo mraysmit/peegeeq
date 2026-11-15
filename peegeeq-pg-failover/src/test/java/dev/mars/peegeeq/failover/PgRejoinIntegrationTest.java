@@ -173,6 +173,40 @@ class PgRejoinIntegrationTest {
             .onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
     }
 
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgLocalStateStore",
+        message = "Node-local state operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLocalStateException.class)
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Local supervision operation failed on node pg-node-1",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLocalStateException.class)
+    void aStorageRefusalAfterTheRewindFailsWithoutARebuild(VertxTestContext context) {
+        // A follow receipt for another writer address refuses the follow after the rewind. A rebuild cannot cure a store
+        // refusal, so no data directory is removed for it.
+        var record = serving(NEW_WRITER);
+        var other = new JsonObject().put("host", "pg-elsewhere").put("port", 5432);
+        diverge().compose(ignored -> member(WRITER)).compose(node -> node.store()
+            .begin(record.generation(), record.intent().getString("operationId"), PgFailoverMonitor.FOLLOW_WRITER, WRITER,
+                other)
+            .compose(begun -> node.monitor().rejoin(record, endpoint(NEW_WRITER, WRITER), BUDGET))
+            .transform(rejoin -> refused(rejoin, PgLocalStateException.class))
+            .compose(ignored -> receipt(node, record, PgFailoverMonitor.REWIND)).compose(rewind -> {
+                assertEquals(PgActionResult.COMPLETED, rewind.orElseThrow().result(), "The rewind did not complete");
+                return receipt(node, record, PgFailoverMonitor.REBUILD);
+            }).compose(rebuild -> {
+                assertTrue(rebuild.isEmpty(), "A store refusal led to a rebuild");
+                return node.store().quarantine();
+            }).map(quarantine -> {
+                assertEquals(Optional.of(PgFailoverMonitor.REJOIN_QUARANTINE), quarantine.map(PgQuarantine::reason),
+                    "A failed re-join did not keep its quarantine");
+                return null;
+            })).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+    }
+
     // ---------------------------------------------------------------- refusals before any effect
 
     @Test
@@ -185,14 +219,14 @@ class PgRejoinIntegrationTest {
     void aRecordThatNamesThisNodeOrHasNoLeaseHolderIsRefusedAndChangesNothing(VertxTestContext context) {
         var naming = serving(FOLLOWER);
         var unowned = new PgControlRecord(config(FOLLOWER).controlName(), 2, 2, null, serving(WRITER).intent());
+        // Each transform judges its own operation, and the chain continues with compose, so a failed assertion ends the
+        // chain with its own message instead of reaching the next judgement as its input (plan §9.26).
         member(FOLLOWER).compose(node -> node.monitor().rejoin(naming, endpoint(WRITER, FOLLOWER), BUDGET)
-            .transform(first -> {
-                refusal(first, PgLeaseProtocolException.class);
-                return node.monitor().rejoin(unowned, endpoint(WRITER, FOLLOWER), BUDGET);
-            }).transform(second -> {
-                refusal(second, PgLeaseProtocolException.class);
-                return assertUntouched(node, Optional.empty());
-            })).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+            .transform(first -> refused(first, PgLeaseProtocolException.class))
+            .compose(ignored -> node.monitor().rejoin(unowned, endpoint(WRITER, FOLLOWER), BUDGET)
+                .transform(second -> refused(second, PgLeaseProtocolException.class)))
+            .compose(ignored -> assertUntouched(node, Optional.empty())))
+            .onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
     }
 
     @Test
@@ -227,7 +261,13 @@ class PgRejoinIntegrationTest {
                 refusal(rejoin, PgPromotionException.class);
                 assertTrue(rejoin.cause().getMessage().contains("is in recovery"), rejoin.cause().getMessage());
                 return assertKeptForRetry(node, record, before);
-            }))).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+            })))
+            // The source is checked before the stop, so the refusal leaves the running standby running.
+            .compose(ignored -> NODES.control(runner, FOLLOWER).status())
+            .onSuccess(status -> context.verify(() -> {
+                assertEquals(PgProcessState.RUNNING, status, "A re-join refused for its source stopped the server");
+                context.completeNow();
+            })).onFailure(context::failNow);
     }
 
     @Test
@@ -575,6 +615,12 @@ class PgRejoinIntegrationTest {
     private static void refusal(AsyncResult<?> outcome, Class<? extends Throwable> type) {
         assertTrue(outcome.failed(), "A re-join that had to be refused succeeded");
         assertInstanceOf(type, outcome.cause());
+    }
+
+    /** As {@link #refusal}, as a step of a chain: it succeeds, so the next step follows through {@code compose}. */
+    private static Future<Void> refused(AsyncResult<?> outcome, Class<? extends Throwable> type) {
+        refusal(outcome, type);
+        return Future.succeededFuture();
     }
 
     private PgNodeConfig config(String nodeId) {

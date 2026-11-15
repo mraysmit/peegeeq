@@ -157,7 +157,11 @@ class PgRejoinControlIntegrationTest {
 
     @Test void aCrashStoppedDivergedFormerWriterIsRewoundKeepsItsOwnConfigurationAndFollowsTheNewWriter(
             VertxTestContext context) {
-        diverge().compose(ignored -> markConfiguration(WRITER)).compose(digest ->
+        // The re-join's stop puts the inhibitor in place first, also on a server that the crash already stopped. With
+        // the inhibitor in place, pg_rewind cannot complete the crash recovery itself (plan §9.32, check 3).
+        diverge().compose(ignored -> checked(NODES.node(WRITER).exec(runner, "touch", NODES.dataDirectory()
+                + "/standby.signal")))
+            .compose(ignored -> markConfiguration(WRITER)).compose(digest ->
             process(WRITER).rewind(endpoint(NEW_WRITER, WRITER), WRITER, BUDGET)
                 .compose(ignored -> assertKeptConfigurationAndInhibitor(WRITER, digest)))
             .compose(ignored -> assertNoSavedCopy(WRITER))
@@ -355,6 +359,19 @@ class PgRejoinControlIntegrationTest {
                 return Future.<Void>succeededFuture();
             });
         }).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+    }
+
+    @Test void aStandbyWhoseReplayIsBehindTheWriterIsNotConfirmedWithinTheBudget(VertxTestContext context) {
+        var budget = Duration.ofSeconds(5);
+        var hurried = new PgSqlPromotionControl(vertx, runner, NODES.node(FOLLOWER).prefix(),
+            PgSupervisedContainer.PG_CTL, "psql", NODES.dataDirectory(), budget);
+        // The follower streams from the writer on its timeline, but its replay is paused behind the writer's position.
+        checked(NODES.node(FOLLOWER).sql(runner, "select pg_wal_replay_pause()"))
+            .compose(ignored -> NODES.writeWal(runner, 1))
+            .compose(ignored -> hurried.confirmCaughtUp(FOLLOWER, endpoint(WRITER, FOLLOWER))
+                .transform(confirmation -> promotionRefused(confirmation, "The standby has not caught up with")))
+            .compose(ignored -> checked(NODES.node(FOLLOWER).sql(runner, "select pg_wal_replay_resume()")))
+            .onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
     }
 
     // ---------------------------------------------------------------- helpers

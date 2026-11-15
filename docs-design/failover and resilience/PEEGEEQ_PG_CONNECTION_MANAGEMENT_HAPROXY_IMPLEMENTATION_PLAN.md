@@ -383,7 +383,7 @@ decisions, not implementation completion or runtime evidence.
 | P-3 | Local self-demotion/watchdog excludes the writer before safe lease handover. Qualified expiry requires no failed-host stop acknowledgement. Voluntary release requires confirmed local stop. | §5.5 |
 | P-4 | Route-only failure does not establish database failure. An active watchdog provides independent protection on writer-supervisor failure. Without it, supervisor-death exclusion is not established by the lease alone. A sidecar restart does not transfer ownership. | §5.7; plan §5.2.1 |
 | P-5 | Writer ID names a database node. The lease belongs to its local supervisor. Control record, generation, and lease holder identify a writer generation. | §1.1, §5.10 |
-| P-6 | Rewind or rebuild is operator-controlled under quarantine, followed by standby and WAL validation. | §5.5, §5.9 |
+| P-6 | Reversed by owner answer 9 (§9.28, row 9) and implemented 2026-11-15 (§9.32): rewind and rebuild are automatic under quarantine, followed by standby and WAL validation. A different system identifier and an unreadable data directory outside an interrupted re-join stay with the operator. The text before the reversal was "Rewind or rebuild is operator-controlled under quarantine, followed by standby and WAL validation." | §5.5, §5.9 |
 | P-7 | HAProxy uses scheduled observations and closes sessions when configured failures mark a backend down. Admission enforcement and fencing protect safety during delay. No fixed backup preference chooses a former writer. | §5.3 |
 | P-8 | Every module uses the shared pooled access path and schema contract. | §6.1, §6.3 |
 | P-9 | Maximum lifetime limits reuse at idle. Active operations have independent deadlines. Read-only errors require context. | §6.4, §6.7 |
@@ -3629,3 +3629,29 @@ database `postgres` for every member.
 `PgRejoinIntegrationTest`. Each: tests and stubs that fail with "not implemented", red, implementation, green,
 mutation probes with SHA-256 records, the touched classes, core, and guards last. §5 row P-6 is marked reversed when
 R2 lands.
+
+**As built, where the code differs from the design text above.**
+
+- Contract 1 and check 11: `pg_ctl status` exits 4 for a path that does not exist **and** for an existing directory
+  that is not a database cluster. The first implementation read exit 4 as absent, so a rebuild would have run
+  `rm -rf` on such a directory, for example a misconfigured data path. The first green run found it (the test of a
+  directory without a control file and without `PG_VERSION` was reported as absent). Absence is now decided by the
+  path itself (`test -e`). An existing path for which `pg_ctl status` exits 4 fails the inspection, and a rebuild
+  refuses it: `<path> exists but is not a database cluster directory`. Test:
+  `aDirectoryThatIsNotADatabaseClusterIsNeitherInspectedNorRemoved`. A base backup interrupted before it wrote
+  `PG_VERSION` therefore needs the operator; a failed `pg_basebackup` removes its own directory, so only an interrupted
+  supervisor or host leaves one.
+- Contract 1: `pg_controldata` runs under `env LC_ALL=C`, because its labels are translated under other locales.
+- Contract 5: the confirmation also requires the receiver's sender host and port to be the writer's.
+- Contract 6, steps 3 and 4: the source is observed before the stop, so a refusal for the source leaves a running
+  standby running. The rebuild observes the source again right before the removal.
+- Contract 6, step 5: a failure of the rewind path that is a node-local store refusal (`PgLocalStateException`, for
+  example a follow receipt for another address) fails the call without a rebuild: a rebuild cannot cure it, and no
+  data directory is removed for it.
+- Contract 6, step 2: an unreadable directory under the re-join quarantine is logged at ERROR before the rebuild, so the
+  read failure is not lost.
+- Test defect found by the first green run: a server started **in recovery** does not write its parameters to the
+  control file, so `wal_log_hints=off` did not reach it and the rewind succeeded. The tests now run the node once
+  outside recovery and assert `wal_log_hints setting: off` in `pg_controldata` before the rewind.
+- Test-shape defect found by the R2 red run: two refusals judged in a chain of `transform` steps passed the first
+  failed assertion to the second as its input (§9.26). That test now continues with `compose`.
