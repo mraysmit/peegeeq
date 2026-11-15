@@ -358,6 +358,14 @@ class PgFollowIntegrationTest {
         @Override public Future<Void> follow(String nodeId, PgWriterEndpoint writer) {
             return Future.failedFuture(new PgPromotionException("Following failed (injected)"));
         }
+
+        @Override public Future<PgReplicationSource> observeSource(String nodeId, PgWriterEndpoint source) {
+            return real.observeSource(nodeId, source);
+        }
+
+        @Override public Future<Void> confirmCaughtUp(String nodeId, PgWriterEndpoint writer) {
+            return real.confirmCaughtUp(nodeId, writer);
+        }
     }
 
     // ---------------------------------------------------------------- helpers

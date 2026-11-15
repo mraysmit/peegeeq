@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -30,6 +31,12 @@ public final class PgFailoverMonitor {
     static final String PROMOTE = "promote";
     static final String CHECKPOINT_AFTER_PROMOTE = "checkpoint-after-promote";
     static final String FOLLOW_WRITER = "follow-writer";
+    static final String REWIND = "rewind";
+    static final String REBUILD = "rebuild";
+    /** The reason of the quarantine that a re-join keeps until standby validation (plan §9.32, OD-51). */
+    static final String REJOIN_QUARANTINE = "Re-join in progress: rewind or rebuild, then standby validation";
+    /** The start of the reason of a quarantine that only an operator clears (plan §9.32, OD-51). */
+    static final String OPERATOR_QUARANTINE = "Operator reconciliation required: ";
     private final PgNodeConfig config;
     private final PgPrimaryElector elector;
     private final PgLocalStateStore store;
@@ -249,6 +256,147 @@ public final class PgFailoverMonitor {
             }).compose(ignored -> gate.close(config.stopTimeout()))
                 .compose(ignored -> underReceipt(observed, intent.getString("operationId"), FOLLOW_WRITER,
                     parameters, () -> promotion.follow(config.nodeId(), writer)));
+        });
+    }
+
+    /**
+     * Makes this node a validated standby of the writer that {@code observed} names, without an operator (plan §9.32,
+     * contract 6). Refused before any effect and with no receipt: a record that names this node as writer or that no
+     * lease holder holds ({@link PgLeaseProtocolException}), and a quarantine with a reason other than
+     * {@value #REJOIN_QUARANTINE} ({@link PgLocalStateException}). The node is then quarantined until the end. A present
+     * data directory is stopped and rewound under the {@value #REWIND} receipt; when the rewind, the standby start, the
+     * follow, or the catch-up fails, it is rebuilt under the {@value #REBUILD} receipt. An absent directory is rebuilt.
+     * Before each, the writer must be writable, of this node's system, and hold this node's usable slot; another system
+     * leaves the node for the operator. {@code budget} bounds the rewind and the rebuild. Admission stays closed.
+     */
+    public Future<Void> rejoin(PgControlRecord observed, PgWriterEndpoint writer, Duration budget) {
+        return serialized(() -> {
+            Objects.requireNonNull(observed, "observed");
+            Objects.requireNonNull(writer, "writer");
+            Objects.requireNonNull(budget, "budget");
+            JsonObject intent = observed.intent();
+            if (config.nodeId().equals(intent.getString("writerNodeId"))) {
+                throw new PgLeaseProtocolException("A node cannot re-join itself as the writer");
+            }
+            if (observed.leaseHolder() == null) {
+                throw new PgLeaseProtocolException("A re-join needs the writer that holds the lease; the record is unowned");
+            }
+            Rejoin rejoin = new Rejoin(observed, intent.getString("operationId"), writer, budget,
+                new JsonObject().put("host", writer.host()).put("port", writer.port()));
+            return store.quarantine().compose(existing -> {
+                if (existing.filter(quarantine -> !REJOIN_QUARANTINE.equals(quarantine.reason())).isPresent()) {
+                    throw new PgLocalStateException("Node is quarantined: " + existing.orElseThrow().reason());
+                }
+                logger.info("Re-joining node {} as a standby of {}:{}", config.nodeId(), writer.host(), writer.port());
+                return store.quarantine(REJOIN_QUARANTINE).compose(ignored -> store.closeGrant())
+                    .compose(ignored -> inspectForRejoin(existing.isPresent()))
+                    .compose(found -> found.readable().isPresent()
+                        ? rewindOrRebuild(rejoin, found.readable().orElseThrow())
+                        : rebuild(rejoin, null, found.exists()));
+            }).compose(ignored -> store.clearQuarantine()).map(ignored -> {
+                logger.info("Node {} re-joined as a standby of {}:{}", config.nodeId(), writer.host(), writer.port());
+                return null;
+            });
+        });
+    }
+
+    /** One re-join's inputs. */
+    private record Rejoin(PgControlRecord observed, String operation, PgWriterEndpoint writer, Duration budget,
+                          JsonObject parameters) { }
+
+    /** What the inspection found: the readable data directory, or none; and whether a directory exists at all. */
+    private record Found(Optional<PgDataDirectory> readable, boolean exists) { }
+
+    /**
+     * The data directory, or none when it is absent. An unreadable one is left for the operator, unless this node was
+     * already under the re-join quarantine: then it is an interrupted rebuild, and is rebuilt.
+     */
+    private Future<Found> inspectForRejoin(boolean resumed) {
+        return process.inspect().transform(inspected -> {
+            if (inspected.succeeded()) {
+                return Future.succeededFuture(new Found(inspected.result(), inspected.result().isPresent()));
+            }
+            if (resumed) {
+                logger.error("The data directory of node {} cannot be read during an interrupted re-join; rebuilding",
+                    config.nodeId(), inspected.cause());
+                return Future.succeededFuture(new Found(Optional.empty(), true));
+            }
+            return leaveForOperator("The data directory cannot be read: " + inspected.cause().getMessage(),
+                inspected.cause());
+        });
+    }
+
+    /**
+     * Checks the source, stops the server, then rewinds; a rewind that does not produce a caught-up standby is followed
+     * by a rebuild. The source is checked first, so a refusal leaves a running server running.
+     */
+    private Future<Void> rewindOrRebuild(Rejoin rejoin, PgDataDirectory directory) {
+        return requireUsableSource(rejoin, directory)
+            .compose(ignored -> gate.close(config.stopTimeout()))
+            .compose(ignored -> process.stop(config.stopTimeout()))
+            .compose(stopped -> underReceipt(rejoin.observed(), rejoin.operation(), REWIND, rejoin.parameters(),
+                    () -> process.rewind(rejoin.writer(), config.nodeId(), rejoin.budget()))
+                .compose(rewoundDirectory -> startStandby(rejoin))
+                .transform(rewound -> {
+                    if (rewound.succeeded()) return Future.<Void>succeededFuture();
+                    // A storage fault is not a failed rewind: a rebuild cannot cure it, and must not remove data for it.
+                    if (rewound.cause() instanceof PgLocalStateException) return Future.<Void>failedFuture(rewound.cause());
+                    logger.error("Rewind did not make node {} a standby of {}:{}; rebuilding", config.nodeId(),
+                        rejoin.writer().host(), rejoin.writer().port(), rewound.cause());
+                    return rebuild(rejoin, directory, true);
+                }));
+    }
+
+    /**
+     * Stops the server when a data directory exists, observes the source again right before the removal, and rebuilds.
+     * {@code directory} is the readable data directory found at the start, whose system the source must share; null
+     * when there was none.
+     */
+    private Future<Void> rebuild(Rejoin rejoin, PgDataDirectory directory, boolean exists) {
+        return (exists ? process.stop(config.stopTimeout()) : Future.<Void>succeededFuture())
+            .compose(ignored -> requireUsableSource(rejoin, directory))
+            .compose(ignored -> underReceipt(rejoin.observed(), rejoin.operation(), REBUILD, rejoin.parameters(),
+                () -> process.rebuild(rejoin.writer(), config.nodeId(), rejoin.budget())))
+            .compose(ignored -> startStandby(rejoin));
+    }
+
+    /**
+     * The source must be writable and hold this node's usable slot; both can change, so the re-join quarantine stays for
+     * a retry. A different system identifier cannot change, so it leaves the node for the operator.
+     */
+    private Future<Void> requireUsableSource(Rejoin rejoin, PgDataDirectory directory) {
+        PgWriterEndpoint writer = rejoin.writer();
+        return promotion.observeSource(config.nodeId(), writer).compose(source -> {
+            if (directory != null && !directory.systemIdentifier().equals(source.systemIdentifier())) {
+                PgPromotionException other = new PgPromotionException("The data directory belongs to system "
+                    + directory.systemIdentifier() + " and " + writer.host() + " to system " + source.systemIdentifier());
+                return leaveForOperator(other.getMessage(), other).<Void>mapEmpty();
+            }
+            if (source.inRecovery()) {
+                throw new PgPromotionException(writer.host() + ":" + writer.port() + " is in recovery; a re-join uses "
+                    + "the writer only");
+            }
+            if (!source.slotUsable()) {
+                throw new PgPromotionException("The slot " + PgNodeConfig.slotName(config.nodeId()) + " on "
+                    + writer.host() + " is missing or lost; the writer must create or replace it first");
+            }
+            return Future.<Void>succeededFuture();
+        });
+    }
+
+    /** Closes the gate, starts in recovery, follows under its receipt, and waits for the catch-up. */
+    private Future<Void> startStandby(Rejoin rejoin) {
+        return gate.close(config.stopTimeout()).compose(ignored -> process.startInRecovery())
+            .compose(ignored -> underReceipt(rejoin.observed(), rejoin.operation(), FOLLOW_WRITER, rejoin.parameters(),
+                () -> promotion.follow(config.nodeId(), rejoin.writer())))
+            .compose(ignored -> promotion.confirmCaughtUp(config.nodeId(), rejoin.writer()));
+    }
+
+    /** Replaces the re-join quarantine by one that only an operator clears, and fails with the cause. */
+    private <T> Future<T> leaveForOperator(String reason, Throwable cause) {
+        return store.quarantine(OPERATOR_QUARANTINE + reason).transform(written -> {
+            if (written.failed()) cause.addSuppressed(written.cause());
+            return Future.<T>failedFuture(cause);
         });
     }
 

@@ -130,12 +130,17 @@ public final class PgSupervisedContainer implements AutoCloseable {
         });
     }
 
-    /** Stops whatever server uses this data directory. Exit 0 is stopped now; exit 1 is not running. */
+    /**
+     * Stops whatever server uses this data directory. Exit 0 is stopped now; exit 1 is not running. A status of 3 is
+     * stopped; 4 is a data directory that does not exist, which a test of a rebuild can leave, and runs no server.
+     */
     public Future<Void> forceStop(PgCommandRunner runner, String dataDirectory) {
         return exec(runner, PG_CTL, "stop", "-D", dataDirectory, "-m", "immediate", "-w", "-t", "20")
             .compose(stopped -> exec(runner, PG_CTL, "status", "-D", dataDirectory))
             .map(status -> {
-                if (status.exitCode() != 3) throw new AssertionError("PostgreSQL is not stopped: " + status.output());
+                if (status.exitCode() != 3 && status.exitCode() != 4) {
+                    throw new AssertionError("PostgreSQL is not stopped: " + status.output());
+                }
                 return null;
             });
     }

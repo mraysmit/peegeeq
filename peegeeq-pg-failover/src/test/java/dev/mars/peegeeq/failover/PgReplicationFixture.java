@@ -19,11 +19,16 @@ import java.util.concurrent.TimeUnit;
  * {@code standby.signal} in place, and stops the writer. Nothing is left running. A standby's
  * replication role is its node identity (OD-11). Each base backup creates the standby's own
  * physical slot on the writer and writes {@code primary_slot_name}, so the writer holds a slot for
- * every standby from provisioning; the retention of every slot is bounded (plan §9.24, contract 7).
+ * every standby from provisioning; the retention of every slot is bounded (plan §9.24, contract 7). Every member,
+ * the writer included, has a replication role, a password file, the function grants that {@code pg_rewind} needs, and
+ * host-based rules for replication and for database {@code postgres}; the writer runs with {@code wal_log_hints = on}
+ * (plan §9.32), so that any former writer can re-join through a rewind or a rebuild.
  */
 public final class PgReplicationFixture implements AutoCloseable {
     public static final String WRITER = "pg-node-1";
     public static final List<String> STANDBYS = List.of("pg-node-2", "pg-node-3");
+    /** Every member: the initial writer and its standbys. */
+    public static final List<String> MEMBERS = List.of(WRITER, "pg-node-2", "pg-node-3");
     /**
      * What provisioning may take. The {@code @BeforeEach} of a test that provisions has a Vert.x limit of
      * 120 seconds; the rest of its setup needs the remainder. A contract test asserts this budget.
@@ -63,9 +68,15 @@ public final class PgReplicationFixture implements AutoCloseable {
         return dataDirectory;
     }
 
-    /** The password file of a standby's replication role, in that standby's container. */
-    public String passfile(String standby) {
-        return dataDirectory + "." + standby + ".pgpass";
+    /** The password file of a member's replication role, in that member's container. */
+    public String passfile(String member) {
+        return dataDirectory + "." + member + ".pgpass";
+    }
+
+    /** The password file a deployment provisions for a member's replication role. libpq requires mode 0600. */
+    private Future<Void> passwordFile(PgCommandRunner runner, String member) {
+        return checked(node(member).exec(runner, "sh", "-c", "printf '*:*:*:" + member + ":" + password(member)
+            + "\\n' > " + passfile(member) + " && chmod 600 " + passfile(member)), "Password file for " + member);
     }
 
     /** Where and how a standby connects to the node of the given identity, on the shared network. */
@@ -102,13 +113,16 @@ public final class PgReplicationFixture implements AutoCloseable {
         dataDirectory = directory;
         PgSupervisedContainer writer = node(WRITER);
         // No command argument contains a double quote: Windows does not pass one to a child process.
+        // Every member, the writer included, replicates and rewinds under its own role: after a takeover any node can
+        // be the writer, and a former writer re-joins through a rewind or a rebuild (plan §9.32, OD-50).
         StringBuilder replicationRules = new StringBuilder();
-        STANDBYS.forEach(standby ->
-            replicationRules.append("host replication ").append(standby).append(" samenet scram-sha-256\\n"));
+        MEMBERS.forEach(member -> replicationRules.append("host replication ").append(member)
+            .append(" samenet scram-sha-256\\nhost postgres ").append(member).append(" samenet scram-sha-256\\n"));
+        // wal_log_hints is what pg_rewind requires of a cluster without data checksums (plan §9.32, check 7).
         Future<Void> provisioned = checked(writer.exec(runner, "initdb", "-D", directory), "initdb")
             .compose(ignored -> checked(writer.exec(runner, "sh", "-c", "printf 'listen_addresses = \\047*\\047\\n"
-                + "wal_keep_size = \\04764MB\\047\\nmax_slot_wal_keep_size = \\047" + SLOT_RETENTION + "\\047\\n' >> "
-                + directory + "/postgresql.conf"), "Configuring the writer"))
+                + "wal_keep_size = \\04764MB\\047\\nmax_slot_wal_keep_size = \\047" + SLOT_RETENTION + "\\047\\n"
+                + "wal_log_hints = on\\n' >> " + directory + "/postgresql.conf"), "Configuring the writer"))
             .compose(ignored -> writer.write(runner, writer.closedHba(directory),
                 "local all all trust\\n" + replicationRules + "host all all all reject\\n"))
             .compose(ignored -> writer.write(runner, writer.openHba(directory),
@@ -117,11 +131,16 @@ public final class PgReplicationFixture implements AutoCloseable {
                 directory + "/pg_hba.conf"), "Installing the closed admission file"))
             .compose(ignored -> checked(writer.exec(runner, PgSupervisedContainer.PG_CTL, "start", "-D", directory,
                 "-w", "-l", writer.logFile(directory)), "Starting the writer for provisioning"));
-        for (String standby : STANDBYS) {
+        for (String member : MEMBERS) {
             provisioned = provisioned.compose(ignored -> checked(writer.sql(runner, "do $$ begin execute format("
-                + "'create role %I with replication login password %L', '" + standby + "', '" + password(standby)
-                + "'); end $$"), "Creating role " + standby));
+                + "'create role %I with replication login password %L', '" + member + "', '" + password(member)
+                + "'); execute format('grant execute on function pg_catalog.pg_ls_dir(text, boolean, boolean), "
+                + "pg_catalog.pg_stat_file(text, boolean), pg_catalog.pg_read_binary_file(text), "
+                + "pg_catalog.pg_read_binary_file(text, bigint, bigint, boolean) to %I', '" + member + "'); end $$"),
+                "Creating role " + member));
         }
+        // The writer's own password file, for its re-join after a takeover. The standbys' files are written below.
+        provisioned = provisioned.compose(ignored -> passwordFile(runner, WRITER));
         for (String standby : STANDBYS) {
             PgSupervisedContainer node = node(standby);
             provisioned = provisioned
@@ -134,10 +153,7 @@ public final class PgReplicationFixture implements AutoCloseable {
                     "local all all trust\\n" + replicationRules + "host all all all reject\\n"))
                 .compose(ignored -> node.write(runner, node.openHba(directory),
                     "local all all trust\\n" + replicationRules + "host all all all trust\\n"))
-                // The password file a deployment provisions for a follower. libpq requires mode 0600.
-                .compose(ignored -> checked(node.exec(runner, "sh", "-c", "printf '*:*:*:" + standby + ":"
-                    + password(standby) + "\\n' > " + passfile(standby) + " && chmod 600 " + passfile(standby)),
-                    "Password file for " + standby));
+                .compose(ignored -> passwordFile(runner, standby));
         }
         return provisioned.compose(ignored -> checked(writer.exec(runner, PgSupervisedContainer.PG_CTL, "stop",
             "-D", directory, "-m", "fast", "-w"), "Stopping the writer after provisioning"));

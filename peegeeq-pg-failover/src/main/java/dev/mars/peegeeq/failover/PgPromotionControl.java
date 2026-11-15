@@ -31,4 +31,17 @@ public interface PgPromotionControl {
      * and the path of a password file; it holds no password.
      */
     Future<Void> follow(String nodeId, PgWriterEndpoint writer);
+
+    /**
+     * Observes the node that a re-join rewinds against or rebuilds from, through this node's replication role (plan
+     * §9.32, contract 4): its system identifier, timeline, and flush position, whether it is in recovery, and whether
+     * this node's slot on it is physical with a position.
+     */
+    Future<PgReplicationSource> observeSource(String nodeId, PgWriterEndpoint source);
+
+    /**
+     * Observes the writer's position once, then waits within the budget until the local standby has the writer's system
+     * identifier and streams on the writer's timeline with replay at or after that position (plan §9.32, contract 5).
+     */
+    Future<Void> confirmCaughtUp(String nodeId, PgWriterEndpoint writer);
 }

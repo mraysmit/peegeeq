@@ -543,6 +543,14 @@ class PgPromotionIntegrationTest {
         @Override public Future<Void> checkpoint() { return real.checkpoint(); }
 
         @Override public Future<Void> follow(String nodeId, PgWriterEndpoint writer) { return real.follow(nodeId, writer); }
+
+        @Override public Future<PgReplicationSource> observeSource(String nodeId, PgWriterEndpoint source) {
+            return real.observeSource(nodeId, source);
+        }
+
+        @Override public Future<Void> confirmCaughtUp(String nodeId, PgWriterEndpoint writer) {
+            return real.confirmCaughtUp(nodeId, writer);
+        }
     }
 
     /** Wraps the real promotion control. The promotion takes effect and the checkpoint then fails. */
@@ -556,6 +564,14 @@ class PgPromotionIntegrationTest {
         }
 
         @Override public Future<Void> follow(String nodeId, PgWriterEndpoint writer) { return real.follow(nodeId, writer); }
+
+        @Override public Future<PgReplicationSource> observeSource(String nodeId, PgWriterEndpoint source) {
+            return real.observeSource(nodeId, source);
+        }
+
+        @Override public Future<Void> confirmCaughtUp(String nodeId, PgWriterEndpoint writer) {
+            return real.confirmCaughtUp(nodeId, writer);
+        }
     }
 
     /** Wraps the real promotion control. The promotion takes effect, then ownership is lost. */
@@ -573,6 +589,14 @@ class PgPromotionIntegrationTest {
         @Override public Future<Void> checkpoint() { return real.checkpoint(); }
 
         @Override public Future<Void> follow(String nodeId, PgWriterEndpoint writer) { return real.follow(nodeId, writer); }
+
+        @Override public Future<PgReplicationSource> observeSource(String nodeId, PgWriterEndpoint source) {
+            return real.observeSource(nodeId, source);
+        }
+
+        @Override public Future<Void> confirmCaughtUp(String nodeId, PgWriterEndpoint writer) {
+            return real.confirmCaughtUp(nodeId, writer);
+        }
     }
 
     /** Wraps the real durability control. The slot step fails and has no effect. */

@@ -32,6 +32,14 @@ public final class PgSqlPromotionControl implements PgPromotionControl {
         + "|| coalesce(r.sender_port::text, '') || '|' || coalesce(r.slot_name, '') || '|' || coalesce(a.wait_event, '') "
         + "from pg_stat_wal_receiver r left join pg_stat_activity a on a.pid = r.pid";
     private static final String STREAMING_WAIT_EVENT = "WalReceiverMain";
+    // recovery|system identifier|status|timeline|sender host|sender port|wait event|replay position; the receiver's
+    // fields are empty when there is no receiver.
+    private static final String CAUGHT_UP = "select pg_is_in_recovery()::text || '|' "
+        + "|| (select system_identifier from pg_control_system())::text || '|' "
+        + "|| coalesce((select r.status || '|' || r.received_tli::text || '|' || coalesce(r.sender_host, '') || '|' "
+        + "|| coalesce(r.sender_port::text, '') || '|' || coalesce(a.wait_event, '') "
+        + "from pg_stat_wal_receiver r left join pg_stat_activity a on a.pid = r.pid), '||||') || '|' "
+        + "|| coalesce(pg_last_wal_replay_lsn()::text, '')";
     private static final Pattern RECEIVER_OBSERVATION =
         Pattern.compile("[a-z]+\\|[^|]*\\|[0-9]*\\|[a-z0-9_]*\\|[A-Za-z]*");
     private final Vertx vertx;
@@ -113,6 +121,115 @@ public final class PgSqlPromotionControl implements PgPromotionControl {
             .compose(ignored -> run(deadline, pgCtl, "reload", "-D", dataDirectory))
             .map(result -> requireSuccess(result, "pg_ctl reload"))
             .compose(ignored -> awaitStreaming(deadline, writer, slot));
+    }
+
+    /**
+     * Three observations through this node's own role (plan §9.32, contract 4): {@code IDENTIFY_SYSTEM} and
+     * {@code READ_REPLICATION_SLOT} on a replication connection, and {@code pg_is_in_recovery()} on database
+     * {@code postgres}, because a rewind accepts a source in recovery (check 5). A missing slot reads {@code ||} and a
+     * lost one {@code physical||} (check 1); neither is usable.
+     */
+    @Override
+    public Future<PgReplicationSource> observeSource(String nodeId, PgWriterEndpoint source) {
+        Objects.requireNonNull(source, "source");
+        String replication = source.connectionInfo(nodeId) + " replication=true";
+        String database = source.connectionInfo(nodeId) + " dbname=postgres";
+        String slot = PgNodeConfig.slotName(nodeId);
+        long deadline = deadline();
+        return remote(deadline, replication, "IDENTIFY_SYSTEM").map(PgSqlPromotionControl::identity)
+            .compose(identity -> remote(deadline, replication, "READ_REPLICATION_SLOT " + slot).compose(slotRow ->
+                remote(deadline, database, RECOVERY).map(recovery -> {
+                    String[] parts = slotRow.split("\\|", -1);
+                    if (parts.length != 3 || !("t".equals(recovery) || "f".equals(recovery))) {
+                        throw new PgPromotionException("Malformed promotion observation: " + slotRow + " " + recovery);
+                    }
+                    return new PgReplicationSource(identity.systemIdentifier(), identity.timeline(), identity.lsn(),
+                        "t".equals(recovery), "physical".equals(parts[0]) && !parts[1].isEmpty());
+                })));
+    }
+
+    /**
+     * Observes the writer's {@code IDENTIFY_SYSTEM} once, then polls the local server until it is in recovery, has the
+     * writer's system identifier, and its WAL receiver streams from the writer's address on the writer's timeline in its
+     * streaming loop, with replay at or after the observed flush position. A server that is not in recovery, or of
+     * another system, fails at once, because waiting cannot change either.
+     */
+    @Override
+    public Future<Void> confirmCaughtUp(String nodeId, PgWriterEndpoint writer) {
+        Objects.requireNonNull(writer, "writer");
+        String replication = writer.connectionInfo(nodeId) + " replication=true";
+        long deadline = deadline();
+        return remote(deadline, replication, "IDENTIFY_SYSTEM").map(PgSqlPromotionControl::identity)
+            .compose(target -> awaitCaughtUp(deadline, writer, target));
+    }
+
+    private Future<Void> awaitCaughtUp(long deadline, PgWriterEndpoint writer, Identity target) {
+        long started = System.nanoTime();
+        return sql(deadline, CAUGHT_UP).compose(output -> {
+            String[] parts = output.split("\\|", -1);
+            if (parts.length != 8 || !("true".equals(parts[0]) || "false".equals(parts[0]))) {
+                throw new PgPromotionException("Malformed promotion observation: " + output);
+            }
+            if (!"true".equals(parts[0])) {
+                throw new PgPromotionException("PostgreSQL is not in recovery; it is not a standby of " + writer.host());
+            }
+            if (!target.systemIdentifier().equals(parts[1])) {
+                throw new PgPromotionException("The standby's system identifier " + parts[1] + " is not the writer's "
+                    + target.systemIdentifier());
+            }
+            if (caughtUp(parts, writer, target)) return Future.<Void>succeededFuture();
+            long observation = System.nanoTime() - started;
+            if (deadline - System.nanoTime() < 2 * observation + TimeUnit.MILLISECONDS.toNanos(POLL_MILLIS)) {
+                return Future.<Void>failedFuture(new PgPromotionException("The standby has not caught up with "
+                    + writer.host() + ":" + writer.port() + " at timeline " + target.timeline() + " and " + target.lsn()
+                    + " within the budget; last observed: " + output));
+            }
+            return vertx.timer(POLL_MILLIS).compose(ignored -> awaitCaughtUp(deadline, writer, target));
+        });
+    }
+
+    private static boolean caughtUp(String[] parts, PgWriterEndpoint writer, Identity target) {
+        if (!"streaming".equals(parts[2]) || !String.valueOf(target.timeline()).equals(parts[3])
+                || !writer.host().equals(parts[4]) || !String.valueOf(writer.port()).equals(parts[5])
+                || !STREAMING_WAIT_EVENT.equals(parts[6]) || parts[7].isEmpty()) {
+            return false;
+        }
+        try {
+            return PgLsn.parse(parts[7]).reached(target.lsn());
+        } catch (IllegalArgumentException malformed) {
+            throw new PgPromotionException("Malformed promotion observation: " + String.join("|", parts), malformed);
+        }
+    }
+
+    /** {@code systemid|timeline|xlogpos|dbname} of {@code IDENTIFY_SYSTEM}; the database is empty on a physical connection. */
+    private static Identity identity(String output) {
+        String[] parts = output.split("\\|", -1);
+        try {
+            if (parts.length != 4) throw new IllegalArgumentException("Expected four fields");
+            return new Identity(parts[0], Long.parseLong(parts[1]), PgLsn.parse(parts[2]));
+        } catch (RuntimeException malformed) {
+            throw new PgPromotionException("Malformed promotion observation: " + output, malformed);
+        }
+    }
+
+    /** The writer's identity and position, observed live, never stored. */
+    private record Identity(String systemIdentifier, long timeline, PgLsn lsn) {
+        Identity {
+            if (systemIdentifier == null || !systemIdentifier.matches("[0-9]{1,20}") || timeline < 1) {
+                throw new IllegalArgumentException("Invalid identity");
+            }
+        }
+    }
+
+    /** One statement on another server, through a connection string that holds no password. The trimmed output is the result. */
+    private Future<String> remote(long deadline, String connection, String statement) {
+        return run(deadline, psql, "-X", "-tA", "-v", "ON_ERROR_STOP=1", connection, "-c", statement).map(result -> {
+            if (result.exitCode() != 0) {
+                throw new PgPromotionException("Source observation failed with exit " + result.exitCode() + ": "
+                    + result.output());
+            }
+            return result.output().strip();
+        });
     }
 
     /**

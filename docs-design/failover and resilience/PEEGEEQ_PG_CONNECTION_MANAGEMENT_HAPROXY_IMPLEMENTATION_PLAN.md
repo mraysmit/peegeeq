@@ -3465,3 +3465,167 @@ green. Runs on the Jenkins host, logs in `/var/lib/jenkins/peegeeq-work/logs`.
 **Not checked.** A tag change while the cluster runs: tags are deployment configuration, and a node reads them at
 construction. How a deployment supplies the map: no production entry point builds a `PgNodeConfig` yet.
 `noloadbalance` and `clonefrom` have no effect to test.
+
+### 9.32 Phase 7b.3: Automatic Rewind and Rebuild (Owner Answer 9), 2026-11-15 (design)
+
+The next item of §9.28's order of work. Owner answer 9 (§9.28, row 9): "Rewind and rebuild are automatic; when a rewind
+fails, the data directory is removed and the member is rebuilt." It reverses P-6 (§5). It is consistent with S31 and
+system design §5.9: quarantine is kept during the rewind or rebuild, a failed rewind is followed by a rebuild, and
+admission waits for standby validation (invariant 6). Operator reconciliation stays required for missing history,
+unexpected key deletion, two writable nodes, restored coordination state, missing policy history, and conflicting
+receipts (system design §5.7, §5.8).
+
+**Purpose.** A member whose data directory cannot stream from the current writer becomes a validated standby of that
+writer without an operator. That member is either a former writer after a takeover, or a standby that is behind a
+timeline switch or lost the WAL it needs. It is rewound when possible. Otherwise its data directory is removed and
+rebuilt from a base backup. Success: the member streams from the writer through its own slot on the writer's
+timeline, has replayed at least to the writer's flush position observed at validation, has the same system
+identifier, keeps its own configuration files, and is no longer quarantined. It is still outside the required standby
+set; the re-join policy cutover that restores two-peer coverage (system design §5.8, rows 3 and 4 of the lifecycle
+table) is a later item.
+
+**Sources read, 2026-11-15.** PostgreSQL 15 `pg_rewind` and `pg_basebackup` documentation pages (`app-pgrewind`,
+`app-pgbasebackup`), the replication protocol commands `IDENTIFY_SYSTEM`, `READ_REPLICATION_SLOT`, and
+`TIMELINE_HISTORY`. Code read in full: `PgFailoverMonitor`, `PgCtlProcessControl`, `PgSqlPromotionControl`,
+`PgLocalStateStore`, `PgNodeConfig`, `PgMemberTags`, `PgWriterEndpoint`, `PgHbaAdmissionGate`, `PgControlRecord`,
+`PgActionReceipt`, `PgQuarantine`, the port interfaces, `PgReplicationFixture`, `PgSupervisedContainer`,
+`PgFollowIntegrationTest`, and `PgTakeoverAfterExpiryIntegrationTest`.
+
+**Checks run, 2026-11-15,** on throwaway containers of `postgres:15.13-alpine3.20` on the Jenkins host, not on
+`PgReplicationFixture`. Logs: `/var/lib/jenkins/peegeeq-work/logs/rewind-probe-20261115.log` and
+`rewind-probe2-20261115.log`. The containers were removed afterwards.
+
+1. `psql` with `replication=true` and the node's replication role runs `IDENTIFY_SYSTEM` (`systemid|timeline|xlogpos|`),
+   `READ_REPLICATION_SLOT` (`physical|0/3027AA0|1`; a missing slot `||`; a lost slot `physical||`), and
+   `TIMELINE_HISTORY`.
+2. `pg_rewind --source-server` with the node's replication role works once the role has `EXECUTE` on
+   `pg_ls_dir(text, boolean, boolean)`, `pg_stat_file(text, boolean)`, `pg_read_binary_file(text)`, and
+   `pg_read_binary_file(text, bigint, bigint, boolean)`, and the source's host-based rules admit it to database
+   `postgres`. Without the grants it fails: `permission denied for function pg_read_binary_file`.
+3. A former writer that was stopped `-m immediate` has state `in production`. `pg_rewind` then runs single-user crash
+   recovery, which fails while `standby.signal` exists: `standby mode is not supported by single-user servers`.
+   Starting the target in recovery with the inhibitor in place and `primary_conninfo=''`, then a fast stop, leaves
+   state `shut down in recovery`, and `pg_rewind` then succeeds: `servers diverged at WAL location 0/4027AD8 on
+   timeline 1`, `rewinding from last common checkpoint`, `Done!`.
+4. **A rewind removes `standby.signal`**, writes `backup_label`, and copies the source's `postgresql.auto.conf`, which
+   holds the source's own `primary_conninfo` (its user) and `primary_slot_name`, and its `pg_hba.conf` and
+   `pg_ident.conf` (a node-local marker in `pg_ident.conf` was lost). Started in that state, the node would end
+   recovery and become writable: a second writer.
+5. A standby that stopped before the fork: `servers diverged at WAL location 0/4027AD8 on timeline 1`, `no rewind
+   required`, exit 0; `standby.signal` and `postgresql.auto.conf` unchanged. A source on the same timeline (a standby
+   was named as source): `source and target cluster are on the same timeline`, `no rewind required`. So `pg_rewind`
+   accepts a source in recovery.
+6. After the rewind, with its own `postgresql.auto.conf` restored and the inhibitor recreated, the former writer
+   started in recovery, followed the new writer (`streaming|2|peegeeq_pg_node_1|WalReceiverMain`), and replayed to the
+   writer's flush position (`0/402CA70`); its 50 000 diverged rows were gone (1007 rows, as on the writer).
+7. A target whose last run had `wal_log_hints=off` and no checksums: `target server needs to use either data
+   checksums or "wal_log_hints = on"`, exit 1, before any change.
+8. An unreachable source: `could not translate host name`, exit 1.
+9. A base backup copies `postgresql.conf`, `pg_hba.conf`, `pg_ident.conf`, and the source's `postgresql.auto.conf`
+   (with the source's user and slot). Without `-R` it writes no `standby.signal`, so the node would start writable.
+   Into a non-empty directory it fails: `directory ... exists but is not empty`.
+10. A base backup with `-S` through a **lost** slot succeeded. The slot stays lost and keeps no WAL afterwards.
+11. An absent data directory: `pg_ctl status` exit 4, `pg_controldata` exit 1. A partial one (no `global/pg_control`):
+    `pg_ctl status` exit 3, `pg_controldata` exit 1 with the same message.
+
+**Data model.** No stored field is added to any record.
+
+| Datum | Source of truth or derivable | Contract |
+|---|---|---|
+| Rewind needed | Derived by `pg_rewind` from the target's control file and the source's timeline history | Never stored. "no rewind required" is a successful rewind |
+| Target data directory: system identifier, cluster state, timeline | Derived live with `pg_ctl status` and `pg_controldata`, no SQL | Absent (status exit 4) is a state. Present but unreadable fails the observation |
+| Source observation: system identifier, timeline, flush position (`IDENTIFY_SYSTEM`); this node's slot on it (`READ_REPLICATION_SLOT`); whether it is in recovery (`pg_is_in_recovery()` on database `postgres`) | Derived live from the source, through this node's replication role and password file | Never stored. Observed again right before the data directory is removed |
+| Slot usable | Derived: the slot is physical and has a `restart_lsn` | A missing or lost slot is not usable (check 10) |
+| Re-join quarantine | Node-local store (existing quarantine record), reason `PgFailoverMonitor.REJOIN_QUARANTINE` | Written before the first effect, cleared only after standby validation. A quarantine with any other reason refuses the re-join |
+| Operator quarantine | Node-local store (existing), a reason starting `Operator reconciliation required:` | Written when the re-join finds another system or an unreadable data directory outside a re-join. Only an operator clears it |
+| Receipts `rewind`, `rebuild` | Node-local store (existing), keyed by the observed record's generation and operation | Parameters: the source host and port, so a rerun cannot use another source |
+| The node's own configuration files | The node's data directory (deployment), copied to `<data directory>.rejoin-saved` before the first destructive step | Every regular top-level `*.conf` file. Saved only when no saved copy exists, restored after the rewind or the base backup, removed after a successful one |
+| Start inhibitor `standby.signal` | The data directory (existing) | Recreated directly after every rewind, whatever its outcome, and after every base backup (checks 4 and 9) |
+| Rewind and rebuild binaries | Derived: `pg_rewind`, `pg_basebackup`, `pg_controldata` in the directory of the configured `pg_ctl` | Never configured separately |
+
+**Contracts.**
+
+1. `PgProcessControl.inspect()` (adapter `PgCtlProcessControl`): empty when the data directory does not exist;
+   otherwise the system identifier, the cluster state, and the latest checkpoint's timeline from `pg_controldata`.
+   An unreadable or malformed control file fails (`PgProcessControlException`).
+2. `PgProcessControl.rewind(source, nodeId, budget)`: refused while PostgreSQL runs. When the cluster state is
+   neither `shut down` nor `shut down in recovery`, it first starts PostgreSQL in recovery with the inhibitor in place
+   and `primary_conninfo=''`, and stops it fast (check 3). Saves the configuration files, runs `pg_rewind -D <dir>
+   --source-server '<connection info> dbname=postgres'`, then recreates the inhibitor and restores the configuration
+   files whatever the outcome. The saved copy is removed only after a successful rewind. Bounded by `budget`.
+3. `PgProcessControl.rebuild(source, nodeId, budget)`: refused while PostgreSQL runs. Saves the configuration files
+   when the directory exists and no saved copy exists, removes the data directory, takes `pg_basebackup -D <dir> -Fp
+   -Xs -S <own slot>` (no `-C`: the source's slot must exist), recreates the inhibitor, restores the saved
+   configuration files, and removes the saved copy. Bounded by `budget`. The connection strings hold no password.
+4. `PgPromotionControl.observeSource(nodeId, source)` (adapter `PgSqlPromotionControl`): the source observation of
+   the table. A failed command, no result, and malformed output fail (`PgPromotionException`).
+5. `PgPromotionControl.confirmCaughtUp(nodeId, writer)`: observes the writer's `IDENTIFY_SYSTEM` once, then waits
+   within the budget until the local server is in recovery, has the writer's system identifier, and its WAL receiver
+   streams on the writer's timeline (`WalReceiverMain`) with replay at or after the observed flush position.
+6. `PgFailoverMonitor.rejoin(observed, writer, budget)`. Serialized. Refused before any effect and with no receipt:
+   `observed` names this node as writer, or has no lease holder, because the source must be the current lease holder
+   (`PgLeaseProtocolException`); a quarantine with a reason other than the re-join reason (`PgLocalStateException`).
+   Then:
+   1. Quarantine with the re-join reason. Close the grant.
+   2. Inspect the data directory. Unreadable: rebuild when the node was already under the re-join quarantine (an
+      interrupted rebuild); otherwise write the operator quarantine and fail.
+   3. Present: close the gate and stop PostgreSQL within the stop budget (inhibitor first).
+   4. Observe the source. Refused (`PgPromotionException`), with the re-join quarantine kept and nothing removed,
+      when the source is in recovery or this node's slot on it is not usable. A different system identifier writes the
+      operator quarantine and fails.
+   5. Present: the rewind under the `rewind` receipt, then the standby start: close the gate, start in recovery,
+      follow under the `follow-writer` receipt, and confirm the catch-up. Any failure of these steps is logged at
+      ERROR and leads to step 6.
+   6. Absent, or after step 5 failed: stop PostgreSQL if it runs, observe the source again with the rules of step 4,
+      rebuild under the `rebuild` receipt, then the standby start of step 5. A failure fails the call; the re-join
+      quarantine stays.
+   7. Clear the quarantine. Admission stays closed: this node holds no lease and no grant.
+
+**Danger, and the safety net.** The rebuild removes a data directory. This cannot be undone. The blast radius is one
+member's copy of the cluster. Triggers: a rewind that fails, a rewound standby that does not follow or catch up
+within its budget, and an absent or interrupted data directory. Before the removal the re-join requires a lease holder
+that the record names, a source that is writable and of the same system, and a usable slot on it, observed right
+before the removal. Detection: the `rebuild` receipt and an ERROR line naming the failed rewind. What is lost: the
+former writer's WAL after the fork, which a rewind discards too. Under the required synchronous policy those
+transactions were never acknowledged (R-17, S3). A slow catch-up that exceeds the budget causes a rebuild that a longer
+wait would have avoided; that costs time, not data. Severity: correct operation keeps every acknowledged commit; a
+misconfigured source endpoint is the main risk, and the system identifier and writable-source checks refuse it.
+
+**Decisions of the implementer, 2026-11-15, under the owner's direction of 2026-11-13 to proceed without questions.
+Reversible.**
+
+- OD-49: the rewind, the rebuild, and the inspection are `PgProcessControl` operations. Reason: they run local
+  binaries against the stopped data directory and need no local SQL (OD-16 kept promotion apart because it does). The
+  source observation and the catch-up confirmation need SQL and replication connections, so they join `follow` in
+  `PgPromotionControl`.
+- OD-50: the rewind connection uses the node's replication role (OD-11) with the four function grants of check 2,
+  and the deployment admits it to database `postgres` on every node. No new credential. The fixture provisions both.
+- OD-51: the re-join recognises its own quarantine by its exact reason, and an operator quarantine by its reason
+  prefix. Reason: the quarantine record has no kind field, and adding one changes stored data.
+- OD-52: the rewind source and the rebuild source are the writer. `clonefrom` (§9.31) needs another member's
+  address, and the supervisor holds no member address list (OD-20); it stays unused.
+- OD-53: the rewind or rebuild budget is an argument of `rejoin`, as the stop budget is an argument of `stop`.
+  `PgNodeConfig` holds no such setting, and `new PgNodeConfig(` or `PgNodeConfig.defaults(` appears at 39 places in
+  20 files (counted 2026-11-15).
+
+**Dependency failure modes, each with a failing test before its code.**
+
+| Dependency | Mode | Test class |
+|---|---|---|
+| `pg_ctl` and `pg_controldata` | absent directory; present; partial; command failure; no result; malformed output | `PgRejoinControlIntegrationTest` (new) |
+| `pg_rewind` | running server; crash-stopped diverged target; target that never diverged; `wal_log_hints` off; unreachable source; inhibitor and own configuration after each | `PgRejoinControlIntegrationTest` |
+| `pg_basebackup` | running server; absent directory; existing directory; source slot missing; inhibitor and own configuration after | `PgRejoinControlIntegrationTest` |
+| Source observation | writer; standby source; missing slot; unreachable; malformed output; no result | `PgRejoinControlIntegrationTest` |
+| Catch-up confirmation | caught-up standby; standby not streaming within the budget | `PgRejoinControlIntegrationTest` |
+| Re-join, end to end | crash-stopped diverged former writer rewound; rewind failure rebuilt; absent directory rebuilt; rewound node that cannot follow rebuilt | `PgRejoinIntegrationTest` (new) |
+| Re-join refusals | record names this node; unowned record; foreign quarantine; source in recovery; slot not usable; another system; unreadable directory with and without the re-join quarantine; failed rebuild | `PgRejoinIntegrationTest` |
+
+**Test infrastructure.** `PgReplicationFixture` provisions what the deployment must: `wal_log_hints = on` on the
+writer (standbys copy it), a replication role and a password file for every member including the writer, the four
+function grants to every member role, and, in every node's admission files, the replication rule and the rule for
+database `postgres` for every member.
+
+**Order of work.** R1, the adapters (contracts 1 to 5) with `PgRejoinControlIntegrationTest`; R2, `rejoin` with
+`PgRejoinIntegrationTest`. Each: tests and stubs that fail with "not implemented", red, implementation, green,
+mutation probes with SHA-256 records, the touched classes, core, and guards last. §5 row P-6 is marked reversed when
+R2 lands.
