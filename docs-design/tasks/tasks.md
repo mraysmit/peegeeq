@@ -583,7 +583,7 @@ has the successful remote Jenkins publication evidence recorded above.
 ### 8. Connection management and HAProxy failover
 
 **Priority:** Not assigned
-**Status:** ACTIVE — phase 5 open (repair `f391a7f0` not yet run by a Jenkins build from `beginning`); phase 7b.1 complete; phase 7b.2 partial (renewal loop, watchdog modes, and bootstrap scope A done 2026-10-21; scope B increment B1 done 2026-10-22; scope B increment B2 done 2026-10-25; the real-device watchdog run remains); phase 7b.3 partial (P1 to P7, takeover after real lease expiry, planned stop with release, and member tags done by 2026-11-14; remaining items in plan §8.1, row "7b.3 remaining")
+**Status:** ACTIVE — phase 5 open (repair `f391a7f0` not yet run by a Jenkins build from `beginning`); phase 7b.1 complete; phase 7b.2 partial (renewal loop, watchdog modes, and bootstrap scope A done 2026-10-21; scope B increment B1 done 2026-10-22; scope B increment B2 done 2026-10-25; the real-device watchdog run remains); phase 7b.3 partial (P1 to P7, takeover after real lease expiry, planned stop with release, and member tags done by 2026-11-14; automatic rewind and rebuild done 2026-11-16; remaining items in plan §8.1, row "7b.3 remaining")
 **Objective:** implement the design in
 `docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md` (design
 revision 2026-10-08). HAProxy routes by sidecar writer eligibility, which combines current
@@ -594,8 +594,8 @@ the first adapter and Qraft a planned second (P-38). The port `PgLeaseCoordinato
 adapter `ConsulLeaseCoordinator` are implemented in `peegeeq-pg-failover`. Node supervision is
 implemented there for guarded start, lease-loss shutdown, local admission, the renewal loop,
 the optional watchdog modes, bootstrap scopes A and B, promotion, follow, the policy cutover,
-member slots and positions, takeover after real lease expiry, planned stop with release, and
-member tags. No production entry point calls these operations yet; only tests do.
+member slots and positions, takeover after real lease expiry, planned stop with release,
+member tags, and automatic rewind and rebuild. No production entry point calls these operations yet; only tests do.
 G-7 qualification proceeds alongside
 the common supervisor implementation. `peegeeq-service-manager` handles federation and is outside this task. No profile
 requires the Patroni product. The Patroni control approach is selected: per-node supervisor,
@@ -858,10 +858,21 @@ Phases:
    detected; touched classes 62 + 12 + 10 + 6 + 17 + 4; core 416; guards 77. Jenkins build #39 (`ed29d191`):
    SUCCESS: `peegeeq-pg-failover` 717, examples 178, benchmarking 153, migrations 56, integration tests 109;
    Management UI 128 and 419, Utilities UI 836 and 246; no flaky test.
-   **OPEN — 7b.3 remaining:** manual takeover, repeated failover, controlled re-join, the production entry point
-   and supervisor loop, the real-device watchdog run on Linux, and the rest of the 2026-11-13 owner scope (plan
-   §9.28 rows 9, 10, 12 to 14: automatic rewind and rebuild, restart and reload, coordinator configuration, status
-   and metrics endpoints, callbacks).
+   **7b.3 update, 2026-11-16, automatic rewind and rebuild (plan §9.32, owner answer 9, `4aa9dc8e`, test additions
+   `7489cd41`; the regression ran on files equal to `7489cd41`):** `PgFailoverMonitor.rejoin(observed, writer, budget)` makes a member a validated
+   standby without an operator: rewind, then a rebuild when the rewind does not produce a caught-up standby, under
+   the re-join quarantine. Adapters: `PgProcessControl.inspect`, `rewind`, `rebuild`;
+   `PgPromotionControl.observeSource`, `confirmCaughtUp`. Reverses P-6. Defects found and fixed before the records:
+   `pg_rewind` removes `standby.signal` (a rewound or rebuilt node would have started writable), and `pg_ctl status`
+   exit 4 is also "not a database cluster directory" (a rebuild would have removed such a directory). Fixture: every
+   member, the writer included, has a replication role with the rewind grants and host-based rules; the writer runs
+   with `wal_log_hints = on`. Jenkins host: R1 red 21 (all on the stub), green 22; R2 red 12 (all on the stub), green
+   12; probes 51 to 70 and 53b detected (53 needed the inhibitor in the test), SHA-256 equal; module integration tier
+   23 classes, 348 tests; core 416; guards 77; all 0 failures. Not run: a Jenkins job build of this code.
+   **OPEN — 7b.3 remaining:** the re-join policy cutover, manual takeover, repeated failover, the production entry
+   point and supervisor loop, the real-device watchdog run on Linux, and the rest of the 2026-11-13 owner scope
+   (plan §9.28 rows 10, 12 to 14: restart and reload, coordinator configuration, status and metrics endpoints,
+   callbacks).
 8. **OPEN.** Enable autonomous initiation on the verified common boundary (8a), complete
    per-node authority/bootstrap reconciliation (8b), infrastructure fault tests including
    S54 to S58 (8c), and automatic database safety acceptance (8d). No second provider or

@@ -771,7 +771,7 @@ on zero executed tests or swallowed teardown failure.
 | 7a | Architecture selection complete. One local supervisor, node-owned Consul lease, optional watchdog modes, local admission, persistent node storage, and configurable redundant endpoints. Same protocol on Linux hosts/VMs, Docker hosts, and Kubernetes. G-1 to G-7 remain qualification gates. |
 | 7b.1 | Complete: production-manager owned commit-policy enforcement and bounded failure observation. Recorded evidence in §8.1. Broad caller migration remains phase 11. |
 | 7b.2 | Partial: the coordinator port, the Consul adapter, acquisition after release, guarded release, the watchdog timing correction, local persistent contracts, supervisor-owned start and lease-loss shutdown, local admission, and the renewal loop with queued ownership operations are implemented and tested (§8.1, §9.11, §9.12). Optional watchdog modes are implemented with no-device tests (§9.13). Bootstrap scope A is implemented and tested (§9.14). Scope B increment B1, the durability boundary, is implemented and tested (§9.15). Scope B increment B2 is implemented and tested (§9.16 to §9.19, complete 2026-10-25). Remaining in 7b.2: the real-device watchdog run on a Linux host. Complete G-7 incrementally. Machine-reset qualification is not an implementation prerequisite. |
-| 7b.3 | Partial, 2026-11-14: increments P1 to P7, takeover after real lease expiry, planned stop with release, and member tags are implemented and tested (§8.1, §9.21 to §9.31). Remaining: automatic rewind and rebuild, restart and reload, coordinator configuration, status and metrics endpoints, callbacks (§9.28 answers 9, 10, 12, 13, 14), manual takeover through an operator entry point, repeated failover, controlled re-join, the production entry point and supervisor loop, and routed production-manager assertions. Implement manual B takeover through local supervision. Test planned stop-before-release and unplanned safe-expiry takeover without failed-host acknowledgement. Prove old-writer exclusion, stale-effect rejection, policy cutover, repeated failover, two-node unavailability, and rewind/rebuild/re-join with production-manager data assertions. |
+| 7b.3 | Partial, 2026-11-16: increments P1 to P7, takeover after real lease expiry, planned stop with release, member tags, and automatic rewind and rebuild are implemented and tested (§8.1, §9.21 to §9.32). Remaining: restart and reload, coordinator configuration, status and metrics endpoints, callbacks (§9.28 answers 10, 12, 13, 14), the re-join policy cutover, manual takeover through an operator entry point, repeated failover, controlled re-join, the production entry point and supervisor loop, and routed production-manager assertions. Implement manual B takeover through local supervision. Test planned stop-before-release and unplanned safe-expiry takeover without failed-host acknowledgement. Prove old-writer exclusion, stale-effect rejection, policy cutover, repeated failover, two-node unavailability, and rewind/rebuild/re-join with production-manager data assertions. |
 | 8a | Enable autonomous initiation on the verified common A/B boundary. No second provider, authority, or generation barrier. Test concurrent standby contenders, invalid requests, lease loss during effects, and local activation/revocation races. |
 | 8b | Complete per-node automatic ownership and bootstrap reconciliation. Prove quorum loss, namespace/restore handling, invalid records, and distinction between sidecar/observer failure and writer-supervisor death. |
 | 8c | Verify automatic infrastructure failover: host loss, asymmetric partition, supervisor death, pauses/resume, delayed ownership/keepalive, in-flight effects, and unreachable-host takeover. No remote stop receipt requirement. |
@@ -799,12 +799,12 @@ old-writer exclusion. Optional watchdog mode alone is not exclusion evidence.
 This reconciliation records completed implementation slices. It does not close any new
 runtime or production qualification obligation. Task 8 carries the same status and next scope.
 
-### 8.1 Current Implementation and Recorded Evidence, 2026-10-08 to 2026-11-14
+### 8.1 Current Implementation and Recorded Evidence, 2026-10-08 to 2026-11-16
 
 Source inventory and saved logs were checked for the 2026-10-08 reconciliation. The runs dated
 2026-10-08 are recorded runs, not new test executions. The runs dated 2026-10-09 were executed
 for that day's revision. The rows dated 2026-10-21 and 2026-10-22 have their runs in §9.12 to
-§9.15. The rows dated 2026-10-24 to 2026-11-14 have their runs in §9.16 to §9.31. None is a
+§9.15. The rows dated 2026-10-24 to 2026-11-16 have their runs in §9.16 to §9.32. None is a
 release gate.
 
 | Slice | State | Artifact and limit |
@@ -838,7 +838,8 @@ release gate.
 | 7b.3 takeover after real lease expiry | Implemented and tested, 2026-11-14; module green on Jenkins build #39 | `PgTakeover.acquire(observed, mode)` builds the withdrawn takeover intent from an unowned record and acquires it. It refuses before any coordinator write a record still owned, a record naming this node as writer, a node outside the confirmed policy, quarantine, and in automatic mode a candidacy that is not preferred. `PgTakeoverAfterExpiryIntegrationTest` covers a lost former host and a former writer cut off from the coordinator whose own supervisor stops PostgreSQL before the successor acquires. See §9.29. |
 | 7b.3 planned stop with release (OD-15) | Implemented and tested, 2026-11-14; module green on Jenkins build #39 | `PgFailoverMonitor.stopAndRelease(held, reason)` stops PostgreSQL, then releases the lease only after a confirmed stop. An unconfirmed stop retires ownership and fails without a release. `demoteNow` retires, then stops. See §9.30. |
 | 7b.3 member tags (answer 11) | Implemented and tested, 2026-11-14 (Jenkins host runs; Jenkins build #40 on `b3f7ddc9`, 2026-11-15: SUCCESS, `peegeeq-pg-failover` 728 tests, 0 failures) | `PgMemberTags` (`nofailover`, `nosync`, `noloadbalance`, `clonefrom`) in `PgNodeConfig` as deployment configuration. A node tagged `nofailover` or `nosync` never acquires a takeover, is never promoted, and is ignored as a rival candidate. A new policy cannot require a `nosync` member, and the cutover does not count a `nosync` standby. `noloadbalance` and `clonefrom` are validated and stored; nothing acts on them yet. See §9.31. |
-| 7b.3 remaining | Not implemented | Automatic rewind and rebuild (answer 9; reverses P-6), restart, reload, and `pending_restart` (answer 10), coordinator configuration (answer 12), status and metrics endpoints (answer 13), callbacks (answer 14), manual takeover through an operator entry point, repeated failover, controlled re-join, the production entry point and supervisor loop (no production code calls the monitor operations), and routed production-manager assertions. |
+| 7b.3 automatic rewind and rebuild (answer 9) | Implemented and tested, 2026-11-16 (Jenkins host runs; no Jenkins job build yet) | `PgFailoverMonitor.rejoin(observed, writer, budget)` under the re-join quarantine: a rewind (`pg_rewind`, after a crash recovery that keeps the inhibitor), and a rebuild (`pg_basebackup` through the node's slot) when the rewind does not produce a caught-up standby. The source must hold the lease, be writable, share the system identifier, and hold the node's usable slot, checked before the stop and before any removal. Own configuration files kept; inhibitor recreated after every rewind and base backup. Reverses P-6. See §9.32. |
+| 7b.3 remaining | Not implemented | The re-join policy cutover that restores two-peer coverage; restart, reload, and `pending_restart` (answer 10), coordinator configuration (answer 12), status and metrics endpoints (answer 13), callbacks (answer 14), manual takeover through an operator entry point, repeated failover, controlled re-join, the production entry point and supervisor loop (no production code calls the monitor operations), and routed production-manager assertions. |
 | G-7 full coordinator qualification | Open | Snapshot/restore, TLS, stopped-before-release, and expiry versus independent old-writer exclusion remain unverified. Component success does not close G-7. |
 
 Recorded clean installs used `mvn clean install -DskipTests -pl :<changed-module> -am`:
@@ -3655,3 +3656,33 @@ R2 lands.
   outside recovery and assert `wal_log_hints setting: off` in `pg_controldata` before the rewind.
 - Test-shape defect found by the R2 red run: two refusals judged in a chain of `transform` steps passed the first
   failed assertion to the second as its input (§9.26). That test now continues with `compose`.
+- Tests added after the implementation, each with its red from a probe: `aStandbyWhoseReplayIsBehindTheWriterIsNot...`
+  (probe 58), `aStorageRefusalAfterTheRewindFailsWithoutARebuild` (probe 69), and the running-server assertion in
+  `aSourceInRecoveryIsRefusedWithTheDataDirectoryIntact` (probe 70).
+
+**Status, 2026-11-16.** Implemented (`4aa9dc8e`; test additions `7489cd41`), green, mutation-probed, and the module's
+integration tier, core, and guards green. Runs on the Jenkins host clone `/var/lib/jenkins/peegeeq-phase5`; the
+regression ran on files that equal `7489cd41` in `peegeeq-pg-failover` and `peegeeq-test-support` (`git diff
+origin/master`, 0 lines, checked 2026-11-16). Logs in `/var/lib/jenkins/peegeeq-work/logs`.
+
+| Step | Evidence |
+|---|---|
+| Probes of PostgreSQL 15.13 | `rewind-probe-20261115.log`, `rewind-probe2-20261115.log` (checks 1 to 11) |
+| R1 red, against the stubs | `rejoin-r1-red-20261115.summary`: 21 run, 11 failures, 10 errors, every one `UnsupportedOperationException: not implemented` or a wrong type caused by it |
+| R1 green | `rejoin-r1-green-20261115`: 19 of 21; the two failures are the defects in "As built" (exit 4, the `wal_log_hints` test). After the fixes `rejoin-r1-green2-20261115`: 22 of 22 |
+| R2 red, against the stub | `rejoin-r2-red-20261115.summary`: 12 run, 7 failures, 5 errors, all from the stub |
+| R2 green | `rejoin-r2-green-20261115.summary`: 12 of 12. The tests added afterwards: `rejoin-green-corrected-20261115.log`, 3 of 3 |
+| Probes 51 to 70 | `rejoin-probes-20261115.log`; SHA-256 of the three production files `24c514f4...0838fe41e` before and after. 19 of 20 detected. 53 (the crash-recovery step) was not: the adapter test's target had no `standby.signal`, so `pg_rewind` recovered it itself. With the inhibitor in place, as the monitor's stop leaves it, probe 53b failed both the adapter test and the end-to-end test (`rejoin-chain2-20261115.log`; SHA-256 of `PgCtlProcessControl.java` `c7609464...7942970f` before and after) |
+| Module integration tier | `rejoin-regress-integration-20261115.log`: 23 classes, 348 tests, 0 failures, errors, or skips; re-join adapter 23 and re-join 13 among them |
+| Core | `rejoin-regress-core-20261115.log`: 11 classes, 416, 0 failures |
+| Guards, after the last test edit | `rejoin-regress-guards-20261115.log`: 14 classes, 77, 0 failures |
+
+Not probed: the sender-address check of the catch-up confirmation (no test separates it, because a follow already
+confirms the address), and the configuration-copy steps' own command failures.
+
+**Not checked.** A real host loss and return (the tests stop PostgreSQL with `-m immediate`). A large data directory:
+the budget and the speed of `pg_rewind` and `pg_basebackup` were measured only on test-sized clusters, and
+`pg_basebackup` uses its default spread checkpoint. A rebuild from a `clonefrom` member (OD-52). A source that holds
+the lease but whose PostgreSQL is not the writer. Configuration files outside the data directory. The caller that
+decides when to call `rejoin`: there is no supervisor loop. The re-join policy cutover that restores two-peer
+coverage. Downstream modules and a Jenkins job build of this code.

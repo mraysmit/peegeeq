@@ -45,8 +45,8 @@ entries in `docs-design/tasks/tasks.md`.
   `streaming` with the writer's address and slot before `START_REPLICATION` fails on a missing slot); 20 integration
   classes declare `io.vertx.junit5.Timeout` equal to their JUnit class limit. P7 records written (plan §8.1, §9.28;
   system design §1.1, §5.10; coordinator design §1.1, §3.3; `tasks.md`).
-- **Git.** `origin/master` is `b3f7ddc9` (checked 2026-11-15; local `master` equal, working tree clean before the
-  2026-11-15 record corrections). The owner makes all commits unless they ask Claude to commit; do not reset or push without the owner's
+- **Git.** `origin/master` is `7489cd41` (checked 2026-11-16; local `master` equal; the working tree holds only the
+  2026-11-16 record updates). The owner makes all commits unless they ask Claude to commit; do not reset or push without the owner's
   instruction.
 
 ## 2. What exists in the module
@@ -77,6 +77,13 @@ SUCCESS, `peegeeq-pg-failover` 717 tests and every module after it green. Jenkin
 2026-11-15): SUCCESS. Test step: `peegeeq-pg-failover` 728, examples 178, benchmarking 153, migrations 56,
 integration-tests 109, OpenAPI none ("No tests to run."). UI stage: management UI 128 unit and 419 e2e, utilities UI
 836 unit and 246 e2e. The test step of these builds runs only the seven reactor modules from `peegeeq-pg-failover` on.
+
+**2026-11-15 and 2026-11-16, automatic rewind and rebuild (plan §9.32).** Runs on the Jenkins host clone
+`/var/lib/jenkins/peegeeq-phase5` (files equal to `7489cd41` for the regression), logs in
+`/var/lib/jenkins/peegeeq-work/logs`: PostgreSQL probes `rewind-probe*-20261115.log`; R1 red 21 on the stub, green 22;
+R2 red 12 on the stub, green 12; probes 51 to 70 and 53b, all detected after the 53 test fix, SHA-256 equal;
+regression `rejoin-regress-*-20261115.log`: integration tier 23 classes, 348 tests, core 416, guards 77, all 0
+failures. No Jenkins job build has run this code.
 
 **2026-11-13, as reported at that handover.** The logs named below are not in `logs/` on the owner's workstation
 (checked 2026-11-14); the numbers were not re-checked.
@@ -119,7 +126,7 @@ integration-tests 109, OpenAPI none ("No tests to run."). UI stage: management U
 4. Done 2026-11-14 (`ed29d191`): planned stop with release (OD-15, plan §9.30, `PgFailoverMonitor.stopAndRelease`).
 5. Done 2026-11-14 (`f2b03bb1`): member tags (answer 11, plan §9.31; owner: deployment configuration, all four tags
    accepted now).
-6. Done 2026-11-15 (`4aa9dc8e` and the uncommitted test additions): automatic rewind and rebuild (answer 9, plan
+6. Done 2026-11-16 (`4aa9dc8e`, `7489cd41`): automatic rewind and rebuild (answer 9, plan
    §9.32, `PgFailoverMonitor.rejoin`). §5 row P-6 is marked reversed.
 7. Restart, reload, `pending_restart` (answer 10).
 8. Coordinator configuration (answer 12).
@@ -216,6 +223,9 @@ New on 2026-11-15 (plan §9.32):
   adapter, an armed watchdog, password-file provisioning, member address configuration, any production entry point, and
   a Jenkins build from `beginning` (the whole-repository gate). Takeover after real expiry is done (plan §9.29), and
   Jenkins job builds of the module ran (#36 to #40).
+- Re-join (plan §9.32): a real host loss and return; a large data directory (budget, spread checkpoint of
+  `pg_basebackup`); a rebuild from a `clonefrom` member (OD-52); configuration files outside the data directory; the
+  caller that decides to re-join (no supervisor loop); the re-join policy cutover; a Jenkins job build.
 - Task 8 phase 5: the repaired `HaProxyConnectionFailoverTest` (`f391a7f0`) has never run in a Jenkins job build
   (checked 2026-11-15). On 2026-11-15 it ran on the Jenkins host at `b3f7ddc9`: 6 tests, 0 failures
   (`tasks.md` Task 8 phase 5). The phase closes on a Jenkins build from `beginning`.
