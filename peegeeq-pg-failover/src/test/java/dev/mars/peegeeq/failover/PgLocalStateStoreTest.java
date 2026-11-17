@@ -521,6 +521,128 @@ class PgLocalStateStoreTest {
             })));
     }
 
+    // ---------------------------------------------------------------- scheduled restart (plan §9.33, OD-59)
+
+    @Test void aScheduledRestartIsStoredAndReadBackAfterReopen(Vertx vertx, VertxTestContext context) {
+        var schedule = schedule(NODE);
+        PgLocalStateStore.open(vertx, directory, NODE).compose(store -> store.scheduledRestart().compose(none -> {
+                assertTrue(none.isEmpty(), "An empty directory holds a scheduled restart");
+                return store.scheduleRestart(schedule);
+            }))
+            .compose(ignored -> PgLocalStateStore.open(vertx, directory, NODE))
+            .compose(PgLocalStateStore::scheduledRestart)
+            .onSuccess(stored -> context.verify(() -> {
+                assertEquals(schedule, stored.orElseThrow());
+                context.completeNow();
+            })).onFailure(context::failNow);
+    }
+
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgLocalStateStore",
+        message = "Node-local state operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLocalStateException.class)
+    void aSecondScheduleIsRefusedAndTheFirstIsKept(Vertx vertx, VertxTestContext context) {
+        var first = schedule(NODE);
+        PgLocalStateStore.open(vertx, directory, NODE).compose(store -> store.scheduleRestart(first)
+            .compose(ignored -> store.scheduleRestart(schedule(NODE)).transform(second -> {
+                assertTrue(second.failed(), "A second scheduled restart was stored");
+                assertInstanceOf(PgLocalStateException.class, second.cause());
+                return store.scheduledRestart();
+            }))).onSuccess(stored -> context.verify(() -> {
+                assertEquals(first, stored.orElseThrow());
+                context.completeNow();
+            })).onFailure(context::failNow);
+    }
+
+    @Test void clearingReturnsWhetherAScheduleExisted(Vertx vertx, VertxTestContext context) {
+        PgLocalStateStore.open(vertx, directory, NODE).compose(store -> store.clearScheduledRestart().compose(none -> {
+            assertFalse(none, "Clearing an absent schedule reported one");
+            return store.scheduleRestart(schedule(NODE));
+        }).compose(ignored -> store.clearScheduledRestart()).compose(cleared -> {
+            assertTrue(cleared, "Clearing a schedule reported none");
+            return store.scheduledRestart();
+        })).onSuccess(stored -> context.verify(() -> {
+            assertTrue(stored.isEmpty(), "A cleared schedule is still stored");
+            context.completeNow();
+        })).onFailure(context::failNow);
+    }
+
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgLocalStateStore",
+        message = "Node-local state operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLocalStateException.class)
+    void aScheduleForAnotherNodeIsRefused(Vertx vertx, VertxTestContext context) {
+        PgLocalStateStore.open(vertx, directory, NODE).compose(store -> store.scheduleRestart(schedule("pg-node-2"))
+            .transform(refused -> {
+                assertTrue(refused.failed(), "A schedule of another node was stored");
+                assertInstanceOf(PgLocalStateException.class, refused.cause());
+                return store.scheduledRestart();
+            })).onSuccess(stored -> context.verify(() -> {
+                assertTrue(stored.isEmpty());
+                context.completeNow();
+            })).onFailure(context::failNow);
+    }
+
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgLocalStateStore",
+        message = "Node-local state operation failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgLocalStateException.class)
+    void aStoredScheduleOfAnotherNodeFailsItsRead(Vertx vertx, VertxTestContext context) throws IOException {
+        Files.writeString(directory.resolve("scheduled-restart.json"), schedule("pg-node-2").toJson().encode());
+        PgLocalStateStore.open(vertx, directory, NODE).compose(PgLocalStateStore::scheduledRestart)
+            .onComplete(context.failing(failure -> context.verify(() -> {
+                assertInstanceOf(PgLocalStateException.class, failure);
+                context.completeNow();
+            })));
+    }
+
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgLocalStateStore",
+        message = "Node-local storage failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = IllegalArgumentException.class)
+    void aMalformedScheduleFailsItsRead(Vertx vertx, VertxTestContext context) throws IOException {
+        Files.writeString(directory.resolve("scheduled-restart.json"), schedule(NODE).toJson().put("extra", 1).encode());
+        PgLocalStateStore.open(vertx, directory, NODE).compose(PgLocalStateStore::scheduledRestart)
+            .onComplete(context.failing(failure -> context.verify(() -> {
+                assertInstanceOf(PgLocalStateException.class, failure);
+                context.completeNow();
+            })));
+    }
+
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgLocalStateStore",
+        message = "Node-local storage failed",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = FileSystemException.class)
+    void aFailedWriteOfTheScheduleIsReportedAndStoresNothing(Vertx vertx, VertxTestContext context) throws IOException {
+        // A directory at the temporary file's path makes the durable write fail.
+        Files.createDirectory(directory.resolve("scheduled-restart.json.tmp"));
+        PgLocalStateStore.open(vertx, directory, NODE).compose(store -> store.scheduleRestart(schedule(NODE))
+            .transform(write -> {
+                assertTrue(write.failed(), "A failed write was reported as stored");
+                assertInstanceOf(PgLocalStateException.class, write.cause());
+                return store.scheduledRestart();
+            })).onSuccess(stored -> context.verify(() -> {
+                assertTrue(stored.isEmpty());
+                context.completeNow();
+            })).onFailure(context::failNow);
+    }
+
+    private static PgScheduledRestart schedule(String nodeId) {
+        var request = new PgRestartRequest(UUID.randomUUID().toString(), true, java.util.Optional.of(PgRestartRole.WRITER),
+            java.util.OptionalInt.of(160000));
+        return new PgScheduledRestart(nodeId, request, java.time.Instant.parse("2026-11-18T02:00:00Z"), 1_794_900_000_000_000L);
+    }
+
     // ---------------------------------------------------------------- storage failure
 
     @Test
