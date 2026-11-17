@@ -108,6 +108,8 @@ class PgRenewalLoopIntegrationTest {
                 positions = new ConsulMemberPositions(vertx, config, endpoint(), "consul-1", TOKEN);
                 monitor = PgFailoverMonitor.builder().config(config).elector(elector).store(store).process(process)
                     .gate(gate).watchdog(watchdog).durability(durability).promotion(promotion).positions(positions)
+                    .configuration(new PgSqlConfigurationControl(vertx, runner, POSTGRES.prefix(),
+                        PgSupervisedContainer.PG_CTL, "psql", dataDirectory, Duration.ofSeconds(20)))
                     .build();
                 loop = new PgRenewalLoop(vertx, config, elector, monitor);
                 context.completeNow();
