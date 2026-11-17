@@ -3741,8 +3741,14 @@ Facts from those sources that the design rests on:
    `PgConfigurationException`, including a failed command, no result, malformed output, and an exhausted budget.
    - `settings()`: the postmaster start time, the server version number, whether the server is in recovery, and the
      names of the parameters pending a restart. Fails while PostgreSQL is stopped.
-   - `reload()`: observes the load time, runs `pg_ctl reload`, waits within the budget until the load time changes, then
-     fails when `pg_file_settings` or `pg_hba_file_rules` reports an error, naming the entries.
+   - `reload()`: first reads the error views. A `pg_hba_file_rules` error, and a `pg_file_settings` error on an entry
+     with no parameter name (a syntax error) or a name that `pg_settings` does not know, fail the call with no reload
+     sent: PostgreSQL would keep the old rules or apply nothing (checks 6 and 7). Then observes the load time, runs
+     `pg_ctl reload`, and waits within the budget until the load time changes. Then reads the views again, with
+     `pg_settings`: an error entry whose parameter is not `pending_restart` is an invalid value, and fails the call,
+     naming the entries and stating that PostgreSQL applied the other changes (checks 5 and 8: PostgreSQL reports a
+     valid pending restart and an invalid value with the same error text, and only after a reload does
+     `pending_restart` tell them apart). The rules compare columns, not message text, which PostgreSQL can translate.
 2. `PgFailoverMonitor.reload()`. Serialized. No lease, no receipt: the effect is observable (the load time), as OD-28
    and OD-34 decide for slot steps. Not refused under quarantine (OD-61).
 3. `PgFailoverMonitor.restart(observed, request)`. Serialized. Returns `PgRestartResult(restarted, reason)`.
@@ -3750,7 +3756,9 @@ Facts from those sources that the design rests on:
       (`PgProcessControlException`). When `observed` names this node as writer: no fresh ownership of exactly
       `observed`, or a server in recovery (`PgLeaseProtocolException`). Otherwise: a writable server
       (`PgPromotionException`), because a writable node that the record does not name needs a re-join, not a restart.
-   2. The conditions, observed live through `settings()`: `onlyIfPending` and no parameter pending; a role other than
+   2. A reload through contract 1, so that the pending flags are current; a failed reload refuses the restart before
+      anything is stopped, because PostgreSQL does not start with an invalid value (check 8). Then the conditions,
+      observed live through `settings()`: `onlyIfPending` and no parameter pending; a role other than
       the requested one; a version at or above `belowVersion`. Any unmet condition returns `restarted = false` with the
       reason, logged at INFO, with no receipt and no effect (OD-57).
    3. Begin the `restart` receipt with the request as parameters. Record `COMPLETED`, or `UNKNOWN` after a failure.
@@ -3817,17 +3825,154 @@ Reversible.**
 | Schedule, store | stored and read back; a second one refused; malformed record; record of another node; storage fault | `PgLocalStateStoreTest` (core) |
 | Schedule, monitor | none; not due; postmaster restarted since; due and run; due and the restart fails; cancel with and without one | `PgRestartIntegrationTest` |
 
-**Checks to run before the tests,** on throwaway `postgres:15.13-alpine3.20` containers on the Jenkins host: whether a
-reload with one invalid value in `postgresql.conf` applies the valid changes of the same file; what `pg_file_settings`
-reports for it; whether `pg_postmaster_start_time()` changes across a fast stop and start; and whether a parameter set by
-`ALTER SYSTEM` with context `postmaster` reports `pending_restart` after a reload and not after the restart.
+**Checks run, 2026-11-17,** on throwaway `postgres:15.13-alpine3.20` containers (PostgreSQL 15.13) on the owner's
+workstation with local Docker (the Jenkins host did not answer), PostgreSQL started by `pg_ctl` as in
+`PgSupervisedContainer`. Logs: `logs/restart-probe-20261117.log` (checks 1 to 5; its lines after check 5 are not
+evidence: a stopped first run of the script kept writing to the same file), `logs/reload-probe2-20261117.log` (check 6
+repeated with a 30-second wait), `logs/reload-probe3-20261117.log` (check 7). The containers were removed.
+
+1. `pg_postmaster_start_time()` changed across a fast stop and start (`07:34:26.003936` then `07:34:28.014713`).
+2. `server_version_num` is `150013`.
+3. `ALTER SYSTEM SET max_connections = 150` (context `postmaster`), then a reload: the setting stayed `100` with
+   `pending_restart = true`, and `pg_file_settings` listed both values with `applied = false`. After a fast stop and
+   start: `150`, `pending_restart = false`, no parameter pending.
+4. A reloadable change (`work_mem = 8MB` appended) took effect after a reload, and the load time changed at once.
+5. `work_mem = 8MB` with `checkpoint_timeout = nonsense` in the same file: the reload changed the load time and applied
+   `work_mem`; `pg_file_settings` reported "setting could not be applied" for `checkpoint_timeout`; the log said
+   "contains errors; unaffected changes were applied".
+6. `work_mem = 8MB` with an unknown parameter, and separately with a syntax error: `pg_file_settings` reported the error
+   before the reload; after `pg_ctl reload` (exit 0) the load time did not change within 30 seconds and `work_mem` stayed
+   `4MB`; the log said "contains errors; no changes were applied".
+7. An unknown connection type in `pg_hba.conf`: `pg_hba_file_rules` reported it before the reload; the reload changed the
+   load time; the log said "pg_hba.conf was not reloaded". (A host name such as `bogus-not-an-address` is valid syntax.)
+
+8. Found by the first green run of RS1, then probed (`logs/postmaster-probe-20261117.log`): `pg_file_settings` reports
+   `setting could not be applied` both for a valid changed `postmaster` parameter (`max_connections = 150`) and for
+   invalid ones (`shared_buffers = nonsense`, `max_wal_senders = -5`), before and after a reload. After the reload only
+   the valid one has `pending_restart = true`. A stop and start with the invalid values fails: `FATAL: configuration
+   file ... contains errors`. So an error entry is an invalid value exactly when its parameter is not pending a restart
+   after a reload, and a restart with one would leave the node stopped.
+
+So the confirmation by load time alone (OD-9's rule) would wait out its budget on check 6 and report success on checks
+5 and 7. Contract 1 refuses checks 6 and 7 before the reload and reports checks 5 and 8 after it. The first version of
+contract 1 refused every error before the reload; the RS1 green run showed that this refuses every pending restart
+(check 8), and the contract was corrected before the implementation was kept.
+
+**Finding, 2026-11-17: the existing reloads rest on the load time alone.** Static reading, not yet run. Three built
+operations reload and wait for the load time to change: `PgSqlDurabilityControl.install` (then compares the setting in
+effect, which catches check 5), `PgHbaAdmissionGate` `close` and `open` (then reads `pg_hba_file_rules`, which catches
+check 7), and `PgSqlPromotionControl.follow` (waits for the WAL receiver instead). With a `postgresql.conf` that
+PostgreSQL rejects whole (check 6), each waits out its budget and fails with a message that does not name the file
+error. For the gate this means a closing admission fails on a writer whose `postgresql.conf` holds an unknown
+parameter; whether PostgreSQL reloads `pg_hba.conf` in that case although the load time does not change is not known
+and is check 8 of RS1b. The failure is visible, so no write is admitted wrongly; the cost is the budget and the
+misleading message. RS1b applies contract 1's error read to the three sites.
 
 **Order of work.** RS0: the two existing test-standard violations found on 2026-11-17 (the `compose` teardown of
 `PgFailoverMonitorIntegrationTest`, the poll without a delay in `PgCtlProcessControlIntegrationTest`). RS1: the port and
-adapter (contract 1). RS2: `reload` and `restart` (contracts 2 and 3). RS3: the schedule (contracts 4 and 5). Each:
+adapter (contract 1). RS1b: the finding above, at the three existing reload sites. RS2: `reload` and `restart`
+(contracts 2 and 3). RS3: the schedule (contracts 4 and 5). Each:
 tests and stubs that fail with "not implemented", red, implementation, green, mutation probes with SHA-256 records, the
 touched classes, core, and guards last.
 
 **Not decided here.** Who calls `runScheduledRestart` (the supervisor loop). How an operator reaches these operations
 (the status and control endpoints, answer 13). The callbacks `on_restart` and `on_reload` (answer 14). Restarting every
 member in turn.
+
+**RS0 status, 2026-11-17.** Done on the owner's workstation with local Docker (29.9.3): the Jenkins host did not answer
+(`http://192.168.137.32:8080/login`, 8-second timeout). `PgFailoverMonitorIntegrationTest` teardown now runs every step
+through `TestCleanup.run`; before, a failed `elector.close()` skipped the other closes. `PgCtlProcessControlIntegrationTest`
+`waitForBackend` now waits 100 ms between polls (`vertx.timer`); before, it re-polled at once until its deadline. Logs
+under `logs/`: rebuild `rebuild-peegeeq-pg-failover-rs0-20261117.log` BUILD SUCCESS; `peegeeq-pg-failover-rs0-20261117.log`:
+monitor 23 of 23, process control 11 run with 1 error, `statusReportsStoppedThenRunning`, whose `@BeforeEach` `initdb`
+exceeded the 30-second command limit (the two tests after it took 34.9 s and 25.6 s against 4 to 9 s for the others; no
+other container ran; the cause of the slow window was not measured); the class alone again,
+`peegeeq-pg-failover-rs0-processcontrol-run2-20261117.log`: 11 of 11, that test 3.8 s; guards
+`peegeeq-test-support-guards-rs0-20261117.log`: 14 classes, 77, 0 failures. No production file changed.
+
+**RS1 status, 2026-11-17.** Implemented, green, mutation-probed; local Docker (the Jenkins host did not answer). New:
+`PgConfigurationControl`, `PgSqlConfigurationControl`, `PgConfigurationException`, `PgServerSettings`; test
+`PgSqlConfigurationControlIntegrationTest` and the test runner `ReloadDoesNotReloadCommandRunner` (the shape of
+`PromoteDoesNotPromoteCommandRunner`: `pg_ctl reload` becomes `pg_ctl status`, which exits 0 and sends no signal).
+Nothing calls the port yet; the monitor gains it in RS2.
+
+| Step | Evidence under `logs/` |
+|---|---|
+| Red, against the stub | `peegeeq-pg-failover-rs1-red-20261117.log`: 12 run, 8 failures, 4 errors, every one `UnsupportedOperationException: not implemented` or the wrong type it causes |
+| First green | `peegeeq-pg-failover-rs1-green-20261117.log`: 12 run, 1 error: the pending-restart test was refused, which found check 8; contract 1 was corrected (above) |
+| Red for the correction | `peegeeq-pg-failover-rs1-red2-20261117.log`: the changed invalid-value test, the new invalid restart-parameter test, and the pending-restart test, 3 run, 2 failures, 1 error, each on the refusal of every error before the reload |
+| Green | `peegeeq-pg-failover-rs1-green2-20261117.log`: 13 of 13 |
+| Probes 71 to 75 | `peegeeq-pg-failover-rs1-mutation71-` to `-75-20261117.log`; SHA-256 of `PgSqlConfigurationControl.java` `78540791...FA580641` before and after (`-mutation-sha-before-`, `-mutations-`). 71 refusal before the reload: the unknown-parameter test waited out the budget and the admission-rule test saw the load time change. 72 invalid-value check: both invalid-value tests saw a successful reload. 73 `pending_restart` exclusion: the pending test was refused for `max_connections`. 75 settings filter: every parameter was reported pending. 74, the wait for the load time, was not detected: the reload had taken effect before the test's next query |
+| Test added for probe 74 | `aReloadCommandThatReportsSuccessButIsNotProcessedFailsWithinItsBudget`, with `ReloadDoesNotReloadCommandRunner`. Green on the real code (`-reloadtest-green2-`, 2 of 2, with the reloadable test). Probe 74b failed it for another reason, a `psql` call that exceeded the 3.7 s left of a 5-second budget, so its budget became 10 seconds; probe 74c (`-mutation74c-20261117.log`) failed it with "The operation succeeded; expected a failure starting with: The configuration load time did not change within the budget"; SHA-256 equal before and after |
+| Final class | `peegeeq-pg-failover-rs1-final-20261117.log`: 14 of 14 |
+| Core | `peegeeq-pg-failover-rs1-core-20261117.log`: 416, 0 failures |
+| Guards, after the last test edit | `peegeeq-test-support-guards-rs1-20261117.log`: 77, 0 failures |
+
+Not probed: the malformed-output and no-result branches have tests (`outputThatIsNotAnObservationIsRejected`,
+`aRunnerThatReturnsNoResultFailsBothOperations`) but were not removed one at a time.
+
+**RS1b status, 2026-11-17.** Check 9, run first (`logs/hba-with-broken-conf-probe-20261117.log`): with an unknown
+parameter in `postgresql.conf`, a reload left the load time unchanged and still applied `pg_hba.conf` (a TCP connection
+was rejected after the closed rules were installed and admitted after the open rules were restored). So the gate's
+close, before this change, made the closed rules effective, waited out its budget, and failed before it ended the
+application sessions; and its open admitted applications and reported a failure.
+
+Built: `PgConfigurationFiles` (package-private), the one definition of the error query and its three lists, now used by
+`PgSqlConfigurationControl` as well. `PgSqlDurabilityControl.install` and `PgSqlPromotionControl.follow` refuse before
+their `ALTER SYSTEM` when a file holds a `rejected` entry. `PgHbaAdmissionGate.open` refuses before it installs the open
+rules. `PgHbaAdmissionGate.close` with a `rejected` entry installs the closed rules, sends the reload (check 9: it applies
+`pg_hba.conf`), ends the network sessions, and then fails: admission is not confirmed closed. Only the `rejected` list
+applies at these sites; a `pg_hba.conf` error does not stop `postgresql.conf` from being applied, and the gate keeps its
+own check of `pg_hba_file_rules` after a reload. OD-62, the implementer's, reversible: the gate's close does every step
+that still has an effect before it fails, because a close is a safety step and its caller stops the writer on failure.
+
+| Step | Evidence under `logs/` |
+|---|---|
+| Red, on the unchanged production code | `peegeeq-pg-failover-rs1b-red-20261117.log`: gate close and open, and follow, each waited out its budget with a message that does not name the file error; the install test failed in set-up (`initdb` over 30 s, a slow window); alone, `-rs1b-red-install-`: the install waited out its budget the same way. `initdb` measured alone: 2.3 to 2.4 s |
+| Green | `peegeeq-pg-failover-rs1b-green-20261117.log`: `PgConfigurationFilesIntegrationTest` 2 of 2, `PgHbaAdmissionGateIntegrationTest` 9 of 9, `PgSqlConfigurationControlIntegrationTest` 14 of 14 |
+| Probes 76 to 81 | `peegeeq-pg-failover-rs1b-mutation76-` to `-81-20261117.log`; SHA-256 of the four production files equal before and after (`-rs1b-mutation-sha-before-`, `-sha-after-`). 76 install refusal, 77 follow refusal, 78 the close's unconfirmed path, 79 the open refusal: each guarding test failed on a wait to the end of the budget. 80 the end of the sessions in the close's unconfirmed path: the application session was not ended and its `docker exec` reached the fixture's 30-second limit. 81 the unknown-parameter rule: both refusal tests waited out their budgets |
+
+Not yet run for RS1b: the other classes that reach the three sites (every monitor test closes the gate). They run in
+the module's integration tier after RS2, which changes 14 of them; RS1b is not reported complete before that run.
+
+**RS2 status, 2026-11-17.** Built: `PgFailoverMonitor.reload()` and `restart(observed, request)` (contracts 2 and 3),
+`PgRestartRequest`, `PgRestartRole`, `PgRestartResult`, and the builder's required `configuration` dependency (OD-55;
+the 15 builder calls in 14 test classes pass it, and `PgFailoverMonitorBuilderTest` refuses a missing one by name).
+A writer restart closes the grant and the gate, stops PostgreSQL (an unconfirmed stop quarantines the node), applies the
+watchdog mode, and starts writable; a failed start or lost ownership demotes the node; a grant that was open for
+exactly the observed serving record is prepared and activated again with the same mode and revision, and a gate that
+does not open revokes admission. A standby restart stops and starts in recovery. Both are confirmed by a later
+postmaster start time. Test: `PgRestartIntegrationTest` (new, 21 tests; one Consul dev agent, one PostgreSQL that only
+the supervisor starts, a 60-second lease so ownership outlasts a restart without a renewal loop).
+
+| Step | Evidence under `logs/` |
+|---|---|
+| Red, against the stubs | `peegeeq-pg-failover-rs2-red-20261117.log`: 20 run, 9 failures, 11 errors, all `not implemented` or the wrong type it causes, except one set-up `initdb` over 30 s; that test alone, `-rs2-red-standbystart-`: the wrong type from the stub |
+| Builder | `peegeeq-pg-failover-rs2-builder-20261117.log`: 11 of 11 |
+| Green | `peegeeq-pg-failover-rs2-green-20261117.log`: 20 run, 18 passed, 2 errors, both a `docker exec` over its limit (a gate query with 5.3 s left; a set-up `initdb` over 30 s); alone, `-rs2-green-rerun-` and `-rerun2-`: both passed (the first rerun's `initdb` was slow again) |
+| Test added for the start-time confirmation | `aRestartWhoseStopAndStartReportSuccessWithoutEffectFails`, with a process control whose stop and start report success and do nothing; green on the real code (`-rs2-noeffect-green-`) |
+| Probes 82 to 88 and 90 to 93 | `peegeeq-pg-failover-rs2-mutation82-` to `-93-20261117.log`; SHA-256 of `PgFailoverMonitor.java` `5C8BE002...A24D849F` before and after. 82 ownership check, 83 quarantine, 84 stopped server, 85 writable node the record does not name, 86 the reload before the conditions (2 tests), 87 the skip on an unmet condition (3 tests), 88 re-admission, 90 demotion after a failed start, 91 quarantine after an unconfirmed stop, 92 the start-time confirmation, 93 revocation after a failed re-admission: each guarding test failed with the message of its own behaviour |
+
+**RS3 status, 2026-11-17.** Built: `PgScheduledRestart` (the node, the request, the due time, the postmaster start time
+when scheduled; unknown fields and a record of another node refused) and three store operations,
+`scheduledRestart()`, `scheduleRestart(schedule)` (refused while one exists and for another node), and
+`clearScheduledRestart()` (returns whether one existed), in the file `scheduled-restart.json`; and the monitor's
+`scheduleRestart(request, due)`, `cancelScheduledRestart()`, and `runScheduledRestart(observed, now)` (contracts 4 and
+5). The restart body moved into a private `restartNow`, so `restart` and `runScheduledRestart` share it inside their
+serialized operations; `restart`'s checks and logs are unchanged. Tests: 7 in `PgLocalStateStoreTest` (core), 9 in
+`PgRestartIntegrationTest`.
+
+| Step | Evidence under `logs/` |
+|---|---|
+| Red, against the stubs | `peegeeq-pg-failover-rs3-red-store-20261117.log`: 36 run, 2 failures, 5 errors, the 7 new tests, each on the stub; `-rs3-red-monitor-`: 9 run, 4 failures, 5 errors, each `not implemented` or the wrong type it causes |
+| Green | `-rs3-green-store-`: 36 of 36; `-rs3-green-restart-`: `PgRestartIntegrationTest` 30 of 30 |
+| Probes 94 to 103 | `peegeeq-pg-failover-rs3-mutation94-` to `-103-20261117.log`; SHA-256 of `PgLocalStateStore.java`, `PgScheduledRestart.java`, and `PgFailoverMonitor.java` equal before and after (`-rs3-mutation-sha-before-`, `-sha-after-`). 94 one schedule per node, 95 node check on write, 96 node check on read, 97 the clear's result, 98 unknown fields, 99 not due, 100 cancellation by a later postmaster start, 101 removal after the attempt (2 tests), 102 quarantine, 103 the stored start time: each guarding test failed with the message of its own behaviour |
+
+After the RS3 green run the inner block that the refactor left in `restartNow` was removed; the change is whitespace
+only (checked by comparing the file without whitespace), and the probes and the regression below ran on it.
+
+**Slow `docker exec` on the workstation, 2026-11-17.** Seven times in the runs of this section a `docker exec` exceeded
+its limit: five set-up `initdb` calls over 30 seconds (2.3 to 2.4 s when measured alone), one `psql` with 3.7 s left of
+a budget, and one gate query with 5.3 s left. 150 idle `docker exec ... true` calls took 163 to 408 ms (median 208). The
+stalls occur only during test runs; the cause was not established. Each affected test was rerun alone and passed; no
+assertion and no fixture limit was changed for them, except the 10-second budget of the RS1 reload test (above).
