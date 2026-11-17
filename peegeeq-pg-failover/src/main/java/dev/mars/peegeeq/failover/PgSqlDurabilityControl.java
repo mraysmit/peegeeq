@@ -111,7 +111,7 @@ public final class PgSqlDurabilityControl implements PgDurabilityControl {
         Objects.requireNonNull(policy, "policy");
         long deadline = deadline();
         String names = policy.synchronousStandbyNames();
-        return sql(deadline, LOAD_TIME).compose(before ->
+        return requireNoRejectedFile(deadline).compose(ignored -> sql(deadline, LOAD_TIME)).compose(before ->
                 sql(deadline, "alter system set synchronous_standby_names = " + escapeString(names))
                     .compose(ignored -> run(deadline, pgCtl, "reload", "-D", dataDirectory))
                     .map(result -> requireSuccess(result, "pg_ctl reload"))
@@ -379,6 +379,22 @@ public final class PgSqlDurabilityControl implements PgDurabilityControl {
                 }
                 return null;
             });
+    }
+
+    /**
+     * A configuration file that PostgreSQL rejects whole (a syntax error, an unknown parameter) makes a reload apply no
+     * change and leaves the load time unchanged (plan §9.33, check 6), so the installed setting would never take effect
+     * and the wait would end only at the budget. Such a file refuses the installation before {@code ALTER SYSTEM} runs.
+     */
+    private Future<Void> requireNoRejectedFile(long deadline) {
+        return sql(deadline, PgConfigurationFiles.ERRORS).map(output -> {
+            PgConfigurationFiles.Errors errors = observation(output, () -> PgConfigurationFiles.parse(output));
+            if (!errors.rejected().isEmpty()) {
+                throw new PgDurabilityException("The configuration files hold errors that PostgreSQL rejects, so a "
+                    + "reload would apply nothing; the policy was not installed: " + errors.rejected());
+            }
+            return null;
+        });
     }
 
     /** A reload is asynchronous. It is confirmed when the configuration load time has changed. */
