@@ -115,9 +115,11 @@ public final class PgSqlPromotionControl implements PgPromotionControl {
                 throw new PgPromotionException(
                     "PostgreSQL is writable; a writable server cannot follow a writer without a rewind");
             }
+            return requireNoRejectedFile(deadline);
+        })
             // Two commands: ALTER SYSTEM cannot run inside the implicit transaction of a multi-statement command.
-            return sql(deadline, "alter system set primary_conninfo = '" + connectionInfo + "'");
-        }).compose(ignored -> sql(deadline, "alter system set primary_slot_name = '" + slot + "'"))
+            .compose(ignored -> sql(deadline, "alter system set primary_conninfo = '" + connectionInfo + "'"))
+            .compose(ignored -> sql(deadline, "alter system set primary_slot_name = '" + slot + "'"))
             .compose(ignored -> run(deadline, pgCtl, "reload", "-D", dataDirectory))
             .map(result -> requireSuccess(result, "pg_ctl reload"))
             .compose(ignored -> awaitStreaming(deadline, writer, slot));
@@ -255,6 +257,27 @@ public final class PgSqlPromotionControl implements PgPromotionControl {
                     + (output.isEmpty() ? "no WAL receiver" : output)));
             }
             return vertx.timer(POLL_MILLIS).compose(ignored -> awaitStreaming(deadline, writer, slot));
+        });
+    }
+
+    /**
+     * A configuration file that PostgreSQL rejects whole makes a reload apply no change (plan §9.33, check 6), so the new
+     * connection string would never take effect and the wait for the WAL receiver would end only at the budget. Such a
+     * file refuses the follow before {@code ALTER SYSTEM} runs.
+     */
+    private Future<Void> requireNoRejectedFile(long deadline) {
+        return sql(deadline, PgConfigurationFiles.ERRORS).map(output -> {
+            PgConfigurationFiles.Errors errors;
+            try {
+                errors = PgConfigurationFiles.parse(output);
+            } catch (RuntimeException malformed) {
+                throw new PgPromotionException("Malformed promotion observation: " + output, malformed);
+            }
+            if (!errors.rejected().isEmpty()) {
+                throw new PgPromotionException("The configuration files hold errors that PostgreSQL rejects, so a reload "
+                    + "would apply nothing; the follow was not started: " + errors.rejected());
+            }
+            return null;
         });
     }
 
