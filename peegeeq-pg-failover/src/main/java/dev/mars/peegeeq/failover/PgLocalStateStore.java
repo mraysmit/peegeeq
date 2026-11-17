@@ -15,7 +15,8 @@ import java.util.Optional;
 import java.util.function.Function;
 
 /**
- * Durable node-local supervisor storage: the writer grant, node quarantine, and action receipts.
+ * Durable node-local supervisor storage: the writer grant, node quarantine, action receipts, and the one scheduled
+ * restart (plan §9.33, OD-59).
  * These records are authoritative. Lease freshness, PostgreSQL role, process state, watchdog
  * health, and eligibility are derived elsewhere and are never stored here.
  *
@@ -31,6 +32,7 @@ public final class PgLocalStateStore {
     private static final String GRANT = "grant.json";
     private static final String QUARANTINE = "quarantine.json";
     private static final String RECEIPTS = "receipts";
+    private static final String SCHEDULED_RESTART = "scheduled-restart.json";
     private final FileSystem files;
     private final Path directory;
     private final String nodeId;
@@ -111,6 +113,36 @@ public final class PgLocalStateStore {
     public Future<Void> clearQuarantine() {
         return serialized(() -> files.exists(path(QUARANTINE)).compose(exists ->
             exists ? files.delete(path(QUARANTINE)) : Future.<Void>succeededFuture()));
+    }
+
+    /** The restart scheduled on this node, or none (plan §9.33, OD-59). */
+    public Future<Optional<PgScheduledRestart>> scheduledRestart() {
+        return serialized(this::readScheduledRestart);
+    }
+
+    /** Stores the schedule. Refused while one exists, and for another node. */
+    public Future<Void> scheduleRestart(PgScheduledRestart schedule) {
+        Objects.requireNonNull(schedule, "schedule");
+        return serialized(() -> readScheduledRestart().compose(existing -> {
+            if (!nodeId.equals(schedule.nodeId())) throw state("A scheduled restart belongs to this node only");
+            if (existing.isPresent()) throw state("A restart is already scheduled; cancel it first");
+            return write(SCHEDULED_RESTART, schedule.toJson());
+        }));
+    }
+
+    /** Removes the schedule. Returns whether one existed. */
+    public Future<Boolean> clearScheduledRestart() {
+        return serialized(() -> files.exists(path(SCHEDULED_RESTART)).compose(exists -> exists
+            ? files.delete(path(SCHEDULED_RESTART)).map(true) : Future.succeededFuture(false)));
+    }
+
+    private Future<Optional<PgScheduledRestart>> readScheduledRestart() {
+        return read(SCHEDULED_RESTART, PgScheduledRestart::fromJson).map(schedule -> {
+            if (schedule.filter(loaded -> !nodeId.equals(loaded.nodeId())).isPresent()) {
+                throw state("Stored scheduled restart belongs to another node");
+            }
+            return schedule;
+        });
     }
 
     public Future<Optional<PgActionReceipt>> receipt(long generation, String operationId, String action,
