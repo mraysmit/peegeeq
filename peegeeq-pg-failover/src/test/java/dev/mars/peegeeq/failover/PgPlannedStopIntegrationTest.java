@@ -330,6 +330,8 @@ class PgPlannedStopIntegrationTest {
         positionAdapters.add(positions);
         return PgFailoverMonitor.builder().config(nodeConfig).elector(owner).store(nodeStore).process(process)
             .gate(gate).watchdog(watchdog).durability(durabilityOf(nodeId)).promotion(promotion).positions(positions)
+            .configuration(new PgSqlConfigurationControl(vertx, runner, node.prefix(), PgSupervisedContainer.PG_CTL, "psql",
+                directory, COMMAND_TIMEOUT))
             .build();
     }
 
