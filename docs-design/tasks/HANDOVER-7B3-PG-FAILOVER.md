@@ -1,8 +1,9 @@
 # Handover: phase 7b.3, PostgreSQL failover supervisor
 
 **Written:** 2026-10-26, at the end of the P2 session. **Updated:** 2026-11-03 (P3, P4 design), 2026-11-12 (P4 to P6),
-2026-11-13, at the end of the P7 session, after the owner stopped the regression run, and 2026-11-14, after the P7
-regression, two defect fixes from Jenkins build #37, and the P7 records.
+2026-11-13, at the end of the P7 session, after the owner stopped the regression run, 2026-11-14, after the P7
+regression, two defect fixes from Jenkins build #37, and the P7 records, 2026-11-15 and 2026-11-16, after automatic
+rewind and rebuild (plan §9.32), and 2026-11-17, after a check against `git log` and the plan.
 **For:** the next session that continues Task 8, phase 7b.3, in `peegeeq-pg-failover`.
 **Status of this document:** a briefing, not state. Status lives in code, tests, and logs. Check each claim against the
 artifact before relying on it. The authoritative records are plan §9.20 to §9.28 in
@@ -45,8 +46,8 @@ entries in `docs-design/tasks/tasks.md`.
   `streaming` with the writer's address and slot before `START_REPLICATION` fails on a missing slot); 20 integration
   classes declare `io.vertx.junit5.Timeout` equal to their JUnit class limit. P7 records written (plan §8.1, §9.28;
   system design §1.1, §5.10; coordinator design §1.1, §3.3; `tasks.md`).
-- **Git.** `origin/master` is `7489cd41` (checked 2026-11-16; local `master` equal; the working tree holds only the
-  2026-11-16 record updates). The owner makes all commits unless they ask Claude to commit; do not reset or push without the owner's
+- **Git.** `origin/master` is `4aa72780` (checked 2026-11-17 with `git ls-remote`; local `master` equal; working tree
+  clean). The owner makes all commits unless they ask Claude to commit; do not reset or push without the owner's
   instruction.
 
 ## 2. What exists in the module
@@ -126,14 +127,15 @@ failures. No Jenkins job build has run this code.
 4. Done 2026-11-14 (`ed29d191`): planned stop with release (OD-15, plan §9.30, `PgFailoverMonitor.stopAndRelease`).
 5. Done 2026-11-14 (`f2b03bb1`): member tags (answer 11, plan §9.31; owner: deployment configuration, all four tags
    accepted now).
-6. Done 2026-11-16 (`4aa9dc8e`, `7489cd41`): automatic rewind and rebuild (answer 9, plan
-   §9.32, `PgFailoverMonitor.rejoin`). §5 row P-6 is marked reversed.
+6. Done 2026-11-15 (code `4aa9dc8e`, test additions `7489cd41`; records 2026-11-16, `4aa72780`): automatic rewind
+   and rebuild (answer 9, plan §9.32, `PgFailoverMonitor.rejoin`). §5 row P-6 is marked reversed.
 7. Restart, reload, `pending_restart` (answer 10).
 8. Coordinator configuration (answer 12).
 9. Status and metrics endpoints (answer 13).
 10. Callbacks (answer 14).
-11. Remaining 7b.3 items: manual takeover, repeated failover, controlled re-join, the production entry point and the
-    supervisor loop (nothing outside tests calls the monitor operations), and the real-device watchdog run on Linux.
+11. Remaining 7b.3 items (plan §8.1, row "7b.3 remaining"): the re-join policy cutover that restores two-peer
+    coverage (plan §9.32, "Purpose"; system design §5.8), manual takeover, repeated failover, controlled re-join, the
+    production entry point and the supervisor loop (nothing outside tests calls the monitor operations), and the real-device watchdog run on Linux.
 
 Each item is designed in its own plan section, with its data model and contracts, before its tests.
 
@@ -180,10 +182,11 @@ logs, Windows quoting, Git Bash paths, stale IDE diagnostics, no Python, Jenkins
 - **Vert.x test-context timeout.** The extension reads only `io.vertx.junit5.Timeout` (method, then class; not
   inherited). Since 2026-11-14 each integration class declares it equal to its JUnit limit; a new class must do the same,
   and a concrete subclass of an abstract contract declares it itself.
-- **Docker runs without Docker on the workstation.** Run probes and targeted tests on the Jenkins host through
-  `Invoke-QraftJenkinsShell` (`.env/jenkins-tools.ps1`): a clone under `/var/lib/jenkins/peegeeq-work`, changed files
-  copied in base64 chunks below 64 KB, long commands started with `nohup` and read from their log. Do not run there
-  while a PeeGeeQ job build runs (shared `.m2`).
+- **Where to run probes and targeted tests.** First check whether the Jenkins host is available. If it is, run there
+  through `Invoke-QraftJenkinsShell` (`.env/jenkins-tools.ps1`): a clone under `/var/lib/jenkins/peegeeq-work`, changed
+  files copied in base64 chunks below 64 KB, long commands started with `nohup` and read from their log. Do not run there
+  while a PeeGeeQ job build runs (shared `.m2`). If it is not available, run locally: Docker is available on every
+  machine used in this project. (Corrected 2026-11-17: this line earlier said the workstation has no Docker.)
 - **WAL receiver observations.** `pg_stat_wal_receiver` shows `streaming` with the sender address and slot before
   replication has started. Only `wait_event = WalReceiverMain` shows a receiver inside its streaming loop.
 - **PostgreSQL 15.13 facts (observed in tests and probe 49).** After the writer is stopped, a standby has no

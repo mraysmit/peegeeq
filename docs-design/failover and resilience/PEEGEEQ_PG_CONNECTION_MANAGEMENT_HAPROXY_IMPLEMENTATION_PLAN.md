@@ -1,13 +1,11 @@
 # PeeGeeQ Connection Management and HAProxy Failover — Implementation Plan
 
-**Document revision**: 2026-10-22, bootstrap scope B decisions OD-9 to OD-12 (§5.3) and
-increment B1 (§9.15). Revision 2026-10-21: renewal loop (§9.12), optional watchdog modes
-(§9.13), and first-start bootstrap scope A (§9.14). Earlier revision 2026-10-09: local admission record,
-Consul fixture readiness correction, and failure-logging correction (§9.11).
-Sections 2 to 4 retain dated baseline evidence. Current implementation evidence is in §8.1.
+**Document revision**: 2026-11-17, design of restart, reload, and `pending_restart` (§9.33). The
+dated records of each increment are §9.11 to §9.33; the decisions are OD-1 to OD-61. Sections 2 to 4
+retain dated baseline evidence. Current implementation evidence is in §8.1.
 The whole-repository `-Pall-tests` run of 2026-10-09 was red on the phase 5 test (§8.1). That
 test was repaired on 2026-10-11 (§4.3). No Jenkins build from `beginning` has run it since.
-The next implementation scope is in §8.2.
+The open phase 7b.3 items are in §8.1, row "7b.3 remaining". §8.2 is the completed 7b.2 scope.
 **Created**: 2026-10-07 at commit `ff5c17da`
 **Controls**: Task 8 of the [consolidated task register](../tasks/tasks.md). Status and execution
 order are recorded in the register, not here.
@@ -3686,3 +3684,150 @@ the budget and the speed of `pg_rewind` and `pg_basebackup` were measured only o
 the lease but whose PostgreSQL is not the writer. Configuration files outside the data directory. The caller that
 decides when to call `rejoin`: there is no supervisor loop. The re-join policy cutover that restores two-peer
 coverage. Downstream modules and a Jenkins job build of this code.
+
+### 9.33 Phase 7b.3: Restart, Reload, and `pending_restart` (Owner Answer 10), 2026-11-17 (design)
+
+The next item of §9.28's order of work. Owner answer 10 (§9.28, row 10; §9.20 row 9): "Full Patroni set" — restart
+(conditional and scheduled), reload, and `pending_restart`. No design document describes these operations (a search
+of the four design documents for `pending_restart` finds nothing). This section is their design. It changes no
+existing contract.
+
+**Purpose.** An operator applies configuration changes to one node without bypassing local supervision. A reload makes
+PostgreSQL re-read its configuration files and is confirmed. The parameters that wait for a restart are observable. A
+restart stops and starts the node through the supervisor's guarded paths, now or at a scheduled time, optionally only
+when a restart is pending, when the node has a given role, or when its server version is below a given one. Success: a
+writer restarts writable under its own lease and, if it was serving, serves again; a standby restarts in recovery; a
+condition that is not met leaves PostgreSQL untouched; a scheduled restart runs once, or is cancelled when PostgreSQL
+restarted since it was scheduled.
+
+**Sources read, 2026-11-17.** Patroni REST API page (`POST /restart` with `restart_pending`, `role`, `postgres_version`,
+`timeout`, `schedule`; `DELETE /restart`; `POST /reload`; `pending_restart` and `pending_restart_reason`). Patroni
+v4.1.5 source, `patroni/ha.py` (`schedule_future_restart`, `delete_future_restart`, `restart_matches`,
+`evaluate_scheduled_restart`, `restart`, `handle_long_action_in_progress`, `touch_member`) and
+`patroni/postgresql/config.py` (`reload_config`). PostgreSQL 15 pages `view-pg-settings` (`pending_restart`, `context`)
+and `app-pg-ctl` (`restart`, `reload`, `postmaster.opts`). Code and tests read in full this session: the manifest of the
+2026-11-17 handover reading (handover §1).
+
+Facts from those sources that the design rests on:
+
+1. Patroni holds a scheduled restart in memory (`self.patroni.scheduled_restart`) and copies it into the member key on
+   each loop. The schedule records the postmaster start time; when PostgreSQL has started again since, the schedule is
+   cancelled ("postgres restart has already happened"). The conditions are checked when the restart runs, not when it is
+   scheduled. The schedule is cleared after the attempt, in a `finally` block.
+2. A Patroni leader keeps renewing its leader lock while its PostgreSQL restarts (`handle_long_action_in_progress`).
+3. `pg_settings.pending_restart` is true for a parameter changed in a configuration file that needs a restart. Patroni
+   reads it after a reload and reports the parameters with their values in effect and in the file.
+4. `pg_ctl reload` sends SIGHUP and does not wait. `pg_ctl restart` is a stop followed by a start, and passes the
+   contents of `postmaster.opts`, the options of the previous start, unless `-o` is given.
+
+**Data model.** One stored record is added: the scheduled restart.
+
+| Datum | Source of truth or derivable | Contract |
+|---|---|---|
+| Parameters pending a restart | Derived live: `pg_settings` rows with `pending_restart` | Never stored |
+| Postmaster start time | Derived live: `pg_postmaster_start_time()` | Evidence that a restart happened; the cancellation token of a schedule |
+| Server version | Derived live: `current_setting('server_version_num')` | Used by the version condition |
+| Configuration load time | Derived live: `pg_conf_load_time()` | Evidence that a reload happened (as OD-9) |
+| Configuration file errors | Derived live: `pg_file_settings.error`, `pg_hba_file_rules.error` | A reload that leaves an error fails |
+| Configuration content | The node's configuration files (deployment). Cluster-wide configuration in the coordinator is a later item (answer 12) | A reload applies what the files hold. The admission gate keeps owning `pg_hba.conf` |
+| Restart request: operation (UUID), `onlyIfPending`, role (`WRITER`, `STANDBY`, or any), `belowVersion` (or none) | Supplied by the caller | Stored only as receipt parameters and inside a schedule |
+| Receipt `restart` | Node-local store (existing), keyed by the observed record's generation and the request's operation | Parameters: the request. Begun only after the conditions are met |
+| Scheduled restart: the request, the time it is due (UTC), the postmaster start time when scheduled | Node-local store, new record `scheduled-restart.json`, one per node | The operator's intent; never derived. Removed by cancellation, by the cancellation rule, or after its attempt |
+
+**Contracts.**
+
+1. A new port `PgConfigurationControl` (adapter `PgSqlConfigurationControl`: `psql` on the local socket and
+   `pg_ctl reload`, one budget per operation, the shape of `PgSqlDurabilityControl`). Every failure is a
+   `PgConfigurationException`, including a failed command, no result, malformed output, and an exhausted budget.
+   - `settings()`: the postmaster start time, the server version number, whether the server is in recovery, and the
+     names of the parameters pending a restart. Fails while PostgreSQL is stopped.
+   - `reload()`: observes the load time, runs `pg_ctl reload`, waits within the budget until the load time changes, then
+     fails when `pg_file_settings` or `pg_hba_file_rules` reports an error, naming the entries.
+2. `PgFailoverMonitor.reload()`. Serialized. No lease, no receipt: the effect is observable (the load time), as OD-28
+   and OD-34 decide for slot steps. Not refused under quarantine (OD-61).
+3. `PgFailoverMonitor.restart(observed, request)`. Serialized. Returns `PgRestartResult(restarted, reason)`.
+   1. Refused before any effect and with no receipt: quarantine (`PgLocalStateException`); PostgreSQL stopped
+      (`PgProcessControlException`). When `observed` names this node as writer: no fresh ownership of exactly
+      `observed`, or a server in recovery (`PgLeaseProtocolException`). Otherwise: a writable server
+      (`PgPromotionException`), because a writable node that the record does not name needs a re-join, not a restart.
+   2. The conditions, observed live through `settings()`: `onlyIfPending` and no parameter pending; a role other than
+      the requested one; a version at or above `belowVersion`. Any unmet condition returns `restarted = false` with the
+      reason, logged at INFO, with no receipt and no effect (OD-57).
+   3. Begin the `restart` receipt with the request as parameters. Record `COMPLETED`, or `UNKNOWN` after a failure.
+   4. Writer: note whether the grant is `OPEN` and the record `SERVING`; close the grant and the gate; stop PostgreSQL
+      within the stop budget (the inhibitor first). An unconfirmed stop quarantines the node, as a demotion's does. Then
+      the guarded start of `startPrimary`: apply the watchdog mode, remove the inhibitor, start writable. A failed start,
+      or ownership lost while it ran, demotes the node and fails the call. When the grant was `OPEN` on a `SERVING`
+      record, prepare a grant of the same mode for the same revision and activate it; a gate that does not open revokes
+      admission and fails the call (OD-58). Otherwise admission stays closed.
+   5. Standby: close the grant and the gate, stop, start in recovery, and confirm the server is in recovery.
+   6. The result is `restarted = true` once the postmaster start time is later than before the stop.
+4. `PgFailoverMonitor.scheduleRestart(request, due)`. Serialized. Observes the postmaster start time and stores the
+   schedule. Refused while a schedule exists, while PostgreSQL is stopped, and under quarantine.
+   `cancelScheduledRestart()` removes it and returns whether one existed.
+5. `PgFailoverMonitor.runScheduledRestart(observed, now)`. Serialized. No schedule, or `now` before the due time: returns
+   that nothing ran. A postmaster start time other than the stored one: removes the schedule, logs at INFO that a
+   restart already happened, and returns that nothing ran. Otherwise runs the restart of contract 3 and removes the
+   schedule whatever the outcome; a failure of the restart is returned, with a failure to remove the schedule attached.
+   `now` is an argument, as the budget of `rejoin` is (OD-53). Nothing calls it outside tests until the supervisor loop
+   exists.
+
+**Danger, and the safety net.** A writer restart ends every application session; transactions in flight fail or have an
+unknown outcome (P-19), and writes are unavailable until the restart and re-admission complete. A writer whose start
+fails is demoted and its lease expires, so a covered standby can take over. A restart of a required standby blocks
+commits on the writer until it returns (S25). A scheduled restart runs with no operator present; its conditions are
+checked when it runs, and a restart that already happened cancels it. The renewal loop is not serialized with local
+effects, so the lease is renewed while the writer restarts, as a Patroni leader keeps its lock (fact 2).
+
+**Decisions of the implementer, 2026-11-17, under the owner's direction of 2026-11-13 to proceed without questions.
+Reversible.**
+
+- OD-54: a restart is the supervisor's own stop and guarded start, never `pg_ctl restart`. Reason: `pg_ctl restart`
+  passes `postmaster.opts`, the options of the previous start (fact 4), such as the `-c primary_conninfo=''` of a
+  re-join's crash recovery, and it would start a writer outside the guarded path (inhibitor removed under fresh
+  ownership, watchdog mode, receipt).
+- OD-55: reload and the settings observation form a new port, `PgConfigurationControl`, with its own exception. Reason:
+  their subject is neither promotion nor durability, and the builder (P7c) removed the constructor-argument reason of
+  OD-21 and OD-29. Cost: the 15 builder calls in 14 test classes gain the dependency.
+- OD-56: a restart request carries its own operation identity, and the receipt key uses it with the observed record's
+  generation. Reason: one control record can see several restarts; the record's own operation would make the second one
+  reuse the first one's final receipt.
+- OD-57: an unmet condition is a result, not a failure, and is logged at INFO. Reason: the caller asked for a conditional
+  restart, and nothing failed. Patroni's REST endpoint answers it with an error status; that is a difference.
+- OD-58: a writer restart restores admission only when the grant was `OPEN` and the record `SERVING` when it began, with
+  the same mode and revision. Reason: a restart must not open admission that was closed, and must not leave a serving
+  writer closed.
+- OD-59: a scheduled restart is stored in the node-local store, not in memory as Patroni holds it. Reason: an operator's
+  request must not disappear without a log line when the supervisor restarts. The postmaster-start-time rule (fact 1)
+  keeps a stored schedule from restarting a node twice.
+- OD-60: Patroni's `timeout` parameter is not adopted. The start is bounded by the process control's command timeout.
+  `peegeeq.pg.failover.primary-start-timeout-ms` stays designed and unbuilt (§9.20 row 5).
+- OD-61: reload is allowed under quarantine; restart is refused under any quarantine. Reason: a reload changes no role
+  and no admission; a re-join owns the process of a node under its quarantine.
+
+**Dependency failure modes, each with a failing test before its code.**
+
+| Dependency | Mode | Test class |
+|---|---|---|
+| `psql` and `pg_ctl reload` through the runner | command failure; no result; malformed output; budget exhausted; server stopped | `PgSqlConfigurationControlIntegrationTest` (new) |
+| Configuration files | a changed reloadable parameter takes effect; a changed restart parameter is reported pending; an invalid value in `postgresql.conf`; an invalid `pg_hba.conf` rule | `PgSqlConfigurationControlIntegrationTest` |
+| Restart, writer | serving writer restarts and serves again; writer with closed admission stays closed; no fresh ownership; record names another writer; quarantine; stopped server; unconfirmed stop; failed start; gate that does not open on re-admission; receipt with other parameters | `PgRestartIntegrationTest` (new) |
+| Restart, standby | standby restarts in recovery; writable node that the record does not name; failed start | `PgRestartIntegrationTest` |
+| Conditions | pending required and none pending; pending required and one pending (applied after the restart); role mismatch; version at or above the bound; version below it | `PgRestartIntegrationTest` |
+| Schedule, store | stored and read back; a second one refused; malformed record; record of another node; storage fault | `PgLocalStateStoreTest` (core) |
+| Schedule, monitor | none; not due; postmaster restarted since; due and run; due and the restart fails; cancel with and without one | `PgRestartIntegrationTest` |
+
+**Checks to run before the tests,** on throwaway `postgres:15.13-alpine3.20` containers on the Jenkins host: whether a
+reload with one invalid value in `postgresql.conf` applies the valid changes of the same file; what `pg_file_settings`
+reports for it; whether `pg_postmaster_start_time()` changes across a fast stop and start; and whether a parameter set by
+`ALTER SYSTEM` with context `postmaster` reports `pending_restart` after a reload and not after the restart.
+
+**Order of work.** RS0: the two existing test-standard violations found on 2026-11-17 (the `compose` teardown of
+`PgFailoverMonitorIntegrationTest`, the poll without a delay in `PgCtlProcessControlIntegrationTest`). RS1: the port and
+adapter (contract 1). RS2: `reload` and `restart` (contracts 2 and 3). RS3: the schedule (contracts 4 and 5). Each:
+tests and stubs that fail with "not implemented", red, implementation, green, mutation probes with SHA-256 records, the
+touched classes, core, and guards last.
+
+**Not decided here.** Who calls `runScheduledRestart` (the supervisor loop). How an operator reaches these operations
+(the status and control endpoints, answer 13). The callbacks `on_restart` and `on_reload` (answer 14). Restarting every
+member in turn.

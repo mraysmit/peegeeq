@@ -609,9 +609,11 @@ Java changes follow strict TDD with real-component failure tests.
 The implementation plan is
 `docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY_IMPLEMENTATION_PLAN.md`.
 It holds dated implementation findings and runs, adopted contracts P-0 to P-38, deployment
-gates G-1 to G-7, acceptance obligations S1 to S59, and twelve design decisions for phase
-7b.2 (OD-1 to OD-12). The implementer decided OD-1 to OD-3, and the owner has not reviewed
-them. The owner decided OD-4 to OD-12.
+gates G-1 to G-7, acceptance obligations S1 to S59, and the design decisions OD-1 to OD-61
+(phase 7b.2: OD-1 to OD-12; phase 7b.3: OD-13 onwards). The implementer decided OD-1 to OD-3,
+and the owner has not reviewed them. The owner decided OD-4 to OD-15 and the 2026-11-13 answers
+recorded in plan §9.28; the other 7b.3 decisions are the implementer's, reversible, and listed in
+the plan section of their increment.
 Status and execution order are controlled
 here. Design contracts do not establish runtime coverage.
 
