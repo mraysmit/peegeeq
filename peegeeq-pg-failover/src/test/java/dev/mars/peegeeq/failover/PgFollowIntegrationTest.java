@@ -410,7 +410,9 @@ class PgFollowIntegrationTest {
                                               PgPromotionControl control) {
         return PgFailoverMonitor.builder().config(followerConfig).elector(followerElector).store(store)
             .process(NODES.control(runner, FOLLOWER)).gate(gate).watchdog(watchdog).durability(durability)
-            .promotion(control).positions(positions).build();
+            .promotion(control).positions(positions)
+            .configuration(new PgSqlConfigurationControl(vertx, runner, NODES.node(FOLLOWER).prefix(),
+                PgSupervisedContainer.PG_CTL, "psql", NODES.dataDirectory(), COMMAND_TIMEOUT)).build();
     }
 
     private PgPromotionControl promotionControl(String nodeId) {
