@@ -59,7 +59,7 @@ class PgFailoverMonitorBuilderTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"config", "elector", "store", "process", "gate", "watchdog", "durability", "promotion",
-        "positions"})
+        "positions", "configuration"})
     void aMissingDependencyIsRefusedByName(String missing) {
         var builder = complete();
         switch (missing) {
@@ -72,6 +72,7 @@ class PgFailoverMonitorBuilderTest {
             case "durability" -> builder.durability(null);
             case "promotion" -> builder.promotion(null);
             case "positions" -> builder.positions(null);
+            case "configuration" -> builder.configuration(null);
             default -> fail("Unknown dependency " + missing);
         }
         var refusal = assertThrows(NullPointerException.class, builder::build);
@@ -88,6 +89,7 @@ class PgFailoverMonitorBuilderTest {
                 stateDirectory.resolve("no-watchdog-timeout")))
             .durability(new PgSqlDurabilityControl(vertx, runner, PREFIX, "pg_ctl", "psql", "/data", timeout))
             .promotion(new PgSqlPromotionControl(vertx, runner, PREFIX, "pg_ctl", "psql", "/data", timeout))
-            .positions(positions);
+            .positions(positions)
+            .configuration(new PgSqlConfigurationControl(vertx, runner, PREFIX, "pg_ctl", "psql", "/data", timeout));
     }
 }
