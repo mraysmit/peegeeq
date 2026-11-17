@@ -129,7 +129,10 @@ failures. No Jenkins job build has run this code.
    accepted now).
 6. Done 2026-11-15 (code `4aa9dc8e`, test additions `7489cd41`; records 2026-11-16, `4aa72780`): automatic rewind
    and rebuild (answer 9, plan §9.32, `PgFailoverMonitor.rejoin`). §5 row P-6 is marked reversed.
-7. Restart, reload, `pending_restart` (answer 10).
+7. Restart, reload, `pending_restart` (answer 10). In progress: design written 2026-11-17 (plan §9.33, OD-54 to OD-61);
+   RS0, the two test-standard fixes, done 2026-11-17; the PostgreSQL checks 1 to 8 done; RS1, the configuration port
+   and adapter, done 2026-11-17 (14 tests, probes 71 to 75 and 74c). Next RS1b (the three existing reload sites), then
+   RS2 and RS3.
 8. Coordinator configuration (answer 12).
 9. Status and metrics endpoints (answer 13).
 10. Callbacks (answer 14).
