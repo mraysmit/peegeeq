@@ -33,6 +33,7 @@ public final class PgFailoverMonitor {
     static final String FOLLOW_WRITER = "follow-writer";
     static final String REWIND = "rewind";
     static final String REBUILD = "rebuild";
+    static final String RESTART = "restart";
     /** The reason of the quarantine that a re-join keeps until standby validation (plan §9.32, OD-51). */
     static final String REJOIN_QUARANTINE = "Re-join in progress: rewind or rebuild, then standby validation";
     /** The start of the reason of a quarantine that only an operator clears (plan §9.32, OD-51). */
@@ -46,6 +47,7 @@ public final class PgFailoverMonitor {
     private final PgDurabilityControl durability;
     private final PgPromotionControl promotion;
     private final PgMemberPositions positions;
+    private final PgConfigurationControl configuration;
     private volatile PgControlRecord lastHeld;
     // Derived at run time: whether this monitor armed the watchdog and has not disarmed it.
     private volatile boolean armed;
@@ -61,6 +63,7 @@ public final class PgFailoverMonitor {
         this.durability = builder.durability;
         this.promotion = builder.promotion;
         this.positions = builder.positions;
+        this.configuration = builder.configuration;
     }
 
     /** A builder that requires every dependency (plan §9.28, P7c). */
@@ -79,6 +82,7 @@ public final class PgFailoverMonitor {
         private PgDurabilityControl durability;
         private PgPromotionControl promotion;
         private PgMemberPositions positions;
+        private PgConfigurationControl configuration;
 
         private Builder() {
         }
@@ -102,6 +106,9 @@ public final class PgFailoverMonitor {
 
         public Builder positions(PgMemberPositions value) { positions = value; return this; }
 
+        /** Reload and the settings observation (plan §9.33, OD-55). */
+        public Builder configuration(PgConfigurationControl value) { configuration = value; return this; }
+
         public PgFailoverMonitor build() {
             Objects.requireNonNull(config, "config");
             Objects.requireNonNull(elector, "elector");
@@ -112,6 +119,7 @@ public final class PgFailoverMonitor {
             Objects.requireNonNull(durability, "durability");
             Objects.requireNonNull(promotion, "promotion");
             Objects.requireNonNull(positions, "positions");
+            Objects.requireNonNull(configuration, "configuration");
             return new PgFailoverMonitor(this);
         }
     }
@@ -502,6 +510,242 @@ public final class PgFailoverMonitor {
                     return Future.<Void>succeededFuture();
                 }
                 return underReceipt(held, operation, CHECKPOINT_AFTER_PROMOTE, new JsonObject(), promotion::checkpoint);
+            });
+    }
+
+    /**
+     * Reloads the local configuration files and confirms the reload (plan §9.33, contract 2). Serialized. No lease and no
+     * receipt: the load time is the evidence (OD-28, OD-34). Allowed under quarantine (OD-61): a reload changes no role
+     * and no admission.
+     */
+    public Future<Void> reload() {
+        return serialized(configuration::reload);
+    }
+
+    /**
+     * Restarts the local PostgreSQL through the supervisor's own stop and guarded start, never {@code pg_ctl restart}
+     * (plan §9.33, contract 3, OD-54). Serialized. Refused before any effect and with no receipt: quarantine
+     * ({@link PgLocalStateException}); a stopped server ({@link PgProcessControlException}); when {@code observed} names
+     * this node as writer, no fresh ownership of exactly {@code observed} or a server in recovery
+     * ({@link PgLeaseProtocolException}); otherwise a writable server ({@link PgPromotionException}). A reload first makes
+     * the pending flags current; a failed reload refuses the restart. A condition of {@code request} that is not met
+     * returns a result that did not restart. Otherwise the {@value #RESTART} receipt covers the restart. A writer that
+     * was serving with an open grant is admitted again with a grant of the same mode and revision (OD-58); a writer whose
+     * start fails, or whose ownership is lost, is demoted.
+     */
+    public Future<PgRestartResult> restart(PgControlRecord observed, PgRestartRequest request) {
+        return serialized(() -> restartNow(observed, request));
+    }
+
+    /**
+     * The restart of {@link #restart}, for a caller that already runs inside a serialized operation. A refusal of the
+     * record or the ownership is thrown at once.
+     */
+    private Future<PgRestartResult> restartNow(PgControlRecord observed, PgRestartRequest request) {
+        Objects.requireNonNull(observed, "observed");
+        Objects.requireNonNull(request, "request");
+        String named = observed.intent().getString("writerNodeId");
+        boolean writer = config.nodeId().equals(named);
+        if (writer && !elector.holds(observed)) {
+            throw new PgLeaseProtocolException("A writer restart requires fresh ownership of exactly the observed "
+                + "record");
+        }
+        return requireNoQuarantine().compose(ignored -> process.status()).compose(state -> {
+            if (state != PgProcessState.RUNNING) {
+                throw new PgProcessControlException("PostgreSQL is stopped; a restart needs a running server");
+            }
+            return promotion.inRecovery();
+        }).compose(recovering -> {
+            if (writer && recovering) {
+                throw new PgLeaseProtocolException("PostgreSQL is in recovery although the record names this node "
+                    + "as writer");
+            }
+            if (!writer && !recovering) {
+                throw new PgPromotionException("PostgreSQL is writable but the record names " + named + " as writer; "
+                    + "this node needs a re-join, not a restart");
+            }
+            // The reload makes the pending flags current, and refuses a value PostgreSQL would not start with.
+            return configuration.reload();
+        }).compose(ignored -> configuration.settings()).compose(before -> {
+            Optional<String> unmet = unmetCondition(request, before, writer);
+            if (unmet.isPresent()) {
+                logger.info("Restart of node {} not run: {}", config.nodeId(), unmet.orElseThrow());
+                return Future.succeededFuture(new PgRestartResult(false, unmet.orElseThrow()));
+            }
+            logger.info("Restarting local PostgreSQL on node {} as {}", config.nodeId(), writer ? "writer" : "standby");
+            return underReceipt(observed, request.operationId(), RESTART, request.conditions(),
+                    () -> (writer ? restartWriter(observed) : restartStandby()).compose(ignored -> startedAgain(before)))
+                .map(ignored -> new PgRestartResult(true, "Restarted as " + (writer ? "writer" : "standby")));
+        });
+    }
+
+    /**
+     * Schedules a restart of this node at {@code due} (plan §9.33, contract 4). Serialized. Observes the postmaster start
+     * time and stores the schedule in the node-local store (OD-59). Refused while a schedule exists
+     * ({@link PgLocalStateException}), while PostgreSQL is stopped ({@link PgConfigurationException}), and under
+     * quarantine ({@link PgLocalStateException}).
+     */
+    public Future<Void> scheduleRestart(PgRestartRequest request, java.time.Instant due) {
+        return serialized(() -> {
+            Objects.requireNonNull(request, "request");
+            Objects.requireNonNull(due, "due");
+            return requireNoQuarantine().compose(ignored -> configuration.settings())
+                .compose(settings -> store.scheduleRestart(new PgScheduledRestart(config.nodeId(), request, due,
+                    settings.postmasterStartMicros())))
+                .map(ignored -> {
+                    logger.info("Restart of node {} scheduled for {}", config.nodeId(), due);
+                    return null;
+                });
+        });
+    }
+
+    /** Removes the scheduled restart, and returns whether one existed (plan §9.33, contract 4). Serialized. */
+    public Future<Boolean> cancelScheduledRestart() {
+        return serialized(store::clearScheduledRestart);
+    }
+
+    /**
+     * Runs the scheduled restart when it is due (plan §9.33, contract 5). Serialized. No schedule, or {@code now} before
+     * the due time: nothing runs. A postmaster start time other than the stored one: the restart already happened, so the
+     * schedule is removed and nothing runs. Otherwise the restart of {@link #restart} runs, and the schedule is removed
+     * whatever its outcome; a failed restart is returned, with a failure to remove the schedule attached.
+     */
+    public Future<PgRestartResult> runScheduledRestart(PgControlRecord observed, java.time.Instant now) {
+        return serialized(() -> {
+            Objects.requireNonNull(observed, "observed");
+            Objects.requireNonNull(now, "now");
+            return store.scheduledRestart().compose(found -> {
+                if (found.isEmpty()) return Future.succeededFuture(new PgRestartResult(false, "No restart is scheduled"));
+                PgScheduledRestart schedule = found.orElseThrow();
+                if (now.isBefore(schedule.due())) {
+                    return Future.succeededFuture(new PgRestartResult(false, "The scheduled restart is due at "
+                        + schedule.due()));
+                }
+                return configuration.settings().compose(settings -> {
+                    if (settings.postmasterStartMicros() != schedule.postmasterStartMicros()) {
+                        String reason = "PostgreSQL started again since the restart was scheduled; the restart already "
+                            + "happened";
+                        logger.info("Cancelling the scheduled restart of node {}: {}", config.nodeId(), reason);
+                        return store.clearScheduledRestart().map(cleared -> new PgRestartResult(false, reason));
+                    }
+                    logger.info("Running the restart of node {} scheduled for {}", config.nodeId(), schedule.due());
+                    // The schedule is removed whatever the outcome, as Patroni clears it after the attempt.
+                    return Future.<Void>succeededFuture().compose(ignored -> restartNow(observed, schedule.request()))
+                        .transform(outcome -> store.clearScheduledRestart().transform(cleared -> {
+                            if (outcome.failed()) {
+                                if (cleared.failed()) outcome.cause().addSuppressed(cleared.cause());
+                                return Future.<PgRestartResult>failedFuture(outcome.cause());
+                            }
+                            return cleared.failed() ? Future.<PgRestartResult>failedFuture(cleared.cause())
+                                : Future.succeededFuture(outcome.result());
+                        }));
+                });
+            });
+        });
+    }
+
+    /** The first condition of the request that the live observation does not meet, or none (OD-57). */
+    private static Optional<String> unmetCondition(PgRestartRequest request, PgServerSettings settings, boolean writer) {
+        if (request.onlyIfPending() && settings.pendingRestart().isEmpty()) {
+            return Optional.of("No parameter is pending a restart, and the request restarts only when one is pending");
+        }
+        PgRestartRole actual = writer ? PgRestartRole.WRITER : PgRestartRole.STANDBY;
+        if (request.role().filter(required -> required != actual).isPresent()) {
+            return Optional.of("The node is a " + actual + ", and the request restarts only a "
+                + request.role().orElseThrow());
+        }
+        if (request.belowVersion().isPresent() && settings.serverVersion() >= request.belowVersion().getAsInt()) {
+            return Optional.of("The server version " + settings.serverVersion() + " is not below "
+                + request.belowVersion().getAsInt());
+        }
+        return Optional.empty();
+    }
+
+    /** The restart is confirmed when the postmaster started later than before the stop. */
+    private Future<Void> startedAgain(PgServerSettings before) {
+        return configuration.settings().map(after -> {
+            if (after.postmasterStartMicros() <= before.postmasterStartMicros()) {
+                throw new PgProcessControlException("The postmaster did not start again");
+            }
+            return null;
+        });
+    }
+
+    /**
+     * Closes admission, stops the writer, and starts it writable through the guarded path. An unconfirmed stop
+     * quarantines the node. A start that fails, or ownership lost while it ran, demotes the node. A writer that served
+     * with the open grant of exactly this record is admitted again with a grant of the same mode and revision (OD-58).
+     */
+    private Future<Void> restartWriter(PgControlRecord observed) {
+        return store.grant().compose(stored -> {
+            Optional<PgWriterGrant> serving = stored.filter(grant -> servedUnder(grant, observed));
+            return store.closeGrant().compose(ignored -> gate.close(config.stopTimeout()))
+                .compose(ignored -> stopForRestart())
+                .compose(ignored -> applyWatchdogMode().compose(applied -> process.startPrimary()).transform(started -> {
+                    if (started.succeeded() && elector.holds(observed)) return Future.<Void>succeededFuture();
+                    Throwable cause = started.failed() ? started.cause()
+                        : new PgLeaseProtocolException("Ownership was lost while PostgreSQL restarted");
+                    String reason = "Restart did not complete under ownership";
+                    logger.error("Demoting local PostgreSQL on node {}: {}", config.nodeId(), reason, cause);
+                    return demoteNow(observed, reason).transform(demotion -> {
+                        if (demotion.failed()) cause.addSuppressed(demotion.cause());
+                        return Future.<Void>failedFuture(cause);
+                    });
+                }))
+                .compose(ignored -> serving.isPresent() ? readmit(observed, serving.orElseThrow())
+                    : Future.<Void>succeededFuture());
+        });
+    }
+
+    /** The grant was open for exactly this serving record: same node, generation, operation, and confirmed revision. */
+    private boolean servedUnder(PgWriterGrant grant, PgControlRecord observed) {
+        JsonObject intent = observed.intent();
+        JsonObject confirmed = intent.getJsonObject("durabilityPolicy");
+        return grant.state() == PgGrantState.OPEN && "SERVING".equals(intent.getString("phase")) && confirmed != null
+            && grant.generation() == observed.generation()
+            && grant.operationId().equals(intent.getString("operationId"))
+            && grant.policyRevision() == confirmed.getLong("revision")
+            && grant.nodeId().equals(config.nodeId());
+    }
+
+    /** Stops PostgreSQL within the stop budget. An unconfirmed stop of a writer quarantines the node, as a demotion does. */
+    private Future<Void> stopForRestart() {
+        return process.stop(config.stopTimeout()).transform(stopped -> {
+            if (stopped.succeeded()) return Future.<Void>succeededFuture();
+            logger.error("Local writer stop is unconfirmed on node {}", config.nodeId(), stopped.cause());
+            return store.quarantine("Writer stop unconfirmed: restart").transform(quarantined -> {
+                if (quarantined.failed()) stopped.cause().addSuppressed(quarantined.cause());
+                return Future.<Void>failedFuture(stopped.cause());
+            });
+        });
+    }
+
+    /** Prepares and activates a grant of the same mode and revision, then opens the gate; a failure revokes admission. */
+    private Future<Void> readmit(PgControlRecord observed, PgWriterGrant served) {
+        return store.prepare(served.mode(), observed.generation(), served.operationId(), served.policyRevision())
+            .compose(store::activate)
+            .compose(open -> gate.open().transform(opened -> {
+                if (opened.succeeded() && elector.holds(observed)) return Future.<Void>succeededFuture();
+                Throwable cause = opened.failed() ? opened.cause()
+                    : new PgLeaseProtocolException("Ownership was lost while admission opened");
+                logger.error("Revoking writer admission on node {}: {}", config.nodeId(),
+                    "Restart did not restore admission", cause);
+                return revokeNow().transform(revoked -> {
+                    if (revoked.failed()) cause.addSuppressed(revoked.cause());
+                    return Future.<Void>failedFuture(cause);
+                });
+            }));
+    }
+
+    /** Closes admission, stops the standby, starts it in recovery, and confirms it is in recovery. */
+    private Future<Void> restartStandby() {
+        return store.closeGrant().compose(ignored -> gate.close(config.stopTimeout()))
+            .compose(ignored -> process.stop(config.stopTimeout()))
+            .compose(ignored -> process.startInRecovery())
+            .compose(ignored -> promotion.inRecovery())
+            .map(recovering -> {
+                if (!recovering) throw new PgPromotionException("The restarted standby is not in recovery");
+                return null;
             });
     }
 
