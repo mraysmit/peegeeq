@@ -668,7 +668,9 @@ class PgPromotionIntegrationTest {
     private PgFailoverMonitor monitorOf(PgNodeConfig nodeConfig, PgPrimaryElector owner,
                                         PgDurabilityControl durabilityControl, PgPromotionControl promotionControl) {
         return PgFailoverMonitor.builder().config(nodeConfig).elector(owner).store(store).process(process).gate(gate)
-            .watchdog(watchdog).durability(durabilityControl).promotion(promotionControl).positions(positions).build();
+            .watchdog(watchdog).durability(durabilityControl).promotion(promotionControl).positions(positions)
+            .configuration(new PgSqlConfigurationControl(vertx, runner, NODES.node(WRITER).prefix(),
+                PgSupervisedContainer.PG_CTL, "psql", NODES.dataDirectory(), COMMAND_TIMEOUT)).build();
     }
 
     private PgDurabilityControl writerDurability() {
