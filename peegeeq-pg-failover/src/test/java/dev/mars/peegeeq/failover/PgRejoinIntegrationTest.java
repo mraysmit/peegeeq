@@ -470,7 +470,9 @@ class PgRejoinIntegrationTest {
             .map(store -> new Member(nodeId, store, PgFailoverMonitor.builder().config(config).elector(elector)
                 .store(store).process(processWrapper.apply(NODES.control(runner, nodeId))).gate(gate).watchdog(watchdog)
                 .durability(durability(nodeId)).promotion(promotionWrapper.apply(promotion(nodeId)))
-                .positions(positions).build()));
+                .positions(positions)
+                .configuration(new PgSqlConfigurationControl(vertx, runner, node.prefix(), PgSupervisedContainer.PG_CTL,
+                    "psql", directory, COMMAND_TIMEOUT)).build()));
     }
 
     /** A serving record that names {@code writer}, held under a lease, as the coordinator returns it. */
