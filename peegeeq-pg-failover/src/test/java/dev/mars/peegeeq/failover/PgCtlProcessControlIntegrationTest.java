@@ -31,6 +31,7 @@ class PgCtlProcessControlIntegrationTest {
     private static final Duration COMMAND_TIMEOUT = Duration.ofSeconds(20);
     private static final Duration STOP_BUDGET = Duration.ofSeconds(10);
     private static final PgSupervisedContainer POSTGRES = new PgSupervisedContainer();
+    private Vertx vertx;
     private PgCommandRunner runner;
     private String dataDirectory;
     private PgProcessControl control;
@@ -44,6 +45,7 @@ class PgCtlProcessControlIntegrationTest {
     }
 
     @BeforeEach void setUp(Vertx vertx, VertxTestContext context) {
+        this.vertx = vertx;
         runner = new LocalCommandRunner(vertx);
         POSTGRES.newDataDirectory(runner).onSuccess(created -> context.verify(() -> {
             dataDirectory = created;
@@ -198,7 +200,7 @@ class PgCtlProcessControlIntegrationTest {
             COMMAND_TIMEOUT);
     }
 
-    /** Polls until a backend running the given text is visible, and fails on the deadline. */
+    /** Polls every 100 ms until a backend running the given text is visible, and fails on the deadline. */
     private Future<Void> waitForBackend(String text, long deadline) {
         return POSTGRES.sql(runner, "select count(*) from pg_stat_activity where query like '%" + text
                 + "%' and pid <> pg_backend_pid()").compose(result -> {
@@ -207,7 +209,7 @@ class PgCtlProcessControlIntegrationTest {
                 return Future.failedFuture(new AssertionError("Backend did not appear: " + result.output()));
             }
             logger.debug("Waiting for backend: {}", result.output());
-            return Future.<Void>succeededFuture().compose(ignored -> waitForBackend(text, deadline));
+            return vertx.timer(100).compose(ignored -> waitForBackend(text, deadline));
         });
     }
 }
