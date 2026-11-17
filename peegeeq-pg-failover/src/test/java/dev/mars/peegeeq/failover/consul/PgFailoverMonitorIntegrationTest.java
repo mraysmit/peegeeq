@@ -5,6 +5,8 @@ import dev.mars.peegeeq.failover.PgActionResult;
 import dev.mars.peegeeq.failover.PgAdmissionGate;
 import dev.mars.peegeeq.failover.PgCommandResult;
 import dev.mars.peegeeq.failover.PgCommandRunner;
+import dev.mars.peegeeq.failover.PgConfigurationControl;
+import dev.mars.peegeeq.failover.PgSqlConfigurationControl;
 import dev.mars.peegeeq.failover.PgControlRecord;
 import dev.mars.peegeeq.failover.PgCtlProcessControl;
 import dev.mars.peegeeq.failover.PgFailoverMode;
@@ -32,6 +34,7 @@ import dev.mars.peegeeq.failover.PgWatchdogMode;
 import dev.mars.peegeeq.failover.PgWriterGrant;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonArray;
@@ -91,6 +94,7 @@ class PgFailoverMonitorIntegrationTest {
     private PgWatchdog watchdog;
     private PgDurabilityControl durability;
     private PgPromotionControl promotion;
+    private PgConfigurationControl configuration;
     private PgFailoverMonitor monitor;
     private PgPrimaryElector modeElector;
     private PgMemberPositions positions;
@@ -126,6 +130,8 @@ class PgFailoverMonitorIntegrationTest {
                     "psql", dataDirectory, Duration.ofSeconds(20));
                 promotion = new PgSqlPromotionControl(vertx, runner, POSTGRES.prefix(), PgSupervisedContainer.PG_CTL,
                     "psql", dataDirectory, Duration.ofSeconds(20));
+                configuration = new PgSqlConfigurationControl(vertx, runner, POSTGRES.prefix(),
+                    PgSupervisedContainer.PG_CTL, "psql", dataDirectory, Duration.ofSeconds(20));
                 // This host has no watchdog device. Neither path exists.
                 watchdog = new PgDeviceWatchdog(vertx, stateDirectory.resolve("no-watchdog"),
                     stateDirectory.resolve("no-watchdog-timeout"));
@@ -138,13 +144,17 @@ class PgFailoverMonitorIntegrationTest {
     }
 
     @AfterEach void tearDown(VertxTestContext context) {
-        POSTGRES.forceStop(runner, dataDirectory).transform(stopped -> elector.close()
-            .compose(ignored -> modeElector == null ? Future.<Void>succeededFuture() : modeElector.close())
-            .compose(ignored -> positions.close())
-            .compose(ignored -> {
-            admin.close();
-            return stopped.succeeded() ? Future.<Void>succeededFuture() : Future.failedFuture(stopped.cause());
-        })).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+        // Every step runs even when an earlier one fails, and the first failure fails the test.
+        TestCleanup.run(
+                () -> POSTGRES.forceStop(runner, dataDirectory),
+                () -> elector.close(),
+                () -> modeElector == null ? Future.<Void>succeededFuture() : modeElector.close(),
+                () -> positions.close(),
+                () -> {
+                    admin.close();
+                    return Future.<Void>succeededFuture();
+                })
+            .onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
     }
 
     @Test
@@ -679,7 +689,8 @@ class PgFailoverMonitorIntegrationTest {
     private PgFailoverMonitor monitorOf(PgNodeConfig nodeConfig, PgPrimaryElector owner, PgProcessControl control,
                                         PgAdmissionGate admission) {
         return PgFailoverMonitor.builder().config(nodeConfig).elector(owner).store(store).process(control)
-            .gate(admission).watchdog(watchdog).durability(durability).promotion(promotion).positions(positions).build();
+            .gate(admission).watchdog(watchdog).durability(durability).promotion(promotion).positions(positions)
+            .configuration(configuration).build();
     }
 
     private PgAdmissionGate gate(String openFile, String closedFile) {
