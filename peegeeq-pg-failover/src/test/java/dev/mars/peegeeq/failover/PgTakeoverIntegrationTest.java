@@ -631,7 +631,9 @@ class PgTakeoverIntegrationTest {
             stateDirectory.resolve("no-watchdog-timeout"));
         return PgFailoverMonitor.builder().config(nodeConfig).elector(owner).store(nodeStore)
             .process(NODES.control(runner, nodeId)).gate(gate).watchdog(watchdog).durability(durability)
-            .promotion(promotion).positions(positionsOf(nodeId)).build();
+            .promotion(promotion).positions(positionsOf(nodeId))
+            .configuration(new PgSqlConfigurationControl(vertx, runner, node.prefix(), PgSupervisedContainer.PG_CTL, "psql",
+                directory, COMMAND_TIMEOUT)).build();
     }
 
     private PgDurabilityControl durabilityOf(String nodeId, Duration budget) {
