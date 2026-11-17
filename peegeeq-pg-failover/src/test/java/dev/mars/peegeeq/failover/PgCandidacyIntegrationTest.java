@@ -237,7 +237,9 @@ class PgCandidacyIntegrationTest {
                 node.openHba(directory), node.closedHba(directory), COMMAND_TIMEOUT))
             .watchdog(new PgDeviceWatchdog(vertx, stateDirectory.resolve("no-watchdog"),
                 stateDirectory.resolve("no-watchdog-timeout")))
-            .durability(durabilityOf(nodeId)).promotion(promotionOf(nodeId)).positions(positions).build();
+            .durability(durabilityOf(nodeId)).promotion(promotionOf(nodeId)).positions(positions)
+            .configuration(new PgSqlConfigurationControl(vertx, runner, node.prefix(), PgSupervisedContainer.PG_CTL, "psql",
+                directory, COMMAND_TIMEOUT)).build();
     }
 
     private PgMemberPositions positionsOf(String nodeId) {
