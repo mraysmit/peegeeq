@@ -537,7 +537,9 @@ class PgPolicyInstallationIntegrationTest {
         var promotion = new PgSqlPromotionControl(vertx, runner, NODES.node(WRITER).prefix(),
             PgSupervisedContainer.PG_CTL, "psql", NODES.dataDirectory(), COMMAND_TIMEOUT);
         return PgFailoverMonitor.builder().config(config).elector(elector).store(store).process(process).gate(gate)
-            .watchdog(watchdog).durability(durability).promotion(promotion).positions(positions).build();
+            .watchdog(watchdog).durability(durability).promotion(promotion).positions(positions)
+            .configuration(new PgSqlConfigurationControl(vertx, runner, NODES.node(WRITER).prefix(),
+                PgSupervisedContainer.PG_CTL, "psql", NODES.dataDirectory(), COMMAND_TIMEOUT)).build();
     }
 
     private PgDurabilityControl durability(Duration budget) {
