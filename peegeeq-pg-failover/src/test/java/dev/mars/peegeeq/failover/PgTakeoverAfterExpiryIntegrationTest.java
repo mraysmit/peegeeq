@@ -535,7 +535,9 @@ class PgTakeoverAfterExpiryIntegrationTest {
         positionAdapters.add(positions);
         return PgFailoverMonitor.builder().config(nodeConfig).elector(owner).store(nodeStore)
             .process(NODES.control(runner, nodeId)).gate(gate).watchdog(watchdog).durability(durabilityOf(nodeId))
-            .promotion(promotion).positions(positions).build();
+            .promotion(promotion).positions(positions)
+            .configuration(new PgSqlConfigurationControl(vertx, runner, node.prefix(), PgSupervisedContainer.PG_CTL, "psql",
+                directory, COMMAND_TIMEOUT)).build();
     }
 
     private PgDurabilityControl durabilityOf(String nodeId) {
