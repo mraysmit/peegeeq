@@ -108,7 +108,9 @@ class PgSlotIntegrationTest {
                     stateDirectory.resolve("no-watchdog-timeout"));
                 monitor = PgFailoverMonitor.builder().config(config).elector(elector).store(store)
                     .process(NODES.control(runner, WRITER)).gate(gate).watchdog(watchdog).durability(writerDurability())
-                    .promotion(promotion).positions(positionsFor(WRITER)).build();
+                    .promotion(promotion).positions(positionsFor(WRITER))
+                    .configuration(new PgSqlConfigurationControl(vertx, runner, writer.prefix(),
+                        PgSupervisedContainer.PG_CTL, "psql", directory, COMMAND_TIMEOUT)).build();
                 context.completeNow();
             })).onFailure(context::failNow);
     }
@@ -403,7 +405,9 @@ class PgSlotIntegrationTest {
             .durability(durabilityOf(nodeId))
             .promotion(new PgSqlPromotionControl(vertx, runner, node.prefix(), PgSupervisedContainer.PG_CTL, "psql",
                 directory, COMMAND_TIMEOUT))
-            .positions(positions).build();
+            .positions(positions)
+            .configuration(new PgSqlConfigurationControl(vertx, runner, node.prefix(), PgSupervisedContainer.PG_CTL, "psql",
+                directory, COMMAND_TIMEOUT)).build();
     }
 
     private Future<PgLocalStateStore> memberStore(String nodeId) {
