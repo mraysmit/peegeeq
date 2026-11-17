@@ -750,7 +750,9 @@ class PgBootstrapServingIntegrationTest {
         var positions = new ConsulMemberPositions(vertx, nodeConfig, endpoint(), "consul-1", TOKEN);
         positionAdapters.add(positions);
         var monitor = PgFailoverMonitor.builder().config(nodeConfig).elector(owner).store(store).process(process)
-            .gate(admission).watchdog(watchdog).durability(durability).promotion(promotion).positions(positions).build();
+            .gate(admission).watchdog(watchdog).durability(durability).promotion(promotion).positions(positions)
+            .configuration(new PgSqlConfigurationControl(vertx, runner, NODES.node(WRITER).prefix(),
+                PgSupervisedContainer.PG_CTL, "psql", NODES.dataDirectory(), COMMAND_TIMEOUT)).build();
         var loop = new PgRenewalLoop(vertx, nodeConfig, owner, monitor);
         return new Parts(new PgBootstrap(vertx, nodeConfig, owner, store, monitor, loop), monitor);
     }
