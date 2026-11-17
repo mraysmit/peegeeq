@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.failover;
 
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -177,6 +178,80 @@ class PgHbaAdmissionGateIntegrationTest {
             assertEquals(0, compared.exitCode(), "The rules for the next start are no longer the closed rules");
             context.completeNow();
         })).onFailure(context::failNow);
+    }
+
+    @Test void closeWithAConfigurationFileThatPostgreSqlRejectsEndsSessionsAndFailsWithoutWaitingOutItsBudget(
+            VertxTestContext context) {
+        // Plan §9.33, check 9: PostgreSQL then applies pg_hba.conf on a reload but leaves the load time unchanged, so a
+        // wait for the load time ends only at the budget, before the sessions are ended.
+        var gate = gate(dataDirectory, POSTGRES.openHba(dataDirectory), POSTGRES.closedHba(dataDirectory));
+        var budget = Duration.ofSeconds(20);
+        gate.close(BUDGET).compose(ignored -> control.startPrimary()).compose(ignored -> gate.open()).compose(open -> {
+            Future<PgCommandResult> session = POSTGRES.applicationSql(runner, "select pg_sleep(90)");
+            return waitForBackend("pg_sleep", System.nanoTime() + TimeUnit.SECONDS.toNanos(20))
+                .compose(ignored -> breakConfiguration())
+                .compose(ignored -> {
+                    long started = System.nanoTime();
+                    return gate.close(budget).transform(close -> {
+                        assertTrue(close.failed(), "A close whose reload cannot be confirmed was reported as success");
+                        assertInstanceOf(PgProcessControlException.class, close.cause());
+                        assertTrue(close.cause().getMessage().contains("no_such_parameter"), close.cause().getMessage());
+                        assertTrue(System.nanoTime() - started < budget.minusSeconds(5).toNanos(),
+                            "The close waited out its budget");
+                        return session;
+                    });
+                });
+        }).compose(session -> {
+            assertNotEquals(0, session.exitCode(), "An application session survived the close: " + session.output());
+            return POSTGRES.applicationSql(runner, "select 1");
+        }).onSuccess(application -> context.verify(() -> {
+            assertNotEquals(0, application.exitCode(), "A new application connection was admitted after the close");
+            context.completeNow();
+        })).onFailure(context::failNow);
+    }
+
+    @Test void openWithAConfigurationFileThatPostgreSqlRejectsIsRefusedAndAdmitsNothing(VertxTestContext context) {
+        // Check 9: a reload would apply the open rules although the load time never changes.
+        var gate = gate(dataDirectory, POSTGRES.openHba(dataDirectory), POSTGRES.closedHba(dataDirectory));
+        gate.close(BUDGET).compose(ignored -> control.startPrimary()).compose(ignored -> breakConfiguration())
+            .compose(ignored -> {
+                long started = System.nanoTime();
+                return gate.open().transform(open -> {
+                    assertTrue(open.failed(), "Admission opened with a configuration file that PostgreSQL rejects");
+                    assertInstanceOf(PgProcessControlException.class, open.cause());
+                    assertTrue(open.cause().getMessage().contains("no_such_parameter"), open.cause().getMessage());
+                    assertTrue(System.nanoTime() - started < COMMAND_TIMEOUT.minusSeconds(5).toNanos(),
+                        "The open waited out its budget");
+                    return POSTGRES.applicationSql(runner, "select 1");
+                });
+            }).compose(application -> {
+                assertNotEquals(0, application.exitCode(), "An application connected after a refused open");
+                return POSTGRES.exec(runner, "cmp", "-s", POSTGRES.closedHba(dataDirectory), dataDirectory + "/pg_hba.conf");
+            }).onSuccess(compared -> context.verify(() -> {
+                assertEquals(0, compared.exitCode(), "A refused open installed the open rules");
+                context.completeNow();
+            })).onFailure(context::failNow);
+    }
+
+    /** An unknown parameter: PostgreSQL then applies no change of postgresql.conf (plan §9.33, check 6). */
+    private Future<Void> breakConfiguration() {
+        return POSTGRES.exec(runner, "sh", "-c", "printf 'no_such_parameter = 1\\n' >> " + dataDirectory
+            + "/postgresql.conf").map(result -> {
+                assertEquals(0, result.exitCode(), result.output());
+                return null;
+            });
+    }
+
+    /** Polls every 100 ms until a backend running the given text is visible, and fails on the deadline. */
+    private Future<Void> waitForBackend(String text, long deadline) {
+        return POSTGRES.sql(runner, "select count(*) from pg_stat_activity where query like '%" + text
+                + "%' and pid <> pg_backend_pid()").compose(result -> {
+            if (result.exitCode() == 0 && !"0".equals(result.output().strip())) return Future.succeededFuture();
+            if (System.nanoTime() >= deadline) {
+                return Future.failedFuture(new AssertionError("Backend did not appear: " + result.output()));
+            }
+            return vertx.timer(100).compose(ignored -> waitForBackend(text, deadline));
+        });
     }
 
     private PgAdmissionGate gate(String directory, String openFile, String closedFile) {
