@@ -59,9 +59,18 @@ public final class PgHbaAdmissionGate implements PgAdmissionGate {
         return install(closedFile, deadline).compose(ignored -> running(deadline)).compose(running -> {
             // Stopped: the installed file is what the next start loads. There is nothing to end.
             if (!running) return Future.<Void>succeededFuture();
-            return reload(deadline)
-                .compose(ignored -> sql(deadline, "select count(pg_terminate_backend(pid)) " + NETWORK_CLIENTS))
-                .compose(ignored -> awaitNoNetworkClients(deadline));
+            return rejected(deadline).compose(rejected -> {
+                if (rejected.isEmpty()) return reload(deadline).compose(ignored -> endNetworkClients(deadline));
+                // PostgreSQL applies pg_hba.conf on this reload, but leaves the load time unchanged (plan §9.33, check
+                // 9), so the reload cannot be confirmed. The closed rules and the end of the sessions still take effect.
+                return run(deadline, pgCtl, "reload", "-D", dataDirectory)
+                    .map(result -> requireSuccess(result, "pg_ctl reload"))
+                    .compose(ignored -> endNetworkClients(deadline))
+                    .compose(ignored -> Future.<Void>failedFuture(new PgProcessControlException("Admission is not "
+                        + "confirmed closed: the closed rules are installed, a reload was sent, and the network sessions "
+                        + "were ended, but the configuration files hold errors that PostgreSQL rejects, so the reload "
+                        + "cannot be confirmed: " + rejected)));
+            });
         });
     }
 
@@ -70,8 +79,35 @@ public final class PgHbaAdmissionGate implements PgAdmissionGate {
         long deadline = System.nanoTime() + commandTimeout.toNanos();
         return running(deadline).compose(running -> {
             if (!running) throw new PgProcessControlException("Admission cannot open while PostgreSQL is stopped");
+            return rejected(deadline);
+        }).compose(rejected -> {
+            // A reload would apply the open rules although it could not be confirmed (plan §9.33, check 9).
+            if (!rejected.isEmpty()) {
+                throw new PgProcessControlException("Admission cannot open: the configuration files hold errors that "
+                    + "PostgreSQL rejects, so a reload cannot be confirmed: " + rejected);
+            }
             return install(openFile, deadline);
         }).compose(ignored -> reload(deadline));
+    }
+
+    /** Ends every client backend that arrived over the network, and observes that none remains. */
+    private Future<Void> endNetworkClients(long deadline) {
+        return sql(deadline, "select count(pg_terminate_backend(pid)) " + NETWORK_CLIENTS)
+            .compose(ignored -> awaitNoNetworkClients(deadline));
+    }
+
+    /**
+     * The configuration file errors for which PostgreSQL applies no change of {@code postgresql.conf} and leaves the load
+     * time unchanged on a reload (plan §9.33, check 6): the {@code rejected} list of {@link PgConfigurationFiles}.
+     */
+    private Future<List<Object>> rejected(long deadline) {
+        return sql(deadline, PgConfigurationFiles.ERRORS).map(output -> {
+            try {
+                return PgConfigurationFiles.parse(output).rejected();
+            } catch (RuntimeException malformed) {
+                throw new PgProcessControlException("Malformed admission observation: " + output, malformed);
+            }
+        });
     }
 
     /** Copies the file into place and confirms the active file equals it. */
