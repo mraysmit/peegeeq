@@ -609,7 +609,7 @@ Java changes follow strict TDD with real-component failure tests.
 The implementation plan is
 `docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY_IMPLEMENTATION_PLAN.md`.
 It holds dated implementation findings and runs, adopted contracts P-0 to P-38, deployment
-gates G-1 to G-7, acceptance obligations S1 to S59, and the design decisions OD-1 to OD-61
+gates G-1 to G-7, acceptance obligations S1 to S59, and the design decisions OD-1 to OD-75
 (phase 7b.2: OD-1 to OD-12; phase 7b.3: OD-13 onwards). The implementer decided OD-1 to OD-3,
 and the owner has not reviewed them. The owner decided OD-4 to OD-15 and the 2026-11-13 answers
 recorded in plan §9.28; the other 7b.3 decisions are the implementer's, reversible, and listed in
@@ -871,10 +871,41 @@ Phases:
    with `wal_log_hints = on`. Jenkins host: R1 red 21 (all on the stub), green 22; R2 red 12 (all on the stub), green
    12; probes 51 to 70 and 53b detected (53 needed the inhibitor in the test), SHA-256 equal; module integration tier
    23 classes, 348 tests; core 416; guards 77; all 0 failures. Not run: a Jenkins job build of this code.
+   **7b.3 update, 2026-11-18, restart, reload, and `pending_restart` (plan §9.33, owner answer 10, OD-54 to OD-62,
+   code `a74652b9` to `e2f7a3ad`, tests `64e5d525` to `eda4ef45`, records `1375dd61` to `4c1567d7`):** `PgConfigurationControl` and `PgSqlConfigurationControl`
+   observe the settings and reload with confirmation; a file PostgreSQL rejects is refused before the reload, and an
+   invalid value is reported after it. Policy installation, follow, and the admission gate refuse a rejected file; the
+   gate's close installs the closed rules and ends the sessions before it fails (OD-62). `PgFailoverMonitor` gains `reload`, `restart(observed, request)`,
+   `scheduleRestart`, `cancelScheduledRestart`, and `runScheduledRestart(observed, now)`; the builder requires the
+   configuration dependency. RS0 fixed two test-standard violations. Owner's workstation with local Docker (the
+   Jenkins host did not answer): RS1 to RS3 red, then green; mutation probes 71 to 103 as listed in plan §9.33 (no
+   probe 89 was run; 74 was detected only after a test was added, as 74c); module integration tier on 2026-11-17, on files equal to those commits: 26 classes, 396 tests, 12
+   not passed, each on a `docker exec` over its limit; on 2026-11-18 at `4c1567d7`: those 12 alone 12 of 12, core 424,
+   guards 77, all 0 failures. Not run: the integration tier green in one run, and a Jenkins job build of this code.
+   Four cases the contracts do not state are recorded as built in plan §9.33. Second tier run, 2026-11-18, at
+   `4c1567d7`: 396 tests, 2 errors in `PgFailoverMonitorIntegrationTest`, each on slow `docker exec` calls; the two
+   alone 2 of 2. The tier has not passed in one run.
+   **7b.3 in progress, 2026-11-18, coordinator configuration (plan §9.34, owner answer 12, OD-63 to OD-68):** the four
+   lease timing values move to one coordinator record per incarnation, edited by a revision check; a lease keeps the
+   timing it was acquired under (OD-65); nothing is adjusted (OD-66). CC1 done: `PgClusterSettings` holds the timing
+   rule, `PgNodeConfig.clusterSettings()` and `withClusterSettings(settings)`; red 11 on the stubs, green
+   `PgClusterSettingsTest` 9 and `PgNodeConfigTest` 29, probes 104 to 114 detected with SHA-256 equal, core 436,
+   guards 77. CC2 done: `PgClusterConfiguration` port, `PgClusterConfigurationContract`, `ConsulClusterConfiguration`
+   and its binding; red 21 on the stubs, binding 27 of 27 (6 cases added before the probes), probes 115 to 127
+   detected with SHA-256 equal, core 436, guards 77; system design §1.1 and §5.4 and coordinator design §1.1, §2, and
+   §3.3 changed. CC3 done: `PgBootstrap` writes its deployment timing as the first settings record before the initial
+   intent, accepts an equal record, refuses other values; red 3 on the stub, green 11, probes 128 to 131 detected with
+   SHA-256 equal, bootstrap 11 and bootstrap serving 15, core 436, guards 77. Open for answer 12: the supervisor loop
+   that reads the settings before an acquisition. PostgreSQL parameters in the coordinator designed 2026-11-18 (plan
+   §9.35, OD-69 to OD-75): a second record under `.../postgresql` in the same port; each supervisor writes them into a
+   file it owns, `peegeeq-cluster.conf`, included by the deployment's `postgresql.conf`, reloads, and restores the
+   previous file when PostgreSQL rejects a value; parameters that a contract sets or requires are denied; a standby
+   starts with the control file's value of the five hot-standby parameters when it is higher (checks 8 to 11 on
+   PostgreSQL 15.13). Increments PP1 to PP5 not built.
    **OPEN — 7b.3 remaining:** the re-join policy cutover, manual takeover, repeated failover, the production entry
-   point and supervisor loop, the real-device watchdog run on Linux, and the rest of the 2026-11-13 owner scope
-   (plan §9.28 rows 10, 12 to 14: restart and reload, coordinator configuration, status and metrics endpoints,
-   callbacks).
+   point and supervisor loop (it also calls `runScheduledRestart`), the real-device watchdog run on Linux, and the
+   rest of the 2026-11-13 owner scope (plan §9.28 rows 12 to 14: coordinator configuration, in progress (plan §9.34, §9.35),
+   status and metrics endpoints, callbacks).
 8. **OPEN.** Enable autonomous initiation on the verified common boundary (8a), complete
    per-node authority/bootstrap reconciliation (8b), infrastructure fault tests including
    S54 to S58 (8c), and automatic database safety acceptance (8d). No second provider or
