@@ -4,6 +4,7 @@ import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgCommitOutcomeUnknownException;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
+import dev.mars.peegeeq.failover.consul.ConsulClusterConfiguration;
 import dev.mars.peegeeq.failover.consul.ConsulLeaseCoordinator;
 import dev.mars.peegeeq.failover.consul.ConsulMemberPositions;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -63,6 +64,7 @@ class PgBootstrapServingIntegrationTest {
     @TempDir Path stateDirectory;
     private final List<PgPrimaryElector> observers = new ArrayList<>();
     private final List<PgMemberPositions> positionAdapters = new ArrayList<>();
+    private final List<PgClusterConfiguration> settingsAdapters = new ArrayList<>();
     private Vertx vertx;
     private WebClient admin;
     private PgCommandRunner runner;
@@ -124,6 +126,8 @@ class PgBootstrapServingIntegrationTest {
             return closed;
         })).transform(TestCleanup.cleanup(() -> Future.join(positionAdapters.stream()
             .map(PgMemberPositions::close).toList()).mapEmpty()))
+        .transform(TestCleanup.cleanup(() -> Future.join(settingsAdapters.stream()
+            .map(PgClusterConfiguration::close).toList()).mapEmpty()))
         .transform(TestCleanup.cleanup(() -> {
             admin.close();
             return Future.<Void>succeededFuture();
@@ -754,7 +758,9 @@ class PgBootstrapServingIntegrationTest {
             .configuration(new PgSqlConfigurationControl(vertx, runner, NODES.node(WRITER).prefix(),
                 PgSupervisedContainer.PG_CTL, "psql", NODES.dataDirectory(), COMMAND_TIMEOUT)).build();
         var loop = new PgRenewalLoop(vertx, nodeConfig, owner, monitor);
-        return new Parts(new PgBootstrap(vertx, nodeConfig, owner, store, monitor, loop), monitor);
+        var settings = new ConsulClusterConfiguration(vertx, nodeConfig, endpoint(), TOKEN);
+        settingsAdapters.add(settings);
+        return new Parts(new PgBootstrap(vertx, nodeConfig, owner, settings, store, monitor, loop), monitor);
     }
 
     private PgPrimaryElector observer() {
