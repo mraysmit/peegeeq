@@ -48,20 +48,9 @@ public record PgNodeConfig(String clusterId, String incarnation, String nodeId,
                 throw new IllegalArgumentException("The clone source of " + entry.getKey() + " must be another member");
             }
         }
-        // The range a coordinator accepts for a lease TTL is validated by its adapter.
-        positiveMillis(Objects.requireNonNull(leaseTtl, "leaseTtl"));
-        positiveMillis(loopInterval);
-        positiveMillis(requestTimeout);
-        positiveMillis(stopTimeout);
+        // The lease and local-stop rule of system design §5.4, in every watchdog mode, is the cluster settings' rule.
+        new PgClusterSettings(leaseTtl, loopInterval, requestTimeout, stopTimeout);
         Objects.requireNonNull(watchdogMode, "watchdogMode");
-        // Lease and local-stop rule. It applies in every watchdog mode.
-        if (loopInterval.plus(requestTimeout.multipliedBy(2)).compareTo(leaseTtl) > 0) {
-            throw new IllegalArgumentException("Loop interval plus two retry budgets exceeds the lease TTL");
-        }
-        if (loopInterval.plus(requestTimeout).plus(stopTimeout).compareTo(leaseTtl) >= 0) {
-            throw new IllegalArgumentException(
-                "One loop-and-retry cycle plus the stop budget must finish before the lease TTL");
-        }
         // Watchdog timing is separate. Only required mode refuses a configuration that lacks it.
         if (watchdogMode == PgWatchdogMode.REQUIRED
                 && !watchdogTimingUsable(leaseTtl, loopInterval, requestTimeout, stopTimeout)) {
@@ -80,6 +69,21 @@ public record PgNodeConfig(String clusterId, String incarnation, String nodeId,
     public PgNodeConfig withMemberTags(Map<String, PgMemberTags> tags) {
         return new PgNodeConfig(clusterId, incarnation, nodeId, memberNodeIds, leaseTtl, loopInterval, requestTimeout,
             stopTimeout, watchdogMode, tags);
+    }
+
+    /** The lease timing of this configuration as cluster settings (plan §9.34, contract 2). */
+    public PgClusterSettings clusterSettings() {
+        return new PgClusterSettings(leaseTtl, loopInterval, requestTimeout, stopTimeout);
+    }
+
+    /**
+     * This configuration with the timing of the given cluster settings (plan §9.34, contract 2). The constructor's
+     * checks apply, so a node in {@code REQUIRED} watchdog mode refuses settings without watchdog slack.
+     */
+    public PgNodeConfig withClusterSettings(PgClusterSettings settings) {
+        Objects.requireNonNull(settings, "settings");
+        return new PgNodeConfig(clusterId, incarnation, nodeId, memberNodeIds, settings.leaseTtl(),
+            settings.loopInterval(), settings.requestTimeout(), settings.stopTimeout(), watchdogMode, memberTags);
     }
 
     /** The tags of a member; a member without an entry has none. */
@@ -144,13 +148,6 @@ public record PgNodeConfig(String clusterId, String incarnation, String nodeId,
     static void requireIdentity(String value) {
         if (value == null || !value.matches("[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")) {
             throw new IllegalArgumentException("Invalid cluster, incarnation, or node identity");
-        }
-    }
-
-    private static void positiveMillis(Duration duration) {
-        if (duration == null || duration.toMillis() <= 0
-                || duration.toNanos() % 1_000_000 != 0) {
-            throw new IllegalArgumentException("Timing must be a positive whole number of milliseconds");
         }
     }
 }
