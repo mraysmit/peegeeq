@@ -205,6 +205,47 @@ class PgNodeConfigTest {
         assertThrows(UnsupportedOperationException.class, () -> config.memberTags().clear());
     }
 
+    // ---------------------------------------------------------------- cluster settings (plan §9.34)
+
+    @Test void theTimingOfAConfigurationIsItsClusterSettings() {
+        var config = PgNodeConfig.defaults("cluster", "incarnation", "pg-node-1", MEMBERS);
+        assertEquals(new PgClusterSettings(Duration.ofSeconds(30), Duration.ofSeconds(5), Duration.ofSeconds(3),
+            Duration.ofSeconds(5)), config.clusterSettings());
+    }
+
+    @Test void clusterSettingsReplaceTheTimingAndKeepEverythingElse() {
+        var tags = java.util.Map.of("pg-node-3", new PgMemberTags(true, false, false, null));
+        var config = timing(Duration.ofSeconds(30), Duration.ofSeconds(5), Duration.ofSeconds(3), Duration.ofSeconds(5),
+            PgWatchdogMode.OFF).withMemberTags(tags);
+        var settings = new PgClusterSettings(Duration.ofSeconds(20), Duration.ofSeconds(2), Duration.ofSeconds(4),
+            Duration.ofSeconds(3));
+        var applied = config.withClusterSettings(settings);
+        assertEquals(settings, applied.clusterSettings());
+        assertEquals(Duration.ofSeconds(20), applied.leaseTtl());
+        assertEquals(Duration.ofSeconds(2), applied.loopInterval());
+        assertEquals(Duration.ofSeconds(4), applied.requestTimeout());
+        assertEquals(Duration.ofSeconds(3), applied.stopTimeout());
+        assertEquals(config.clusterId(), applied.clusterId());
+        assertEquals(config.incarnation(), applied.incarnation());
+        assertEquals(config.nodeId(), applied.nodeId());
+        assertEquals(config.memberNodeIds(), applied.memberNodeIds());
+        assertEquals(PgWatchdogMode.OFF, applied.watchdogMode());
+        assertEquals(tags, applied.memberTags());
+    }
+
+    @Test void aRequiredModeNodeRefusesClusterSettingsWithoutWatchdogSlack() {
+        // loop + retry = 15 s leaves no slack against the 15 s watchdog timeout; the lease rule holds.
+        var settings = new PgClusterSettings(Duration.ofSeconds(30), Duration.ofSeconds(12), Duration.ofSeconds(3),
+            Duration.ofSeconds(5));
+        var required = timing(Duration.ofSeconds(30), Duration.ofSeconds(5), Duration.ofSeconds(3),
+            Duration.ofSeconds(5), PgWatchdogMode.REQUIRED);
+        assertThrows(IllegalArgumentException.class, () -> required.withClusterSettings(settings));
+        var off = timing(Duration.ofSeconds(30), Duration.ofSeconds(5), Duration.ofSeconds(3),
+            Duration.ofSeconds(5), PgWatchdogMode.OFF);
+        assertEquals(settings, off.withClusterSettings(settings).clusterSettings());
+        assertThrows(NullPointerException.class, () -> off.withClusterSettings(null));
+    }
+
     @Test void metadataAndIntentAreImmutable() {
         var intent = new JsonObject().put("phase", "WITHDRAWN");
         var record = new PgControlRecord("name", 1, 2, "holder", intent);
