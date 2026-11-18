@@ -1,7 +1,8 @@
 # PeeGeeQ Connection Management and HAProxy Failover — Implementation Plan
 
-**Document revision**: 2026-11-17, design of restart, reload, and `pending_restart` (§9.33). The
-dated records of each increment are §9.11 to §9.33; the decisions are OD-1 to OD-61. Sections 2 to 4
+**Document revision**: 2026-11-18, regression and as-built record of restart, reload, and `pending_restart` (§9.33),
+design and build of coordinator configuration (§9.34), and design of PostgreSQL parameters in the coordinator (§9.35).
+The dated records of each increment are §9.11 to §9.35; the decisions are OD-1 to OD-75. Sections 2 to 4
 retain dated baseline evidence. Current implementation evidence is in §8.1.
 The whole-repository `-Pall-tests` run of 2026-10-09 was red on the phase 5 test (§8.1). That
 test was repaired on 2026-10-11 (§4.3). No Jenkins build from `beginning` has run it since.
@@ -769,7 +770,7 @@ on zero executed tests or swallowed teardown failure.
 | 7a | Architecture selection complete. One local supervisor, node-owned Consul lease, optional watchdog modes, local admission, persistent node storage, and configurable redundant endpoints. Same protocol on Linux hosts/VMs, Docker hosts, and Kubernetes. G-1 to G-7 remain qualification gates. |
 | 7b.1 | Complete: production-manager owned commit-policy enforcement and bounded failure observation. Recorded evidence in §8.1. Broad caller migration remains phase 11. |
 | 7b.2 | Partial: the coordinator port, the Consul adapter, acquisition after release, guarded release, the watchdog timing correction, local persistent contracts, supervisor-owned start and lease-loss shutdown, local admission, and the renewal loop with queued ownership operations are implemented and tested (§8.1, §9.11, §9.12). Optional watchdog modes are implemented with no-device tests (§9.13). Bootstrap scope A is implemented and tested (§9.14). Scope B increment B1, the durability boundary, is implemented and tested (§9.15). Scope B increment B2 is implemented and tested (§9.16 to §9.19, complete 2026-10-25). Remaining in 7b.2: the real-device watchdog run on a Linux host. Complete G-7 incrementally. Machine-reset qualification is not an implementation prerequisite. |
-| 7b.3 | Partial, 2026-11-16: increments P1 to P7, takeover after real lease expiry, planned stop with release, member tags, and automatic rewind and rebuild are implemented and tested (§8.1, §9.21 to §9.32). Remaining: restart and reload, coordinator configuration, status and metrics endpoints, callbacks (§9.28 answers 10, 12, 13, 14), the re-join policy cutover, manual takeover through an operator entry point, repeated failover, controlled re-join, the production entry point and supervisor loop, and routed production-manager assertions. Implement manual B takeover through local supervision. Test planned stop-before-release and unplanned safe-expiry takeover without failed-host acknowledgement. Prove old-writer exclusion, stale-effect rejection, policy cutover, repeated failover, two-node unavailability, and rewind/rebuild/re-join with production-manager data assertions. |
+| 7b.3 | Partial, 2026-11-18: increments P1 to P7, takeover after real lease expiry, planned stop with release, member tags, automatic rewind and rebuild, and restart, reload, and `pending_restart` are implemented and tested (§8.1, §9.21 to §9.33). Remaining: coordinator configuration (§9.34, CC1 to CC3 built; PostgreSQL parameters designed in §9.35, PP1 to PP5 not built), status and metrics endpoints, callbacks (§9.28 answers 12, 13, 14), the re-join policy cutover, manual takeover through an operator entry point, repeated failover, controlled re-join, the production entry point and supervisor loop, and routed production-manager assertions. Implement manual B takeover through local supervision. Test planned stop-before-release and unplanned safe-expiry takeover without failed-host acknowledgement. Prove old-writer exclusion, stale-effect rejection, policy cutover, repeated failover, two-node unavailability, and rewind/rebuild/re-join with production-manager data assertions. |
 | 8a | Enable autonomous initiation on the verified common A/B boundary. No second provider, authority, or generation barrier. Test concurrent standby contenders, invalid requests, lease loss during effects, and local activation/revocation races. |
 | 8b | Complete per-node automatic ownership and bootstrap reconciliation. Prove quorum loss, namespace/restore handling, invalid records, and distinction between sidecar/observer failure and writer-supervisor death. |
 | 8c | Verify automatic infrastructure failover: host loss, asymmetric partition, supervisor death, pauses/resume, delayed ownership/keepalive, in-flight effects, and unreachable-host takeover. No remote stop receipt requirement. |
@@ -797,12 +798,12 @@ old-writer exclusion. Optional watchdog mode alone is not exclusion evidence.
 This reconciliation records completed implementation slices. It does not close any new
 runtime or production qualification obligation. Task 8 carries the same status and next scope.
 
-### 8.1 Current Implementation and Recorded Evidence, 2026-10-08 to 2026-11-16
+### 8.1 Current Implementation and Recorded Evidence, 2026-10-08 to 2026-11-18
 
 Source inventory and saved logs were checked for the 2026-10-08 reconciliation. The runs dated
 2026-10-08 are recorded runs, not new test executions. The runs dated 2026-10-09 were executed
 for that day's revision. The rows dated 2026-10-21 and 2026-10-22 have their runs in §9.12 to
-§9.15. The rows dated 2026-10-24 to 2026-11-16 have their runs in §9.16 to §9.32. None is a
+§9.15. The rows dated 2026-10-24 to 2026-11-18 have their runs in §9.16 to §9.33. None is a
 release gate.
 
 | Slice | State | Artifact and limit |
@@ -837,7 +838,8 @@ release gate.
 | 7b.3 planned stop with release (OD-15) | Implemented and tested, 2026-11-14; module green on Jenkins build #39 | `PgFailoverMonitor.stopAndRelease(held, reason)` stops PostgreSQL, then releases the lease only after a confirmed stop. An unconfirmed stop retires ownership and fails without a release. `demoteNow` retires, then stops. See §9.30. |
 | 7b.3 member tags (answer 11) | Implemented and tested, 2026-11-14 (Jenkins host runs; Jenkins build #40 on `b3f7ddc9`, 2026-11-15: SUCCESS, `peegeeq-pg-failover` 728 tests, 0 failures) | `PgMemberTags` (`nofailover`, `nosync`, `noloadbalance`, `clonefrom`) in `PgNodeConfig` as deployment configuration. A node tagged `nofailover` or `nosync` never acquires a takeover, is never promoted, and is ignored as a rival candidate. A new policy cannot require a `nosync` member, and the cutover does not count a `nosync` standby. `noloadbalance` and `clonefrom` are validated and stored; nothing acts on them yet. See §9.31. |
 | 7b.3 automatic rewind and rebuild (answer 9) | Implemented and tested, 2026-11-16 (Jenkins host runs; no Jenkins job build yet) | `PgFailoverMonitor.rejoin(observed, writer, budget)` under the re-join quarantine: a rewind (`pg_rewind`, after a crash recovery that keeps the inhibitor), and a rebuild (`pg_basebackup` through the node's slot) when the rewind does not produce a caught-up standby. The source must hold the lease, be writable, share the system identifier, and hold the node's usable slot, checked before the stop and before any removal. Own configuration files kept; inhibitor recreated after every rewind and base backup. Reverses P-6. See §9.32. |
-| 7b.3 remaining | Not implemented | The re-join policy cutover that restores two-peer coverage; restart, reload, and `pending_restart` (answer 10), coordinator configuration (answer 12), status and metrics endpoints (answer 13), callbacks (answer 14), manual takeover through an operator entry point, repeated failover, controlled re-join, the production entry point and supervisor loop (no production code calls the monitor operations), and routed production-manager assertions. |
+| 7b.3 restart, reload, and `pending_restart` (answer 10) | Implemented and tested, 2026-11-17 and 2026-11-18 (owner's workstation, local Docker; the integration tier has not passed in one run; no Jenkins job build yet) | `PgConfigurationControl` and `PgSqlConfigurationControl`: `settings()` and a `reload()` that refuses a file PostgreSQL rejects and reports an invalid value after the reload. The three existing reload sites (policy installation, follow, the admission gate) refuse a rejected file; the gate's close still installs the closed rules and ends the sessions before it fails (OD-62). `PgFailoverMonitor.reload`, `restart(observed, request)` (own stop and guarded start, re-admission of a serving writer, confirmation by postmaster start time), `scheduleRestart`, `cancelScheduledRestart`, `runScheduledRestart(observed, now)`; the schedule is node-local (`scheduled-restart.json`). Nothing outside tests calls them. See §9.33. |
+| 7b.3 remaining | Not implemented | The re-join policy cutover that restores two-peer coverage; coordinator configuration (answer 12; §9.34: CC1 to CC3, the settings value, the settings port and its Consul adapter, and bootstrap's first record, built 2026-11-18; open: the supervisor loop that reads the settings before an acquisition, and PostgreSQL parameters in the coordinator, designed 2026-11-18 in §9.35, increments PP1 to PP5 not built), status and metrics endpoints (answer 13), callbacks (answer 14), manual takeover through an operator entry point, repeated failover, controlled re-join, the production entry point and supervisor loop (no production code calls the monitor operations), and routed production-manager assertions. |
 | G-7 full coordinator qualification | Open | Snapshot/restore, TLS, stopped-before-release, and expiry versus independent old-writer exclusion remain unverified. Component success does not close G-7. |
 
 Recorded clean installs used `mvn clean install -DskipTests -pl :<changed-module> -am`:
@@ -3858,14 +3860,15 @@ So the confirmation by load time alone (OD-9's rule) would wait out its budget o
 contract 1 refused every error before the reload; the RS1 green run showed that this refuses every pending restart
 (check 8), and the contract was corrected before the implementation was kept.
 
-**Finding, 2026-11-17: the existing reloads rest on the load time alone.** Static reading, not yet run. Three built
+**Finding, 2026-11-17: the existing reloads rest on the load time alone.** Static reading when written; the RS1b red run
+(below) confirmed it at all three sites. Three built
 operations reload and wait for the load time to change: `PgSqlDurabilityControl.install` (then compares the setting in
 effect, which catches check 5), `PgHbaAdmissionGate` `close` and `open` (then reads `pg_hba_file_rules`, which catches
 check 7), and `PgSqlPromotionControl.follow` (waits for the WAL receiver instead). With a `postgresql.conf` that
 PostgreSQL rejects whole (check 6), each waits out its budget and fails with a message that does not name the file
 error. For the gate this means a closing admission fails on a writer whose `postgresql.conf` holds an unknown
 parameter; whether PostgreSQL reloads `pg_hba.conf` in that case although the load time does not change is not known
-and is check 8 of RS1b. The failure is visible, so no write is admitted wrongly; the cost is the budget and the
+and is check 9 of RS1b. The failure is visible, so no write is admitted wrongly; the cost is the budget and the
 misleading message. RS1b applies contract 1's error read to the three sites.
 
 **Order of work.** RS0: the two existing test-standard violations found on 2026-11-17 (the `compose` teardown of
@@ -3932,8 +3935,9 @@ that still has an effect before it fails, because a close is a safety step and i
 | Green | `peegeeq-pg-failover-rs1b-green-20261117.log`: `PgConfigurationFilesIntegrationTest` 2 of 2, `PgHbaAdmissionGateIntegrationTest` 9 of 9, `PgSqlConfigurationControlIntegrationTest` 14 of 14 |
 | Probes 76 to 81 | `peegeeq-pg-failover-rs1b-mutation76-` to `-81-20261117.log`; SHA-256 of the four production files equal before and after (`-rs1b-mutation-sha-before-`, `-sha-after-`). 76 install refusal, 77 follow refusal, 78 the close's unconfirmed path, 79 the open refusal: each guarding test failed on a wait to the end of the budget. 80 the end of the sessions in the close's unconfirmed path: the application session was not ended and its `docker exec` reached the fixture's 30-second limit. 81 the unknown-parameter rule: both refusal tests waited out their budgets |
 
-Not yet run for RS1b: the other classes that reach the three sites (every monitor test closes the gate). They run in
-the module's integration tier after RS2, which changes 14 of them; RS1b is not reported complete before that run.
+Not yet run for RS1b at this step: the other classes that reach the three sites (every monitor test closes the gate).
+They run in the module's integration tier after RS2, which changes 14 of them. That run is recorded below under
+"Regression, 2026-11-17 and 2026-11-18".
 
 **RS2 status, 2026-11-17.** Built: `PgFailoverMonitor.reload()` and `restart(observed, request)` (contracts 2 and 3),
 `PgRestartRequest`, `PgRestartRole`, `PgRestartResult`, and the builder's required `configuration` dependency (OD-55;
@@ -3976,3 +3980,492 @@ its limit: five set-up `initdb` calls over 30 seconds (2.3 to 2.4 s when measure
 a budget, and one gate query with 5.3 s left. 150 idle `docker exec ... true` calls took 163 to 408 ms (median 208). The
 stalls occur only during test runs; the cause was not established. Each affected test was rerun alone and passed; no
 assertion and no fixture limit was changed for them, except the 10-second budget of the RS1 reload test (above).
+
+**Regression, 2026-11-17 and 2026-11-18.** The module's integration tier ran once on 2026-11-17, from 18:20 to 20:13,
+after the rebuild `rebuild-peegeeq-pg-failover-rs-final-20261117.log` (log
+`peegeeq-pg-failover-rs-regress-integration-20261117.log`). It ran the code of the 20:08 commits (`a74652b9` to
+`e2f7a3ad`, tests `64e5d525` to `eda4ef45`), checked 2026-11-18: no file under `peegeeq-pg-failover/src` was written
+after 18:01:14, the module has no difference from `4c1567d7`, and the SHA-256 of `PgLocalStateStore.java`,
+`PgScheduledRestart.java`, and `PgFailoverMonitor.java` at `4c1567d7` equal `-rs3-mutation-sha-after-20261117.log`.
+Result: 26 classes, 396 tests, 1 failure, 11 errors, BUILD FAILURE. 16 classes passed whole, among them
+`PgRestartIntegrationTest` 30, `PgFailoverMonitorIntegrationTest` 23, `PgRejoinIntegrationTest` 13,
+`PgHbaAdmissionGateIntegrationTest` 9, and `PgConfigurationFilesIntegrationTest` 2. The 12 tests that did not pass are
+in the other 10 classes. Each stopped on a `docker exec` that exceeded the limit it was given: seven set-up `initdb`
+calls and two `pg_basebackup` calls at 30 seconds, two `psql` calls at 396 ms and 4999 ms, and one `pg_ctl reload` at
+913 ms (the last three limits are what remained of an operation's budget). The one failure,
+`PgFollowIntegrationTest.aStorageFaultWhenTheReceiptIsBegunFailsTheFollowBeforeAnyEffect`, is that reload: the gate's
+close failed before the receipt step that the test faults (`followWriter` closes the gate before it begins the
+receipt), so the test saw `PgProcessControlException`.
+`PgPromotionIntegrationTest.promotingTheTakeoverTargetMakesItWritableWithItsDataAndAdmissionClosed` stopped on the
+gate's count of network sessions, also inside the close. RS1b added one `psql` call to every close, inside the stop
+budget (8 seconds in both classes), and to every open, inside the gate's command timeout. Whether that call caused
+these two was not established. The log `peegeeq-pg-failover-rs-regress-rerun-20261117.log` (written 2026-11-18 05:28)
+holds only Maven's project header and no result; it is not evidence.
+
+On 2026-11-18, at `4c1567d7` with a clean working tree, on the owner's workstation with local Docker (the Jenkins host
+did not answer within 8 seconds). Logs under `logs/`:
+
+| Scope | Evidence |
+|---|---|
+| Rebuild | `rebuild-peegeeq-pg-failover-rs-rerun-20261118.log`: BUILD SUCCESS |
+| The 12 methods, integration profile | `peegeeq-pg-failover-rs-rerun-failed-20261118.log`: 10 classes, 12 of 12: bootstrap serving 2, durability 2, candidacy, follow, policy installation, promotion, re-join control, renewal loop, configuration control, takeover 1 each |
+| Core | `peegeeq-pg-failover-rs-core-20261118.log`: 11 classes, 424, 0 failures (416 after RS1, plus 7 store tests of RS3 and 1 builder test of RS2) |
+| Guards | `peegeeq-test-support-guards-rs-20261118.log`: 14 classes, 77, 0 failures |
+
+Second tier run, 2026-11-18, 13:12:50 to 15:12:01, on the classes of the 10:59 rebuild at `4c1567d7` (Maven reported
+"Nothing to compile"; the CC1 files below were created after it started), log `peegeeq-pg-failover-rs-regress-integration-20261118.log`: 26 classes, 396 tests, 0
+failures, 2 errors, BUILD FAILURE. 25 classes passed whole. Both errors are in `PgFailoverMonitorIntegrationTest`:
+`primaryStartWithoutOwnershipIsRefusedAndStartsNothing`, a set-up `initdb` over 30 seconds; and
+`activationWithServingIntentAndItsPreparedGrantAdmitsApplications`, "Ownership was lost while PostgreSQL started": the
+class runs no renewal loop, so ownership lasts its 12-second budget (20-second TTL less the 8-second stop budget), and
+the gate close, the receipt, and `pg_ctl start` did not finish inside it. The demotion that followed failed on a
+`docker exec ... cp` killed at its 7999 ms limit, on the same container; the command that made the start late is not
+logged. Rerun alone, `peegeeq-pg-failover-rs-rerun-monitor-20261118.log`: 2 of 2. The tier has not passed in one run.
+
+The banned-pattern grep of `.claude/CLAUDE.md` step 5 over the 35 source files changed by this section found one match,
+`restart.get()` in `PgRestartIntegrationTest.unchangedAfter`, a `Supplier.get()`, not a blocking call. The module's
+integration tier has not passed in one run on this code, and no Jenkins job build has run it.
+
+**As built, recorded 2026-11-18 from a reading of `PgFailoverMonitor` at `4c1567d7`.** The contracts above do not state
+these cases. No code was changed for them.
+
+1. `runScheduledRestart`: a failed read of the schedule, or of the settings (for example while PostgreSQL is stopped),
+   fails the call and keeps the schedule. Contract 5 removes a schedule only by the cancellation rule and after the
+   restart's attempt. A stored schedule that cannot be read fails every run; `cancelScheduledRestart` removes it without
+   reading it.
+2. A restart whose grant close or gate close fails (for a writer, also its read of the grant) ends with the call
+   failed, PostgreSQL running, no demotion, no quarantine, and the `restart` receipt `UNKNOWN`: the restart begins its
+   receipt before it closes admission (contract 3.3, then 3.4 and 3.5). `promoteStandby` and `followWriter` close
+   admission before they begin their receipts, so a failed close there leaves no receipt. Contracts 3.4 and 3.5 do not
+   state this case.
+3. `restartNow` checks a writer's ownership before the quarantine; contract 3.1 lists the quarantine first. Every
+   refusal still comes before any effect and with no receipt. Only a quarantined writer without fresh ownership gets
+   another exception: `PgLeaseProtocolException`, not `PgLocalStateException`.
+4. A standby restart whose stop fails ends with the call failed, no quarantine, and the `restart` receipt `UNKNOWN`
+   (`restartStandby` calls `process.stop` directly). Contract 3.4 quarantines only a writer after an unconfirmed stop;
+   contract 3.5 does not state the standby case.
+
+### 9.34 Phase 7b.3: Coordinator Configuration (Owner Answer 12), 2026-11-18 (design)
+
+The next item of §9.28's order of work. Owner answer 12 (§9.28, row 12; §9.20 row 15): "Coordinator config" —
+cluster-wide settings in the coordinator, changed by a guarded edit operation. This section is its design. §9.28 row 12
+records the scope boundary: identity, membership, endpoints, the coordinator selection, and credentials stay in
+deployment configuration; membership changes stay with phase 14 (S39); every stored value satisfies the timing rule of
+system design §5.4.
+
+**Purpose.** An operator changes the cluster's HA timing in one place, under a revision check, and every supervisor
+uses the stored values without a redeployment. Success: a stored setting that breaks the timing rule is never written
+and never used; two edits from the same read cannot both succeed; a lease always runs with the timing it was acquired
+under.
+
+**Sources read, 2026-11-18.** Patroni dynamic configuration page (settings, defaults, and the rule
+`loop_wait + 2 * retry_timeout <= ttl`). Patroni v4.1.5 source: `patroni/dcs/consul.py` (`set_ttl`, `ttl`,
+`set_retry_timeout`, `_do_refresh_session`, `_update_leader`, `attempt_to_acquire_leader`, `set_config_value`, the
+config read in `_cluster_from_nodes`) and `patroni/config.py` (`set_dynamic_configuration`,
+`_validate_and_adjust_timeouts`, `__DEFAULT_CONFIG`, `_safe_copy_dynamic_configuration`,
+`_build_effective_configuration`). The five design documents in full, §1 to §8 of this plan, §9.20, §9.28, §9.31,
+§9.33, and the code of `PgNodeConfig`, `PgLeaseCoordinator`, `ConsulLeaseCoordinator`, `ConsulMemberPositions`,
+`PgPrimaryElector`, `PgRenewalLoop`, `PgTakeover`, and `PgBootstrap`.
+
+Facts from those sources that the design rests on:
+
+1. Patroni keeps the dynamic configuration in one DCS key and edits it with a compare-and-set on the key's version
+   (`kv.put(config_path, value, cas=version)`). A node applies a new version on its next loop.
+2. Patroni changes a settings value it does not accept instead of refusing it: a timing set that breaks the rule has
+   `loop_wait` and `retry_timeout` rewritten, with a WARNING; keys outside its defaults are ignored.
+3. On a TTL change Patroni drops its Consul session. The next leader update creates a new session, deletes the leader
+   key with a compare-and-set, and writes it again under the new session (`_update_leader`).
+4. Patroni takes `watchdog` from the local configuration only, and uses its defaults (`ttl` 30, `loop_wait` 10,
+   `retry_timeout` 10) until the key exists. Its bootstrap writes the key's first value.
+5. Here, a Consul session's TTL cannot change after creation, and every renewal checks that the session TTL equals the
+   configured TTL (`ConsulLeaseCoordinator.validateSession`). The elector derives its freshness deadline from the same
+   configured TTL (`PgPrimaryElector.cycle`). Writer exclusion rests on that pairing: a deadline computed from a longer
+   TTL than the session's would let a writer consider itself the owner after Consul ended its lease.
+
+**Data model.** One stored record is added: the cluster settings.
+
+| Datum | Source of truth or derivable | Contract |
+|---|---|---|
+| Cluster settings: lease TTL, loop interval, retry budget (request timeout), stop budget, in milliseconds | Coordinator, one record per incarnation, `peegeeq/pg/<clusterId>/<incarnation>/config`; authoritative | Satisfies the lease and local-stop rule of system design §5.4 when written and when read. Unknown or missing fields fail. Never adjusted |
+| Settings revision | Coordinator metadata (Consul `ModifyIndex`) | Guards the edit. Not stored in the value |
+| Deployment timing values in `PgNodeConfig` | Deployment configuration | The bound of the settings read itself, the values used while no record exists, and the values bootstrap writes as the first record |
+| Effective configuration of a lease | Derived: the deployment configuration with the settings read before the acquisition | Fixed for the life of that lease: adapter session TTL, elector deadline, loop interval, stop budget. Never stored |
+| Watchdog mode and device, member tags, failover mode | Deployment configuration (unchanged) | Not in the record (OD-64) |
+
+**Contracts.**
+
+1. `PgClusterSettings` (record): `leaseTtl`, `loopInterval`, `requestTimeout`, `stopTimeout`. Its constructor applies
+   the rule of system design §5.4 (`loop + 2 × retry <= TTL`, `loop + retry + stop < TTL`, positive whole
+   milliseconds) through the same code as `PgNodeConfig`. `toJson` and `fromJson`: exactly the fields
+   `leaseTtlMillis`, `loopIntervalMillis`, `requestTimeoutMillis`, `stopTimeoutMillis`; an unknown, missing, or
+   non-integer field fails.
+2. `PgNodeConfig.clusterSettings()` returns its timing as `PgClusterSettings`; `withClusterSettings(settings)` returns a
+   copy with those values. The constructor's checks apply, so a node in `REQUIRED` watchdog mode refuses settings
+   without watchdog slack.
+3. A new port `PgClusterConfiguration` (exception `PgClusterConfigurationException`, every failure including a
+   synchronous throw):
+   - `read()`: an authoritative read; `Optional<PgClusterSettingsRecord>` with the revision and the settings. A stored
+     value that fails contract 1 fails the read.
+   - `create(settings)`: writes the first record; fails when one exists.
+   - `update(expected, settings)`: replaces the settings only when the record is still at `expected`'s revision; a
+     record that changed fails the call and changes nothing. Returns the new record.
+   - `close()`.
+   An unanswered request fails within the request deadline; a lost reply is not success.
+4. `PgClusterConfigurationContract` states contract 3 as tests; `ConsulClusterConfigurationIntegrationTest` is its
+   Consul binding. Consul: read `GET /v1/kv/<key>?consistent` (no known leader, or a result filtered by ACLs, fails);
+   create `PUT ?cas=0`; update `PUT ?cas=<revision>`; a reply other than `true` fails; the written record is read
+   back. The adapter refuses settings outside the TTL range Consul accepts for a session (whole seconds, 10 to 86 400),
+   as the lease adapter does.
+5. `PgBootstrap.start` creates the record from its deployment timing before the initial intent, when none exists. An
+   existing record with equal settings is accepted; one with other settings refuses the bootstrap
+   (`PgBootstrapException`), because the incarnation is not new.
+
+**Decisions of the implementer, 2026-11-18, under the owner's direction of 2026-11-13 to proceed without questions.
+Reversible.**
+
+- OD-63: the record holds the four lease timing values only. Reason: they are the cluster-wide settings of system
+  design §1.1 row "Lease TTL, HA-loop interval, retry budget, ..." that every supervisor must apply alike, and §5.4's
+  rule binds them together. The designed and unbuilt `primary-start-timeout-ms` (§9.20 row 5, OD-60) joins the record
+  when it is built.
+- OD-64: watchdog mode and device, the failover mode, and member tags stay in deployment configuration. Reason: the
+  device is a path on the host and `REQUIRED` mode is a property of that host's qualification, as Patroni keeps
+  `watchdog` local (fact 4); the failover mode is a profile, and system design §11.2 selects a profile while stopped
+  (S39, phase 14); the owner placed tags in deployment configuration (§9.31). This changes system design §1.1, whose
+  row also names watchdog mode/device and manual/automatic mode.
+- OD-65: a lease runs with the settings read before its acquisition until it ends. A changed record takes effect at the
+  node's next acquisition; a serving writer keeps its lease's timing until it releases or loses the lease. Reason:
+  fact 5. Patroni instead recreates the leader key under a new session (fact 3); here the control record is retained
+  history and a delete-and-write opens a window in which another node can acquire. That is a difference from Patroni.
+- OD-66: a settings value that breaks the rule, has an unknown field, or misses one is refused on write and fails on
+  read; nothing is adjusted. Reason: a silent rewrite (fact 2) changes timing nobody asked for.
+- OD-67: with no record, the deployment values apply, as Patroni's defaults do (fact 4). Reason: the per-lease rule of
+  OD-65 keeps every lease consistent whichever valid values it uses, and bootstrap writes the record (contract 5).
+- OD-68: the settings port is separate from the lease port, as OD-36 decided for member positions. Reason: the lease
+  port and its contract suite stay unchanged, and a settings edit needs no lease.
+
+**Danger, and the safety net.** A shorter lease TTL makes a lease expire sooner after a stall, so a successor can take
+over sooner; a longer stop budget must still finish before the TTL. Both are checked by the rule on every write and
+read. A writer never changes the TTL of a running lease (OD-65). An edit that a `REQUIRED`-mode node cannot use is
+refused by that node when it builds its configuration, before any acquisition; the failure is visible and the node
+keeps no lease.
+
+**Dependency failure modes, each with a failing test before its code.**
+
+| Dependency | Mode | Test class |
+|---|---|---|
+| Settings value | each rule broken; non-positive or fractional milliseconds; unknown, missing, or non-integer field; round trip | `PgClusterSettingsTest` (core) |
+| Configuration derivation | settings applied; `REQUIRED` mode without watchdog slack refused | `PgNodeConfigTest` (core) |
+| Settings port, every adapter | absent record; create and read back; second create refused; update at the read revision; update after another edit refused and nothing changed; malformed stored value; stored value that breaks the rule; unanswered request; unreachable service | `PgClusterConfigurationContract` through its Consul binding |
+| Consul wire | read without a known leader; read filtered by ACLs; write answered `false`; TTL outside Consul's range refused before sending; token without write | `ConsulClusterConfigurationIntegrationTest` |
+| Bootstrap | no record: created; equal record: accepted; different record: refused before the initial intent; unreachable settings service: refused before the initial intent | `PgBootstrapIntegrationTest` |
+
+**Order of work.** CC1: `PgClusterSettings` and the `PgNodeConfig` derivation (contracts 1 and 2, core tests). CC2: the
+port, its exception, the contract suite, and the Consul adapter and binding (contracts 3 and 4). CC3: bootstrap creates
+the record (contract 5). Each: tests and stubs that fail with "not implemented", red, implementation, green, mutation
+probes with SHA-256 records, the touched classes, core, and guards last. The design documents change in CC2 and CC3:
+system design §1.1 and §5.4, coordinator design §1.1 and §3.3.
+
+**Not decided here.** Who calls `read` before an acquisition and builds the components from the derived configuration
+(the supervisor loop). How an operator reaches `update` (the status and control endpoints, answer 13). PostgreSQL
+parameters in the coordinator (Patroni's `postgresql.parameters`), which §9.33's data model names as part of answer 12:
+they need a managed configuration file and the reload and restart of §9.33, and are designed in §9.35. A derived observation that a running lease uses settings older than the stored record.
+
+**CC1 status, 2026-11-18.** Built: `PgClusterSettings` (contract 1) holds the lease and local-stop rule;
+`PgNodeConfig`'s constructor applies the rule through it, and its own copy of the rule and of `positiveMillis` is
+deleted; `PgNodeConfig.clusterSettings()` and `withClusterSettings(settings)` (contract 2). The messages and exception
+types of the rule are unchanged. Owner's workstation, local Docker not used (core only). Logs under `logs/`:
+
+| Step | Evidence |
+|---|---|
+| Red, against the stubs | `rebuild-peegeeq-pg-failover-cc1-stub-20261118.log` BUILD SUCCESS; `peegeeq-pg-failover-cc1-red-20261118.log`: 38 run, 8 failures, 3 errors, all 11 on the stub ("not implemented", or a refusal not thrown); the 26 earlier `PgNodeConfigTest` tests passed. `loopAndTwoRetriesMayEqualTheLeaseTtl` passed on the stub, which accepts everything; probe 109 is its red |
+| Green | `rebuild-peegeeq-pg-failover-cc1-impl-20261118.log` BUILD SUCCESS; `-cc1-green-`: `PgClusterSettingsTest` 9 of 9, `PgNodeConfigTest` 29 of 29 |
+| Probes 104 to 114 | `peegeeq-pg-failover-cc1-mutation104-` to `-114-20261118.log`, summary `-cc1-mutations-`; SHA-256 of `PgClusterSettings.java` `4760A567...935F93E0` and `PgNodeConfig.java` `56E2EA89...0E808A8757` equal before and after. 104 loop and two retries, 105 stop budget, 106 positive milliseconds, 107 exact field set, 108 integer fields, 109 the boundary (equal to the TTL is accepted), 110 settings applied, 111 tags kept, 112 `clusterSettings` mapping, 113 the rule called from `PgNodeConfig`, 114 watchdog mode kept: each guarding test failed with the message of its own behaviour |
+| Core | `rebuild-peegeeq-pg-failover-cc1-final-20261118.log` BUILD SUCCESS; `-cc1-core-`: 12 classes, 436, 0 failures (424 plus 9 and 3) |
+| Guards | `peegeeq-test-support-guards-cc1-20261118.log`: 14 classes, 77, 0 failures |
+
+The banned-pattern grep of `.claude/CLAUDE.md` step 5 over the four changed files found no match. Not run on this
+change: the integration classes that construct `PgNodeConfig`; the rule's code moved without change, and its core tests
+pass.
+
+**CC2 status, 2026-11-18.** Built: `PgClusterConfiguration` (contract 3), `PgClusterConfigurationException`,
+`PgClusterSettingsRecord` (revision and settings), and `ConsulClusterConfiguration` (contract 4); test
+`PgClusterConfigurationContract` (14 cases) and its Consul binding `ConsulClusterConfigurationIntegrationTest` (13 wire
+cases): one Consul 1.22.1 server with ACLs, key-scoped tokens, and local fake servers for a reply without a known
+leader, a filtered reply, an unanswered request, and chosen write and read replies. Nothing outside tests calls the
+port. Design documents changed: system design §1.1 (the row of cluster configuration is split into the coordinator's
+cluster settings and each node's watchdog and profile settings) and §5.4; coordinator design §1.1, §2, and §3.3.
+Owner's workstation, local Docker (the Jenkins host did not answer within 8 seconds just before the 13:12 tier run and
+at 15:46; it was not checked between those times). Logs under `logs/`:
+
+| Step | Evidence |
+|---|---|
+| Red, against the stubs | `rebuild-peegeeq-pg-failover-cc2-stub-20261118.log` BUILD SUCCESS; `peegeeq-pg-failover-cc2-red-20261118.log`: 21 run, 9 failures, 12 errors, every one "not implemented", the stub's exception where the port's was expected, or a constructor that refused nothing |
+| Green | `rebuild-...-cc2-impl-`, `-cc2-green-`: 21 of 21; the read's response checks moved into one method, `-cc2-impl2-`, `-cc2-green2-`: 21 of 21 |
+| Tests added before the probes | The probe plan showed four checks no test guarded: the `true` reply of a write when the read back is equal, the read-back equality, the revision advance of an update, and the key, revision, and cardinality of a read. Added `aSecondCreateWithEqualSettingsIsRefused` (contract) and five binding cases on a fake service; `-cc2-tests-`, `-cc2-green3-`: 27 of 27 on the real code. Their red is the probes below |
+| Probes 115 to 127 | `peegeeq-pg-failover-cc2-mutation115-` to `-127-20261118.log`, summary `-cc2-mutations-`; SHA-256 of `ConsulClusterConfiguration.java` `0BA0D7BC...1CFF60FE` before and after. 115 known leader, 116 ACL filter, 117 refused status, 118 `cas=0` on create, 119 `cas=<revision>` on update, 120 the `true` reply, 121 read-back equality, 122 revision advance, 123 Consul's TTL range, 124 key, 125 positive revision, 126 cardinality, 127 the port's exception: each guarding test failed with the message of its own behaviour |
+| Final class | `rebuild-...-cc2-final-`, `-cc2-final-`: 27 of 27 |
+| Core | `-cc2-core-`: 12 classes, 436, 0 failures |
+| Guards | `peegeeq-test-support-guards-cc2-20261118.log`: 14 classes, 77, 0 failures |
+
+The banned-pattern grep over the six changed Java files found no match, and every `.onFailure` in them is
+`context::failNow`. Not checked: TLS to Consul (G-7), and a Consul quorum of three servers; the binding uses one
+server, as the member-position binding does.
+
+**CC3 status, 2026-11-18.** Built: `PgBootstrap` takes a `PgClusterConfiguration` and, after the control-record check
+and before the initial intent, writes its deployment timing as the first cluster settings record, accepts an equal
+record, and refuses one with other values (`PgBootstrapException`); a failed read or write fails the bootstrap before
+the initial intent (contract 5). The two callers, `PgBootstrapIntegrationTest` and `PgBootstrapServingIntegrationTest`,
+pass a Consul adapter and close it in teardown. The refusal helper of `PgBootstrapIntegrationTest` now also asserts that
+a refused bootstrap writes no settings record. Logs under `logs/`:
+
+| Step | Evidence |
+|---|---|
+| Red, against the stub (the dependency added, not used) | `rebuild-peegeeq-pg-failover-cc3-stub-20261118.log` BUILD SUCCESS; `peegeeq-pg-failover-cc3-red-20261118.log`: 11 run, 3 failures, each a new case on its missing behaviour; the 7 earlier tests passed. `anEqualClusterSettingsRecordIsAcceptedAndLeftUnchanged` passed on the stub, which ignores the record; probe 129 is its red |
+| Green | `rebuild-...-cc3-impl-`, `-cc3-green-`: 11 of 11 |
+| Probes 128 to 131 | `peegeeq-pg-failover-cc3-mutation128-` to `-131-20261118.log`, summary `-cc3-mutations-`; SHA-256 of `PgBootstrap.java` `6AE213BB...EF761FC6` before and after. 128 the settings step, 129 create only when absent, 130 the equality check, 131 the step before the initial intent: each guarding test failed with the message of its own behaviour |
+| Touched classes | `rebuild-...-cc3-final-` BUILD SUCCESS; `-cc3-touched-`: `PgBootstrapIntegrationTest` 11, `PgBootstrapServingIntegrationTest` 15, 0 failures |
+| Core | `-cc3-core-`: 12 classes, 436, 0 failures |
+| Guards | `peegeeq-test-support-guards-cc3-20261118.log`: 14 classes, 77, 0 failures |
+
+The banned-pattern grep over the three changed files found no match, and every `.onFailure` in them is
+`context::failNow`. CC1 to CC3 complete contracts 1 to 5. Open for answer 12: the caller that reads the settings before
+an acquisition (the supervisor loop), the operator's entry point to `update` (answer 13), and PostgreSQL parameters in
+the coordinator (§9.35).
+
+### 9.35 Phase 7b.3: PostgreSQL Parameters in the Coordinator (Owner Answer 12), 2026-11-18 (design)
+
+The rest of owner answer 12 (§9.28, row 12; §9.20 row 15). §9.34, "Not decided here", leaves PostgreSQL parameters in
+the coordinator (Patroni's `postgresql.parameters`) out of its own design, and §9.33's data model row "Configuration
+content" names them as the later item of answer 12. This section is their design. §9.28 row 12's scope boundary
+applies: identity, membership, endpoints, the coordinator selection, and credentials stay in deployment configuration.
+
+**Purpose.** An operator sets PostgreSQL parameters for the whole cluster in one place, under a revision check. Each
+supervisor writes them into a file it owns, reloads, and reports the parameters that wait for a restart. Success: a
+parameter that a contract of this design sets or depends on is never taken from the record; a value that PostgreSQL
+rejects never stays in the file; a value that another file overrides is reported, not hidden; the order in which the
+members restart never keeps a standby from starting because of a hot-standby parameter.
+
+**Sources read, 2026-11-18.** Patroni v4.1.5 source: `patroni/postgresql/config.py` (`CMDLINE_OPTIONS`,
+`write_postgresql_conf`, `reload_config`, `get_server_parameters`, `effective_configuration`, `_sanitize_auto_conf`),
+`patroni/config.py` (`_process_postgresql_parameters`, `_safe_copy_dynamic_configuration`,
+`_build_effective_configuration`, `set_dynamic_configuration`), `patroni/postgresql/__init__.py`
+(`handle_parameter_change`, the start through `effective_configuration`), `patroni/ha.py` (the call of
+`handle_parameter_change`), and `patroni/__main__.py` (`_run_cycle`, `reload_config`). This plan's §9.20, §9.22,
+§9.24, §9.28, §9.32, §9.33, and §9.34; system design §1.1 and §5.4; coordinator design §1.1, §3.3, §6, and §7. The code
+of `PgConfigurationControl`, `PgSqlConfigurationControl`, `PgConfigurationFiles`, `PgServerSettings`,
+`PgProcessControl`, `PgCtlProcessControl`, `PgDataDirectory`, `PgCommandRunner`, and `PgHbaAdmissionGate`, and the
+`ALTER SYSTEM` sites of `PgSqlDurabilityControl` and `PgSqlPromotionControl`.
+
+Facts from those sources that the design rests on:
+
+1. Patroni writes its own `postgresql.conf`. It renames the deployment's file to `postgresql.base.conf` and writes an
+   `include` of it as the first line, then the parameters. Later lines win. It removes recovery parameters from
+   `postgresql.auto.conf`.
+2. Patroni lists fifteen parameters (`CMDLINE_OPTIONS`, among them `max_connections`, `wal_level`, `hot_standby`,
+   `max_wal_senders`, `max_replication_slots`, `wal_log_hints`, `listen_addresses`, `port`) and passes them, except
+   `wal_keep_segments` and `wal_keep_size`, on the command line, so that `ALTER SYSTEM` cannot change them. It drops
+   them from the local configuration, and validates them in the dynamic configuration; a value that fails is replaced
+   by the default, with a WARNING. `listen_addresses`, `port`, and
+   `cluster_name` come from local configuration, and `hot_standby` is always on.
+3. Patroni sets `synchronous_standby_names` itself when synchronous mode is on, and keeps `pg_hba` and `pg_ident` as
+   separate settings.
+4. Patroni applies a changed dynamic configuration on its next loop: it compares each parameter with `pg_settings`,
+   rewrites the file, reloads, and reads `pg_settings.pending_restart` afterwards. A name that `pg_settings` does not
+   know is removed from the parameters with a WARNING, except custom names with a dot.
+5. On a replica, Patroni starts PostgreSQL with the higher of the configured value and the control file's value for
+   `max_connections`, `max_prepared_transactions`, `max_locks_per_transaction`, `max_worker_processes`, and
+   `max_wal_senders` (`effective_configuration`), and flags a pending restart. In its replica path, on PostgreSQL 14
+   and later, it resumes a paused replay (`handle_parameter_change`).
+
+**Checks run, 2026-11-18,** on throwaway `postgres:15.13-alpine3.20` containers (PostgreSQL 15.13) on the owner's
+workstation with local Docker 29.9.3 (the Jenkins host did not answer within 8 seconds at 17:42 local time). Logs under
+`logs/`: `parameters-probe-20261118.log` (checks 1 to 6, 8, 9; its check 7 is void: `psql` sets its own
+`application_name`), `-check7d-` (check 7; `-check7-` to `-check7c-` are void: the shell or the tool input dropped a
+backslash), `-check10-`, `-check11-`, `-check12-` (check 12a; its 12b is void: the standby's name did not match), and
+`-check12b-`. The containers were removed.
+
+1. `include_if_exists 'peegeeq-cluster.conf'` as the last line of `postgresql.conf`, with no such file: the server
+   started, and logged "skipping missing configuration file" each time the files were read.
+2. `work_mem = '8MB'` in that file, then a reload: in effect, `pg_settings.sourcefile` is the file, and its
+   `pg_file_settings` row has `applied = true`.
+3. Then `ALTER SYSTEM SET work_mem = '16MB'` and a reload: `16MB` in effect; the file's row has `applied = false` and no
+   error; the `postgresql.auto.conf` row has `applied = true`.
+4. `max_connections = '150'` in the file, then a reload: `100` in effect, `pending_restart = true`; the file's row has
+   `applied = false` and error "setting could not be applied".
+5. `checkpoint_timeout = 'nonsense'` in the file: the same error, before and after the reload; after it,
+   `pending_restart = false`. This is §9.33 check 8 for this file.
+6. `no_such_parameter = '1'` in the file: error "unrecognized configuration parameter"; a reload left the load time
+   unchanged and applied nothing of the file (`work_mem` stayed `8MB`). This is §9.33 check 6. A custom name
+   `peegeeq.probe = 'x'` was accepted and applied.
+7. The line `log_line_prefix = 'it''s a\\b "q" '`, written by decoding base64 inside the container and renamed into
+   place, was read back byte for byte. In effect: `it's a\b "q" ` (13 characters). A doubled single quote is one quote,
+   a doubled backslash is one backslash, and a double quote is literal. A single backslash is an escape: `\b` became one
+   character.
+8. A standby whose file says `max_connections = '100'`, base-backed-up from a writer running `150`: the start failed,
+   `FATAL: recovery aborted because of insufficient parameter settings`, `DETAIL: max_connections = 100 is a lower
+   setting than on the primary server, where its value was 150`.
+9. The same standby with `150`: it started and streamed.
+10. The standby's `pg_controldata` shows `max_connections setting: 150` after the base backup. The writer lowered the
+    value to `120` and restarted: the running standby (`150`) kept streaming, and its control file showed `120`. The
+    writer raised it to `200` and restarted: the running standby (`150`) stayed running in recovery with replay paused,
+    `WARNING: hot standby is not possible because of insufficient parameter settings`, `LOG: recovery has paused`,
+    `DETAIL: If recovery is unpaused, the server will shut down`; its control file showed `200`.
+11. Resuming replay on that paused standby shut it down (`FATAL: recovery aborted ...`). `postgres -D <dir> -C
+    max_connections` printed `150`, the value of its files, both while stopped and while running. `pg_controldata`
+    showed `200`. Started with `-o "-c max_connections=200"`, it streamed with replay not paused; `pg_settings` showed
+    `200`, source `command line`, `pending_restart = false`; the file's row (`150`) had `applied = false` and error
+    "setting could not be applied".
+12. While a standby was paused as in check 10: it kept receiving and flushing WAL (receive position equal to the
+    writer's flush position, replay position unchanged, receiver `streaming`); as the writer's only synchronous standby
+    it stayed `sync`, and a commit with `synchronous_commit = on` succeeded. `postgres -C max_connections` with
+    `max_connections = 'nonsense'` in a file exited 1 with `FATAL: configuration file ... contains errors`.
+
+So check 11's start option makes §9.33 contract 1's error rule report an invalid value: an error entry whose parameter
+is not pending a restart. Contract 5 below narrows that rule.
+
+**Data model.** One stored record is added: the cluster parameters.
+
+| Datum | Source of truth or derivable | Contract |
+|---|---|---|
+| Cluster parameters: PostgreSQL parameter name to value | Coordinator, one record per incarnation, `peegeeq/pg/<clusterId>/<incarnation>/postgresql`; authoritative | Names and values satisfy contract 1 when written and when read; a denied name, an invalid name, or a value that is not a string fails. Never adjusted (as OD-66) |
+| Parameters revision | Coordinator metadata (Consul `ModifyIndex`) | Guards the edit. Not stored in the value |
+| Managed file `peegeeq-cluster.conf` in the data directory | Derived: the rendering of the record (contract 1); written only by the supervisor | Replaced whole, never edited in place. No revision or time is written into it. Saved and restored with the other top-level `*.conf` files by a re-join (§9.32) |
+| Include line `include_if_exists 'peegeeq-cluster.conf'` | Deployment: the last line of each node's `postgresql.conf` | Without it no entry of the file takes effect, and an apply with parameters fails (contract 4). A missing file is skipped (check 1) |
+| Whether a node applied the record | Derived live: the file's content against the record's rendering; the file's `pg_file_settings` rows; `pg_settings.pending_restart` | Never stored |
+| The writer's hot-standby values as a standby last replayed them: `max_connections`, `max_worker_processes`, `max_wal_senders`, `max_prepared_transactions`, `max_locks_per_transaction` | Derived live: the standby's `pg_controldata` (check 10) | Read before every start in recovery (contract 5) |
+| The value a start would read from the files | Derived live: `postgres -D <dir> -C <name>` (check 11) | Read before every start in recovery |
+| Start option `-c <name>=<value>` | Derived per start: the control-file value, for each of the five parameters whose control-file value is higher than the file's | Never stored. Observed afterwards as `pg_settings.source = 'command line'` |
+| Parameters the supervisor sets itself: `synchronous_standby_names`, `primary_conninfo`, `primary_slot_name` | `postgresql.auto.conf` through `ALTER SYSTEM` (existing: OD-9, §9.22) | Denied in the record (contract 1) |
+
+**Contracts.**
+
+1. `PgClusterParameters` (record): a map of name to value, kept in name order.
+   - A name is lower case: `[a-z_][a-z0-9_]*`, or a custom name `[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)+`. A value is a
+     string with no carriage return, line feed, or NUL.
+   - Denied names, each because a contract of this design sets it, requires its value, or reads it from deployment
+     configuration:
+     - `synchronous_standby_names` (policy installation, OD-9);
+     - `primary_conninfo` and `primary_slot_name` (follow, §9.22);
+     - `synchronous_commit` and `fsync` (R-17; coordinator design §6);
+     - `wal_level`, `wal_log_hints`, and `full_page_writes` (replication and rewind, §9.32; coordinator design §6);
+     - `hot_standby` (the supervisor's SQL on a standby);
+     - `max_slot_wal_keep_size` (deployment and observed, OD-27, §9.24);
+     - `listen_addresses`, `port`, and `unix_socket_directories` (node endpoints and the supervisor's local socket,
+       §9.28 row 12);
+     - `data_directory`, `config_file`, `hba_file`, `ident_file`, and `external_pid_file` (file locations; the admission
+       gate owns `pg_hba.conf`, §9.33);
+     - `include`, `include_if_exists`, and `include_dir` (file directives).
+   - `toJson` and `fromJson`: exactly the field `parameters`, an object of string values. An unknown or missing field,
+     a value that is not a string, or a name or value that breaks the rules above fails.
+   - `render()`: the line `# Written by the PeeGeeQ supervisor from the coordinator record; edits here are replaced.`,
+     then one line per parameter in name order, `name = 'value'`, with each single quote and each backslash in the
+     value doubled (check 7).
+2. `PgClusterConfiguration` gains `readParameters()`, `createParameters(parameters)`, and
+   `updateParameters(expected, parameters)`, returning `PgClusterParametersRecord(revision, parameters)`, with the rules
+   of §9.34 contract 3: an authoritative read; a create that fails when a record exists; an update that fails and
+   changes nothing when the record moved; an unanswered request fails within the request deadline; every failure is a
+   `PgClusterConfigurationException`. `PgClusterConfigurationContract` gains the cases, and
+   `ConsulClusterConfiguration` binds them to the second key with the wire rules of §9.34 contract 4 (`?consistent`,
+   `?cas=0`, `?cas=<revision>`, reply `true`, read back).
+3. `PgConfigurationControl` gains the managed file:
+   - `managedFile()`: the file's content, or empty when it does not exist.
+   - `writeManagedFile(content)`: writes through the runner as
+     `sh -c 'printf %s $1 | base64 -d > $2.tmp && mv -f $2.tmp $2' sh <content as base64> <path>`, then reads the file
+     back and requires it equal to `content`. No argument contains a double quote, because Windows drops it from an
+     argument (`PgConfigurationFiles`). The adapter refuses a data directory path outside `[A-Za-z0-9_./-]+` when it is
+     constructed, because the path is unquoted.
+   - `removeManagedFile()`: removes it and confirms it is gone.
+   - `managedEntries()`: for each `pg_file_settings` row of the file, the name, `applied`, the error, and the
+     parameter's `pending_restart` and `source` from `pg_settings`.
+   Every failure is a `PgConfigurationException`, as in §9.33 contract 1.
+4. `PgFailoverMonitor.applyParameters(parameters)`. Serialized. No lease and no receipt: the effect is observable (the
+   file, the load time), as OD-28 and OD-34 decide for slot steps and §9.33 contract 2 for reload. Allowed under
+   quarantine, as reload is (OD-61). Refused before any effect while PostgreSQL is stopped
+   (`PgProcessControlException`), because the file cannot be checked without the server. Then:
+   1. Render the record. When the file already holds the rendering, go to step 4.
+   2. Keep the current content, or its absence. Write the rendering.
+   3. Reload through §9.33 contract 1. A refusal for a whole-file error (check 6) or a reported invalid value (check 5)
+      restores the kept content, or removes the file when there was none, and fails the call. After an invalid value
+      the restore is followed by a reload; a failure of the restore or of that reload is attached to the failure.
+   4. The record has parameters but the file has no `pg_file_settings` row: fail, "the include line is missing".
+   5. Check every row of the file: `applied`, or its parameter pending a restart, or its parameter set on the command
+      line (contract 5). Any other row fails the call and names it: another file overrides the value (check 3). The
+      file is kept: its values are valid, and the failure shows the conflict.
+   6. Return `PgParametersApplied(changed, pendingRestart)`: whether the file changed, and the names pending a restart.
+5. Every start in recovery (`PgCtlProcessControl.startInRecovery` and the crash-recovery start of a rewind) reads the
+   five control-file values and, through `postgres -C`, the five file values, and passes `-c <name>=<value>` for each
+   parameter whose control-file value is higher (checks 8, 10, 11; fact 5). A failed or malformed read fails the start
+   before `pg_ctl start`; an invalid value in a file fails `postgres -C` (check 12). `PgConfigurationFiles`'s `invalid`
+   list leaves out a parameter whose `pg_settings.source` is `command line`: its file value cannot take effect until a
+   start without the option, and that start's `postgres -C` reads it first.
+
+**Danger, and the safety net.** One record edit reaches every member at its next apply: the blast radius is the
+cluster. An invalid value would stop the next start of every member (§9.33 check 8); the apply reloads first and
+restores the previous file on a rejection (contract 4.3), so a member keeps such a value only when its apply is
+interrupted between the write and the restore. A raised hot-standby parameter that takes effect on the writer first,
+at the writer's restart, pauses the replay of every standby that runs with a lower value (check 10); the
+standby still flushes WAL and still counts as a synchronous standby (check 12), so commits succeed while its replay
+stops. Whether a promotion of such a standby succeeds was not checked. A restart of that standby starts it with the
+writer's value (contract 5), and a restart of every standby before the writer avoids the pause. Every parameter whose
+value a contract of this design sets or requires is denied (contract 1). A parameter that bounds a resource, such as
+`max_replication_slots` or `max_wal_senders`, is allowed; the effect of a value too low on the operations that need
+it was not checked. Other parameters can still stop service, for example `default_transaction_read_only = on`.
+Access control limits who edits: the record has its own key and its own write tokens, so a token that edits parameters
+cannot change the lease timing.
+
+**Conflict found, 2026-11-18.** Coordinator design §7 says "Use the single configuration contract in system design §5.4.
+No second setting family." The record holds PostgreSQL's own parameters, not supervisor settings. PP2 adds the record
+to system design §1.1 and §5.4, so that the single contract names it.
+
+**Decisions of the implementer, 2026-11-18, under the owner's direction of 2026-11-13 to proceed without questions.
+Reversible.**
+
+- OD-69: the parameters are a second record under their own key, `peegeeq/pg/<clusterId>/<incarnation>/postgresql`, in
+  the same port. Reason: the lease timing of §9.34 keeps its contracts and tests unchanged, the two records are applied
+  by different steps (an acquisition and an apply), and separate keys let access control separate who may change the
+  lease timing from who may tune PostgreSQL. Patroni keeps both in one key (§9.34 fact 1); that is a difference: an
+  edit of both is two edits.
+- OD-70: the parameters reach PostgreSQL through the managed file and a deployment include line, not `ALTER SYSTEM`.
+  Reason: `postgresql.auto.conf` holds the supervisor's own three settings and any operator `ALTER SYSTEM`; a file that
+  the supervisor replaces whole removes a parameter by leaving it out, can be compared with the record, and is not
+  edited by `ALTER SYSTEM`. Patroni also writes its own file (fact 1); unlike Patroni, the supervisor does not rename or
+  rewrite the deployment's `postgresql.conf`.
+- OD-71: the denied names of contract 1 are refused, not replaced by defaults. Reason: OD-66; Patroni replaces a value
+  that fails validation (fact 2), which changes a setting nobody asked for.
+- OD-72: names are lower case and values are strings. Reason: PostgreSQL names are not case sensitive, so two keys that
+  differ only in case would be one parameter; a string value renders one way.
+- OD-73: no record means no managed parameters, and nothing is written; the caller does not apply. A record with no
+  parameters renders a file with only its first line. Bootstrap writes no parameters record. Reason: the deployment's
+  files then apply unchanged, as they do today; a record that disappears does not change a running node's
+  configuration.
+- OD-74: an overridden value fails the apply and keeps the file (contract 4.5). Reason: the value is valid; restoring
+  the old file would hide which file overrides it, and the failure names it.
+- OD-75: a start in recovery uses the control-file value when it is higher, as Patroni does (fact 5), and does not
+  refuse. Reason: check 8 shows that a standby cannot start otherwise, so a refusal would leave the standby down after a
+  writer restart. The option is visible as source `command line`. The resume of a paused replay (fact 5) is not
+  adopted here: it shuts the standby down (check 11), and only a caller that then starts it, the supervisor loop, may
+  do it.
+
+**Dependency failure modes, each with a failing test before its code.**
+
+| Dependency | Mode | Test class |
+|---|---|---|
+| Parameters value | each denied name; upper case, empty, and malformed names; a custom name; a value with a line feed, a carriage return, or NUL; a non-string value; unknown or missing field; round trip; rendering of a quote and a backslash | `PgClusterParametersTest` (core) |
+| Settings port, parameters, every adapter | absent record; create and read back; second create refused; update at the read revision; update after another edit refused and nothing changed; malformed stored value; stored denied name; unanswered request; unreachable service | `PgClusterConfigurationContract` through its Consul binding |
+| Consul wire, parameters key | read without a known leader; read filtered by ACLs; write answered `false`; token without write on the parameters key, and the timing token on it | `ConsulClusterConfigurationIntegrationTest` |
+| Managed file through the runner | absent; written and read back; a quote, a backslash, and a double quote in a value; read back different; command failure; no result; data directory path with a space refused at construction; entries of an applied, an overridden, a pending, and an invalid row | `PgSqlConfigurationControlIntegrationTest` |
+| Apply | reloadable value in effect; postmaster value pending; unchanged file not rewritten; parameter removed; unknown parameter restored and refused; invalid value restored, reloaded, and refused; missing include line; overridden by `ALTER SYSTEM`; stopped server; quarantine | `PgParameterApplyIntegrationTest` (new) |
+| Start in recovery | control-file value higher: started with the option, streaming; equal: no option; invalid file value: start refused before `pg_ctl start`; `pg_controldata` failure; the start option's row is not an invalid value | `PgCtlProcessControlIntegrationTest`, `PgConfigurationFilesIntegrationTest` |
+
+**Order of work.** PP1: `PgClusterParameters` (contract 1, core tests). PP2: the port's parameters operations, the
+contract cases, and the Consul binding (contract 2). PP3: the managed file in `PgConfigurationControl` (contract 3).
+PP4: `applyParameters` (contract 4). PP5: the start in recovery and the narrowed `invalid` list (contract 5). Each:
+tests and stubs that fail with "not implemented", red, implementation, green, mutation probes with SHA-256 records, the
+touched classes, core, and guards last. The design documents change in PP2 and PP5: system design §1.1 (a row for the
+cluster parameters) and §5.4, coordinator design §1.1 and §3.3.
+
+**Not decided here.** Who reads the record and calls `applyParameters`, and when (the supervisor loop), including the
+apply before a start. The resume of a paused replay and the start that follows it (the supervisor loop). How an
+operator reaches `updateParameters` (answer 13). Restarting every member in turn, standbys before the writer
+(§9.33, "Not decided here"). `pg_hba` and `pg_ident` content in the coordinator, which Patroni has (fact 3): the
+admission gate owns `pg_hba.conf`.
