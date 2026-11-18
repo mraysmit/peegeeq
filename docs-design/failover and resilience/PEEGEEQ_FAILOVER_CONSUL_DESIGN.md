@@ -43,7 +43,8 @@ owns the canonical field contract. This document creates no second writer author
 
 | Data | Source of truth or derivable | Contract |
 |---|---|---|
-| Cluster, incarnation, node IDs, membership, mode, endpoints, and timing/device settings | Authoritative deployment configuration | One supervisor owns one node. Fixed membership and one coordinator per incarnation. |
+| Cluster, incarnation, node IDs, membership, mode, endpoints, watchdog mode and device, and the deployment timing values | Authoritative deployment configuration | One supervisor owns one node. Fixed membership and one coordinator per incarnation. The deployment timing values bound the settings read and apply while no settings record exists. |
+| `peegeeq/pg/<clusterId>/<incarnation>/config` | Authoritative coordinator record of the cluster settings: lease TTL, loop interval, retry budget, stop budget | Satisfies the timing rule of [system design §5.4](PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md#54-supervisor-configuration-and-timing) when written and read; never adjusted. Edited by revision, without a lease. A lease keeps the settings read before its acquisition until it ends. |
 | `peegeeq/pg/<clusterId>/<incarnation>/primary-lock` | Authoritative coordinator control record | Contains writer and transition intent plus confirmed/pending policy. Retain history after normal lease release. |
 | Lease holder, generation, and revision | Authoritative coordinator metadata | The lease belongs to the writer's node-local supervisor. Control record, generation, and lease holder identify a writer generation; the revision guards updates. |
 | `writerNodeId`, phase, operation, previous writer, confirmed/pending policy | Authoritative control-record intent in both modes | Persist withdrawn intent before local effects. Missing policy never grants ordinary promotion eligibility. |
@@ -70,6 +71,7 @@ lease. No remote controller can keep another node's writer lease alive.
 | `PgNodeConfig` | Immutable identity, membership, secret references, endpoints, and local process/watchdog configuration |
 | `PgLeaseCoordinator` port | The leased control record: conditional acquisition, authoritative read, renewal, conditional update, and guarded release |
 | `ConsulLeaseCoordinator` | The Consul adapter for the port (§3.3) |
+| `PgClusterConfiguration` port and `ConsulClusterConfiguration` | The cluster settings record: authoritative read, create, and revision-guarded update (§3.3) |
 | `PgPrimaryElector` | Per-node ownership state above the port: intent validation, freshness deadline, retirement, and late-reply rejection |
 | `PgFailoverMonitor` | Per-node HA loop, local process supervision, ownership-loss shutdown, takeover, and reconciliation |
 | Local process/admission boundary | Guarded start/stop/promotion, closed/prepared/open grants, write quiescence, receipts, and restart quarantine |
@@ -77,7 +79,7 @@ lease. No remote controller can keep another node's writer lease alive.
 | `peegeeq-pg-sidecar` | Read-only eligibility combining lease, local grant, watchdog state under the selected mode, database role/identity, and synchronous coverage |
 | HAProxy | Stable routing and backend-down session shutdown; health observations do not fence writers |
 
-The first six responsibilities belong to the `peegeeq-pg-failover` supervisor.
+The first seven responsibilities belong to the `peegeeq-pg-failover` supervisor.
 It runs once per database node. It is separate from `peegeeq-service-manager` federation and
 from the read-only sidecar. All supervisors use the same coordination namespace and protocol.
 
@@ -150,6 +152,8 @@ The elector imports no coordinator product type and makes no product API call.
 | Access control | ACL tokens scoped to the control key and the node's own sessions. ACLs restrict clients; they do not impose lock ownership on otherwise authorised writes |
 | Transport | HTTPS. Loopback HTTP is accepted for local fixtures only |
 | Member positions (`ConsulMemberPositions`) | KV key `peegeeq/pg/<clusterId>/<incarnation>/members/<nodeId>`, value `{"timeline": n, "lsn": "X/Y"}`, written with `PUT ?acquire=<member session>`; the write fails unless Consul answers `true`. The member session belongs to the adapter instance: on the node's own Consul node, TTL equal to the lease TTL, `Behavior=delete`, `LockDelay=0s`, no checks, read back and validated after creation. `publish` renews it, or creates it when it has none or the renewal finds it gone. Read is a recursive list of the members prefix. A response that ACLs filtered (`X-Consul-Results-Filtered-By-ACLs`), a malformed value, a key of a node outside the membership, or a record that no session holds fails the read. One adapter per member: a second adapter for the same member cannot acquire the key while the first one's session lives |
+| Cluster settings (`ConsulClusterConfiguration`) | KV key `peegeeq/pg/<clusterId>/<incarnation>/config`, value `{"leaseTtlMillis": n, "loopIntervalMillis": n, "requestTimeoutMillis": n, "stopTimeoutMillis": n}`, revision `ModifyIndex`, held by no session. Read with `?consistent`; a refused request, a response without a known leader, or one filtered by ACLs fails. Create writes with `?cas=0`, update with `?cas=<revision>`; a reply other than `true` fails, and the written record is read back and must hold the settings written, with a later revision on an update. A lease TTL that is not whole seconds between 10 and 86 400 is refused before sending and fails a read |
+| Cluster settings access control | Every supervisor's token reads the key; the token of bootstrap and of the operator's edit writes it |
 | Member position access control | Each node's token may write its own member key, read the members prefix, and write sessions on its own Consul node (`session "<node>" { policy = "write" }`). It holds no `list` rule on the prefix: on Consul 1.22.1 a `list` rule lets a recursive read return every value |
 
 The adapter validates the range Consul accepts for a session TTL and sends the TTL explicitly.
