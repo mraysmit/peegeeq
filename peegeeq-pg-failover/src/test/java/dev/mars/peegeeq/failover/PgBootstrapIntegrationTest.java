@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.failover;
 
+import dev.mars.peegeeq.failover.consul.ConsulClusterConfiguration;
 import dev.mars.peegeeq.failover.consul.ConsulLeaseCoordinator;
 import dev.mars.peegeeq.failover.consul.ConsulMemberPositions;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -69,6 +70,7 @@ class PgBootstrapIntegrationTest {
     private final List<PgPrimaryElector> electors = new ArrayList<>();
     private final List<PgRenewalLoop> loops = new ArrayList<>();
     private final List<PgMemberPositions> positionAdapters = new ArrayList<>();
+    private final List<PgClusterConfiguration> settingsAdapters = new ArrayList<>();
 
     @BeforeAll static void startContainers() {
         CONSUL.start();
@@ -117,6 +119,8 @@ class PgBootstrapIntegrationTest {
                 return closed;
             })).transform(TestCleanup.cleanup(() -> Future.join(positionAdapters.stream()
                 .map(PgMemberPositions::close).toList()).mapEmpty()))
+            .transform(TestCleanup.cleanup(() -> Future.join(settingsAdapters.stream()
+                .map(PgClusterConfiguration::close).toList()).mapEmpty()))
             .transform(TestCleanup.cleanup(() -> {
                 admin.close();
                 return Future.<Void>succeededFuture();
@@ -260,6 +264,72 @@ class PgBootstrapIntegrationTest {
             }).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
     }
 
+    // ---------------------------------------------------------------- cluster settings (plan §9.34, contract 5)
+
+    @Test void theFirstBootstrapWritesItsDeploymentTimingAsTheClusterSettings(VertxTestContext context)
+            throws IOException {
+        writeRequest(request());
+        bootstrap(config, process).start(requestFile)
+            .compose(held -> settings(config, endpoint()).read())
+            .onSuccess(found -> context.verify(() -> {
+                assertEquals(config.clusterSettings(), found.orElseThrow(() ->
+                    new AssertionError("Bootstrap wrote no cluster settings")).settings());
+                context.completeNow();
+            })).onFailure(context::failNow);
+    }
+
+    @Test void anEqualClusterSettingsRecordIsAcceptedAndLeftUnchanged(VertxTestContext context) throws IOException {
+        writeRequest(request());
+        var existing = settings(config, endpoint());
+        existing.create(config.clusterSettings()).compose(created -> bootstrap(config, process).start(requestFile)
+            .compose(held -> existing.read()).map(found -> {
+                assertEquals(java.util.Optional.of(created), found, "Bootstrap changed equal cluster settings");
+                return null;
+            })).compose(ignored -> process.status())
+            .onSuccess(status -> context.verify(() -> {
+                assertEquals(PgProcessState.RUNNING, status, "Bootstrap with equal cluster settings did not start");
+                context.completeNow();
+            })).onFailure(context::failNow);
+    }
+
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgBootstrap",
+        message = "Bootstrap refused on node pg-node-1",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgBootstrapException.class)
+    void clusterSettingsWithOtherValuesRefuseBootstrapBeforeTheInitialIntent(VertxTestContext context)
+            throws IOException {
+        writeRequest(request());
+        var other = new PgClusterSettings(Duration.ofSeconds(30), Duration.ofSeconds(5), Duration.ofSeconds(3),
+            Duration.ofSeconds(5));
+        var existing = settings(config, endpoint());
+        existing.create(other).compose(created -> bootstrap(config, process).start(requestFile).transform(start -> {
+            assertTrue(start.failed(), "Bootstrap ran against cluster settings of an earlier deployment");
+            assertInstanceOf(PgBootstrapException.class, start.cause());
+            return assertNoIntentAndNotStarted();
+        }).compose(ignored -> existing.read()).map(found -> {
+            assertEquals(java.util.Optional.of(created), found, "A refused bootstrap changed the cluster settings");
+            return null;
+        })).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+    }
+
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgBootstrap",
+        message = "Bootstrap failed on node pg-node-1",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgClusterConfigurationException.class)
+    void anUnreachableSettingsServiceFailsBootstrapBeforeTheInitialIntent(VertxTestContext context) throws IOException {
+        writeRequest(request());
+        bootstrap(config, process, settings(config, URI.create("http://127.0.0.1:1"))).start(requestFile)
+            .transform(start -> {
+                assertTrue(start.failed(), "Bootstrap ran without its cluster settings");
+                assertInstanceOf(PgClusterConfigurationException.class, start.cause());
+                return assertNothingCreatedOrStarted();
+            }).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+    }
+
     @Test
     @ExpectedErrorLog(
         logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
@@ -302,7 +372,15 @@ class PgBootstrapIntegrationTest {
         })).onFailure(context::failNow);
     }
 
+    /** No control record, no cluster settings record, and PostgreSQL stopped. */
     private Future<Void> assertNothingCreatedOrStarted() {
+        return assertNoIntentAndNotStarted().compose(ignored -> settings(config, endpoint()).read()).map(found -> {
+            assertTrue(found.isEmpty(), "A refused bootstrap wrote cluster settings");
+            return null;
+        });
+    }
+
+    private Future<Void> assertNoIntentAndNotStarted() {
         var observer = elector(config);
         return observer.read().compose(found -> {
             assertTrue(found.isEmpty(), "A refused bootstrap created a control record");
@@ -322,6 +400,16 @@ class PgBootstrapIntegrationTest {
     }
 
     private PgBootstrap bootstrap(PgNodeConfig nodeConfig, PgProcessControl control) {
+        return bootstrap(nodeConfig, control, settings(nodeConfig, endpoint()));
+    }
+
+    private PgClusterConfiguration settings(PgNodeConfig nodeConfig, URI uri) {
+        var settings = new ConsulClusterConfiguration(vertx, nodeConfig, uri, TOKEN);
+        settingsAdapters.add(settings);
+        return settings;
+    }
+
+    private PgBootstrap bootstrap(PgNodeConfig nodeConfig, PgProcessControl control, PgClusterConfiguration settings) {
         var elector = elector(nodeConfig);
         var durability = new PgSqlDurabilityControl(vertx, runner, POSTGRES.prefix(), PgSupervisedContainer.PG_CTL,
             "psql", dataDirectory, Duration.ofSeconds(20));
@@ -335,7 +423,7 @@ class PgBootstrapIntegrationTest {
                 "psql", dataDirectory, Duration.ofSeconds(20))).build();
         var loop = new PgRenewalLoop(vertx, nodeConfig, elector, monitor);
         loops.add(loop);
-        return new PgBootstrap(vertx, nodeConfig, elector, store, monitor, loop);
+        return new PgBootstrap(vertx, nodeConfig, elector, settings, store, monitor, loop);
     }
 
     private PgPrimaryElector elector(PgNodeConfig nodeConfig) {
