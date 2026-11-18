@@ -3,10 +3,12 @@
 **Written:** 2026-10-26, at the end of the P2 session. **Updated:** 2026-11-03 (P3, P4 design), 2026-11-12 (P4 to P6),
 2026-11-13, at the end of the P7 session, after the owner stopped the regression run, 2026-11-14, after the P7
 regression, two defect fixes from Jenkins build #37, and the P7 records, 2026-11-15 and 2026-11-16, after automatic
-rewind and rebuild (plan §9.32), and 2026-11-17, after a check against `git log` and the plan.
+rewind and rebuild (plan §9.32), 2026-11-17, after a check against `git log` and the plan, and 2026-11-18, after the
+restart and reload regression (plan §9.33), coordinator configuration CC1 to CC3 (plan §9.34), and the design of
+PostgreSQL parameters in the coordinator (plan §9.35).
 **For:** the next session that continues Task 8, phase 7b.3, in `peegeeq-pg-failover`.
 **Status of this document:** a briefing, not state. Status lives in code, tests, and logs. Check each claim against the
-artifact before relying on it. The authoritative records are plan §9.20 to §9.28 in
+artifact before relying on it. The authoritative records are plan §9.20 to §9.35 in
 `docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY_IMPLEMENTATION_PLAN.md` and the Task 8
 entries in `docs-design/tasks/tasks.md`.
 
@@ -46,15 +48,20 @@ entries in `docs-design/tasks/tasks.md`.
   `streaming` with the writer's address and slot before `START_REPLICATION` fails on a missing slot); 20 integration
   classes declare `io.vertx.junit5.Timeout` equal to their JUnit class limit. P7 records written (plan §8.1, §9.28;
   system design §1.1, §5.10; coordinator design §1.1, §3.3; `tasks.md`).
-- **Git.** `origin/master` is `4aa72780` (checked 2026-11-17 with `git ls-remote`; local `master` equal; working tree
-  clean). The owner makes all commits unless they ask Claude to commit; do not reset or push without the owner's
+- **Done 2026-11-17 and 2026-11-18: restart, reload, `pending_restart` (answer 10, plan §9.33).** RS0 to RS3 are
+  built (code `a74652b9` to `e2f7a3ad`, tests `64e5d525` to `eda4ef45`). The integration tier has not passed in one
+  run; see §3.
+- **Git.** Local `master` and its tracking ref `origin/master` are `4c1567d7` (checked 2026-11-18 with
+  `git status -sb` and `git rev-parse origin/master`, not `git ls-remote`). The working tree was clean for the
+  2026-11-18 runs; it then held only the 2026-11-18 record edits to the plan, this handover, and `tasks.md`. The owner
+  makes all commits unless they ask Claude to commit; do not reset or push without the owner's
   instruction.
 
 ## 2. What exists in the module
 
 | Item | Purpose |
 |---|---|
-| `PgFailoverMonitor.builder()` | Requires config, elector, store, process, gate, watchdog, durability, promotion, positions; `build()` names a missing one (`NullPointerException` message = the name) |
+| `PgFailoverMonitor.builder()` | Requires config, elector, store, process, gate, watchdog, durability, promotion, positions, configuration (added 2026-11-17); `build()` names a missing one (`NullPointerException` message = the name) |
 | `PgFailoverMonitor.publishPosition()` | Serialized. Refused under quarantine. Observes `durability.position(self)` and publishes it |
 | `PgFailoverMonitor.advanceMemberSlots()` | Serialized. Refused under quarantine. Ensures slots for other members, reads positions, advances. Returns the members advanced |
 | `PgFailoverMonitor.takeoverCandidacy(observed)` | Serialized. Refused (synchronous, "rejected" log) when the confirmed policy does not name this node; refused under quarantine. Not preferred when another member of the confirmed policy published a higher timeline, or the same timeline beyond this node's candidate position. Missing records ignored |
@@ -65,6 +72,13 @@ entries in `docs-design/tasks/tasks.md`.
 | `PgFailoverMonitor.rejoin(observed, writer, budget)` | Added 2026-11-15 (plan §9.32). Automatic rewind, and a rebuild when the rewind does not produce a caught-up standby, under the re-join quarantine. Refuses a record naming this node or with no lease holder, and a foreign quarantine. Checks the source (writable, same system, usable slot) before the stop and again before any removal. Another system or an unreadable directory outside an interrupted re-join gets the operator quarantine |
 | `PgProcessControl.inspect`, `rewind`, `rebuild` | Added 2026-11-15. `pg_ctl status`, `pg_controldata` (C locale), `pg_rewind`, `pg_basebackup -S <own slot>`; binaries derived from the `pg_ctl` path. The node's top-level `*.conf` files are saved to `<data directory>.rejoin-saved` and restored; the inhibitor is recreated after every rewind and base backup |
 | `PgPromotionControl.observeSource`, `confirmCaughtUp` | Added 2026-11-15. `IDENTIFY_SYSTEM`, `READ_REPLICATION_SLOT`, and `pg_is_in_recovery()` through the node's replication role; catch-up = same system, streaming from the writer's address on its timeline, replay at or after its flush position |
+| `PgConfigurationControl` / `PgSqlConfigurationControl` | Added 2026-11-17 (plan §9.33, contract 1). `settings()`: postmaster start time, server version, recovery, parameters pending a restart (`PgServerSettings`). `reload()`: refuses a file PostgreSQL rejects before the reload, confirms by `pg_conf_load_time()`, and fails on an invalid value after the reload. Failures are `PgConfigurationException` |
+| `PgConfigurationFiles` | Package-private. The one error query: `rejected`, `hba`, `invalid` lists. Also used by `PgSqlDurabilityControl.install`, `PgSqlPromotionControl.follow`, and `PgHbaAdmissionGate`, which refuse a `rejected` file; the gate's close ends the sessions first, then fails (OD-62) |
+| `PgFailoverMonitor.reload()` | Serialized. No lease, no receipt. Allowed under quarantine (OD-61) |
+| `PgFailoverMonitor.restart(observed, request)` | Serialized. `PgRestartRequest` (own operation, `onlyIfPending`, role, `belowVersion`); `PgRestartResult(restarted, reason)`. Reload first; an unmet condition is a result (OD-57). Own stop and guarded start under the `restart` receipt, never `pg_ctl restart` (OD-54). A serving writer is admitted again with the same mode and revision (OD-58). Confirmed by a later postmaster start time |
+| `PgFailoverMonitor.scheduleRestart`, `cancelScheduledRestart`, `runScheduledRestart(observed, now)` | One `PgScheduledRestart` per node in `scheduled-restart.json` (OD-59), with the postmaster start time when scheduled; a later start cancels it; removed after its attempt. Nothing outside tests calls `runScheduledRestart` |
+| `PgClusterSettings`, `PgNodeConfig.clusterSettings()` / `withClusterSettings(settings)` | Added 2026-11-18 (plan §9.34, CC1). The four lease timing values with the lease and local-stop rule, the one copy of that rule; stored form `leaseTtlMillis`, `loopIntervalMillis`, `requestTimeoutMillis`, `stopTimeoutMillis`, exact fields, never adjusted |
+| `PgClusterConfiguration` / `ConsulClusterConfiguration` | Added 2026-11-18 (plan §9.34, CC2). `read()` (consistent; no known leader, ACL filtering, or a refused status fails), `create(settings)` (`?cas=0`), `update(expected, settings)` (`?cas=<revision>`); a reply other than `true` fails; the record is read back. Key `peegeeq/pg/<cluster>/<incarnation>/config`. Failures are `PgClusterConfigurationException`. Nothing outside tests calls it |
 | Everything listed in the 2026-11-12 handover | Unchanged: promotion, follow, slots, lost-slot replacement, policy cutover, bootstrap, renewal loop, watchdog modes, admission gate, local store |
 
 ## 3. Evidence
@@ -85,6 +99,18 @@ integration-tests 109, OpenAPI none ("No tests to run."). UI stage: management U
 R2 red 12 on the stub, green 12; probes 51 to 70 and 53b, all detected after the 53 test fix, SHA-256 equal;
 regression `rejoin-regress-*-20261115.log`: integration tier 23 classes, 348 tests, core 416, guards 77, all 0
 failures. No Jenkins job build has run this code.
+
+**2026-11-17 and 2026-11-18, restart, reload, `pending_restart` (plan §9.33).** Owner's workstation, local Docker
+29.9.3; the Jenkins host did not answer either day. Logs in `logs/`. RS1 to RS3 red and green, probes 71 to 103 (no
+89), SHA-256 equal: plan §9.33. Integration tier, 2026-11-17, 18:20 to 20:13, on files equal to the 20:08 commits
+(checked 2026-11-18, plan §9.33) (`peegeeq-pg-failover-rs-regress-integration-20261117.log`): 26 classes, 396 tests,
+1 failure, 11 errors, each of the 12 on a `docker exec` over its limit. 2026-11-18 at `4c1567d7`: rebuild BUILD SUCCESS; those 12 alone 12 of 12
+(`-rs-rerun-failed-20261118.log`); core 424 in 11 classes (`-rs-core-20261118.log`); guards 77 in 14 classes
+(`peegeeq-test-support-guards-rs-20261118.log`). Second tier run, 2026-11-18, 13:12:50 to 15:12:01, on the classes
+at `4c1567d7` (`peegeeq-pg-failover-rs-regress-integration-20261118.log`): 396 tests, 2 errors, both in
+`PgFailoverMonitorIntegrationTest` (a set-up `initdb` over 30 s; a primary start that outlasted the class's 12-second
+ownership budget while `docker exec` calls stalled); 25 classes whole; the two alone 2 of 2
+(`-rs-rerun-monitor-20261118.log`). The tier has not passed in one run. No Jenkins job build has run this code.
 
 **2026-11-13, as reported at that handover.** The logs named below are not in `logs/` on the owner's workstation
 (checked 2026-11-14); the numbers were not re-checked.
@@ -129,11 +155,19 @@ failures. No Jenkins job build has run this code.
    accepted now).
 6. Done 2026-11-15 (code `4aa9dc8e`, test additions `7489cd41`; records 2026-11-16, `4aa72780`): automatic rewind
    and rebuild (answer 9, plan §9.32, `PgFailoverMonitor.rejoin`). §5 row P-6 is marked reversed.
-7. Restart, reload, `pending_restart` (answer 10). In progress: design written 2026-11-17 (plan §9.33, OD-54 to OD-61);
-   RS0, the two test-standard fixes, done 2026-11-17; the PostgreSQL checks 1 to 8 done; RS1, the configuration port
-   and adapter, done 2026-11-17 (14 tests, probes 71 to 75 and 74c). Next RS1b (the three existing reload sites), then
-   RS2 and RS3.
-8. Coordinator configuration (answer 12).
+7. Done 2026-11-17 (code `a74652b9` to `e2f7a3ad`, tests `64e5d525` to `eda4ef45`, records `1375dd61` to `4c1567d7`;
+   regression and as-built records 2026-11-18): restart, reload, `pending_restart` (answer 10, plan §9.33, OD-54 to
+   OD-62). RS0 test-standard fixes; checks 1 to 9; RS1 port and adapter; RS1b the three existing reload sites; RS2
+   `reload` and `restart`; RS3 the schedule. Open: the integration tier green in one run (best on the Jenkins host)
+   and a Jenkins job build. Four cases the contracts do not state are recorded as built in plan §9.33; a later item
+   that touches them decides them.
+8. Coordinator configuration (answer 12). In progress: design written 2026-11-18 (plan §9.34, OD-63 to OD-68); CC1, the
+   settings value and the `PgNodeConfig` derivation, done 2026-11-18 (core 436, probes 104 to 114). CC2, the
+   `PgClusterConfiguration` port, its contract suite, and the Consul adapter and binding, done 2026-11-18 (binding 27,
+   probes 115 to 127; design documents changed). CC3, bootstrap writes the first record, done 2026-11-18 (bootstrap 11,
+   bootstrap serving 15, probes 128 to 131, core 436, guards 77). Open: the supervisor loop that reads the settings
+   before an acquisition. PostgreSQL parameters in the coordinator: designed 2026-11-18 (plan §9.35, OD-69 to OD-75,
+   checks 1 to 12 on PostgreSQL 15.13); increments PP1 to PP5 not built. Next: PP1, the `PgClusterParameters` value.
 9. Status and metrics endpoints (answer 13).
 10. Callbacks (answer 14).
 11. Remaining 7b.3 items (plan §8.1, row "7b.3 remaining"): the re-join policy cutover that restores two-peer
@@ -217,6 +251,32 @@ New on 2026-11-15 (plan §9.32):
   `/dev/null` and must have a deadline: the 2026-11-15 build-#40 poller looped for 12 hours. In a PowerShell sync
   script, keep a one-item file list an array (`@(...)`); splatting a string passes its characters.
 
+New on 2026-11-17 and 2026-11-18 (plan §9.33):
+
+- **Slow `docker exec` on the workstation.** During long runs single `docker exec` calls stall: `initdb` over 30 s
+  (2.3 to 2.4 s alone), `pg_basebackup` over 30 s, and `psql` or `pg_ctl` past a short remaining budget. 12 of 396
+  tests in the 2026-11-17 tier run failed this way and passed when rerun without the rest of the tier. The cause is
+  not known. Read the cause of each failure before treating it as a defect. The tier log also holds
+  `AccessDeniedException` traces on receipt `.tmp` files; those are the storage-fault tests, which place a directory
+  where the store writes its temporary file and expect the error.
+- **The gate has one more command.** Since RS1b, `PgHbaAdmissionGate.close` reads the configuration file errors after
+  it installs the closed file and before the reload, inside its budget (the stop budget, 8 s in
+  `PgFollowIntegrationTest` and `PgPromotionIntegrationTest`). `open` reads them before it installs the open file,
+  inside the gate's command timeout.
+- **Configuration error views.** `pg_file_settings` gives the same error text for a valid change pending a restart and
+  for an invalid value; only `pg_settings.pending_restart` after a reload separates them (check 8). With a rejected
+  `postgresql.conf`, a reload still applies `pg_hba.conf` but leaves the load time unchanged (check 9).
+- **The builder grew a dependency.** Every test that builds a monitor passes `configuration(...)`; a new test class
+  must too.
+- **No renewal loop in `PgFailoverMonitorIntegrationTest`.** Its ownership lasts 12 s (TTL 20 s less the 8 s stop
+  budget) from acquisition. A start path slowed by `docker exec` stalls outlasts it and the node is demoted ("Ownership
+  was lost while PostgreSQL started"). Read the timing before treating that message as a defect.
+- **Timing rule has one home (plan §9.34, CC1).** `PgClusterSettings` holds the lease and local-stop rule;
+  `PgNodeConfig` calls it. Change the rule there only.
+- **`PgBootstrap` takes a settings port (plan §9.34, CC3).** A test that builds a `PgBootstrap` passes a
+  `PgClusterConfiguration` and closes it in teardown. A bootstrap on an incarnation whose settings record holds other
+  values is refused.
+
 ## 7. Not checked at handover
 
 - The follow confirmation rests on PostgreSQL 15 behaviour: the REL_15_STABLE source and one 3000-sample probe on
@@ -232,6 +292,10 @@ New on 2026-11-15 (plan §9.32):
 - Re-join (plan §9.32): a real host loss and return; a large data directory (budget, spread checkpoint of
   `pg_basebackup`); a rebuild from a `clonefrom` member (OD-52); configuration files outside the data directory; the
   caller that decides to re-join (no supervisor loop); the re-join policy cutover; a Jenkins job build.
+- Restart and reload (plan §9.33): the integration tier in one green run; a Jenkins job build; PostgreSQL versions
+  other than 15.13; configuration files outside the data directory; a restart under a running renewal loop and an
+  armed watchdog (`PgRestartIntegrationTest` has no renewal loop and runs watchdog mode `OFF`); who calls `runScheduledRestart` (no
+  supervisor loop); the four as-built cases of §9.33.
 - Task 8 phase 5: the repaired `HaProxyConnectionFailoverTest` (`f391a7f0`) has never run in a Jenkins job build
   (checked 2026-11-15). On 2026-11-15 it ran on the Jenkins host at `b3f7ddc9`: 6 tests, 0 failures
   (`tasks.md` Task 8 phase 5). The phase closes on a Jenkins build from `beginning`.
