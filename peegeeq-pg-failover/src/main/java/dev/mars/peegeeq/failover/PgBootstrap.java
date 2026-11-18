@@ -11,6 +11,7 @@ import java.util.Objects;
  * First-start bootstrap of the initial writer, up to a guarded primary start with application
  * admission closed. The request file is the provisioning evidence. The order is: verify the
  * request; refuse a node with a stored grant or quarantine; refuse when a control record exists;
+ * write the cluster settings from this node's deployment timing, or accept equal ones (plan §9.34);
  * create the withdrawn initial intent through the conditional initial acquisition; start the
  * renewal loop; record the bootstrap receipt with the request as its immutable parameters; start
  * PostgreSQL through the monitor.
@@ -26,15 +27,17 @@ public final class PgBootstrap {
     private final Vertx vertx;
     private final PgNodeConfig config;
     private final PgPrimaryElector elector;
+    private final PgClusterConfiguration settings;
     private final PgLocalStateStore store;
     private final PgFailoverMonitor monitor;
     private final PgRenewalLoop loop;
 
-    public PgBootstrap(Vertx vertx, PgNodeConfig config, PgPrimaryElector elector, PgLocalStateStore store,
-                       PgFailoverMonitor monitor, PgRenewalLoop loop) {
+    public PgBootstrap(Vertx vertx, PgNodeConfig config, PgPrimaryElector elector, PgClusterConfiguration settings,
+                       PgLocalStateStore store, PgFailoverMonitor monitor, PgRenewalLoop loop) {
         this.vertx = Objects.requireNonNull(vertx, "vertx");
         this.config = Objects.requireNonNull(config, "config");
         this.elector = Objects.requireNonNull(elector, "elector");
+        this.settings = Objects.requireNonNull(settings, "settings");
         this.store = Objects.requireNonNull(store, "store");
         this.monitor = Objects.requireNonNull(monitor, "monitor");
         this.loop = Objects.requireNonNull(loop, "loop");
@@ -49,6 +52,7 @@ public final class PgBootstrap {
         return PgBootstrapRequest.load(vertx, requestFile, config)
             .compose(request -> requireNoLocalHistory().map(request))
             .compose(request -> requireNoControlRecord(request).map(request))
+            .compose(request -> requireClusterSettings().map(request))
             .compose(request -> elector.createInitialIntent(request.initialIntent())
                 .compose(held -> startUnderOwnership(request, held)))
             // andThen, not onFailure: the caller sees the failure only after it is logged.
@@ -112,6 +116,24 @@ public final class PgBootstrap {
                 throw new PgBootstrapException("The node has a stored writer grant, so it has admitted a writer before");
             }
             return null;
+        });
+    }
+
+    /**
+     * Writes this node's deployment timing as the incarnation's first cluster settings record (plan §9.34, contract 5). An
+     * existing record with equal settings is accepted, as a rerun after an interruption finds it; one with other settings
+     * refuses the bootstrap, because the incarnation is not new.
+     */
+    private Future<Void> requireClusterSettings() {
+        PgClusterSettings own = config.clusterSettings();
+        return settings.read().compose(found -> {
+            if (found.isEmpty()) return settings.create(own).<Void>mapEmpty();
+            PgClusterSettings stored = found.orElseThrow().settings();
+            if (!own.equals(stored)) {
+                throw new PgBootstrapException("Cluster settings of this incarnation already exist with other values ("
+                    + stored + "); the incarnation is not new");
+            }
+            return Future.<Void>succeededFuture();
         });
     }
 
