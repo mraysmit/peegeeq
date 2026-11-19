@@ -99,31 +99,21 @@ an unimplemented proposal exists or replace explicitly planned load, chaos, or f
 
 ## Current Execution Order
 
-As of 2026-10-21 two tasks are ACTIVE. Task 8 resumed on 2026-10-21. That day's work is
-committed in `7054ca04` (renewal loop and watchdog modes) and `d5c69cb2` (bootstrap scope A).
-Task 9 (delivery-outcome redesign, Finding 20) is in implementation: phase 1
-increments 1a and 1b are committed in `092cf23f`, 1b is not approved, and 1c to 1e are not
-started.
-Task 8: phase 7a architecture selection is complete.
-Phase 7b.1 is complete. Phase 7b.2 has the coordinator port, the Consul adapter, node-local
-state, supervisor-owned start and lease-loss shutdown, local admission, the renewal loop
-with queued ownership operations (OD-4), and the optional watchdog modes (OD-5) implemented in
-`peegeeq-pg-failover`. The watchdog is tested only where no device exists; the real-device run
-on a Linux host is open. First-start bootstrap scope A (OD-6 to OD-8) is implemented and
-tested: verified request file, refusal against local and coordinator history, withdrawn initial
-intent, guarded primary start with admission closed. The request is not operator-authenticated.
-Bootstrap scope B increment B1 (OD-9 to OD-12, 2026-10-22, committed in `5118e997`) is
-implemented and tested: the durability port and its SQL adapter, and the quoted policy and
-role-bound coverage rule. Scope B increment B2 step 1 (2026-10-24, committed in `bb3eff7f`)
-is implemented and tested: coverage confirmation and guarded policy installation under a receipt
-in `PgFailoverMonitor`. B2 step 2 (2026-10-24, committed in `64a84289`) is implemented and
-tested: `PgBootstrap.serve` confirms revision 1, publishes `SERVING` intent, and activates the
-grant. B2 step 3 (2026-10-25, working tree, not committed) is implemented and tested: the production
-`PgConnectionManager` writes to the bootstrapped writer under the installed policy (OD-12). Scope B
-increment B2 is complete. Next in phase 7b.2 is the real-device watchdog run on a Linux host.
-No production entry point calls bootstrap or starts the renewal loop yet.
-Takeover and production qualification remain open.
-Machine-reset testing and additional host/VM access are not prerequisites for this next scope.
+As of 2026-11-18 two tasks are ACTIVE: Task 8 and Task 9. Owner direction, 2026-11-17: Task 8 is completed before
+work on any other task starts, Task 9 included.
+
+Task 8 is in phase 7b.3. Phases 7a and 7b.1 are complete. Phase 7b.2 is complete except the real-device watchdog run
+on a Linux host; the watchdog is tested only where no device exists. Bootstrap scope B increment B2 step 3 (OD-12) is
+committed in `240be0a7`. Phase 7b.3 has P1 to P7, takeover after real lease expiry, planned stop with release, member
+tags, automatic rewind and rebuild, restart and reload, and coordinator configuration CC1 to CC3 implemented and tested
+in `peegeeq-pg-failover`. Next: increment PP1 of the PostgreSQL parameters in the coordinator (plan §9.35), then PP2 to
+PP5, then status and metrics endpoints and callbacks (plan §9.28 answers 13 and 14), then the remaining 7b.3 items in
+plan §8.1, row "7b.3 remaining". No production entry point calls bootstrap, the renewal loop, or the monitor yet.
+Production qualification remains open. Machine-reset testing and additional host/VM access are not prerequisites for
+the next scope.
+
+Task 9 (delivery-outcome redesign, Finding 20) waits for Task 8. Phase 1 increments 1a and 1b are committed in
+`092cf23f`, 1b is not approved, and 1c to 1e are not started.
 Tasks 1, 2, 3, 4, 6, and 7 are COMPLETE.
 Task 5 is REJECTED. The document status ACTIVE means this register is the live register.
 
@@ -583,7 +573,7 @@ has the successful remote Jenkins publication evidence recorded above.
 ### 8. Connection management and HAProxy failover
 
 **Priority:** Not assigned
-**Status:** ACTIVE — phase 5 open (repair `f391a7f0` not yet run by a Jenkins build from `beginning`); phase 7b.1 complete; phase 7b.2 partial (renewal loop, watchdog modes, and bootstrap scope A done 2026-10-21; scope B increment B1 done 2026-10-22; scope B increment B2 done 2026-10-25; the real-device watchdog run remains); phase 7b.3 partial (P1 to P7, takeover after real lease expiry, planned stop with release, and member tags done by 2026-11-14; automatic rewind and rebuild done 2026-11-16; remaining items in plan §8.1, row "7b.3 remaining")
+**Status:** ACTIVE — phase 5 open (repair `f391a7f0` not yet run by a Jenkins build from `beginning`); phase 7b.1 complete; phase 7b.2 partial (renewal loop, watchdog modes, and bootstrap scope A done 2026-10-21; scope B increment B1 done 2026-10-22; scope B increment B2 done 2026-10-25; the real-device watchdog run remains); phase 7b.3 partial (P1 to P7, takeover after real lease expiry, planned stop with release, and member tags done by 2026-11-14; automatic rewind and rebuild done 2026-11-16; restart, reload, and `pending_restart` done 2026-11-18, its integration tier not yet green in one run; coordinator configuration in progress: CC1 to CC3 done 2026-11-18, PostgreSQL parameters designed 2026-11-18 (plan §9.35), PP1 to PP5 not built; remaining items in plan §8.1, row "7b.3 remaining")
 **Objective:** implement the design in
 `docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md` (design
 revision 2026-10-08). HAProxy routes by sidecar writer eligibility, which combines current
@@ -595,7 +585,9 @@ adapter `ConsulLeaseCoordinator` are implemented in `peegeeq-pg-failover`. Node 
 implemented there for guarded start, lease-loss shutdown, local admission, the renewal loop,
 the optional watchdog modes, bootstrap scopes A and B, promotion, follow, the policy cutover,
 member slots and positions, takeover after real lease expiry, planned stop with release,
-member tags, and automatic rewind and rebuild. No production entry point calls these operations yet; only tests do.
+member tags, automatic rewind and rebuild, restart and reload, and the cluster settings record
+in the coordinator (`PgClusterConfiguration`, written first by bootstrap). No production entry point calls these
+operations yet; only tests do.
 G-7 qualification proceeds alongside
 the common supervisor implementation. `peegeeq-service-manager` handles federation and is outside this task. No profile
 requires the Patroni product. The Patroni control approach is selected: per-node supervisor,
@@ -902,10 +894,12 @@ Phases:
    previous file when PostgreSQL rejects a value; parameters that a contract sets or requires are denied; a standby
    starts with the control file's value of the five hot-standby parameters when it is higher (checks 8 to 11 on
    PostgreSQL 15.13). Increments PP1 to PP5 not built.
-   **OPEN — 7b.3 remaining:** the re-join policy cutover, manual takeover, repeated failover, the production entry
-   point and supervisor loop (it also calls `runScheduledRestart`), the real-device watchdog run on Linux, and the
-   rest of the 2026-11-13 owner scope (plan §9.28 rows 12 to 14: coordinator configuration, in progress (plan §9.34, §9.35),
-   status and metrics endpoints, callbacks).
+   **OPEN — 7b.3 remaining (plan §8.1, row "7b.3 remaining"):** the re-join policy cutover, manual takeover through
+   an operator entry point, repeated failover, controlled re-join, the production entry point and supervisor loop (it
+   also calls `runScheduledRestart`), routed production-manager assertions, and the rest of the 2026-11-13 owner scope
+   (plan §9.28 rows 12 to 14: coordinator configuration, in progress (plan §9.34, §9.35), status and metrics endpoints,
+   callbacks).
+   **OPEN — 7b.2 remaining (plan §8, row 7b.2):** the real-device watchdog run on a Linux host.
 8. **OPEN.** Enable autonomous initiation on the verified common boundary (8a), complete
    per-node authority/bootstrap reconciliation (8b), infrastructure fault tests including
    S54 to S58 (8c), and automatic database safety acceptance (8d). No second provider or
@@ -1234,7 +1228,7 @@ except the last edits of `PgPolicyInstallationIntegrationTest` and
   was bounded by a 120-second limit, not asserted. Superseded on 2026-10-25 (below), except the
   Jenkins build.
 
-Phase 7b.2 closing of the open items of the 2026-10-24 check, 2026-10-25 (working tree, not committed):
+Phase 7b.2 closing of the open items of the 2026-10-24 check, 2026-10-25 (committed in `240be0a7`):
 
 - Plan §9.19 has each result. Closed by a change and a test: fixtures stop a cluster that an earlier
   failed test left running (`PgFixtureLeftoverServerContractIntegrationTest`, 4); the guards against a
@@ -1272,7 +1266,7 @@ Phase 7b.2 closing of the open items of the 2026-10-24 check, 2026-10-25 (workin
   states the exception (use `andThen` where a test declares the ERROR), and `pgq-coding-principles.md`
   section 9 points to it.
 
-Phase 7b.3 increment P1 verification, 2026-10-26 (working tree, not committed):
+Phase 7b.3 increment P1 verification, 2026-10-26 (committed in `2232a3cd`):
 
 - Plan §9.21 has the contract, the red and green evidence, and the mutation probes. New:
   `PgPromotionControl`, `PgSqlPromotionControl`, `PgPromotionException`, `PgFailoverMonitor.promoteStandby`.
@@ -1290,7 +1284,7 @@ Phase 7b.3 increment P1 verification, 2026-10-26 (working tree, not committed):
   build, and the whole-repository gate. Seven `.eventually(` teardown calls remain in four older test
   classes; `Future.eventually` discards a cleanup failure.
 
-Phase 7b.3 increment P2 verification, 2026-10-26 (working tree, not committed):
+Phase 7b.3 increment P2 verification, 2026-10-26 (committed in `2232a3cd` and `e9189df1`):
 
 - Plan §9.22 has the contract, the red and green evidence, and the mutation probes. New: `PgWriterEndpoint`,
   `PgPromotionControl.follow` and its adapter, `PgFailoverMonitor.followWriter`.

@@ -803,7 +803,7 @@ runtime or production qualification obligation. Task 8 carries the same status a
 Source inventory and saved logs were checked for the 2026-10-08 reconciliation. The runs dated
 2026-10-08 are recorded runs, not new test executions. The runs dated 2026-10-09 were executed
 for that day's revision. The rows dated 2026-10-21 and 2026-10-22 have their runs in §9.12 to
-§9.15. The rows dated 2026-10-24 to 2026-11-18 have their runs in §9.16 to §9.33. None is a
+§9.15. The rows dated 2026-10-24 to 2026-11-18 have their runs in §9.16 to §9.34. None is a
 release gate.
 
 | Slice | State | Artifact and limit |

@@ -51,10 +51,15 @@ entries in `docs-design/tasks/tasks.md`.
 - **Done 2026-11-17 and 2026-11-18: restart, reload, `pending_restart` (answer 10, plan §9.33).** RS0 to RS3 are
   built (code `a74652b9` to `e2f7a3ad`, tests `64e5d525` to `eda4ef45`). The integration tier has not passed in one
   run; see §3.
-- **Git.** Local `master` and its tracking ref `origin/master` are `4c1567d7` (checked 2026-11-18 with
-  `git status -sb` and `git rev-parse origin/master`, not `git ls-remote`). The working tree was clean for the
-  2026-11-18 runs; it then held only the 2026-11-18 record edits to the plan, this handover, and `tasks.md`. The owner
-  makes all commits unless they ask Claude to commit; do not reset or push without the owner's
+- **Done 2026-11-18: coordinator configuration CC1 to CC3 (answer 12, plan §9.34).** The four lease timing values are
+  one coordinator record per incarnation, edited by a revision check; bootstrap writes the first record. Code and tests
+  `2b32dd40` to `169c05e3`; design documents `7bb6eeaf`, `2fb6c8e8`.
+- **Designed 2026-11-18: PostgreSQL parameters in the coordinator (answer 12, plan §9.35).** Increments PP1 to PP5 are
+  not built. Plan `e57e31c2`.
+- **Git.** Local `master`, `origin/master`, and the remote `refs/heads/master` are `00a933fe` (checked 2026-11-18 with
+  `git rev-parse` and `git ls-remote`; the `origin/master` reflog shows a push at 18:24). The 18 commits `2b32dd40` to
+  `00a933fe` were made by Claude at the owner's request on 2026-11-18, one per file. The working tree was clean after
+  them. The owner makes all commits unless they ask Claude to commit; do not reset or push without the owner's
   instruction.
 
 ## 2. What exists in the module
@@ -78,8 +83,9 @@ entries in `docs-design/tasks/tasks.md`.
 | `PgFailoverMonitor.restart(observed, request)` | Serialized. `PgRestartRequest` (own operation, `onlyIfPending`, role, `belowVersion`); `PgRestartResult(restarted, reason)`. Reload first; an unmet condition is a result (OD-57). Own stop and guarded start under the `restart` receipt, never `pg_ctl restart` (OD-54). A serving writer is admitted again with the same mode and revision (OD-58). Confirmed by a later postmaster start time |
 | `PgFailoverMonitor.scheduleRestart`, `cancelScheduledRestart`, `runScheduledRestart(observed, now)` | One `PgScheduledRestart` per node in `scheduled-restart.json` (OD-59), with the postmaster start time when scheduled; a later start cancels it; removed after its attempt. Nothing outside tests calls `runScheduledRestart` |
 | `PgClusterSettings`, `PgNodeConfig.clusterSettings()` / `withClusterSettings(settings)` | Added 2026-11-18 (plan §9.34, CC1). The four lease timing values with the lease and local-stop rule, the one copy of that rule; stored form `leaseTtlMillis`, `loopIntervalMillis`, `requestTimeoutMillis`, `stopTimeoutMillis`, exact fields, never adjusted |
-| `PgClusterConfiguration` / `ConsulClusterConfiguration` | Added 2026-11-18 (plan §9.34, CC2). `read()` (consistent; no known leader, ACL filtering, or a refused status fails), `create(settings)` (`?cas=0`), `update(expected, settings)` (`?cas=<revision>`); a reply other than `true` fails; the record is read back. Key `peegeeq/pg/<cluster>/<incarnation>/config`. Failures are `PgClusterConfigurationException`. Nothing outside tests calls it |
-| Everything listed in the 2026-11-12 handover | Unchanged: promotion, follow, slots, lost-slot replacement, policy cutover, bootstrap, renewal loop, watchdog modes, admission gate, local store |
+| `PgClusterConfiguration` / `ConsulClusterConfiguration` | Added 2026-11-18 (plan §9.34, CC2). `read()` (consistent; no known leader, ACL filtering, or a refused status fails), `create(settings)` (`?cas=0`), `update(expected, settings)` (`?cas=<revision>`); a reply other than `true` fails; the record is read back. Key `peegeeq/pg/<cluster>/<incarnation>/config`. `PgClusterSettingsRecord(revision, settings)`. Failures are `PgClusterConfigurationException`. `PgBootstrap` calls `read` and `create`; nothing calls `update`, and nothing outside tests constructs `PgBootstrap` |
+| `PgBootstrap(vertx, config, elector, settings, store, monitor, loop)` | Changed 2026-11-18 (plan §9.34, CC3). After the control-record check and before the initial intent, `start` writes the deployment timing as the first settings record, accepts an equal record, and refuses other values (`PgBootstrapException`); a failed read or write fails before the initial intent |
+| Everything listed in the 2026-11-12 handover | Unchanged except bootstrap (row above): promotion, follow, slots, lost-slot replacement, policy cutover, renewal loop, watchdog modes, admission gate, local store |
 
 ## 3. Evidence
 
@@ -112,8 +118,22 @@ at `4c1567d7` (`peegeeq-pg-failover-rs-regress-integration-20261118.log`): 396 t
 ownership budget while `docker exec` calls stalled); 25 classes whole; the two alone 2 of 2
 (`-rs-rerun-monitor-20261118.log`). The tier has not passed in one run. No Jenkins job build has run this code.
 
-**2026-11-13, as reported at that handover.** The logs named below are not in `logs/` on the owner's workstation
-(checked 2026-11-14); the numbers were not re-checked.
+**2026-11-18, coordinator configuration CC1 to CC3 (plan §9.34).** Owner's workstation, local Docker; the Jenkins host
+did not answer within 8 seconds at 13:12 and at 15:46. Logs in `logs/`, `peegeeq-pg-failover-cc1-*`, `-cc2-*`,
+`-cc3-*`, with their rebuild logs. CC1: red 11 on the stubs, `PgClusterSettingsTest` 9 and `PgNodeConfigTest` 29,
+probes 104 to 114. CC2: red 21 on the stubs, `ConsulClusterConfigurationIntegrationTest` 27 of 27 (`-cc2-final-`),
+probes 115 to 127. CC3: red 3 on the stub, `PgBootstrapIntegrationTest` 11 and `PgBootstrapServingIntegrationTest` 15
+(`-cc3-touched-`), probes 128 to 131. Each probe set detected, SHA-256 equal before and after (plan §9.34). Core 436
+(`-cc3-core-`), guards 77 (`peegeeq-test-support-guards-cc3-20261118.log`). No Java file changed after the CC3 final
+rebuild (15:59). The module's integration tier and a Jenkins job build have not run this code.
+
+**2026-11-18, PostgreSQL parameter checks (plan §9.35).** Throwaway `postgres:15.13-alpine3.20` containers on local
+Docker 29.9.3 (the Jenkins host did not answer at 17:42). Logs `logs/parameters-probe*-20261118.log`; the void runs are
+named in plan §9.35. Checks 1 to 12.
+
+**2026-11-13, as reported at that handover.** The logs named below are in `logs/` on the owner's workstation. On
+2026-11-18 each count below was checked against its log's `Tests run:` lines, and the `-p7ab-mutation-sha-` before and
+after records were compared; they match. (A check on 2026-11-14 had not found them.)
 
 - **Red, then green, per increment.**
   - P7a/P7b red: `peegeeq-pg-failover-p7ab-red-20261113.log` (16 run, 12 failures, each the old exception type, no
@@ -141,8 +161,8 @@ ownership budget while `docker exec` calls stalled); 25 classes whole; the two a
 
 ## 4. Next steps, in order
 
-1. Done 2026-11-14: the P7 regression and the P7 records. §5 row P-6 is marked reversed by §9.28 answer 9 only when
-   that increment lands.
+1. Done 2026-11-14: the P7 regression and the P7 records. §5 row P-6 was marked reversed when automatic rewind and
+   rebuild landed (item 6).
 2. Done 2026-11-14: the follow-confirmation and Vert.x timeout defects from build #37 (plan §9.28).
 3. Done 2026-11-14 (`bafe52b2`, `6ac4b5b3`, `c5c44640`): takeover after real lease expiry (plan §9.29, `PgTakeover.acquire`). The
    original item text follows for reference. **Takeover after real lease expiry** (the item that was next before P7): `promoteStandby`, `followWriter`,
@@ -161,18 +181,22 @@ ownership budget while `docker exec` calls stalled); 25 classes whole; the two a
    `reload` and `restart`; RS3 the schedule. Open: the integration tier green in one run (best on the Jenkins host)
    and a Jenkins job build. Four cases the contracts do not state are recorded as built in plan §9.33; a later item
    that touches them decides them.
-8. Coordinator configuration (answer 12). In progress: design written 2026-11-18 (plan §9.34, OD-63 to OD-68); CC1, the
-   settings value and the `PgNodeConfig` derivation, done 2026-11-18 (core 436, probes 104 to 114). CC2, the
-   `PgClusterConfiguration` port, its contract suite, and the Consul adapter and binding, done 2026-11-18 (binding 27,
-   probes 115 to 127; design documents changed). CC3, bootstrap writes the first record, done 2026-11-18 (bootstrap 11,
-   bootstrap serving 15, probes 128 to 131, core 436, guards 77). Open: the supervisor loop that reads the settings
-   before an acquisition. PostgreSQL parameters in the coordinator: designed 2026-11-18 (plan §9.35, OD-69 to OD-75,
-   checks 1 to 12 on PostgreSQL 15.13); increments PP1 to PP5 not built. Next: PP1, the `PgClusterParameters` value.
+8. Coordinator configuration (answer 12; commits `2b32dd40` to `00a933fe`). In progress: design written 2026-11-18
+   (plan §9.34, OD-63 to OD-68); CC1, the settings value and the `PgNodeConfig` derivation, done 2026-11-18 (core 436,
+   probes 104 to 114). CC2, the `PgClusterConfiguration` port, its contract suite, and the Consul adapter and binding,
+   done 2026-11-18 (binding 27, probes 115 to 127; design documents changed). CC3, bootstrap writes the first
+   record, done 2026-11-18 (bootstrap 11, bootstrap serving 15, probes 128 to 131, core 436, guards 77). Open: the
+   supervisor loop that reads the settings before an acquisition. PostgreSQL parameters in the coordinator: designed
+   2026-11-18 (plan §9.35, OD-69 to OD-75, checks 1 to 12 on PostgreSQL 15.13); increments PP1 to PP5 not built.
+   Next: PP1, the `PgClusterParameters` value.
 9. Status and metrics endpoints (answer 13).
 10. Callbacks (answer 14).
 11. Remaining 7b.3 items (plan §8.1, row "7b.3 remaining"): the re-join policy cutover that restores two-peer
     coverage (plan §9.32, "Purpose"; system design §5.8), manual takeover, repeated failover, controlled re-join, the
-    production entry point and the supervisor loop (nothing outside tests calls the monitor operations), and the real-device watchdog run on Linux.
+    production entry point and the supervisor loop (no production entry point exists: `PgBootstrap`,
+    `PgPolicyCutover`, `PgRenewalLoop`, and `PgTakeover` call monitor operations, and only tests construct them or the
+    monitor), and routed production-manager assertions.
+12. Phase 7b.2 remaining (plan §8, row 7b.2): the real-device watchdog run on a Linux host.
 
 Each item is designed in its own plan section, with its data model and contracts, before its tests.
 
@@ -277,6 +301,20 @@ New on 2026-11-17 and 2026-11-18 (plan §9.33):
   `PgClusterConfiguration` and closes it in teardown. A bootstrap on an incarnation whose settings record holds other
   values is refused.
 
+New on 2026-11-18 (plan §9.35 checks):
+
+- **Hot-standby parameters.** A standby whose `max_connections` is below the writer's does not start (checked for
+  `max_connections` only; Patroni treats four more parameters the same way). A running standby pauses replay when the
+  writer restarts with a higher value; it still flushes WAL and counts as a synchronous standby. Read
+  `pg_get_wal_replay_pause_state()` before treating a stalled replay as a defect.
+- **Backslashes in tool input.** A doubled backslash typed into a Bash tool command reached the shell as one. Build
+  such bytes with `printf` octal escapes (`\134`) and check them with `od -c`.
+- **`docker exec` paths from Git Bash.** Set `MSYS_NO_PATHCONV=1`, or Git Bash rewrites `/tmp/...` into a Windows path
+  (seen 2026-11-18: `tail` opened `C:/Users/.../Temp/s.log`).
+- **`pg_basebackup` without `-c fast`** was still running several minutes after the check 10 probe started at 09:48
+  UTC, while the writer's checkpointer ran; the cause was not measured. Checks 11 and 12 used `-c fast` and finished in
+  under a minute.
+
 ## 7. Not checked at handover
 
 - The follow confirmation rests on PostgreSQL 15 behaviour: the REL_15_STABLE source and one 3000-sample probe on
@@ -296,6 +334,14 @@ New on 2026-11-17 and 2026-11-18 (plan §9.33):
   other than 15.13; configuration files outside the data directory; a restart under a running renewal loop and an
   armed watchdog (`PgRestartIntegrationTest` has no renewal loop and runs watchdog mode `OFF`); who calls `runScheduledRestart` (no
   supervisor loop); the four as-built cases of §9.33.
+- Coordinator configuration (plan §9.34): 15 integration classes construct `PgNodeConfig` and did not run after CC1
+  (22 test files construct it, counted 2026-11-18; the three core classes ran in core, the abstract
+  `PgLeaseCoordinatorContract` runs through its Consul binding, and the cluster configuration binding and the two
+  bootstrap classes ran); TLS to Consul (G-7); a Consul quorum of three servers; the supervisor loop that reads the
+  settings before an acquisition; the operator's entry point to `update`; a Jenkins job build.
+- PostgreSQL parameters (plan §9.35): whether a paused standby can be promoted; the effect of a too-low
+  `max_replication_slots` or `max_wal_senders`; the base64 file write through Java's process runner on Windows (the
+  checks used Git Bash).
 - Task 8 phase 5: the repaired `HaProxyConnectionFailoverTest` (`f391a7f0`) has never run in a Jenkins job build
   (checked 2026-11-15). On 2026-11-15 it ran on the Jenkins host at `b3f7ddc9`: 6 tests, 0 failures
   (`tasks.md` Task 8 phase 5). The phase closes on a Jenkins build from `beginning`.
