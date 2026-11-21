@@ -83,7 +83,8 @@
              parallel execution, 3.2.5 filed test cases and counts under the wrong class. -->
         <surefire.version>3.5.6</surefire.version>
         <postgresql.version>42.7.4</postgresql.version>
-        <jackson.version>2.15.2</jackson.version>
+        <!-- No Jackson version here: the Vert.x BOM imports jackson-bom, so every Jackson artifact
+             resolves to the one version Vert.x is built against. -->
         <junit.version>5.12.2</junit.version>
         <testcontainers.version>2.0.2</testcontainers.version>
         <slf4j.version>2.0.9</slf4j.version>
@@ -92,17 +93,8 @@
         <resilience4j.version>2.1.0</resilience4j.version>
         <!-- Must equal the scram-client version vertx-pg-client declares (5.1.10 declares 3.2). -->
         <scram.version>3.2</scram.version>
-        <spring.boot.version>3.5.6</spring.boot.version>
-        <reactor.version>3.5.8</reactor.version>
-        <!-- Versions formerly supplied by the (now-removed) Spring Boot BOM; pinned explicitly so the
-             core reactor manages its own dependencies. Values match Spring Boot 3.5.6 for parity. -->
-        <testcontainers.classic.version>1.21.3</testcontainers.classic.version>
-        <mockito.version>5.17.0</mockito.version>
-        <hikaricp.version>6.3.3</hikaricp.version>
         <flyway.version>11.7.2</flyway.version>
         <h2.version>2.3.232</h2.version>
-        <commons-lang3.version>3.17.0</commons-lang3.version>
-        <reactor-test.version>3.7.11</reactor-test.version>
 
         <!--
           Single source of truth for Surefire/Failsafe JUnit 5 tag filtering.
@@ -191,7 +183,8 @@
                 <artifactId>postgresql</artifactId>
                 <version>${postgresql.version}</version>
                 <exclusions>
-                    <!-- Exclude old SCRAM 2.1 dependencies, use 3.1 from Vert.x instead -->
+                    <!-- Exclude the old SCRAM 2.x artifacts; scram-client ${scram.version} below is the
+                         version vertx-pg-client uses -->
                     <exclusion>
                         <groupId>com.ongres.scram</groupId>
                         <artifactId>client</artifactId>
@@ -201,18 +194,6 @@
                         <artifactId>common</artifactId>
                     </exclusion>
                 </exclusions>
-            </dependency>
-
-            <!-- JSON Processing -->
-            <dependency>
-                <groupId>com.fasterxml.jackson.core</groupId>
-                <artifactId>jackson-databind</artifactId>
-                <version>${jackson.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.fasterxml.jackson.datatype</groupId>
-                <artifactId>jackson-datatype-jsr310</artifactId>
-                <version>${jackson.version}</version>
             </dependency>
 
             <!-- SCRAM Authentication for PostgreSQL -->
@@ -229,11 +210,7 @@
                 <version>${scram.version}</version>
             </dependency>
 
-            <!-- Concurrency Utilities -->
-
-
-
-            <!-- Vert.x 5.x BOM for proper dependency management -->
+            <!-- Vert.x 5.x BOM. It also imports jackson-bom, which sets the Jackson version. -->
             <dependency>
                 <groupId>io.vertx</groupId>
                 <artifactId>vertx-dependencies</artifactId>
@@ -253,19 +230,8 @@
                 <scope>import</scope>
             </dependency>
 
-            <!-- Testcontainers BOM — supplies the classic-named modules (junit-jupiter/postgresql/consul)
-                 and a consistent transitive stack (docker-java, etc.); matches what the removed Spring Boot
-                 BOM imported (${testcontainers.classic.version}). The explicit testcontainers-* pins below
-                 override it to ${testcontainers.version} for the 2.x-named modules the core standardises on. -->
-            <dependency>
-                <groupId>org.testcontainers</groupId>
-                <artifactId>testcontainers-bom</artifactId>
-                <version>${testcontainers.classic.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-
-            <!-- TestContainers 2.x (2.x-renamed modules; override the BOM above) -->
+            <!-- Testcontainers 2.x. The 1.x artifact names (junit-jupiter, postgresql, consul, jdbc,
+                 database-commons) are banned by the enforcer rule above. -->
             <dependency>
                 <groupId>org.testcontainers</groupId>
                 <artifactId>testcontainers</artifactId>
@@ -306,14 +272,6 @@
             <!-- NOTE: The Spring Boot BOM is intentionally NOT imported here. Spring is an
                  integration-example concern only (peegeeq-examples-spring, a standalone project) and
                  must never manage versions for the core reactor. Do not re-add it. -->
-
-            <!-- Test Utilities -->
-            <dependency>
-                <groupId>org.awaitility</groupId>
-                <artifactId>awaitility</artifactId>
-                <version>4.2.0</version>
-                <scope>test</scope>
-            </dependency>
 
             <!-- Logging -->
             <dependency>
@@ -357,29 +315,7 @@
                 <version>${resilience4j.version}</version>
             </dependency>
 
-            <!-- ================================================================================
-                 Libraries formerly versioned by the (now-removed) Spring Boot BOM. Pinned here so
-                 the core reactor manages its own dependencies with no Spring involvement. Values
-                 match what Spring Boot 3.5.6 resolved, for behavioural parity.
-                 ================================================================================ -->
-
-            <!-- (Testcontainers classic-named modules + JUnit api/engine are now supplied by the
-                 testcontainers-bom and junit-bom imported above — no individual pins needed.) -->
-            <dependency>
-                <groupId>org.mockito</groupId>
-                <artifactId>mockito-core</artifactId>
-                <version>${mockito.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.mockito</groupId>
-                <artifactId>mockito-junit-jupiter</artifactId>
-                <version>${mockito.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.zaxxer</groupId>
-                <artifactId>HikariCP</artifactId>
-                <version>${hikaricp.version}</version>
-            </dependency>
+            <!-- Flyway: used by peegeeq-migrations and by peegeeq-test-support. One version for both. -->
             <dependency>
                 <groupId>org.flywaydb</groupId>
                 <artifactId>flyway-core</artifactId>
@@ -390,20 +326,11 @@
                 <artifactId>flyway-database-postgresql</artifactId>
                 <version>${flyway.version}</version>
             </dependency>
+            <!-- H2: the benchmark history store in peegeeq-benchmarking, never a PostgreSQL substitute. -->
             <dependency>
                 <groupId>com.h2database</groupId>
                 <artifactId>h2</artifactId>
                 <version>${h2.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.commons</groupId>
-                <artifactId>commons-lang3</artifactId>
-                <version>${commons-lang3.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.projectreactor</groupId>
-                <artifactId>reactor-test</artifactId>
-                <version>${reactor-test.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
@@ -454,6 +381,21 @@
                                         <version>[3.8.0,)</version>
                                         <message>Maven 3.8.0 or higher is required.</message>
                                     </requireMavenVersion>
+                                    <!-- Testcontainers 2.x renamed every module artifact. A 1.x artifact on the
+                                         classpath runs 1.x module code on the 2.x core, and the 1.x postgresql
+                                         module duplicates classes of testcontainers-postgresql. Use the
+                                         testcontainers-* names that this pom manages. -->
+                                    <bannedDependencies>
+                                        <excludes>
+                                            <exclude>org.testcontainers:junit-jupiter</exclude>
+                                            <exclude>org.testcontainers:consul</exclude>
+                                            <exclude>org.testcontainers:postgresql</exclude>
+                                            <exclude>org.testcontainers:jdbc</exclude>
+                                            <exclude>org.testcontainers:database-commons</exclude>
+                                            <exclude>org.testcontainers:testcontainers:[,2.0.0)</exclude>
+                                        </excludes>
+                                        <message>A Testcontainers 1.x artifact is on the classpath. Use the testcontainers-* 2.x artifact that the root pom manages.</message>
+                                    </bannedDependencies>
                                 </rules>
                             </configuration>
                         </execution>

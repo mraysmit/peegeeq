@@ -23,8 +23,6 @@ import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -58,11 +56,6 @@ class EnhancedErrorHandlingDemoTest {
     private static final Logger logger = LoggerFactory.getLogger(EnhancedErrorHandlingDemoTest.class);
 
     static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
-
-    @DynamicPropertySource
-    static void configureProperties(DynamicPropertyRegistry registry) {
-        SharedTestContainers.configureSharedProperties(registry);
-    }
 
     private PeeGeeQManager manager;
     private QueueFactory queueFactory;

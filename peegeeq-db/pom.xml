@@ -134,7 +134,7 @@
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>
-            <artifactId>junit-jupiter</artifactId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -177,7 +177,8 @@
                     <!-- Stop after first failure for fast feedback -->
                     <skipAfterFailureCount>1</skipAfterFailureCount>
 
-                    <!-- JaCoCo agent configuration with JDK class exclusions for Java 24 compatibility -->
+                    <!-- @{argLine} carries the JaCoCo agent when coverage is on. EnableDynamicAgentLoading
+                         lets an agent attach at runtime, which the JDK otherwise warns about. -->
                     <argLine>@{argLine} -XX:+EnableDynamicAgentLoading</argLine>
 
                     <!-- System properties for test configuration -->

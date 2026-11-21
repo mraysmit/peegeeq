@@ -15,11 +15,11 @@
     <name>PeeGeeQ Migrations</name>
     <description>Database migration scripts for PeeGeeQ - NOT included in application runtime</description>
 
+    <!-- Flyway, the PostgreSQL driver, JUnit and Testcontainers versions come from the root pom, so this
+         module's tests run peegeeq-test-support on the Flyway version it was compiled against. -->
     <properties>
-        <flyway.version>10.10.0</flyway.version>
-        <postgresql.version>42.7.2</postgresql.version>
-        <testcontainers.version>2.0.2</testcontainers.version>
-        <junit.version>5.10.1</junit.version>
+        <!-- AssertJ is used only by this module's tests. The coding principles make JUnit Jupiter
+             assertions the project standard; replacing AssertJ here is recorded in the task register. -->
         <assertj.version>3.24.2</assertj.version>
     </properties>
 
@@ -28,21 +28,18 @@
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
-            <version>${flyway.version}</version>
         </dependency>
 
         <!-- Flyway PostgreSQL Support -->
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-database-postgresql</artifactId>
-            <version>${flyway.version}</version>
         </dependency>
 
         <!-- PostgreSQL JDBC driver - only needed for Flyway -->
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
-            <version>${postgresql.version}</version>
         </dependency>
 
         <!-- Test Dependencies -->
@@ -56,28 +53,24 @@
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
-            <version>${junit.version}</version>
             <scope>test</scope>
         </dependency>
 
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>testcontainers</artifactId>
-            <version>${testcontainers.version}</version>
             <scope>test</scope>
         </dependency>
 
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>testcontainers-postgresql</artifactId>
-            <version>${testcontainers.version}</version>
             <scope>test</scope>
         </dependency>
 
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>testcontainers-junit-jupiter</artifactId>
-            <version>${testcontainers.version}</version>
             <scope>test</scope>
         </dependency>
 

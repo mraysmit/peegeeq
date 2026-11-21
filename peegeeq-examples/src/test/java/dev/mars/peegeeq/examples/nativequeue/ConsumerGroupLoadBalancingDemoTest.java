@@ -20,8 +20,6 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.json.JsonObject;
 import org.junit.jupiter.api.*;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -66,11 +64,6 @@ class ConsumerGroupLoadBalancingDemoTest {
 
 
     static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
-
-    @DynamicPropertySource
-    static void configureProperties(DynamicPropertyRegistry registry) {
-        SharedTestContainers.configureSharedProperties(registry);
-    }
 
     private PeeGeeQManager manager;
     private QueueFactory queueFactory;

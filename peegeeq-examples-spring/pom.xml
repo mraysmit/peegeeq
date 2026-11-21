@@ -265,7 +265,7 @@
                     <properties>
                         <configurationParameters>
                             junit.jupiter.execution.timeout.default=${test.timeout.default}
-                            junit.jupiter.execution.timeout.testmethod.default=${test.timeout.method}
+                            junit.jupiter.execution.timeout.test.method.default=${test.timeout.method}
                         </configurationParameters>
                     </properties>
                     <trimStackTrace>false</trimStackTrace>

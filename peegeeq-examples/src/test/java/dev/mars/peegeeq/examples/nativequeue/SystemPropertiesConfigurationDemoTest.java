@@ -7,8 +7,6 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.parallel.ResourceLock;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -47,11 +45,6 @@ class SystemPropertiesConfigurationDemoTest {
     private static final String BATCH_SIZE_KEY = "peegeeq.queue.batch-size";
 
     static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
-
-    @DynamicPropertySource
-    static void configureProperties(DynamicPropertyRegistry registry) {
-        SharedTestContainers.configureSharedProperties(registry);
-    }
 
     // -------------------------------------------------------------------------
     // Tests

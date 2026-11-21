@@ -72,12 +72,12 @@
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>
-            <artifactId>postgresql</artifactId>
+            <artifactId>testcontainers-postgresql</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>
-            <artifactId>junit-jupiter</artifactId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -160,7 +160,8 @@
         <!--
              Native image profile.
              Prerequisites:
-               - GraalVM JDK 21+ on PATH  (or JAVA_HOME pointing at it)
+               - GraalVM for JDK ${maven.compiler.release} on PATH (or JAVA_HOME pointing at it);
+                 the reactor compiles for that release, so an older GraalVM cannot read the classes
                - native-image tool installed: `gu install native-image`
 
              Build fat-jar first, then build native image:
@@ -177,7 +178,7 @@
                  -Dhttp.port=8008
 
              Docker (multi-stage, distroless):
-               FROM ghcr.io/graalvm/native-image-community:21 AS builder
+               FROM <a GraalVM native-image image for JDK ${maven.compiler.release}> AS builder
                COPY . /build
                WORKDIR /build
                RUN mvn package -Pnative -DskipTests

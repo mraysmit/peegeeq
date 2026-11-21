@@ -22,8 +22,6 @@ import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import org.junit.jupiter.api.*;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -60,11 +58,6 @@ class EnterpriseIntegrationDemoTest {
 
 
     static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
-
-    @DynamicPropertySource
-    static void configureProperties(DynamicPropertyRegistry registry) {
-        SharedTestContainers.configureSharedProperties(registry);
-    }
 
     private PeeGeeQManager manager;
     private QueueFactory queueFactory;

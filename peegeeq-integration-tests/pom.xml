@@ -84,7 +84,7 @@
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>
-            <artifactId>junit-jupiter</artifactId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
 
@@ -97,13 +97,6 @@
         <dependency>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
-            <scope>test</scope>
-        </dependency>
-
-        <!-- Awaitility for async testing -->
-        <dependency>
-            <groupId>org.awaitility</groupId>
-            <artifactId>awaitility</artifactId>
             <scope>test</scope>
         </dependency>
 
@@ -132,7 +125,7 @@
                     <properties>
                         <configurationParameters>
                             junit.jupiter.execution.timeout.default=${test.timeout.default}
-                            junit.jupiter.execution.timeout.testmethod.default=${test.timeout.method}
+                            junit.jupiter.execution.timeout.test.method.default=${test.timeout.method}
                         </configurationParameters>
                     </properties>
                     <skipAfterFailureCount>1</skipAfterFailureCount>

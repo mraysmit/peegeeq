@@ -37,8 +37,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -88,11 +86,6 @@ class AdvancedProducerConsumerGroupTest {
     private static final Logger logger = LoggerFactory.getLogger(AdvancedProducerConsumerGroupTest.class);
     static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
-    @DynamicPropertySource
-    static void configureProperties(DynamicPropertyRegistry registry) {
-        SharedTestContainers.configureSharedProperties(registry);
-    }
-    
     private PeeGeeQManager manager;
     private QueueFactory queueFactory;
     private MessageProducer<OrderEvent> producer;

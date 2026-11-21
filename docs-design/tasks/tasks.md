@@ -46,6 +46,7 @@ change.
 | 7. Jenkins UI test-result publishing | COMPLETE, Jenkins build #48, 2026-09-05 | Archived register, Task 7 | None |
 | 8. Connection management and PostgreSQL failover | ACTIVE | `docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY_IMPLEMENTATION_PLAN.md` | PP2 (below) |
 | 9. Delivery-outcome redesign (finding 20) | ACTIVE, waits for Task 8 | `docs-design/consumer-groups/PEEGEEQ_DELIVERY_OUTCOME_REDESIGN_PROPOSAL.md` and its appendix | Owner review of increment 1b corrections (below) |
+| 10. Reduce `docs/` from 24 files to 11 and correct it against the code | PROPOSED 2026-11-21, waits for Task 8 unless the owner releases it | `docs-design/tasks/PEEGEEQ_DOCUMENTATION_REDUCTION_PLAN.md` | Owner rulings OD-1 to OD-5 (plan section 9) |
 
 ## Task 8. Connection management and PostgreSQL failover
 
@@ -134,6 +135,9 @@ means the code was read on 2026-11-21 and confirms the statement; nothing was ru
 | D11 | The notify trigger lower-cases the channel prefix and the Java listener does not, so a schema or table name with capital letters may never be notified | Read by a review agent (event-store `03-function.sql` and `ReactiveNotificationHandler`); needs a probe | Unscheduled |
 | D12 | `appendBuilder().correction(...).inTransaction(conn)` ignores the connection, and a correction drops the causation ID | Read by a review agent in `PgBiTemporalEventStore`; needs a test | Unscheduled |
 | D13 | Smaller code faults found while correcting documents: the `EventStore.appendBuilder()` Javadoc example uses `.get()`; the `PgPrimaryCheckVerticle` Javadoc shows an HAProxy `backup` server, which the design forbids; two sidecar tests use the old generic `org.testcontainers.containers.PostgreSQLContainer<?>`; `peegeeq-api.yaml` does not describe the `Idempotency-Key` header; several Java comments name documents by paths that were archived before 2026-11-21 (for example `docs-design/tasks/SCHEMA-PROCESSING-GAPS-CRITICAL-17-Jun-2026.md`) | Read during the review | Unscheduled |
+| D14 | `peegeeq-migrations` tests use AssertJ (92 `assertThat` lines in 5 classes); the coding principles make JUnit Jupiter assertions the standard and say AssertJ is not a dependency. AssertJ 3.24.2 is pinned in that module's pom only | Checked 2026-11-21: imports in `CustomSchemaIntegrationTest`, `MigrationConventionsTest`, `MigrationIntegrationTest`, `SchemaContractTest`, `SchemaValidationTest` | Unscheduled |
+| D15 | `peegeeq-examples` tests: discarded `ConsumerGroup.start()` futures (`AdvancedProducerConsumerGroupTest` 3 sites, `ConsumerGroupResilienceTest` 3 sites); `try`/`catch` around the `Future`-returning `QueueFactory.close()` (`ServerSideFilteringTest`, `PartitionedOrderingDemoTest`); `ConsumerGroupResilienceTest` teardown completes when the manager close fails; `EventSourcingCQRSDemoTest` logs and swallows command failures; `configureOffsetWatermarkTopic` writes through `withConnection` (`EventSourcingCQRSDemoTest`, `PartitionedOrderingDemoTest`) | Read by a review agent on 2026-11-21 while removing the dead Spring hooks; not reproduced | Unscheduled |
+| D16 | `peegeeq-migrations/dependency-reduced-pom.xml` is maven-shade output tracked in git. Every build rewrites it, and the tracked copy is stale (it still excludes `oshi-core` and `h2` and lists the removed Flyway 10.10.0, JUnit 5.10.1 and PostgreSQL 42.7.2 overrides) | Checked 2026-11-21: `git diff` after `mvn clean install` | Unscheduled: decide whether to generate it under `target/` and untrack it |
 
 ## Unscheduled backlog
 

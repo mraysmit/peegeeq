@@ -5,9 +5,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-
 /**
  * Shared TestContainers configuration for PeeGeeQ Examples.
  *
@@ -20,9 +17,6 @@ import java.util.concurrent.TimeUnit;
  * @Container
  * static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
  * ```
- *
- * Container readiness uses a bounded latch wait on the calling test-infrastructure thread;
- * it does not bypass the blocking-thread guard or run on a Vert.x event loop.
  */
 public class SharedTestContainers {
 
@@ -72,166 +66,6 @@ public class SharedTestContainers {
         }
 
         return sharedPostgres;
-    }
-
-    /**
-     * Configures standard PeeGeeQ properties for the shared container.
-     * Use this in @DynamicPropertySource methods to ensure consistent configuration.
-     *
-     * This method ensures the container is fully started and ready before accessing its properties.
-     *
-     * @param registry the dynamic property registry
-     */
-    public static void configureSharedProperties(org.springframework.test.context.DynamicPropertyRegistry registry) {
-        PostgreSQLContainer container = getSharedPostgreSQLContainer();
-
-        // Ensure container is fully started and ready before accessing port
-        ensureContainerReady(container);
-
-        logger.info("Configuring shared properties for container: host={}, port={}, database={}, username={}",
-            container.getHost(), container.getFirstMappedPort(), container.getDatabaseName(), container.getUsername());
-
-        // Get container properties once and reuse them (avoid multiple getMappedPort calls)
-        String host = container.getHost();
-        Integer port = container.getFirstMappedPort();
-        String database = container.getDatabaseName();
-        String username = container.getUsername();
-        String password = container.getPassword();
-
-        // Note: Removed system properties to avoid race conditions in parallel tests
-        // System properties are global and can cause race conditions when multiple tests run in parallel
-        // Instead, we rely on @DynamicPropertySource which is properly scoped per test
-
-        // Standard PeeGeeQ properties - use higher precedence to override application.yml
-        registry.add("peegeeq.database.host", () -> host);
-        registry.add("peegeeq.database.port", () -> port.toString());
-        registry.add("peegeeq.database.name", () -> database);
-        registry.add("peegeeq.database.username", () -> username);
-        registry.add("peegeeq.database.password", () -> password);
-        registry.add("peegeeq.database.schema", () -> PostgreSQLTestConstants.TEST_SCHEMA);
-
-        // Reactive pool tuning for high-load tests
-        registry.add("peegeeq.database.pool.max-size", () -> "32");
-        registry.add("peegeeq.database.pool.max-wait-queue-size", () -> "4096");
-        registry.add("peegeeq.database.pool.connection-timeout-ms", () -> "30000");
-        registry.add("peegeeq.database.pool.idle-timeout-ms", () -> "600000");
-
-        // Bi-temporal properties (for bi-temporal tests)
-        registry.add("peegeeq.bitemporal.database.host", () -> host);
-        registry.add("peegeeq.bitemporal.database.port", () -> port);
-        registry.add("peegeeq.bitemporal.database.name", () -> database);
-        registry.add("peegeeq.bitemporal.database.username", () -> username);
-        registry.add("peegeeq.bitemporal.database.password", () -> password);
-
-        // Dead Letter Queue properties (for DLQ tests)
-        registry.add("peegeeq.dlq.database.host", () -> host);
-        registry.add("peegeeq.dlq.database.port", () -> port);
-        registry.add("peegeeq.dlq.database.name", () -> database);
-        registry.add("peegeeq.dlq.database.username", () -> username);
-        registry.add("peegeeq.dlq.database.password", () -> password);
-
-        // Retry properties (for retry tests)
-        registry.add("peegeeq.retry.database.host", () -> host);
-        registry.add("peegeeq.retry.database.port", () -> port);
-        registry.add("peegeeq.retry.database.name", () -> database);
-        registry.add("peegeeq.retry.database.username", () -> username);
-        registry.add("peegeeq.retry.database.password", () -> password);
-
-        // Consumer properties (for consumer tests)
-        registry.add("peegeeq.consumer.database.host", () -> host);
-        registry.add("peegeeq.consumer.database.port", () -> port);
-        registry.add("peegeeq.consumer.database.name", () -> database);
-        registry.add("peegeeq.consumer.database.username", () -> username);
-        registry.add("peegeeq.consumer.database.password", () -> password);
-
-        // Bitemporal properties (for bitemporal tests)
-        registry.add("bitemporal.database.host", () -> host);
-        registry.add("bitemporal.database.port", () -> port);
-        registry.add("bitemporal.database.name", () -> database);
-        registry.add("bitemporal.database.username", () -> username);
-        registry.add("bitemporal.database.password", () -> password);
-
-        // Reactive Bitemporal properties (for reactive bitemporal tests)
-        registry.add("reactive-bitemporal.database.host", () -> host);
-        registry.add("reactive-bitemporal.database.port", () -> port);
-        registry.add("reactive-bitemporal.database.name", () -> database);
-        registry.add("reactive-bitemporal.database.username", () -> username);
-        registry.add("reactive-bitemporal.database.password", () -> password);
-
-        // Integrated properties (for integrated tests)
-        registry.add("integrated.database.host", () -> host);
-        registry.add("integrated.database.port", () -> port);
-        registry.add("integrated.database.name", () -> database);
-        registry.add("integrated.database.username", () -> username);
-        registry.add("integrated.database.password", () -> password);
-
-        // R2DBC properties (for reactive tests) - override application.yml settings
-        String r2dbcUrl = String.format("r2dbc:postgresql://%s:%d/%s", host, port, database);
-        registry.add("spring.r2dbc.url", () -> r2dbcUrl);
-        registry.add("spring.r2dbc.username", () -> username);
-        registry.add("spring.r2dbc.password", () -> password);
-
-        // Environment variable overrides (highest precedence)
-        registry.add("DB_HOST", () -> host);
-        registry.add("DB_PORT", () -> port.toString());
-        registry.add("DB_NAME", () -> database);
-        registry.add("DB_USERNAME", () -> username);
-        registry.add("DB_PASSWORD", () -> password);
-
-        // Test settings
-        registry.add("peegeeq.profile", () -> "test");
-        registry.add("peegeeq.migration.enabled", () -> "true");
-        registry.add("peegeeq.migration.auto-migrate", () -> "true");
-
-        logger.info("Shared properties configured successfully for database: {}", database);
-        logger.info("Registry properties set (no system properties): DB_HOST={}, DB_PORT={}, DB_NAME={}", host, port, database);
-    }
-
-    /**
-     * Ensures the container is fully started and ready for use.
-     * This method blocks until the container is confirmed to be running and accessible.
-     *
-     * @param container the container to verify
-     */
-    private static void ensureContainerReady(PostgreSQLContainer container) {
-        if (!container.isRunning()) {
-            logger.warn("Container is not running, starting it now...");
-            container.start();
-        }
-
-        // Wait for container to be fully ready with timeout
-        int maxAttempts = 30; // 30 seconds timeout
-        int attempt = 0;
-
-        while (attempt < maxAttempts) {
-            try {
-                // Try to get the mapped port - this will throw if container isn't ready
-                Integer port = container.getFirstMappedPort();
-                String host = container.getHost();
-
-                logger.debug("Container ready check attempt {}: host={}, port={}", attempt + 1, host, port);
-
-                // If we get here, container is ready
-                logger.info("Container is ready: host={}, port={}", host, port);
-                return;
-
-            } catch (IllegalStateException e) {
-                if (e.getMessage().contains("Mapped port can only be obtained after the container is started")) {
-                    logger.debug("Container not ready yet (attempt {}), waiting...", attempt + 1);
-                    try {
-                        new CountDownLatch(1).await(1, TimeUnit.SECONDS);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        throw new RuntimeException("Interrupted while waiting for container to be ready", ie);
-                    }
-                    attempt++;
-                } else {
-                    throw e; // Re-throw other IllegalStateExceptions
-                }
-            }
-        }
-
-        throw new RuntimeException("Container failed to become ready within " + maxAttempts + " seconds");
     }
 
     /**

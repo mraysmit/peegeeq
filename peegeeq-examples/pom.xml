@@ -15,7 +15,7 @@
     <description>Self-contained examples demonstrating PeeGeeQ production readiness features</description>
 
     <!-- Note: This module contains pure Vert.x examples demonstrating PeeGeeQ production readiness features.
-         Spring Boot examples have been moved to the peegeeq-spring-examples module. -->
+         Spring Boot examples have been moved to the peegeeq-examples-spring module. -->
 
     <dependencies>
         <!-- PeeGeeQ Dependencies -->
@@ -161,32 +161,16 @@
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>
-            <artifactId>consul</artifactId>
+            <artifactId>testcontainers-consul</artifactId>
             <scope>compile</scope>
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>
-            <artifactId>junit-jupiter</artifactId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
 
-        <!-- Spring Boot dependencies moved to peegeeq-spring-examples module -->
-        <!-- Keep spring-boot-starter-test for TestContainers integration utilities -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-test</artifactId>
-            <version>${spring.boot.version}</version>
-            <scope>test</scope>
-        </dependency>
-
-
-
-        <!-- Reactor Test for Reactive Testing -->
-        <dependency>
-            <groupId>io.projectreactor</groupId>
-            <artifactId>reactor-test</artifactId>
-            <scope>test</scope>
-        </dependency>
+        <!-- No Spring here: Spring examples live in the standalone peegeeq-examples-spring project. -->
 
         <!-- Testing -->
         <dependency>
@@ -211,7 +195,7 @@
                 </configuration>
             </plugin>
 
-            <!-- Maven Surefire Plugin 3.2.5 for JUnit 5 test execution with tag-based categorization -->
+            <!-- Maven Surefire Plugin (version from ${surefire.version}) for JUnit 5 test execution with tag-based categorization -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
@@ -244,7 +228,7 @@
                     <properties>
                         <configurationParameters>
                             junit.jupiter.execution.timeout.default=${test.timeout.default}
-                            junit.jupiter.execution.timeout.testmethod.default=${test.timeout.method}
+                            junit.jupiter.execution.timeout.test.method.default=${test.timeout.method}
                         </configurationParameters>
                     </properties>
 
@@ -520,7 +504,7 @@
                 </executions>
             </plugin>
 
-            <!-- Spring Boot Maven Plugin moved to peegeeq-spring-examples module -->
+            <!-- Spring Boot Maven Plugin moved to peegeeq-examples-spring module -->
         </plugins>
     </build>
 
