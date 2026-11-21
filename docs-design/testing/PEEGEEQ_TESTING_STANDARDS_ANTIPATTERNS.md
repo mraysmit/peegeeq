@@ -2,7 +2,9 @@
 
 **Status:** CURRENT MANDATORY STANDARD
 
-**Last reconciled:** 2026-10-06 against commit f1c5d25d
+**Last reconciled:** 2026-11-21 against commit 0ffaafb6
+
+**Corrected:** 2026-11-21 against `0ffaafb6`: six guard tests in `quality/`, not five; the `.eventually(` and deprecated `VertxTestContext` checks of `VertxAsyncForbiddenPatternsGuardTest`; two module guards.
 
 > **This is a mandatory standards document.**
 > Every pattern listed here must be absent from all test code. There are no exceptions.
@@ -73,17 +75,26 @@ handler's closing brace and reports the next `completeNow()` in an `else` branch
 
 ## Enforcement: guard tests
 
-Five static-analysis guard tests in
+Six guard tests in
 `peegeeq-test-support/src/test/java/dev/mars/peegeeq/test/quality/` run under
 `@Tag(TestCategories.CORE)` on every `mvn test`. They need no database and no Testcontainers.
+Five scan source files. `VertxTeardownAfterFailureGuardTest` runs fixture tests instead.
 
 | Guard class | What it rejects |
 |---|---|
 | `OnSuccessExceptionSwallowingGuardTest` | Async test antipatterns that swallow failures, deadlock tests, block event loops, or discard futures, in every `peegeeq-*/src/test/java/**/*.java` file. |
-| `VertxAsyncForbiddenPatternsGuardTest` | Vert.x async forbidden patterns in production and test sources (`new VertxTestContext(`, `.toCompletionStage(`, `.toCompletableFuture(`, `CompletableFuture`, `.recover(`, `.otherwise(`, `Handler<AsyncResult`) ratcheted against a checked-in baseline. |
+| `VertxAsyncForbiddenPatternsGuardTest` | Vert.x async forbidden patterns in production and test sources (`new VertxTestContext(`, `.toCompletionStage(`, `.toCompletableFuture(`, `CompletableFuture`, `.recover(`, `.otherwise(`, `Handler<AsyncResult`) ratcheted against a checked-in baseline. Two further checks have no baseline: any `.eventually(` call in test sources, and any `VertxTestContext` method that vertx-junit5 5.1 deprecates (`checkpoint(int)`, `laxCheckpoint(int)`, `failing()`, `completing()`) in test sources. |
 | `DisabledTestsGuardTest` | Unapproved JUnit `@Disabled` annotations and stale allowlist rows. |
 | `InvalidDurationLiteralGuardTest` | Millisecond-suffixed ISO-8601 duration literals that `Duration.parse` rejects, in Java sources, configuration resources, and documentation examples. |
 | `SchemaInitializerTestInfrastructureGuardTest` | Schema-initializer tests that regress to hand-built PostgreSQL containers or raw JDBC verification. |
+| `VertxTeardownAfterFailureGuardTest` | A regression in which an asynchronous `@AfterEach` of a failed test is cancelled or not awaited. It runs fixture tests through `EngineTestKit` and protects `VertxTeardownAfterFailureExtension`. |
+
+Two module guards sit outside `quality/`:
+
+| Guard class | Tag | What it rejects |
+|---|---|---|
+| `peegeeq-db` `PeeGeeQManagerTimerGuardTest` | `INTEGRATION`; uses Testcontainers | `PeeGeeQManager` timer callbacks that reach the database after `closeReactive()` begins, and timer failures that do not escalate from WARN to ERROR. |
+| `peegeeq-rest` `AdminConsumingReadGuardTest` | `CORE`; no database | A new `createConsumer(` or `.subscribe(` call site in `peegeeq-rest/src/main/java`, ratcheted per file against `peegeeq-rest/src/test/resources/quality/rest-consuming-read-baseline.csv`. |
 
 `OnSuccessExceptionSwallowingGuardTest` checks nine tiers:
 

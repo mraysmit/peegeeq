@@ -2,6 +2,8 @@
 
 **Status:** IMPLEMENTED — `StuckMessageRecoveryManager`
 **Last reconciled:** 2026-10-06 against commit `f1c5d25d`
+**Corrected:** 2026-11-21 against `0ffaafb6`: replaced source line numbers with class and method
+names, added the `peegeeq-db` recovery manager integration test.
 
 **Problem:** If the outbox consumer crashes after polling but before completing message
 processing, the polled messages remain in `PROCESSING` state with `processed_at` set.
@@ -16,8 +18,9 @@ back to `PENDING`.
 
 ### The poll statement
 
-`peegeeq-outbox/src/main/java/dev/mars/peegeeq/outbox/OutboxConsumer.java` (L380–L394) claims a
-batch with one schema-qualified `UPDATE ... RETURNING`:
+`OutboxConsumer.processAvailableMessages`
+(`peegeeq-outbox/src/main/java/dev/mars/peegeeq/outbox/OutboxConsumer.java`) claims a batch with
+one schema-qualified `UPDATE ... RETURNING`:
 
 ```sql
 UPDATE <schema>.outbox
@@ -66,18 +69,20 @@ Without recovery the message is never retried or completed.
 
 File: `peegeeq-db/src/main/java/dev/mars/peegeeq/db/recovery/StuckMessageRecoveryManager.java`.
 
-Constructor: `StuckMessageRecoveryManager(Pool reactivePool, Duration processingTimeout, boolean enabled)` (L63).
+Constructor: `StuckMessageRecoveryManager(Pool reactivePool, Duration processingTimeout, boolean enabled)`.
 
-Behaviour:
+Behaviour of `recoverStuckMessages()`:
 
-1. Counts messages where `status = 'PROCESSING' AND processed_at < $1`, with `$1` = now minus
-   `processingTimeout` (L123–L128).
-2. Resets them with `UPDATE outbox SET status = 'PENDING', processed_at = NULL WHERE status =
-   'PROCESSING' AND processed_at < $1` (L151–L158).
+1. `countStuckMessages()` counts messages where `status = 'PROCESSING' AND processed_at < $1`,
+   with `$1` = now minus `processingTimeout`.
+2. `resetStuckMessages()` resets them with `UPDATE outbox SET status = 'PENDING', processed_at =
+   NULL WHERE status = 'PROCESSING' AND processed_at < $1`.
 3. Does nothing when `enabled` is false.
 
-`PeeGeeQManager` constructs the manager from `QueueConfig.isRecoveryEnabled()` (L269) and
-schedules it on a periodic timer from `QueueConfig.getRecoveryCheckInterval()` (L988).
+The `PeeGeeQManager` constructor creates the manager from
+`QueueConfig.getRecoveryProcessingTimeout()` and `QueueConfig.isRecoveryEnabled()`.
+`PeeGeeQManager.startBackgroundTasks()` schedules it on a periodic timer from
+`QueueConfig.getRecoveryCheckInterval()`.
 
 ```
 PROCESSING message with processed_at older than the timeout
@@ -92,8 +97,8 @@ Message is polled again and reprocessed
 ### Configuration
 
 Recovery is configured by three properties. `PeeGeeQConfiguration.QueueConfig` is immutable and
-exposes only getters (`PeeGeeQConfiguration.java` L679–L681: `isRecoveryEnabled()`,
-`getRecoveryProcessingTimeout()`, `getRecoveryCheckInterval()`).
+exposes only getters: `isRecoveryEnabled()`, `getRecoveryProcessingTimeout()`, and
+`getRecoveryCheckInterval()`.
 
 | Property | Default | Profile overrides |
 |---|---|---|
@@ -101,8 +106,13 @@ exposes only getters (`PeeGeeQConfiguration.java` L679–L681: `isRecoveryEnable
 | `peegeeq.queue.recovery.processing-timeout` | `PT5M` | `high-performance`: `PT2M`; `reliable`: `PT3M` |
 | `peegeeq.queue.recovery.check-interval` | `PT10M` | `high-performance`: `PT5M`; `reliable`: `PT5M` |
 
-Defaults are in `peegeeq-db/src/main/resources/peegeeq-default.properties` (L39–L41) and in
-`PeeGeeQConfiguration.java` (L338–L345). Values are ISO-8601 durations. Set them in the profile
+Defaults are in `peegeeq-db/src/main/resources/peegeeq-default.properties` and in the fallback
+values that `PeeGeeQConfiguration` passes to `getBoolean` and `getDuration` when it builds
+`QueueConfig`. Profile overrides are in `peegeeq-high-performance.properties` and
+`peegeeq-reliable.properties` in the same directory. Values are ISO-8601 durations.
+When recovery is enabled, `PeeGeeQConfiguration` validation records an error for a processing
+timeout or check interval below 1 minute, and for a check interval that is not longer than the
+processing timeout. Set them in the profile
 properties file or in the `Properties` overrides passed to
 `PeeGeeQConfiguration(String profile, Properties overrides)`.
 
@@ -120,13 +130,17 @@ defaults, 7 minutes on `high-performance`, 8 minutes on `reliable`.
 ### Test coverage
 
 - `peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerCrashRecoveryTest.java`:
-  `testConsumerCrashMessageIsRecoveredToPending` (L160) exercises the crash window and confirms
-  the claimed message returns to `PENDING`.
+  `testConsumerCrashMessageIsRecoveredToPending` exercises the crash window and confirms the
+  claimed message returns to `PENDING`.
 - `peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/StuckMessageRecoveryIntegrationTest.java`:
-  `testStuckMessageRecoveryWithRealCrash` (L146), `testDisabledRecovery` (L220), and
-  `testDirectlyInsertedStuckMessageIsRecoveredToPending` (L252).
+  `testStuckMessageRecoveryWithRealCrash`, `testDisabledRecovery`, and
+  `testDirectlyInsertedStuckMessageIsRecoveredToPending`.
+- `peegeeq-db/src/test/java/dev/mars/peegeeq/db/recovery/StuckMessageRecoveryManagerIntegrationTest.java`:
+  tests the manager directly in the database module, including construction, the disabled case,
+  recovery with no stuck messages, repeated calls, recovery statistics, different timeouts, and
+  propagation of a diagnostic logging failure.
 
-Both run against real PostgreSQL via TestContainers.
+All three classes are tagged `INTEGRATION` and run against real PostgreSQL via TestContainers.
 
 ---
 
@@ -137,5 +151,5 @@ consumer-lease pattern with TTL renewal, and an external process monitor that re
 `PROCESSING` rows for a dead consumer were considered as faster-detection designs. None is
 scheduled. None has an entry in the consolidated task register
 (`docs-design/tasks/tasks.md`). Each would require a Flyway migration plus a matching
-template change (see `docs-design/schema-tenants-support/PEEGEEQ_SCHEMA_CONFIGURATION_DESIGN.md`
+template change (see `docs-design/analysis/PEEGEEQ_SCHEMA_CONFIGURATION_DESIGN.md`
 §5) and new recovery tests before adoption.

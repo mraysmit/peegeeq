@@ -437,7 +437,7 @@ verification.
 
 ### Task 6 release evidence — complete
 
-[Consolidated Task 6](../docs-design/tasks/tasks.md#6-partitioned-consumption-pre-ga-gates) is
+[Consolidated Task 6](../docs-design/tasks/archive/TASKS_REGISTER_TO_2026-11-21.md#6-partitioned-consumption-pre-ga-gates) is
 complete. Jenkins build #11 passed **89/89** focused database, native, schema-isolation, and OLTP
 contention tests, then passed the explicitly selected one-hour
 `PartitionedConsumptionReleaseGate` at **1/1**. The full build therefore published **90 passing

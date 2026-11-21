@@ -73,9 +73,8 @@
     </modules>
 
     <properties>
-        <maven.compiler.source>25</maven.compiler.source>
-        <maven.compiler.target>25</maven.compiler.target>
-        <maven.compiler.release>25</maven.compiler.release>
+        <!-- The one Java version for the reactor: compiler release, toolchain JDK and javadoc source. -->
+        <maven.compiler.release>27</maven.compiler.release>
         <!-- JaCoCo coverage is OFF by default; opt in with -Pcoverage (or -Djacoco.skip=false) -->
         <jacoco.skip>true</jacoco.skip>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -434,7 +433,7 @@
                     <configuration>
                         <toolchains>
                             <jdk>
-                                <version>25</version>
+                                <version>${maven.compiler.release}</version>
                             </jdk>
                         </toolchains>
                     </configuration>
@@ -482,7 +481,8 @@
                 <plugin>
                     <groupId>org.jacoco</groupId>
                     <artifactId>jacoco-maven-plugin</artifactId>
-                    <version>0.8.14</version>
+                    <!-- 0.8.14 rejects Java 27 class files ("Unsupported class file major version 71"). -->
+                    <version>0.8.15</version>
                     <configuration>
                         <skip>${jacoco.skip}</skip>
                     </configuration>
@@ -543,7 +543,7 @@
                         </execution>
                     </executions>
                     <configuration>
-                        <source>25</source>
+                        <source>${maven.compiler.release}</source>
                         <detectJavaApiLink>false</detectJavaApiLink>
                         <quiet>true</quiet>
                         <doclint>none</doclint>
@@ -567,12 +567,13 @@
         </pluginManagement>
 
         <plugins>
-            <!-- Use Java 25 toolchain for all builds -->
+            <!-- Compile and fork tests on the JDK that ~/.m2/toolchains.xml registers for
+                 ${maven.compiler.release}. The build fails when no such entry exists. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-toolchains-plugin</artifactId>
             </plugin>
-            <!-- Enforce Java 25 for all builds -->
+            <!-- Enforce the minimum Maven version. The toolchain above enforces the JDK. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-enforcer-plugin</artifactId>

@@ -13,6 +13,7 @@ verification evidence, use the [consolidated task register](../tasks/tasks.md).
 - `historical-evidence/` — dated test results, investigations, and validation snapshots.
 - `internal-notes/` — internal process material that is not product documentation.
 - `superseded-guides/` — guides replaced by a maintained authority elsewhere.
+- `superseded-designs/` — designs that were rejected, or replaced before they were built.
 - `governance/` — completed documentation-control and migration records.
 - The files directly under `_archived/` are earlier historical records retained before the
   categorized archive structure was introduced.
@@ -27,5 +28,5 @@ verification evidence, use the [consolidated task register](../tasks/tasks.md).
 - An archived proposal, test count, performance result, or implementation claim is evidence only.
   It must not be treated as current runtime behavior without fresh verification.
 
-The active [documentation consolidation ledger](../tasks/DOCUMENTATION_CONSOLIDATION_LEDGER.md)
+The active [documentation consolidation ledger](../tasks/archive/DOCUMENTATION_CONSOLIDATION_LEDGER.md)
 preserves source fingerprints and heading-level dispositions for the consolidation baseline.

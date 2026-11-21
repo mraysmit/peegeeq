@@ -324,7 +324,7 @@ These scripts test all aspects of the migrations module:
 
 1. **PostgreSQL running** on localhost:5432
 2. **PostgreSQL superuser access** (for creating test databases)
-3. **Java 21+** installed
+3. **Java 27 or newer** installed (the JAR is compiled with the root `pom.xml` `maven.compiler.release` 27)
 4. **Maven** installed (unless using `--skip-build`)
 5. **psql** command-line tool available
 

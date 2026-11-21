@@ -37,9 +37,9 @@ pipeline {
     }
 
     environment {
-        JAVA_HOME = '/usr/lib/jvm/temurin-25-jdk-amd64'
+        JAVA_HOME = '/usr/lib/jvm/temurin-27-jdk-amd64'
         MAVEN_HOME = '/opt/maven'
-        PATH = "/usr/lib/jvm/temurin-25-jdk-amd64/bin:/opt/maven/bin:${env.PATH}"
+        PATH = "/usr/lib/jvm/temurin-27-jdk-amd64/bin:/opt/maven/bin:${env.PATH}"
         CI = 'true'
     }
 
@@ -69,12 +69,12 @@ pipeline {
                     id
 
                     test "$(readlink -f "$(command -v java)")" = \
-                      '/usr/lib/jvm/temurin-25-jdk-amd64/bin/java'
+                      '/usr/lib/jvm/temurin-27-jdk-amd64/bin/java'
                     test "$(readlink -f "$(command -v javac)")" = \
-                      '/usr/lib/jvm/temurin-25-jdk-amd64/bin/javac'
+                      '/usr/lib/jvm/temurin-27-jdk-amd64/bin/javac'
                     test -r "$HOME/.m2/toolchains.xml"
-                    grep -F '<version>25</version>' "$HOME/.m2/toolchains.xml"
-                    grep -F '<jdkHome>/usr/lib/jvm/temurin-25-jdk-amd64</jdkHome>' \
+                    grep -F '<version>27</version>' "$HOME/.m2/toolchains.xml"
+                    grep -F '<jdkHome>/usr/lib/jvm/temurin-27-jdk-amd64</jdkHome>' \
                       "$HOME/.m2/toolchains.xml"
 
                     id -nG | tr ' ' '\n' | grep -qx docker
@@ -311,7 +311,7 @@ pipeline {
                          // not know. Node fails to read the current user without this entry.
                          "-v /etc/passwd:/etc/passwd:ro " +
                          "-v /var/lib/jenkins/.m2:/var/lib/jenkins/.m2 " +
-                         "-v /usr/lib/jvm/temurin-25-jdk-amd64:/usr/lib/jvm/temurin-25-jdk-amd64:ro " +
+                         "-v /usr/lib/jvm/temurin-27-jdk-amd64:/usr/lib/jvm/temurin-27-jdk-amd64:ro " +
                          "-v /opt/maven:/opt/maven:ro " +
                          "-v /var/run/docker.sock:/var/run/docker.sock " +
                          "--group-add ${env.DOCKER_SOCKET_GID}"

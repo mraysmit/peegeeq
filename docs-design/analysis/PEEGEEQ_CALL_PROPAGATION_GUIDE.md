@@ -1,10 +1,15 @@
 # PeeGeeQ Call Propagation Guide
 
+**Corrected:** 2026-11-21 against `0ffaafb6`: replaced the dead baseline hash, corrected where
+HTTP errors are mapped, moved the idempotency key from the body to the `Idempotency-Key` header,
+added the binding-row difference between delete and detach.
+
 **Status:** CURRENT ARCHITECTURE GUIDE
 
 **Last reconciled:** 2026-09-06
 
-**Repository baseline:** `7db748b8e77f3aba850be7b73547d192dac5b83f`
+**Repository baseline:** checked 2026-11-21 against `0ffaafb6`; the earlier baseline `7db748b8` no
+longer resolves after a history rewrite.
 
 ## Purpose
 
@@ -19,7 +24,7 @@ Use these sources as the authorities for exact details:
 - [REST server routing](../../peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/PeeGeeQRestServer.java)
   for routes actually registered by the server;
 - [consolidated task register](../tasks/tasks.md) for implementation and verification status; and
-- [schema configuration design](../schema-tenants-support/PEEGEEQ_SCHEMA_CONFIGURATION_DESIGN.md)
+- [schema configuration design](PEEGEEQ_SCHEMA_CONFIGURATION_DESIGN.md)
   for tenant schema creation and migration rules.
 
 Static source inspection identifies code paths; runtime claims still require the relevant
@@ -80,11 +85,11 @@ Most setup-scoped requests follow this sequence:
 5. A native, outbox, event-store, subscription, health, or dead-letter implementation performs the
    operation.
 6. The database layer obtains a tenant-qualified connection and executes parameterized SQL.
-7. Success is serialized to the public response; failure reaches the centralized HTTP failure
-   mapping.
+7. Success is serialized to the public response. On failure the handler maps the error to an HTTP
+   status and writes the error response itself.
 
 Every asynchronous operation on which the response depends must remain in the returned chain.
-Errors are logged where useful and remain failed until the protocol boundary maps them to an HTTP
+Errors are logged where useful and remain failed until the handler maps them to an HTTP
 response.
 
 ## Queue message send: end-to-end path
@@ -103,9 +108,9 @@ POST /api/v1/queues/{setupId}/{queueName}/messages
   -> HTTP response
 ```
 
-`QueueHandler` maps the request fields into producer arguments:
+`QueueHandler` maps the request body fields into producer arguments:
 
-| HTTP field | Producer meaning | Storage meaning |
+| HTTP body field | Producer meaning | Storage meaning |
 |---|---|---|
 | `payload` | Typed message body | JSON payload |
 | `headers` | Message metadata | JSON headers |
@@ -113,7 +118,10 @@ POST /api/v1/queues/{setupId}/{queueName}/messages
 | `messageGroup` | Ordering or affinity key | Group/partition column |
 | `priority` | Delivery preference | Priority column |
 | `delaySeconds` | Relative visibility delay | Absolute visibility timestamp |
-| `idempotencyKey` when supported | Duplicate-send fence | Unique topic/key constraint |
+
+The idempotency key is not a body field. `QueueHandler` reads it from the `Idempotency-Key`
+HTTP request header and passes it to the producer as the `idempotencyKey` message header. It is
+the duplicate-send fence; storage enforces it with a unique index on topic and idempotency key.
 
 The native producer inserts into `queue_messages` and issues a parameterized PostgreSQL
 notification after the insert. The outbox producer writes to the outbox storage contract. Both are
@@ -159,9 +167,14 @@ Setup operations flow through `DatabaseSetupHandler` and `DatabaseSetupService`:
 
 - create provisions an explicitly named database/schema boundary and registered objects;
 - connect attaches to an existing setup and reconstructs registered queue/event-store objects;
-- detach releases the in-process binding without dropping the database;
-- delete follows the current non-destructive setup lifecycle contract; and
+- detach releases the in-process binding without dropping the database, then removes the setup's
+  durable row from the binding registry, so `reloadPersistedSetups` no longer lists it;
+- delete (`destroySetup`) closes the setup's resources and manager without dropping the database,
+  and keeps the durable binding row, so `reloadPersistedSetups` still lists it; and
 - database drop is a separate explicit operation with confirmation requirements.
+
+Both behaviours are in `PeeGeeQDatabaseSetupService`: `detachSetup` calls `destroySetup` and then
+`deleteBinding`; `destroySetup` does not touch the binding registry.
 
 The runtime facade delegates provisioning to the database setup service, which applies the ordered
 SQL template manifests and records setup metadata. It then invokes registered native, outbox, and
@@ -211,7 +224,12 @@ the OpenAPI definition, then confirm the route is registered in `PeeGeeQRestServ
 - Missing setups, queues, stores, subscriptions, and messages retain distinguishable error types.
 - Database or downstream failures remain failures; handlers must not replace them with empty arrays,
   zero counts, or synthetic success.
-- HTTP handlers pass asynchronous failures to the shared failure mapper.
+- HTTP handlers map asynchronous failures themselves. Most handlers have a private `sendError`
+  method that writes the status and a JSON error body. Some handlers carry an expected status
+  through the failure chain as a `ResponseException` and map it in their failure handler.
+- The router `failureHandler` registered in `PeeGeeQRestServer` is only a fallback. It handles an
+  exception a handler did not catch and an explicit `ctx.fail(...)`, and writes a JSON error body
+  when the response has not already ended.
 - Streaming handlers surface an error event when the protocol permits it and always release owned
   resources.
 - Cleanup failures are observed, logged with context, and propagated according to the lifecycle
@@ -255,6 +273,6 @@ Work from the outside inward:
 - [OpenAPI definition](../../peegeeq-openapi/src/main/resources/peegeeq-api.yaml)
 - [REST server routing](../../peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/PeeGeeQRestServer.java)
 - [Consolidated task register](../tasks/tasks.md)
-- [Schema configuration design](../schema-tenants-support/PEEGEEQ_SCHEMA_CONFIGURATION_DESIGN.md)
+- [Schema configuration design](PEEGEEQ_SCHEMA_CONFIGURATION_DESIGN.md)
 - [Partitioned consumption design](../consumer-groups/PEEGEEQ_PARTITIONED_CONSUMPTION_DESIGN.md)
 - [Testing patterns](../testing/PEEGEEQ_TESTING_STANDARDS_PATTERNS.md)

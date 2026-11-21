@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-07-19
 
-This document defines the integration test strategy for PeeGeeQ, aligned with the layered hexagonal architecture described in `PEEGEEQ_CALL_PROPAGATION_GUIDE.md` (located at `docs-design/peegeeq-call-propagation/`; formerly referenced as `PEEGEEQ_CALL_PROPAGATION_DESIGN.md`).
+This document defines the integration test strategy for PeeGeeQ, aligned with the layered hexagonal architecture described in `PEEGEEQ_CALL_PROPAGATION_GUIDE.md` (located at `docs-design/analysis/`; formerly referenced as `PEEGEEQ_CALL_PROPAGATION_DESIGN.md`).
 
 **Quick Navigation:**
 - [Section 1: Architecture Overview](#1-architecture-overview) - Layer structure and test boundaries

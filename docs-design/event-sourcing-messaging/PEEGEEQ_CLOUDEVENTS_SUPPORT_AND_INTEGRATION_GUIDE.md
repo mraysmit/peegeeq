@@ -1,5 +1,7 @@
 # CloudEvents Support and Integration in PeeGeeQ
 
+**Corrected:** 2026-11-21 against `0ffaafb6`: CloudEvents is a compile-scope dependency, not optional; the factories register the Jackson module directly, with no reflection and no fallback.
+
 ## What is CloudEvents?
 
 CloudEvents is a specification for describing event data in a common way. It was created by the Cloud Native Computing Foundation (CNCF) to provide interoperability across services, platforms, and systems.
@@ -79,27 +81,10 @@ CloudEvents has SDKs for:
 
 ### Dependency Configuration
 
-CloudEvents is an **optional dependency** in PeeGeeQ. The core modules include it as optional:
+CloudEvents is a **required compile-scope dependency** of PeeGeeQ. `peegeeq-db`, `peegeeq-outbox`, `peegeeq-native` and `peegeeq-bitemporal` each declare both artifacts with no `<scope>` (so compile scope) and no `<optional>` element:
 
 ```xml
-<!-- In peegeeq-outbox/pom.xml, peegeeq-bitemporal/pom.xml, peegeeq-native/pom.xml -->
-<dependency>
-    <groupId>io.cloudevents</groupId>
-    <artifactId>cloudevents-core</artifactId>
-    <version>4.0.1</version>
-    <optional>true</optional>
-</dependency>
-<dependency>
-    <groupId>io.cloudevents</groupId>
-    <artifactId>cloudevents-json-jackson</artifactId>
-    <version>4.0.1</version>
-    <optional>true</optional>
-</dependency>
-```
-
-To use CloudEvents in your application, add the dependencies explicitly:
-
-```xml
+<!-- In peegeeq-db/pom.xml, peegeeq-outbox/pom.xml, peegeeq-native/pom.xml, peegeeq-bitemporal/pom.xml -->
 <dependency>
     <groupId>io.cloudevents</groupId>
     <artifactId>cloudevents-core</artifactId>
@@ -112,36 +97,30 @@ To use CloudEvents in your application, add the dependencies explicitly:
 </dependency>
 ```
 
-### Automatic Jackson Module Registration
+An application that depends on any of these modules receives both CloudEvents artifacts transitively. It does not need to declare them. It may declare them to pin the version.
 
-PeeGeeQ automatically detects and registers the CloudEvents Jackson module when available on the classpath. This happens in the factory classes:
+### Jackson Module Registration
+
+The default `ObjectMapper` in each of these classes registers the CloudEvents Jackson module unconditionally, by a direct call to `io.cloudevents.jackson.JsonFormat`:
+
+- `peegeeq-outbox`: `OutboxFactory.createDefaultObjectMapper()`
+- `peegeeq-native`: `PgNativeQueueFactory` default mapper
+- `peegeeq-bitemporal`: `BiTemporalEventStoreFactory` default mapper
+- `peegeeq-db`: `PeeGeeQManager.createDefaultObjectMapper()`, which also disables `WRITE_DATES_AS_TIMESTAMPS`
 
 ```java
-// From OutboxFactory.java, BiTemporalEventStoreFactory.java, PgNativeQueueFactory.java
+// From OutboxFactory.java
 private static ObjectMapper createDefaultObjectMapper() {
     ObjectMapper mapper = new ObjectMapper();
     mapper.registerModule(new JavaTimeModule());
-
-    // Add CloudEvents Jackson module support if available on classpath
-    try {
-        Class<?> jsonFormatClass = Class.forName("io.cloudevents.jackson.JsonFormat");
-        Object cloudEventModule = jsonFormatClass.getMethod("getCloudEventJacksonModule").invoke(null);
-        if (cloudEventModule instanceof com.fasterxml.jackson.databind.Module) {
-            mapper.registerModule((com.fasterxml.jackson.databind.Module) cloudEventModule);
-            logger.debug("CloudEvents Jackson module registered successfully");
-        }
-    } catch (Exception e) {
-        logger.debug("CloudEvents Jackson module not available on classpath, skipping registration");
-    }
-
+    mapper.registerModule(JsonFormat.getCloudEventJacksonModule());
     return mapper;
 }
 ```
 
-This approach:
-- Uses reflection to avoid compile-time dependency
-- Logs at `debug` level (not visible by default)
-- Gracefully degrades when CloudEvents is not available
+There is no reflection, no classpath check and no fallback. The classes import `JsonFormat` at compile time. No code path continues without CloudEvents. Excluding the CloudEvents artifacts is not supported; the resulting runtime error has not been tested.
+
+A mapper supplied by the caller (for example through a factory constructor that takes an `ObjectMapper`) is used as given. PeeGeeQ does not add the CloudEvents module to it.
 
 ## Usage Examples
 
@@ -502,15 +481,7 @@ CREATE INDEX idx_events_type_time ON bitemporal_event_log ((payload->>'type'), v
 
 **Symptom**: `JsonMappingException` when serializing/deserializing CloudEvents
 
-**Solution**: Ensure CloudEvents dependencies are on the classpath:
-
-```xml
-<dependency>
-    <groupId>io.cloudevents</groupId>
-    <artifactId>cloudevents-json-jackson</artifactId>
-    <version>4.0.1</version>
-</dependency>
-```
+**Solution**: The PeeGeeQ default mappers always register the module. One cause is an application `ObjectMapper`, passed to a factory or used directly, that lacks the module. Register it on that mapper with `mapper.registerModule(JsonFormat.getCloudEventJacksonModule())`. Also check that the build does not exclude `cloudevents-json-jackson`.
 
 ### Extension Attributes Not Preserved
 

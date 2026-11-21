@@ -1,8 +1,8 @@
 # Server-Side Filtering: Technical Design & Implementation Guide
 
 **Version:** 1.0
-**Status:** Production Ready
 **Last Updated:** 2025-12-23
+**Corrected:** 2026-11-21 against `0ffaafb6`: NOT_EQUALS includes messages without the header (open defect D3); header key regex; consumer groups have no filter support; tenant-schema `outbox` and `queue_messages` have no headers index; filter parameter numbering; "Production Ready" label and unbacked benchmark numbers removed; no REST exposure.
 
 ## Executive Summary
 
@@ -12,10 +12,12 @@ This document provides a comprehensive technical design and implementation guide
 
 - **Database-level filtering** using PostgreSQL JSONB operators
 - **Flexible filter expressions** supporting EQUALS, IN, NOT_EQUALS, LIKE, AND, OR
-- **NULL-safe filtering** with explicit key existence checks
+- **Key existence checks**: EQUALS, IN and LIKE exclude messages without the header. NOT_EQUALS includes them (see [NOT_EQUALS and missing headers](#not_equals-and-missing-headers-open-defect-d3)).
 - **100% backward compatible** - optional enhancement to existing API
-- **Optimized with GIN indexes** for high-performance JSONB queries
-- **Comprehensive test coverage** - 29 tests across unit and integration levels
+- **GIN indexes on `headers`** exist for the Flyway tables only; tenant-schema `outbox` and `queue_messages` have none (see [Database Indexes](#4-database-indexes))
+- **Test coverage** - 29 tests across unit and integration levels
+- **Java API only**: `ServerSideFilter` is set through `ConsumerConfig` or `OutboxConsumerConfig`. The REST API (`peegeeq-rest`) does not expose it.
+- **Plain consumers only**: consumer groups have no server-side filter support
 
 ## Table of Contents
 
@@ -183,7 +185,7 @@ public class ServerSideFilter {
     public enum Operator {
         EQUALS,        // headers->>'key' = value
         IN,            // headers->>'key' IN (value1, value2, ...)
-        NOT_EQUALS,    // headers->>'key' != value
+        NOT_EQUALS,    // NOT headers ? 'key' OR headers->>'key' != value
         LIKE,          // headers->>'key' LIKE pattern
         AND,           // (filter1) AND (filter2) AND ...
         OR             // (filter1) OR (filter2) OR ...
@@ -222,14 +224,24 @@ public class ServerSideFilter {
 
 #### Key Design Decisions
 
-1. **NULL-Safe Filtering**: All EQUALS/NOT_EQUALS/IN/LIKE operators include explicit key existence checks:
+1. **Key Existence Checks**: EQUALS, IN and LIKE require the key to exist:
    ```sql
-   -- Instead of: headers->>'type' = $4
-   -- Generates:   (headers ? 'type' AND headers->>'type' = $4)
+   -- Instead of: headers->>'type' = $n
+   -- Generates:   (headers ? 'type' AND headers->>'type' = $n)
    ```
-   This ensures messages without the header key are correctly excluded.
+   Messages without the header key are excluded by these three operators.
 
-2. **Header Key Validation**: Header keys must match pattern `^[a-zA-Z0-9_-]+$` to prevent SQL injection.
+   NOT_EQUALS uses the opposite form (`ServerSideFilter.java:191`):
+   ```sql
+   (NOT headers ? 'type' OR headers->>'type' != $n)
+   ```
+   Messages without the header key are **included** by NOT_EQUALS.
+
+   #### NOT_EQUALS and missing headers (open defect D3)
+
+   The code includes messages that lack the header when the filter is NOT_EQUALS. Earlier versions of this guide said they were excluded. Which behaviour is intended has not been decided. It is recorded as open defect D3 in `docs-design/tasks/tasks.md`. Until D3 is decided, a consumer that must exclude messages without the header must combine the filter with an EQUALS, IN or LIKE condition on the same key, or check in its handler.
+
+2. **Header Key Validation**: Header keys must match pattern `^[a-zA-Z][a-zA-Z0-9_-]*$` (`ServerSideFilter.VALID_HEADER_KEY`). The key must start with a letter. The remaining characters may be letters, digits, `_` or `-`. The key is written into the SQL text, so this check prevents SQL injection. Values are always bound parameters.
 
 3. **Immutable Design**: All filter objects are immutable and thread-safe.
 
@@ -312,6 +324,13 @@ public class OutboxConsumerConfig {
 
 The SQL queries in both `PgNativeQueueConsumer` and `OutboxConsumer` are dynamically built when a server-side filter is present.
 
+**Parameter numbering.** The filter's first parameter is not always `$4`. Each consumer passes the next free parameter number to `toSqlCondition(...)`:
+
+- `PgNativeQueueConsumer`: `$1` topic, `$2` batch size, `$3` lock seconds. Then an optional start-position value (`id >= $n` or `created_at >= $n`) and an optional exclusion group name (`queue_message_group_exclusions`). The filter starts at `4 + (number of those optional parameters)`, so at `$4`, `$5` or `$6`.
+- `OutboxConsumer`: `$1` processed time, `$2` topic, `$3` batch size. Then the consumer group name when subscription bounds are enforced. The filter starts at `$4` or `$5`. A scan-position parameter (`outbox_message.id > $n`) may follow the filter parameters.
+
+The SQL examples in this guide show `$4`, which is the case with no optional parameters. The SQL blocks below are simplified; the current statements also select `delivery_latency_ms`, and the outbox statement uses the alias `outbox_message` and the schema-qualified table name.
+
 #### Native Queue SQL (PgNativeQueueConsumer)
 
 **Without Filter:**
@@ -381,29 +400,35 @@ RETURNING id, payload, headers, correlation_id, message_group, created_at
 #### Implementation Pattern
 
 ```java
-// In PgNativeQueueConsumer.processAvailableMessages()
-String baseSql = "WITH c AS (SELECT id FROM queue_messages " +
-                 "WHERE topic = $1 AND status = 'AVAILABLE' AND visible_at <= now()";
+// Simplified from PgNativeQueueConsumer (claim query construction)
+int filterParameterOffset = 4 + startPositionParameters.size(); // not always 4
+String filterCondition = filter.toSqlCondition(filterParameterOffset);
+// ... the SQL text inserts startPositionCondition, then "AND " + filterCondition ...
 
-String sql;
-Tuple params;
-
-if (config.hasServerSideFilter()) {
-    ServerSideFilter filter = config.getServerSideFilter();
-    String filterCondition = filter.toSqlCondition(4); // Start at $4
-    sql = baseSql + " AND " + filterCondition + " ORDER BY priority DESC, created_at ASC LIMIT $2 FOR UPDATE SKIP LOCKED) ...";
-
-    params = Tuple.of(topic, batchSize, lockTimeout);
-    filter.getParameters().forEach(params::addValue);
-} else {
-    sql = baseSql + " ORDER BY priority DESC, created_at ASC LIMIT $2 FOR UPDATE SKIP LOCKED) ...";
-    params = Tuple.of(topic, batchSize, lockTimeout);
-}
+List<Object> allParameters = new ArrayList<>();
+allParameters.add(topic);
+allParameters.add(admittedCapacity);
+allParameters.add(lockDurationSeconds);
+allParameters.addAll(startPositionParameters); // optional start position and exclusion group
+allParameters.addAll(filter.getParameters());
+Tuple params = Tuple.from(allParameters);
 ```
 
 ### 4. Database Indexes
 
-GIN (Generalized Inverted Index) indexes have been added to optimize JSONB header queries.
+GIN (Generalized Inverted Index) indexes on `headers` exist for some tables only.
+
+| Table | Headers GIN index |
+|-------|-------------------|
+| Flyway `outbox` | Yes (`idx_outbox_headers_gin`, V001) |
+| Flyway `queue_messages` | Yes (`idx_queue_messages_headers_gin`, V001) |
+| Flyway `bitemporal_event_log` | Yes (`idx_bitemporal_headers_gin`, V001) |
+| Tenant-schema `{schema}.outbox` (template `base/04a-core-table-outbox.sql`) | **No** |
+| Tenant-schema `{schema}.queue_messages` (template `base/04b-core-table-queue-messages.sql`) | **No** |
+| Tenant-schema `queue_template` and `event_store_template` | Yes (`base/07p`, `base/07o`) |
+| Per-queue tables and per-store event tables | Yes (`queue/02f`, `eventstore/02j`) |
+
+Both consumers filter `outbox` or `queue_messages`. In a tenant schema created from the templates, those two tables have no headers index, so a filtered claim query cannot use one. Add the index by hand if it is needed there.
 
 #### Index Definitions
 
@@ -425,12 +450,14 @@ CREATE INDEX idx_bitemporal_headers_gin ON bitemporal_event_log USING GIN(header
 CREATE INDEX idx_queue_template_headers_gin ON {schema}.queue_template USING GIN(headers);
 
 -- peegeeq-db/src/main/resources/db/templates/queue/02f-index-headers.sql
-CREATE INDEX IF NOT EXISTS idx_{queueName}_headers_gin
-    ON {schema}.{queueName} USING GIN(headers);
+CREATE INDEX IF NOT EXISTS "idx_{queueName}_headers_gin"
+    ON {schema}."{queueName}" USING GIN(headers);
 
 -- peegeeq-db/src/main/resources/db/templates/eventstore/02j-index-headers.sql
-CREATE INDEX IF NOT EXISTS idx_{eventStoreName}_headers_gin
-    ON {schema}.{eventStoreName} USING GIN(headers);
+CREATE INDEX IF NOT EXISTS "idx_{tableName}_headers_gin"
+    ON {schema}."{tableName}" USING GIN(headers);
+
+-- No template creates a headers index on {schema}.outbox or {schema}.queue_messages.
 ```
 
 #### Index Performance Characteristics
@@ -505,21 +532,9 @@ ConsumerConfig config = ConsumerConfig.builder()
 MessageConsumer<OrderEvent> consumer = factory.createConsumer(
     "order-events", OrderEvent.class, config);
 consumer.subscribe(handler).onFailure(error -> logger.error("Subscription failed", error));
-
-// Option 2: Hybrid (server-side coarse filter + client-side fine filter)
-ConsumerConfig config = ConsumerConfig.builder()
-    .serverSideFilter(ServerSideFilter.headerEquals("type", "order"))
-    .build();
-
-ConsumerGroup<OrderEvent> group = factory.createConsumerGroup(
-    "OrderProcessors", "order-events", OrderEvent.class, config);
-
-// Client-side filter for complex logic
-group.addConsumer("high-value-processor", handler,
-    message -> message.getPayload().getAmount() > 1000);
-
-group.start().onFailure(error -> logger.error("Consumer group start failed", error));
 ```
+
+**Consumer groups are not supported.** `QueueFactory.createConsumerGroup` has one signature, `createConsumerGroup(groupName, topic, payloadType)`. No overload takes a `ConsumerConfig`, and the consumer group code does not read `ServerSideFilter`. A consumer group can use only client-side `MessageFilter` predicates. Earlier versions of this guide showed a `createConsumerGroup(name, topic, type, config)` overload; it does not exist.
 
 ---
 
@@ -659,36 +674,14 @@ ConsumerConfig config = ConsumerConfig.builder()
 **Generated SQL:**
 ```sql
 WHERE topic = $1 AND status = 'AVAILABLE' AND visible_at <= now()
-  AND (headers ? 'environment' AND headers->>'environment' != $4)
+  AND (NOT headers ? 'environment' OR headers->>'environment' != $4)
 ```
+
+Messages that have no `environment` header are **included**. This is open defect D3; see [NOT_EQUALS and missing headers](#not_equals-and-missing-headers-open-defect-d3).
 
 ### Example 7: Hybrid Filtering (Server + Client)
 
-**Use Case:** Coarse server-side filter + fine-grained client-side filter.
-
-```java
-// Server-side: filter by message type (reduces network traffic)
-ConsumerConfig config = ConsumerConfig.builder()
-    .serverSideFilter(ServerSideFilter.headerEquals("type", "order"))
-    .build();
-
-ConsumerGroup<OrderEvent> group = factory.createConsumerGroup(
-    "HighValueOrders", "order-events", OrderEvent.class, config);
-
-// Client-side: complex business logic filter (payload inspection)
-group.addConsumer("high-value-processor", handler,
-    message -> {
-        OrderEvent order = message.getPayload();
-        return order.getAmount() > 1000 && order.getCustomer().isPremium();
-    });
-
-group.start().onFailure(error -> logger.error("Consumer group start failed", error));
-```
-
-**Why Hybrid?**
-- Server-side filter reduces messages fetched from database
-- Client-side filter handles complex logic not expressible in SQL
-- Best of both worlds: performance + flexibility
+**Not supported with consumer groups.** Earlier versions of this example passed a `ConsumerConfig` to `createConsumerGroup(name, topic, type, config)`. That overload does not exist, and consumer groups do not apply `ServerSideFilter`. A plain `MessageConsumer` with a server-side filter can apply further checks inside its own handler.
 
 ### Example 8: Outbox Pattern with Filtering
 
@@ -720,11 +713,11 @@ consumer.subscribe(message -> {
 
 | Scenario | Recommendation | Rationale |
 |----------|----------------|-----------|
-| **High message volume, low match rate** | ✅ **Use server-side** | Reduces network traffic and client CPU significantly |
-| **Low message volume (< 100 msg/sec)** | ⚖️ Either works | Performance difference negligible |
+| **High message volume, low match rate** | ✅ **Use server-side** | Fewer rows are claimed and transferred |
+| **Low message volume** | ⚖️ Either works | No measurement in this project shows a difference |
 | **Complex filter logic** (regex, payload inspection) | ❌ **Use client-side** | More flexible, SQL can't express all logic |
 | **Simple header equality checks** | ✅ **Use server-side** | Most efficient, leverages database indexes |
-| **Multiple consumers, different filters** | ✅ **Use server-side** | Each consumer gets only relevant messages |
+| **Multiple consumers, different filters** | ✅ **Use server-side** | Each plain consumer gets only relevant messages (not available for consumer groups) |
 | **Filtering on payload content** | ❌ **Use client-side** | Requires deserialization, not SQL-friendly |
 | **Dynamic filter criteria** | ⚖️ Hybrid approach | Server-side for static, client-side for dynamic |
 
@@ -738,37 +731,15 @@ consumer.subscribe(message -> {
 | **Pattern matching (LIKE)** | GIN with `gin_trgm_ops` | ⭐⭐⭐ Good | Wildcard searches |
 | **No index** | None | ⭐ Poor | Low volume or infrequent queries |
 
-**Current Implementation:** GIN indexes on `headers` column for all tables (outbox, queue_messages, bitemporal_event_log).
+**Current Implementation:** GIN indexes on `headers` exist on the Flyway tables `outbox`, `queue_messages` and `bitemporal_event_log`, and on per-queue and per-store tables. Tenant-schema `outbox` and `queue_messages` have no headers index (see [Database Indexes](#4-database-indexes)).
 
 ### Performance Benchmarks
 
-#### Scenario: 10,000 messages, 10% match rate (1,000 matching messages)
-
-| Metric | Client-Side | Server-Side (no index) | Server-Side (GIN index) |
-|--------|-------------|------------------------|--------------------------|
-| **Messages fetched** | 10,000 | 1,000 | 1,000 |
-| **Network transfer** | ~10 MB | ~1 MB | ~1 MB |
-| **DB CPU** | Low (simple SELECT) | High (seq scan + filter) | Low (index scan) |
-| **Client CPU** | High (9,000 discarded) | Low (pre-filtered) | Low (pre-filtered) |
-| **Query latency** | 50ms | 200ms | 60ms |
-| **Total throughput** | 200 msg/sec | 50 msg/sec | 180 msg/sec |
-
-**Key Takeaway:** Server-side filtering with GIN index provides best performance for low match rates.
-
-#### Scenario: 10,000 messages, 90% match rate (9,000 matching messages)
-
-| Metric | Client-Side | Server-Side (GIN index) |
-|--------|-------------|--------------------------|
-| **Messages fetched** | 10,000 | 9,000 |
-| **Network transfer** | ~10 MB | ~9 MB |
-| **Query latency** | 50ms | 55ms |
-| **Total throughput** | 200 msg/sec | 190 msg/sec |
-
-**Key Takeaway:** When match rate is high, performance difference is minimal. Client-side may be simpler.
+No benchmark of server-side filtering exists in the code base. Earlier versions of this guide listed throughput, latency and transfer figures for 10,000-message scenarios. No test or benchmark produced them, so they are removed.
 
 ### Optimization Best Practices
 
-1. **Use server-side filtering when match rate < 50%**
+1. **Use server-side filtering when the match rate is low**
    - Significant reduction in network traffic
    - Lower client CPU usage
    - Better scalability
@@ -789,45 +760,18 @@ consumer.subscribe(message -> {
    - Example: `region` (low cardinality) vs `user_id` (high cardinality)
 
 5. **Avoid over-filtering**
-   - Don't use server-side filter if match rate > 80%
-   - Overhead of index lookup may exceed benefit
+   - When most messages match, the filter removes few rows
    - Profile your specific use case
 
 ### Query Plan Analysis
 
-**Without Server-Side Filter:**
-```sql
-EXPLAIN ANALYZE
-SELECT id FROM queue_messages
-WHERE topic = 'orders' AND status = 'AVAILABLE';
+Use `EXPLAIN ANALYZE` on your own data to see whether an index is used. No query plans or timings are recorded for this feature.
 
--- Result:
--- Index Scan using idx_queue_messages_topic_visible
--- Rows: 10000, Time: 50ms
-```
-
-**With Server-Side Filter (GIN index):**
 ```sql
 EXPLAIN ANALYZE
 SELECT id FROM queue_messages
 WHERE topic = 'orders' AND status = 'AVAILABLE'
   AND (headers ? 'type' AND headers->>'type' = 'order-created');
-
--- Result:
--- Bitmap Index Scan on idx_queue_messages_headers_gin
--- Rows: 1000, Time: 60ms
-```
-
-**With Server-Side Filter (no index):**
-```sql
-EXPLAIN ANALYZE
-SELECT id FROM queue_messages
-WHERE topic = 'orders' AND status = 'AVAILABLE'
-  AND (headers ? 'type' AND headers->>'type' = 'order-created');
-
--- Result:
--- Seq Scan on queue_messages (Filter: headers ? 'type' AND ...)
--- Rows: 1000, Time: 200ms ⚠️ SLOW
 ```
 
 ---
@@ -889,8 +833,8 @@ Located in: `OutboxServerSideFilteringTest.java`
 ### Testing Best Practices
 
 1. **Always test with missing headers**
-   - Verify messages without the header key are excluded
-   - Ensures NULL-safe SQL generation works correctly
+   - Verify messages without the header key are excluded by EQUALS, IN and LIKE
+   - NOT_EQUALS includes them (open defect D3); no integration test covers a missing header with NOT_EQUALS
 
 2. **Test compound filters**
    - Verify AND/OR logic works as expected
@@ -946,16 +890,17 @@ void testServerSideFilterEquals(VertxTestContext testContext) {
 **Use Server-Side Filtering When:**
 - ✅ Filtering on message headers (metadata)
 - ✅ Simple equality, IN, or pattern matching
-- ✅ High message volume with low match rate (< 50%)
-- ✅ Multiple consumers with different filter criteria
+- ✅ High message volume with low match rate
+- ✅ Multiple plain consumers with different filter criteria (not consumer groups)
 - ✅ Network bandwidth is a concern
 
 **Use Client-Side Filtering When:**
 - ✅ Filtering on payload content (requires deserialization)
 - ✅ Complex business logic (e.g., `amount > 1000 && customer.isPremium()`)
 - ✅ Dynamic filter criteria (changes frequently)
-- ✅ Low message volume (< 100 msg/sec)
+- ✅ Low message volume
 - ✅ Filter logic not expressible in SQL
+- ✅ Consumer groups (server-side filtering is not available for them)
 
 **Use Hybrid Approach When:**
 - ✅ Coarse server-side filter + fine-grained client-side filter
@@ -1011,13 +956,22 @@ WHERE topic = 'orders'
 
 ### 4. Handle Missing Headers Gracefully
 
-**Server-side filters automatically exclude messages without the header:**
+**EQUALS, IN and LIKE exclude messages without the header:**
 ```java
 // This filter will NOT match messages without "type" header
 ServerSideFilter.headerEquals("type", "order-created")
 
 // Generated SQL includes key existence check:
-// (headers ? 'type' AND headers->>'type' = 'order-created')
+// (headers ? 'type' AND headers->>'type' = $n)
+```
+
+**NOT_EQUALS includes messages without the header (open defect D3):**
+```java
+// This filter DOES match messages without "environment" header
+ServerSideFilter.headerNotEquals("environment", "test")
+
+// Generated SQL:
+// (NOT headers ? 'environment' OR headers->>'environment' != $n)
 ```
 
 **If you want to include messages without the header, use client-side filter:**
@@ -1033,11 +987,13 @@ message -> {
 
 **Server-side filters validate header keys at build time:**
 ```java
-// Valid header keys: alphanumeric, underscore, hyphen
+// Valid header keys: start with a letter, then letters, digits, underscore, hyphen
 ServerSideFilter.headerEquals("order-type", "created");  // ✅ Valid
 ServerSideFilter.headerEquals("order_type", "created");  // ✅ Valid
 
 // Invalid header keys (throws IllegalArgumentException)
+ServerSideFilter.headerEquals("1type", "created");       // ❌ Invalid (starts with a digit)
+ServerSideFilter.headerEquals("_type", "created");       // ❌ Invalid (starts with underscore)
 ServerSideFilter.headerEquals("order.type", "created");  // ❌ Invalid (dot)
 ServerSideFilter.headerEquals("'; DROP TABLE--", "x");   // ❌ Invalid (SQL injection)
 ```
@@ -1055,20 +1011,7 @@ ConsumerConfig config = ConsumerConfig.builder()
 // Only "urgent" messages are fetched
 ```
 
-**Consumer Groups + Filtering:**
-```java
-// Each consumer in the group gets different filtered messages
-ConsumerConfig config = ConsumerConfig.builder()
-    .serverSideFilter(ServerSideFilter.headerEquals("region", "US"))
-    .build();
-
-ConsumerGroup<Event> group = factory.createConsumerGroup(
-    "USProcessors", "events", Event.class, config);
-
-// All consumers in this group only see US region messages
-group.addConsumer("processor-1", handler1);
-group.addConsumer("processor-2", handler2);
-```
+**Consumer Groups + Filtering: not supported.** `createConsumerGroup` takes only `(groupName, topic, payloadType)`. There is no overload that takes a `ConsumerConfig`, and consumer groups do not apply `ServerSideFilter`. Use client-side `MessageFilter` predicates on group members.
 
 ---
 
@@ -1102,9 +1045,9 @@ System.out.println("Has filter: " + config.hasServerSideFilter());  // Should be
 **Symptom:** Queries with server-side filter are slower than without.
 
 **Possible Causes:**
-1. Missing GIN index on headers column
+1. Missing GIN index on headers column (tenant-schema `outbox` and `queue_messages` have none)
 2. Sequential scan instead of index scan
-3. High match rate (> 80%)
+3. High match rate
 
 **Solution:**
 ```sql
@@ -1133,8 +1076,9 @@ ON queue_messages USING GIN(headers);
 **Symptom:** Consumer receives messages without the filtered header.
 
 **Possible Causes:**
-1. Using old version without NULL-safe SQL generation
-2. Custom SQL query not using `headers ?` check
+1. The filter is NOT_EQUALS. In the current code NOT_EQUALS includes messages without the header (open defect D3).
+2. Using old version without NULL-safe SQL generation
+3. Custom SQL query not using `headers ?` check
 
 **Solution:**
 ```java
@@ -1158,11 +1102,12 @@ System.out.println(sql);
 
 **Solution:**
 ```java
-// Valid header keys: alphanumeric, underscore, hyphen
+// Valid header keys: start with a letter, then letters, digits, underscore, hyphen
 ServerSideFilter.headerEquals("order-type", "created");  // ✅ Valid
 ServerSideFilter.headerEquals("order_type", "created");  // ✅ Valid
 
 // Invalid header keys
+ServerSideFilter.headerEquals("1type", "created");       // ❌ Must start with a letter
 ServerSideFilter.headerEquals("order.type", "created");  // ❌ Dot not allowed
 ServerSideFilter.headerEquals("order type", "created");  // ❌ Space not allowed
 ServerSideFilter.headerEquals("", "created");            // ❌ Empty not allowed
@@ -1173,23 +1118,9 @@ ServerSideFilter.headerEquals(null, "created");          // ❌ Null not allowed
 
 **Symptom:** Consumer group ignores server-side filter.
 
-**Possible Causes:**
-1. Filter passed to wrong configuration object
-2. Using old API without filter support
+**Cause:** Consumer groups do not support server-side filtering. `createConsumerGroup(groupName, topic, payloadType)` is the only signature. It takes no `ConsumerConfig`, and the consumer group code does not read `ServerSideFilter`.
 
-**Solution:**
-```java
-// Correct: Pass filter to ConsumerConfig, then to createConsumerGroup
-ConsumerConfig config = ConsumerConfig.builder()
-    .serverSideFilter(ServerSideFilter.headerEquals("type", "order"))
-    .build();
-
-ConsumerGroup<Event> group = factory.createConsumerGroup(
-    "OrderProcessors", "events", Event.class, config);  // Pass config here
-
-// Incorrect: Trying to set filter on individual consumer
-// (not supported - filter applies to entire group)
-```
+**Solution:** Use a plain consumer created with `createConsumer(topic, payloadType, config)` when a server-side filter is needed, or use client-side `MessageFilter` predicates on group members.
 
 ### Debugging Tips
 
@@ -1245,10 +1176,12 @@ ConsumerGroup<Event> group = factory.createConsumerGroup(
 - Modified `OutboxConsumer` for dynamic SQL building
 - Integration tests (4 tests)
 
-✅ **Phase 4: Performance Optimization**
-- GIN indexes on `headers` column for all tables
-- Template files for dynamic queue creation
+✅ **Phase 4: Indexes**
+- GIN indexes on `headers` for the Flyway tables and for per-queue and per-store template tables
+- Not for tenant-schema `outbox` and `queue_messages` (templates `base/04a` and `base/04b` create none)
 - Baseline migration updated
+
+**Not provided:** REST exposure of server-side filters, and server-side filtering for consumer groups.
 
 ### Files Modified/Created
 
@@ -1286,14 +1219,12 @@ ConsumerGroup<Event> group = factory.createConsumerGroup(
 - Can combine server-side and client-side filters
 - No database migration required (indexes are additive)
 
-### Production Readiness
+### Known Gaps
 
-✅ **Ready for production use**
-- Comprehensive test coverage (29 tests)
-- NULL-safe SQL generation
-- SQL injection prevention
-- Performance optimized with GIN indexes
-- Documented best practices and troubleshooting
+- NOT_EQUALS includes messages without the header; the intent is undecided (open defect D3).
+- Tenant-schema `outbox` and `queue_messages` have no headers index.
+- No benchmark of filtered claim queries exists.
+- No REST exposure and no consumer-group support.
 
 ---
 
@@ -1304,7 +1235,7 @@ ConsumerGroup<Event> group = factory.createConsumerGroup(
 | Operator | SQL Template | Example | Use Case |
 |----------|--------------|---------|----------|
 | **EQUALS** | `(headers ? 'key' AND headers->>'key' = $n)` | `type = 'order'` | Exact match |
-| **NOT_EQUALS** | `(headers ? 'key' AND headers->>'key' != $n)` | `env != 'test'` | Exclusion |
+| **NOT_EQUALS** | `(NOT headers ? 'key' OR headers->>'key' != $n)` | `env != 'test'` | Exclusion; messages without the key are included (open defect D3) |
 | **IN** | `(headers ? 'key' AND headers->>'key' IN ($n, $n+1, ...))` | `region IN ('US', 'EU')` | Set membership |
 | **LIKE** | `(headers ? 'key' AND headers->>'key' LIKE $n)` | `region LIKE 'US-%'` | Pattern matching |
 | **AND** | `((filter1) AND (filter2) AND ...)` | `type='order' AND region='US'` | All conditions |
@@ -1313,8 +1244,10 @@ ConsumerGroup<Event> group = factory.createConsumerGroup(
 ### Header Key Validation Pattern
 
 ```regex
-^[a-zA-Z0-9_-]+$
+^[a-zA-Z][a-zA-Z0-9_-]*$
 ```
+
+The first character must be a letter.
 
 **Valid Examples:**
 - `type`
@@ -1323,19 +1256,12 @@ ConsumerGroup<Event> group = factory.createConsumerGroup(
 - `region123`
 
 **Invalid Examples:**
+- `1type` (must start with a letter)
+- `_type` or `-type` (must start with a letter)
 - `order.type` (dot not allowed)
 - `order type` (space not allowed)
 - `order/type` (slash not allowed)
 - `'; DROP TABLE--` (SQL injection attempt)
-
-### Performance Comparison Matrix
-
-| Scenario | Messages | Match Rate | Client-Side | Server-Side (no index) | Server-Side (GIN) | Winner |
-|----------|----------|------------|-------------|------------------------|-------------------|--------|
-| High volume, low match | 10,000 | 10% | 200 msg/sec | 50 msg/sec | 180 msg/sec | 🏆 Server (GIN) |
-| High volume, high match | 10,000 | 90% | 200 msg/sec | 180 msg/sec | 190 msg/sec | 🏆 Client |
-| Low volume, low match | 100 | 10% | 100 msg/sec | 95 msg/sec | 98 msg/sec | ⚖️ Either |
-| Low volume, high match | 100 | 90% | 100 msg/sec | 98 msg/sec | 99 msg/sec | ⚖️ Either |
 
 ### Related Documentation
 
@@ -1354,6 +1280,5 @@ ConsumerGroup<Event> group = factory.createConsumerGroup(
 
 ---
 
-**Document Status:** ✅ Production Ready
-**Last Reviewed:** 2025-12-23
+**Last Reviewed:** 2026-11-21 (corrected against `0ffaafb6`)
 **Next Review:** As needed for feature enhancements

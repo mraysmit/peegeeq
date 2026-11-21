@@ -1,7 +1,9 @@
 # PeeGeeQ Schema Configuration Design
 
 **Status:** IMPLEMENTED BASELINE — historical plans and contradictory checklists removed
-**Reconciled:** 2026-09-06 against `7db748b8`
+**Corrected:** 2026-11-21 against `0ffaafb6` (the earlier hash `7db748b8` no longer resolves):
+corrected the provisioning sequence and its two transactions, recorded the missing Flyway
+migration for the setup registry tables as defect D7, recorded the two different schema-name rules.
 **Task authority:** [PeeGeeQ Consolidated Task Register](../tasks/tasks.md)
 
 This document describes the current schema architecture. It is not a second task list and does
@@ -55,6 +57,14 @@ The connection manager also normalizes a configured search-path value. The suppo
 model remains one isolated schema per setup; a broader search path should be used only when an
 operator deliberately accepts the resulting cross-schema visibility.
 
+The two checks apply different rules. Setup creation (`createCompleteSetup`) validates the schema
+with `PostgreSqlIdentifierValidator`: the name must start with a letter or underscore, must not
+exceed 63 characters, and must not start with `pg_` or equal `information_schema`. The
+connection-level normalizer (`PgConnectionManager.normalizeSearchPath`) accepts any
+comma-separated list of letters, digits, and underscores. It accepts a name that starts with a
+digit, and it does not apply the length or system-schema checks. A schema name that the
+connection manager accepts can therefore be rejected by setup creation.
+
 ## 3. Connection and Transaction Behavior
 
 `PgConnectionManager` applies the normalized schema configuration to PostgreSQL connection
@@ -94,19 +104,33 @@ Fresh setups are built from ordered resources under
 Each group has a hidden `.manifest`. `SqlTemplateProcessor` reads that manifest and executes its
 SQL resources sequentially after substituting the supplied template parameters.
 
-`PeeGeeQDatabaseSetupService`:
+`PeeGeeQDatabaseSetupService.createCompleteSetup`:
 
-1. validates the requested schema and setup identifiers;
-2. creates a temporary reactive pool for provisioning;
-3. applies the base template with the configured schema;
-4. verifies the tenant-local queue and event-store template tables;
-5. records the setup identity;
-6. creates requested queues and event stores from their respective manifests;
-7. records dynamic objects in the tenant-local registry; and
-8. closes the temporary pool after the provisioning outcome settles.
+1. validates the schema name with `PostgreSqlIdentifierValidator`;
+2. creates the database from a template database (`template0` unless the configuration names
+   another);
+3. opens a temporary reactive pool and, in **transaction 1**, applies the base template, verifies
+   the tenant-local queue and event-store template tables, records the setup identity in
+   `peegeeq_setup_metadata`, creates the requested queue tables, creates the requested event-store
+   tables, and writes one `peegeeq_object_registry` row per event store; the temporary pool is
+   closed after the transaction settles;
+4. creates and starts a `PeeGeeQManager` for the setup, with its own Vert.x instance;
+5. validates that the required tables exist;
+6. registers the queue and event-store factories and creates the requested queue factories and
+   event stores;
+7. in **transaction 2**, on a second temporary pool, writes one `peegeeq_object_registry` row per
+   queue (`persistQueueRegistry`); and
+8. writes the durable binding row when the caller requested it.
 
-The provisioning DDL and tenant-local registry writes are contained in one database transaction.
-A failed create must not be documented as a successful or partially usable setup.
+Provisioning uses two database transactions, not one. Queue registry rows are written after the
+manager starts because a queue's native or outbox kind is known only after its factory is built.
+The header comment of `10a-setup-object-registry.sql` records the same split.
+
+A failure after transaction 1 commits leaves the schema, its tables, the metadata row, and the
+event-store registry rows in the database. The failure path calls `destroySetup`, which releases
+the in-process resources and does not drop the database. This is static reading; no test was run
+for this document. A failed create must not be documented as a successful or partially usable
+setup.
 
 ## 5. Migration Architecture
 
@@ -125,6 +149,12 @@ Both paths must be maintained:
 
 There is no current `minimal-core-schema.sql` authority and no standalone
 `PEEGEEQ_COMPLETE_SCHEMA_SETUP.sql` authority.
+
+**Open gap (defect D7 in the [task register](../tasks/tasks.md)):** the two paths are not aligned
+for the setup registry tables. `peegeeq_setup_metadata` (`10b-setup-metadata.sql`) and
+`peegeeq_object_registry` (`10a-setup-object-registry.sql`) exist only in the base templates. No
+Flyway migration under `peegeeq-migrations/src/main/resources/db/migration/` creates them. A schema
+built or upgraded by Flyway alone therefore lacks both tables.
 
 ## 6. Runtime Object Resolution
 

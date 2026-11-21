@@ -1,8 +1,31 @@
 # PeeGeeQ Bi-Temporal Event Subscriptions
 
+**Corrected:** 2026-11-21 against `0ffaafb6`: schema-qualified channel names throughout; `*` matches exactly one segment; every notified event is fetched before matching; duplicate delivery is open defect D4; one LISTEN connection per store; 50-character subscription event-type limit; unrecorded performance figures removed.
+
 ## Overview
 
 This document describes the subscription model for reactive bi-temporal event notifications using PostgreSQL LISTEN/NOTIFY.
+
+The code is `ReactiveNotificationHandler` in `peegeeq-bitemporal`. Each `PgBiTemporalEventStore` instance owns one handler. That handler holds one LISTEN connection, and every subscription made on that store shares it.
+
+### Channel names
+
+All channel names are schema-qualified and table-qualified:
+
+- General channel: `{schema}_bitemporal_events_{table}`
+- Type-specific channel: `{schema}_bitemporal_events_{table}_{event_type}`, with dots in the event type replaced by underscores
+
+For the default store these are `public_bitemporal_events_bitemporal_event_log` and, for example, `public_bitemporal_events_bitemporal_event_log_order_created`. Hyphens in the table name are replaced by underscores. A name longer than 63 characters is truncated and given an `_` plus the first 8 hex characters of its MD5 hash. Both the trigger and `ReactiveNotificationHandler.createSafeChannelName` apply this rule.
+
+### Event type validation
+
+`subscribe(eventType, ...)` validates the event type or pattern before it opens any channel:
+
+- Maximum length is 50 characters (`MAX_EVENT_TYPE_LENGTH`).
+- It must be dot-separated segments. Each segment contains only `a-z`, `A-Z`, `0-9` and `_`, or is `*` alone.
+- A blank value is rejected. `null` means all events.
+
+An appended event type may be up to 255 characters (`PgBiTemporalEventStore`, `MAX_METADATA_LENGTH`). An event type longer than 50 characters can therefore be stored, but no exact subscription can name it.
 
 ## Subscription Patterns
 
@@ -11,12 +34,12 @@ This document describes the subscription model for reactive bi-temporal event no
 Subscribe to a specific event type.
 
 - Pattern: `order.created`
-- PostgreSQL channel: `bitemporal_events_order_created` (dots converted to underscores)
-- Filtering: None required - only matching events are received
+- PostgreSQL channel: `{schema}_bitemporal_events_{table}_order_created` (dots converted to underscores)
+- Filtering: the handler only LISTENs on the type-specific channel for this subscription. If the same store also has an all-events or wildcard subscription, see [Duplicate delivery (open defect D4)](#duplicate-delivery-open-defect-d4).
 
 ### Wildcard Match
 
-Subscribe to events matching a pattern. Wildcards use `*` to match one or more complete segments (separated by dots).
+Subscribe to events matching a pattern. Each `*` matches exactly one complete segment (segments are separated by dots). The pattern and the event type must have the same number of segments (`ReactiveNotificationHandler.matchesWildcardPattern`). `order.*` does not match `order.payment.completed`.
 
 | Pattern | Matches | Does Not Match |
 |---------|---------|----------------|
@@ -24,32 +47,35 @@ Subscribe to events matching a pattern. Wildcards use `*` to match one or more c
 | `*.created` | `order.created`, `payment.created` | `order.shipped`, `created` |
 | `order.*.completed` | `order.payment.completed`, `order.shipping.completed` | `order.created`, `order.completed` |
 | `*.order.*` | `foo.order.bar`, `abc.order.xyz` | `order.created`, `order` |
+| `order.*` | `order.created` | `order.payment.completed` (three segments, pattern has two) |
 
-- PostgreSQL channel: `bitemporal_events` (general channel)
-- Filtering: Application-side pattern matching against event type
+- PostgreSQL channel: `{schema}_bitemporal_events_{table}` (general channel)
+- Filtering: Application-side pattern matching against event type, after the event is fetched
 
 ### All Events
 
 Subscribe to all events by passing null as the event type.
 
 - Pattern: `null`
-- PostgreSQL channel: `bitemporal_events`
+- PostgreSQL channel: `{schema}_bitemporal_events_{table}`
 - Filtering: None - all events are received
 
 ## Channel Strategy
 
 | Subscription Type | Channel | Rationale |
 |-------------------|---------|-----------|
-| Exact match | Type-specific (`bitemporal_events_<type>`) | Reduces message traffic - subscriber only receives relevant events |
-| Wildcard | General (`bitemporal_events`) | PostgreSQL channels don't support wildcards - must receive all and filter |
-| All events | General (`bitemporal_events`) | Need all events by definition |
+| Exact match | Type-specific (`{schema}_bitemporal_events_{table}_{type}`) | The type channel carries only events of that type |
+| Wildcard | General (`{schema}_bitemporal_events_{table}`) | PostgreSQL channels don't support wildcards - must receive all and filter |
+| All events | General (`{schema}_bitemporal_events_{table}`) | Need all events by definition |
+
+The channels are opened on the store's single LISTEN connection. If one store has both an exact subscription and a wildcard or all-events subscription, that connection LISTENs on both channels and receives both notifications for a matching event.
 
 ## Dot-to-Underscore Conversion
 
 Event types may contain dots (e.g., `order.created`), but PostgreSQL channel names cannot. The system converts dots to underscores when constructing channel names:
 
 - Event type: `order.created`
-- Channel name: `bitemporal_events_order_created`
+- Channel name: `{schema}_bitemporal_events_{table}_order_created`
 
 This conversion happens in both:
 1. Java code when setting up LISTEN
@@ -57,7 +83,7 @@ This conversion happens in both:
 
 ### Collision Handling
 
-Event types `my.channel` and `my_channel` both map to channel `bitemporal_events_my_channel`. The system handles this by:
+Event types `my.channel` and `my_channel` both map to channel `{schema}_bitemporal_events_{table}_my_channel`. The system handles this by:
 - Including the original event type in the notification payload
 - Matching subscriptions against the original event type, not the channel name
 
@@ -65,8 +91,10 @@ Event types `my.channel` and `my_channel` both map to channel `bitemporal_events
 
 The trigger sends notifications to two channels for each event:
 
-1. `bitemporal_events` - General channel for wildcard and all-events subscriptions
-2. `bitemporal_events_<event_type>` - Type-specific channel for exact match subscriptions
+1. `{schema}_bitemporal_events_{table}` - General channel for wildcard and all-events subscriptions
+2. `{schema}_bitemporal_events_{table}_{event_type}` - Type-specific channel for exact match subscriptions
+
+For a per-store table the trigger function comes from `peegeeq-db/src/main/resources/db/templates/eventstore/03-function.sql`. For the Flyway table `bitemporal_event_log` it is `notify_bitemporal_event()`, last replaced in `V011__Post_Fanout_Consolidation.sql`. V001 created that function with the older unqualified names `bitemporal_events` and `bitemporal_events_{type}`; V011 replaced them.
 
 ## Test Cases
 
@@ -92,10 +120,11 @@ The trigger sends notifications to two channels for each event:
    - Append: 1 event of each type
    - Expect: Each subscriber receives exactly 1 matching event
 
-5. **No duplicate events**
+5. **No duplicate events (single exact subscription)**
    - Subscribe to `test.event`
    - Append: 1 event of type `test.event`
    - Expect: 1 event received (not 2)
+   - This test (`PgBiTemporalEventStoreIntegrationTest.testNoDuplicateEvents`) has one exact subscription only. No test covers an exact subscription combined with a wildcard or all-events subscription on the same store. See open defect D4.
 
 ### Wildcard Subscriptions
 
@@ -126,16 +155,23 @@ The trigger sends notifications to two channels for each event:
 
 ## Implementation Status
 
-The subscription system correctly routes events based on subscription type:
+The handler chooses the channel to LISTEN on by subscription type (`setupListenChannels`):
 
-- **Exact match subscriptions**: Listen ONLY on the type-specific channel (e.g., `bitemporal_events_order_created`)
-- **Wildcard subscriptions**: Listen ONLY on the general channel (`bitemporal_events`) with application-side filtering
-- **All events subscriptions**: Listen ONLY on the general channel (`bitemporal_events`)
+- **Exact match subscriptions**: LISTEN on the type-specific channel (e.g., `public_bitemporal_events_bitemporal_event_log_order_created`)
+- **Wildcard subscriptions**: LISTEN on the general channel (`public_bitemporal_events_bitemporal_event_log`) with application-side filtering
+- **All events subscriptions**: LISTEN on the general channel
 
-This ensures:
-- No duplicate event delivery
-- Efficient message routing (exact match subscribers don't receive unrelated events)
-- Proper wildcard pattern matching
+The channel choice is per subscription. The LISTEN connection is per store. The handler adds each channel to the same connection.
+
+### Duplicate delivery (open defect D4)
+
+`handleNotification` ignores the channel a notification arrived on. For every notification it fetches the event and then calls `notifySubscriptions`, which delivers to every matching all-events, exact and wildcard subscription on the store.
+
+Consider one store with an all-events subscription and an exact `order.created` subscription. The connection LISTENs on both the general and the `order_created` channel. One `order.created` insert sends a notification on each channel. Each notification is dispatched to both subscriptions. From the code, each subscription can receive the event twice.
+
+The Javadoc on `handleNotification` says it deduplicates events that arrive on more than one channel. No deduplication code exists in the class. The same applies to an exact subscription combined with a wildcard subscription that matches it.
+
+This behaviour comes from reading the code. It has not been confirmed at runtime. It is recorded as open defect D4 in `docs-design/tasks/tasks.md`.
 
 ## How It Works
 
@@ -152,16 +188,16 @@ The PostgreSQL trigger on the bi-temporal events table sends notifications to TW
 ### Subscription Routing
 
 | Subscription | Listens On | Filtering |
-|--------------|------------|-----------||
+|--------------|------------|-----------|
 | `order.created` (exact) | `public_bitemporal_events_bitemporal_event_log_order_created` only | None |
 | `order.*` (wildcard) | `public_bitemporal_events_bitemporal_event_log` only | In-memory pattern match |
 | `null` (all) | `public_bitemporal_events_bitemporal_event_log` only | None |
 
 ## Scalability
 
-### Why Scalability Is Not Impacted
+No load or latency measurement of the subscription path is recorded. This section describes what the code does.
 
-**1. Database-side: Minimal overhead**
+**1. Database side**
 
 The trigger does two `pg_notify()` calls per insert:
 
@@ -171,30 +207,25 @@ pg_notify('public_bitemporal_events_bitemporal_event_log', payload);
 pg_notify('public_bitemporal_events_bitemporal_event_log_order_created', payload);
 ```
 
-This is negligible - PostgreSQL NOTIFY is extremely lightweight (in-memory pub/sub).
+The cost of the two calls has not been measured in this project.
 
-**2. Network: Traffic reduction for exact match**
+**2. Network: exact match uses the type channel**
 
-Exact match subscribers only receive notifications for their specific event type. If you have 1000 event types and subscribe to `order.created`, you receive 1/1000th of the traffic compared to listening on the general channel.
+An exact subscription makes the store's connection LISTEN on the type channel only. If the store has no wildcard or all-events subscription, the connection receives only notifications for the subscribed types. If the store also has a wildcard or all-events subscription, the same connection also LISTENs on the general channel and receives every notification for the table.
 
-**3. Wildcard filtering: In-memory, not network**
+**3. Every notified event is fetched before matching**
 
-For wildcard subscriptions like `order.*`:
-- The notification payload is tiny (~200 bytes): just event ID and type
-- Filtering happens in the JVM BEFORE fetching the full event
-- Only matching events trigger a database fetch
+`handleNotification` reads `event_id`, `event_type` and `aggregate_id` from the notification payload. It then calls the event retriever, which fetches the full event from the database. Only after the fetch completes does `notifySubscriptions` match the event against the subscriptions.
 
 ```
-[PostgreSQL] ──notification──> [JVM Filter] ──fetch if match──> [Database]
-                                    │
-                                    └── discard if no match (no DB call)
+[PostgreSQL] ──notification──> [fetch full event] ──> [match subscriptions] ──> handlers
+                                                            │
+                                                            └── no match: event discarded after the fetch
 ```
 
-**4. No wasted database queries**
+A wildcard subscription such as `order.*` therefore causes one database fetch for every event inserted into the table, including events it does not match. The payload already contains the event type, so matching before the fetch is possible, but the code does not do it. This is part of open defect D4.
 
-The notification contains the event type. Wildcard matching happens on this string:
-- Match: fetch full event from database
-- No match: discard immediately (zero database overhead)
+For a per-store table the payload is a JSON object with `action`, `id`, `event_id`, `event_type`, `aggregate_id`, `correlation_id`, `causation_id`, `is_correction`, `transaction_time`, `channel_name` and `original_channel_name`, plus `general_channel` on the type channel. The V011 function for `bitemporal_event_log` sends the same fields without `action`, `id` and `original_channel_name`. The payload size has not been measured.
 
 ### Notification Flow
 
@@ -222,10 +253,15 @@ INSERT event (type: order.created)
 │ Wildcard Subscriber     │         │ Exact Match Subscriber          │
 │ (order.*)               │         │ (order.created)                 │
 │                         │         │                                 │
-│ Pattern match:          │         │ No filtering needed             │
+│ Fetch event, then       │         │ Fetch event, then deliver       │
+│ pattern match:          │         │                                 │
 │ order.* vs order.created│         │                                 │
-│ ✓ Match - fetch event   │         │ Fetch event                     │
+│ ✓ Match - deliver       │         │                                 │
 └─────────────────────────┘         └─────────────────────────────────┘
+
+The diagram shows the two subscribers on separate store instances. If
+both subscriptions are on one store instance, they share one connection and
+both notifications reach both subscriptions (open defect D4).
 
 INSERT event (type: payment.received)
     │
@@ -247,35 +283,32 @@ INSERT event (type: payment.received)
 │ Wildcard Subscriber     │         Exact Match Subscriber (order.created)
 │ (order.*)               │         does NOT receive this notification
 │                         │
+│ Fetch event (DB query)  │
 │ Pattern match:          │
 │ order.* vs payment.recv │
 │ ✗ No match - discard    │
-│ (NO database fetch)     │
 └─────────────────────────┘
 ```
 
 ### Scalability Summary
 
-| Concern | How It's Addressed |
+| Concern | What the code does |
 |---------|-------------------|
-| High event volume | Exact match subscribers only receive their events via type-specific channel |
-| Many event types | Each type has its own channel - no cross-talk |
-| Wildcard overhead | Filtering is string comparison in memory (~nanoseconds), not database queries |
-| Network bandwidth | Notifications are tiny (~200 bytes); full events only fetched when needed |
-| Database load | No wasted queries - only matching events trigger fetches |
+| High event volume | An exact subscription LISTENs on the type channel only. A wildcard or all-events subscription on the same store adds the general channel to the same connection. |
+| Many event types | Each type has its own channel. Types that differ only by `.` and `_` share a channel; dispatch uses the original type from the payload. |
+| Wildcard overhead | Every notification on the general channel causes a database fetch before the pattern is matched. |
+| Network bandwidth | Not measured. |
+| Database load | One fetch per notification received, matched or not. |
 
 ### Trade-off
 
-The only cost is the trigger sending two notifications per event. This is acceptable because:
-- `pg_notify` is in-memory, not disk I/O
-- It enables exact-match subscribers to avoid all filtering overhead
-- The alternative (only general channel) would require ALL subscribers to filter ALL events
+The trigger sends two notifications per event. The type channel lets a store that has only exact subscriptions avoid receiving notifications for other types. The cost of the second notification has not been measured.
 
 ## Test Approach
 
 ### Performance Tests
 
-The performance test suite (`PgBiTemporalEventStorePerformanceTest.java`) validates throughput and latency characteristics:
+The performance test suite (`peegeeq-benchmarking/src/test/java/dev/mars/peegeeq/bitemporal/PgBiTemporalEventStorePerformanceTest.java`) logs timings. Its only timing assertion is that batch append is faster than single appends. It records no throughput or latency figures:
 
 | Test | Description | Approach |
 |------|-------------|----------|
@@ -307,46 +340,12 @@ Each test verifies:
 
 ## Performance Expectations
 
-### Throughput Benchmarks
-
-Based on test results with PostgreSQL in Testcontainers:
-
-| Operation | Expected Throughput | Notes |
-|-----------|---------------------|-------|
-| Single append | ~100-200 events/sec | Individual transactions, includes commit overhead |
-| Batch append (100 events) | ~1,000-2,000 events/sec | Single transaction, 5-10x faster than single |
-| Concurrent append (10 threads) | ~500-800 events/sec | Connection pool contention, still efficient |
-| Subscription delivery | <50ms latency | From append to subscriber callback |
-
-### Latency Characteristics
-
-| Component | Typical Latency | Description |
-|-----------|-----------------|-------------|
-| `pg_notify` | <1ms | In-memory pub/sub, extremely fast |
-| Notification delivery | 1-5ms | PostgreSQL to JVM via LISTEN |
-| Wildcard pattern match | <1μs | Simple string comparison in memory |
-| Event fetch (on match) | 5-20ms | Database round-trip for full event |
-
-### Scaling Factors
-
-| Factor | Impact | Mitigation |
-|--------|--------|------------|
-| Number of event types | Minimal | Each type has dedicated channel |
-| Number of subscribers | Linear | Each subscriber is independent connection |
-| Event payload size | Affects fetch time | Notification payload is always small (~200 bytes) |
-| Wildcard complexity | Negligible | Pattern matching is O(n) where n = segments |
+No throughput, latency, memory or CPU figures are recorded for this subscription path. The figures that this section listed earlier had no recorded source and are removed. They are unmeasured.
 
 ### Resource Usage
 
-| Resource | Typical Usage | Notes |
-|----------|---------------|-------|
-| PostgreSQL connections | 1 per subscriber + pool | LISTEN requires dedicated connection |
-| Memory per subscriber | ~10KB | Vert.x reactive connection overhead |
-| CPU for filtering | <0.1% | String comparison is trivial |
-
-### Production Recommendations
-
-1. **Connection pool sizing**: 10-20 connections for typical workloads
-2. **Batch size**: 50-100 events per batch for optimal throughput
-3. **Subscriber count**: Hundreds of subscribers are feasible per JVM
-4. **Event type count**: Thousands of distinct types are supported efficiently
+| Resource | Usage | Notes |
+|----------|-------|-------|
+| LISTEN connections | One per `PgBiTemporalEventStore` instance | The store's `ReactiveNotificationHandler` opens one `PgConnection` for LISTEN. All subscriptions on that store share it. It is separate from the pool. |
+| Pool connections | One fetch per received notification | The event retriever reads the full event for every notification before matching. |
+| Wildcard matching | Split on `.` and compare segments | Runs once per wildcard subscription per received notification, after the fetch. |

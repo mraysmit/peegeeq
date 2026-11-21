@@ -1,20 +1,30 @@
 # PeeGeeQ Test Guards
 
 **Status:** CURRENT
-**Last reconciled:** 2026-10-06 against commit f1c5d25d
+**Last reconciled:** 2026-11-21 against commit 0ffaafb6
+**Corrected:** 2026-11-21 against `0ffaafb6`: six guards in `quality/`, not five; the `.eventually(` and deprecated `VertxTestContext` rules; two module guards; run commands.
 
-PeeGeeQ enforces its async-test and test-hygiene rules with five static-analysis guard
-tests in `peegeeq-test-support/src/test/java/dev/mars/peegeeq/test/quality/`. Each guard
+PeeGeeQ enforces its async-test and test-hygiene rules with six guard tests in
+`peegeeq-test-support/src/test/java/dev/mars/peegeeq/test/quality/`. Each guard
 is `@Tag(TestCategories.CORE)`, uses no database and no Testcontainers, and runs under
-plain `mvn test`. A violation fails the build with a `file:line  snippet` report.
+plain `mvn test`. Five are static-analysis guards: a violation fails the build with a
+`file:line  snippet` report. `VertxTeardownAfterFailureGuardTest` runs fixture tests instead.
 
 | Guard class | What it enforces |
 |---|---|
 | `OnSuccessExceptionSwallowingGuardTest` | The nine async-test tiers described in this document, scanning every `peegeeq-*/src/test/java/**/*.java` file. |
-| `VertxAsyncForbiddenPatternsGuardTest` | Ratchets `new VertxTestContext(`, `.toCompletionStage(`, `.toCompletableFuture(`, `CompletableFuture`, `.recover(`, `.otherwise(`, and `Handler<AsyncResult` in production and test sources against `quality/vertx-async-forbidden-baseline.csv`. |
+| `VertxAsyncForbiddenPatternsGuardTest` | Ratchets `new VertxTestContext(`, `.toCompletionStage(`, `.toCompletableFuture(`, `CompletableFuture`, `.recover(`, `.otherwise(`, and `Handler<AsyncResult` in production and test sources against `quality/vertx-async-forbidden-baseline.csv`. Two further checks have no baseline and scan test sources only. `testSourcesUseTheCleanupHelperInsteadOfEventually` rejects any `.eventually(` call, because `.eventually` discards a failed cleanup; tests use `TestCleanup`. Production code is not scanned for `.eventually(`. `testSourcesDoNotCallDeprecatedTestContextMethods` rejects the `VertxTestContext` methods that vertx-junit5 5.1 deprecates: `checkpoint(int)`, `laxCheckpoint(int)`, `failing()`, and `completing()`. |
+| `VertxTeardownAfterFailureGuardTest` | Runs fixture tests through `EngineTestKit` and asserts that an asynchronous `@AfterEach` of a failed test runs to completion: when the test body throws, when it failed its context and threw, and when it left a checkpoint open and threw. It protects `VertxTeardownAfterFailureExtension` (`peegeeq-test-support/src/main/java/dev/mars/peegeeq/test/vertx/`), which is registered by service loading. |
 | `DisabledTestsGuardTest` | Rejects any `@Disabled` annotation not recorded with a rationale in `quality/disabled-tests-allowlist.csv`, and rejects stale allowlist rows. |
 | `InvalidDurationLiteralGuardTest` | Rejects ISO-8601 duration literals written with a millisecond suffix (`PT`, digits, `MS`) in Java sources, configuration resources, `pom.xml`, and every Markdown file under `docs` and `docs-design`, because `Duration.parse` rejects them and `PeeGeeQConfiguration` would fall back to its default. The literal must not appear in documentation examples. |
 | `SchemaInitializerTestInfrastructureGuardTest` | Rejects hand-built `new PostgreSQLContainer(` and raw `java.sql` imports in schema-initializer tests under `peegeeq-test-support/src/test/java/dev/mars/peegeeq/test/schema`. |
+
+Two module guards sit outside `quality/`:
+
+| Guard class | Tag | What it enforces |
+|---|---|---|
+| `peegeeq-db/src/test/java/dev/mars/peegeeq/db/PeeGeeQManagerTimerGuardTest.java` | `INTEGRATION`; uses Testcontainers, so it runs only under `-Pintegration-tests` or `-Pall-tests` | `PeeGeeQManager` timer callbacks must not reach the database after `closeReactive()` begins, and repeated timer failures must escalate from WARN to ERROR. |
+| `peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/quality/AdminConsumingReadGuardTest.java` | `CORE`; no database | Counts `createConsumer(` and `.subscribe(` call sites per file in `peegeeq-rest/src/main/java` and ratchets them against `peegeeq-rest/src/test/resources/quality/rest-consuming-read-baseline.csv`. An admin read, view, or stream handler must not consume queue messages. |
 
 The rest of this document covers `OnSuccessExceptionSwallowingGuardTest`.
 
@@ -114,10 +124,20 @@ mvn test -pl :peegeeq-test-support -Dtest=OnSuccessExceptionSwallowingGuardTest#
 mvn test -pl :peegeeq-test-support -Dtest=OnSuccessExceptionSwallowingGuardTest#noDiscardedFuturesFromSubscribeInTestSources 2>&1 | Tee-Object -FilePath logs\guard-tier9-20261006.log
 ```
 
-### Run the other four guards
+### Run the other five guards
 
 ```powershell
-mvn test -pl :peegeeq-test-support -Dtest="VertxAsyncForbiddenPatternsGuardTest,DisabledTestsGuardTest,InvalidDurationLiteralGuardTest,SchemaInitializerTestInfrastructureGuardTest" 2>&1 | Tee-Object -FilePath logs\guard-other-20261006.log
+mvn test -pl :peegeeq-test-support -Dtest="VertxAsyncForbiddenPatternsGuardTest,DisabledTestsGuardTest,InvalidDurationLiteralGuardTest,SchemaInitializerTestInfrastructureGuardTest,VertxTeardownAfterFailureGuardTest" 2>&1 | Tee-Object -FilePath logs\guard-other-20261121.log
+```
+
+### Run the module guards
+
+```powershell
+# peegeeq-rest, core tag
+mvn test -pl :peegeeq-rest -Dtest=AdminConsumingReadGuardTest 2>&1 | Tee-Object -FilePath logs\guard-rest-consuming-read-20261121.log
+
+# peegeeq-db, integration tag; needs Docker
+mvn test -Pintegration-tests -pl :peegeeq-db -Dtest=PeeGeeQManagerTimerGuardTest 2>&1 | Tee-Object -FilePath logs\guard-db-timer-20261121.log
 ```
 
 ### Read the summary

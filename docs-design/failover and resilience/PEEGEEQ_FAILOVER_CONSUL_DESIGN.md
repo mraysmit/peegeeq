@@ -4,6 +4,8 @@
 **Document type**: Target design
 **Design revision**: 2026-10-08, Patroni-style local supervision, coordinator port, optional watchdog
 **Module**: `peegeeq-pg-failover`
+**Corrected:** 2026-11-21 against `0ffaafb6`: supervisor count, `PgNodeConfig` contents, `PgFailoverMonitor` role, commit enforcement status, build status line.
+**Build status (2026-11-21)**: The supervisor exists as tested components in `peegeeq-pg-failover`. No production entry point runs it: no other module depends on `peegeeq-pg-failover`, and the module has no `main`. The cluster-wide PostgreSQL parameters design is in [implementation plan §9.35](PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY_IMPLEMENTATION_PLAN.md); its parameter list class `PgClusterParameters` was built on 2026-11-21 and is not yet committed.
 
 ## 1. Purpose and Scope
 
@@ -68,18 +70,18 @@ lease. No remote controller can keep another node's writer lease alive.
 
 | Component | Responsibility |
 |---|---|
-| `PgNodeConfig` | Immutable identity, membership, secret references, endpoints, and local process/watchdog configuration |
+| `PgNodeConfig` | Immutable node identity, membership, timing values (lease TTL, loop interval, request timeout, stop timeout), watchdog mode, and member tags. Coordinator endpoints, tokens, and the watchdog device path are constructor arguments of the adapters and of `PgDeviceWatchdog`, not fields of this record |
 | `PgLeaseCoordinator` port | The leased control record: conditional acquisition, authoritative read, renewal, conditional update, and guarded release |
 | `ConsulLeaseCoordinator` | The Consul adapter for the port (§3.3) |
 | `PgClusterConfiguration` port and `ConsulClusterConfiguration` | The cluster settings record: authoritative read, create, and revision-guarded update (§3.3) |
 | `PgPrimaryElector` | Per-node ownership state above the port: intent validation, freshness deadline, retirement, and late-reply rejection |
-| `PgFailoverMonitor` | Per-node HA loop, local process supervision, ownership-loss shutdown, takeover, and reconciliation |
+| `PgFailoverMonitor` | Per-node supervision operations: local process supervision, ownership-loss shutdown, takeover, and reconciliation. It has no loop of its own. `PgRenewalLoop` schedules lease renewal; nothing yet schedules the other operations |
 | Local process/admission boundary | Guarded start/stop/promotion, closed/prepared/open grants, write quiescence, receipts, and restart quarantine |
 | Optional independent watchdog | When active, exclude the local writer when its supervisor cannot complete exclusion before handover |
 | `peegeeq-pg-sidecar` | Read-only eligibility combining lease, local grant, watchdog state under the selected mode, database role/identity, and synchronous coverage |
 | HAProxy | Stable routing and backend-down session shutdown; health observations do not fence writers |
 
-The first seven responsibilities belong to the `peegeeq-pg-failover` supervisor.
+The first eight responsibilities belong to the `peegeeq-pg-failover` supervisor.
 It runs once per database node. It is separate from `peegeeq-service-manager` federation and
 from the read-only sidecar. All supervisors use the same coordination namespace and protocol.
 
@@ -291,8 +293,10 @@ requires both named physical standbys initially:
 `ANY 2 ("pg-node-2", "pg-node-3")`, with required commits using `synchronous_commit=on`.
 After node 2 promotion, node 3 must provide `ANY 1 ("pg-node-3")` coverage before writes resume.
 
-Implement the production manager's owned commit enforcement in phase 7b.1 before preservation
-assertions. Raw test SQL does not qualify that path. No automatic asynchronous downgrade or
+The production manager's owned commit enforcement is built. `PgConnectionManager` sets
+`synchronous_commit=on` for the transaction at the commit boundary of every manager-owned
+transaction; `PgConnectionManagerDurabilityIntegrationTest` covers it. Raw test SQL does not
+qualify that path. No automatic asynchronous downgrade or
 automatic transaction retry is permitted. Unknown commit acknowledgement remains unknown.
 
 A rebuilt former writer remains excluded until a withdrawn, quiescent policy cutover validates

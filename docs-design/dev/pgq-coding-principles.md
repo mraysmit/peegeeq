@@ -1,7 +1,8 @@
 # PeeGeeQ Coding Principles and Standards
 
 **Status:** CURRENT CODING STANDARD
-**Last reconciled:** 2026-10-06 against commit f1c5d25d
+**Last reconciled:** 2026-11-21 against commit 0ffaafb6
+**Corrected:** 2026-11-21 against `0ffaafb6`: six guard tests in `quality/`; two module guards; the `.eventually` probe ran on Vert.x 5.0.4 and the root pom is now 5.1.10.
 
 This document is the coding standard for PeeGeeQ. `.claude/CLAUDE.md` requires every
 implementation task to read it in full before any code is written. Every rule here is
@@ -203,6 +204,7 @@ return registerSelfWithConsul()
 `.eventually(Supplier<Future<U>>)` runs the supplier on success and on failure, and
 discards the supplier's outcome. A close that fails, or a supplier that throws, leaves the
 chain successful (probe on Vert.x 5.0.4, 2026-10-12, `logs/f20-p1a-probe-eventually-20261012.log`).
+The root `pom.xml` now sets `vertx.version` to 5.1.10. The probe has not been re-run on 5.1.10.
 `.compose()` skips downstream stages after a failure, so it is wrong for teardown too.
 
 In tests, cleanup uses `TestCleanup` from `peegeeq-test-support`
@@ -314,17 +316,25 @@ pool.withTransaction(conn -> conn.preparedQuery("SELECT ...").execute(Tuple.of(i
 
 ### Enforcement
 
-Five guard tests in
+Six guard tests in
 `peegeeq-test-support/src/test/java/dev/mars/peegeeq/test/quality/` enforce these rules at
-build time. All five are `@Tag(TestCategories.CORE)` and run under plain `mvn test`.
+build time. All six are `@Tag(TestCategories.CORE)` and run under plain `mvn test`.
 
 | Guard | Enforces |
 |---|---|
-| `VertxAsyncForbiddenPatternsGuardTest` | `.recover(`, `.otherwise(`, `CompletableFuture`, `.toCompletionStage(`, `.toCompletableFuture(`, `Handler<AsyncResult`, and manual `new VertxTestContext(` in production and test sources, ratcheted against `quality/vertx-async-forbidden-baseline.csv` (zero rows). |
+| `VertxAsyncForbiddenPatternsGuardTest` | `.recover(`, `.otherwise(`, `CompletableFuture`, `.toCompletionStage(`, `.toCompletableFuture(`, `Handler<AsyncResult`, and manual `new VertxTestContext(` in production and test sources, ratcheted against `quality/vertx-async-forbidden-baseline.csv` (zero rows). A second check rejects any `.eventually(` call in test sources, with no baseline. A third check rejects the `VertxTestContext` methods that vertx-junit5 5.1 deprecates in test sources. |
+| `VertxTeardownAfterFailureGuardTest` | Runs fixture tests through `EngineTestKit` and asserts that an asynchronous `@AfterEach` of a failed test runs to completion. It protects `VertxTeardownAfterFailureExtension`. |
 | `OnSuccessExceptionSwallowingGuardTest` | Bare assertions and `.close()` inside `.onSuccess`, `Future.await()`, `Thread.sleep`/`parkNanos`, `@Tag("blocking-exempt")`, `.onComplete` latch swallowing, discarded `stop()`/`close()`/`subscribe()` Futures, and `assertNotNull` on an async operation in test sources. |
 | `DisabledTestsGuardTest` | `@Disabled` annotations not recorded in `quality/disabled-tests-allowlist.csv`. |
 | `InvalidDurationLiteralGuardTest` | ISO-8601 duration literals written with a millisecond suffix (`PT`, digits, `MS`), which `Duration.parse` rejects. It scans Java, properties, YAML, JSON, XML, and every Markdown file under `docs` and `docs-design`, so the literal must not appear in documentation either. |
 | `SchemaInitializerTestInfrastructureGuardTest` | Hand-built `new PostgreSQLContainer(` and raw JDBC imports in schema-initializer tests. |
+
+Two module guards sit outside `quality/`:
+
+| Guard | Tag | Enforces |
+|---|---|---|
+| `peegeeq-db` `PeeGeeQManagerTimerGuardTest` | `INTEGRATION`, Testcontainers | `PeeGeeQManager` timer callbacks do not reach the database after `closeReactive()` begins, and repeated timer failures escalate from WARN to ERROR. |
+| `peegeeq-rest` `AdminConsumingReadGuardTest` | `CORE` | Counts `createConsumer(` and `.subscribe(` call sites per file in `peegeeq-rest/src/main/java` and ratchets them against `peegeeq-rest/src/test/resources/quality/rest-consuming-read-baseline.csv`. An admin read must not consume queue messages. |
 
 `docs-design/testing/PEEGEEQ_TEST_GUARD.md` describes the guards and their baselines.
 
@@ -374,7 +384,7 @@ All DML (`INSERT`, `UPDATE`, `DELETE`) runs inside `pool.withTransaction()`, nev
 `pool.withConnection()` borrows a connection but begins no transaction. A failure leaves
 partial state with no rollback. `PgConnectionManager.withTransaction` also sets the
 configured schema as transaction-local state, which transaction-pooling proxies require
-(see `docs-design/schema-tenants-support/PEEGEEQ_SCHEMA_CONFIGURATION_DESIGN.md`).
+(see `docs-design/analysis/PEEGEEQ_SCHEMA_CONFIGURATION_DESIGN.md`).
 
 ```java
 // WRONG: no transaction; no rollback on failure
@@ -666,7 +676,7 @@ Thrown exceptions fail the returned Future. Handle them in the normal chain.
 ## 10. Multi-tenant schema isolation
 
 **Status: implemented.** The design record is
-`docs-design/schema-tenants-support/PEEGEEQ_SCHEMA_CONFIGURATION_DESIGN.md`.
+`docs-design/analysis/PEEGEEQ_SCHEMA_CONFIGURATION_DESIGN.md`.
 
 ### Principle: one isolated schema per setup
 

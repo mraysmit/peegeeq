@@ -1,5 +1,7 @@
 # PeeGeeQ Benchmarking Enhancement Implementation Plan
 
+**Corrected:** 2026-11-21 against `0ffaafb6`: commit `52d349d7` no longer resolves after a history rewrite.
+
 | Field | Value |
 |---|---|
 | Status | PROPOSED — NOT IMPLEMENTED |
@@ -58,7 +60,7 @@ Verified against the module on 18 September 2026 by reading source and by the co
 - Runtime sampling can capture CPU, memory, JVM, disk, network, load, and thread observations.
 - Metrics snapshot, comparison, and collector classes exist.
 - `PerformanceHistoryRepository` stores history in an H2 database under `target`. `PerformanceHistoryAnalyzer` reads from it. Only `ParameterizedPerformanceDemoTest` uses them. Only the benchmarking module uses H2.
-- `HardwareAwarePerformanceStorage` was deleted in commit `52d349d7`. No hardware-aware persistence exists.
+- `HardwareAwarePerformanceStorage` was deleted in commit `52d349d7` (no longer resolves after a history rewrite). No hardware-aware persistence exists.
 - Jenkins can run the performance suite and the partitioned-consumption release gate.
 - Jenkins archives logs, host observations, Surefire reports, and generated performance-result files.
 - `ParameterizedPerformanceDemoTest` carries only the `slow` tag. No profile selects `slow`. It runs only under `-Pall-tests`.
@@ -673,7 +675,7 @@ Tasks:
 - [ ] `BENCH-003` Add a `logback-test.xml` to `peegeeq-benchmarking`, mirroring the one in `peegeeq-db`. Rerun the focused performance command in section 16 and record the `DEBUG` line count before and after.
 - [ ] `BENCH-004` Delete `PerformanceTestResultsExampleTest` (DD-17).
 - [ ] `BENCH-005` Delete `PerformanceHistoryRepository` and `PerformanceHistoryAnalyzer`. Remove the H2 dependency from the `peegeeq-benchmarking` pom and from root dependency management. Remove the H2 and history usage from `ParameterizedPerformanceDemoTest` (DD-16).
-- [ ] `BENCH-006` Update documents that describe the H2 store so they match the code after `BENCH-005`: `peegeeq-benchmarking/README.md`, `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md`, `docs/PEEGEEQ_SYSTEM_MODULES_SEQUENCE_DIAGRAMS.md`, and the H2 sections of `docs-design/performance/PeeGeeQ-Performance-Tuning-Harness.md`.
+- [ ] `BENCH-006` Update documents that describe the H2 store so they match the code after `BENCH-005`: `peegeeq-benchmarking/README.md`, `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md`, `docs/PEEGEEQ_SYSTEM_MODULES_SEQUENCE_DIAGRAMS.md`, (`docs-design/performance/PeeGeeQ-Performance-Tuning-Harness.md` was archived on 2026-11-21 to `docs-design/_archived/historical-evidence/`, so it is no longer in scope).
 - [ ] `BENCH-007` Add a repository check that fails when a hard-coded performance value is written into an evidence tree.
 - [ ] `BENCH-008` Add `benchmark-evidence/` to `.gitignore`.
 - [ ] `BENCH-009` Record in the inventory, per fixture in section 3, whether it moves to `peegeeq-test-support` or is replaced in the benchmarking module.

@@ -6,7 +6,10 @@
 
 **Last reconciled:** 2026-09-17
 
-**Repository baseline:** `263309d8e5df311704cdd1b866b79aeb8ecdcb28`
+**Repository baseline:** checked 2026-11-21 against `0ffaafb6`; the earlier baseline `263309d8` no longer resolves after a history rewrite.
+
+**Corrected:** 2026-11-21 against `0ffaafb6`: baseline; retry and dead-letter claim removed;
+known open defects added; `REFERENCE_COUNTING` use; watermark ignores `STOPPED` and `PAUSED`.
 
 **Release-gate source SHA-256:**
 `485c930dd264864cd9157fe3378e25e661c51b97afa2120d1cc5bde6c0b54f27`
@@ -15,7 +18,7 @@
 
 This document records the implemented `OFFSET_WATERMARK` partitioned-consumption design. It does
 not maintain a separate numbered task list. The dated acceptance evidence for completed
-[Task 6 is in the consolidated register](../tasks/tasks.md#6-partitioned-consumption-pre-ga-gates).
+[Task 6 is in the consolidated register](../tasks/archive/TASKS_REGISTER_TO_2026-11-21.md#6-partitioned-consumption-pre-ga-gates).
 
 Earlier revisions called the release gates “Task 4” and mixed them with local implementation
 phases. That numbering is retired to prevent it from being mistaken for consolidated Task 4,
@@ -33,9 +36,12 @@ The following implementation areas are complete:
 - queue API and REST surfaces;
 - native and outbox consumer-group lifecycle integration;
 - periodic heartbeat and assignment reconciliation;
-- retry and dead-letter automation for fan-out processing;
 - fan-out trace branching; and
 - focused lifecycle, ordering, failure, and concurrency tests.
+
+Retry and dead-letter handling is not implemented on this path. `PartitionedConsumerEngine`
+has no retry count and no dead-letter write. A handler that keeps failing stops its partition
+key with no bound. See [Known open defects](#known-open-defects).
 
 The implementation is not declared generally available from static inspection. Jenkins build #11
 provided the dated runtime evidence for the documented Task 6 capacity, chaos, contention,
@@ -43,14 +49,16 @@ isolation, recovery, and cleanup envelope.
 
 ## Completion modes
 
-PeeGeeQ keeps two completion models because they solve different problems:
+The schema has two completion modes:
 
-| Mode | Cursor model | Ordering | Primary use |
+| Mode | Cursor model | Ordering | State in code |
 |---|---|---|---|
-| `REFERENCE_COUNTING` | Per-message completion by subscribed groups | No processing-order guarantee | High-throughput fan-out |
-| `OFFSET_WATERMARK` | Per-group, per-partition committed offsets | Strict within one partition | Stateful per-key workflows |
+| `REFERENCE_COUNTING` | Designed as per-message completion by subscribed groups | No processing-order guarantee | No production completion writer. A group on such a topic runs the queue claim, so groups compete and do not each receive every message. The [delivery outcome proposal](PEEGEEQ_DELIVERY_OUTCOME_REDESIGN_PROPOSAL.md#retirement-of-reference_counting-and-backfill) retires the mode. |
+| `OFFSET_WATERMARK` | Per-group, per-partition committed offsets | Strict within one partition | Implemented. The only mode that delivers every message to every group. |
 
-The mode is configured explicitly for a topic. `REFERENCE_COUNTING` remains the default.
+The mode is configured explicitly for a topic. `REFERENCE_COUNTING` remains the default. The
+[fan-out design](PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md#completion-tracking-modes) states
+the status of each mode.
 
 ## Persistent model
 
@@ -112,6 +120,13 @@ Cleanup calculates a safe topic watermark from committed partition offsets for a
 advances the stored watermark monotonically and transitions only messages at or below the safe
 position. A failed, inactive, or lagging group must be handled according to the subscription
 lifecycle before it can stop influencing cleanup.
+
+`WatermarkCalculator.calculateWatermark` reads offsets only of subscriptions whose status is
+`ACTIVE`. A `STOPPED` or `PAUSED` group is ignored. Its unread rows can therefore fall at or
+below the watermark of the other groups, and the sweep then marks them `COMPLETED`. This
+effect is read from the SQL and was not reproduced. The
+proposal's phase 1 changes the watermark to count `ACTIVE`, `STOPPED`, and `PAUSED`; that
+change is not in code.
 
 ## Lifecycle contract
 
@@ -185,6 +200,21 @@ composed harness futures overflowed the JVM stack during completion. Timer-sched
 asynchronous publisher, probe, and drain loops were qualified in build #10 and accepted in build
 #11. The consolidated register is authoritative for the exact focused-suite counts, host baseline,
 source checksum, and release conclusion.
+
+## Known open defects
+
+The [delivery outcome proposal](PEEGEEQ_DELIVERY_OUTCOME_REDESIGN_PROPOSAL.md#offset-path-pub_sub)
+records these defects of the offset path. None is fixed at `0ffaafb6`. The release gate above
+could not have shown P-4, P-5, or P-14; the proposal gives the reasons.
+
+| ID | Defect | Planned in |
+|---|---|---|
+| P-1 | A failing handler stops its partition key with no bound. No retry count, no dead letter. Finding 4 in the task register. | Proposal phase 7 |
+| P-4 | The fetch takes `FOR UPDATE ... SKIP LOCKED`. A row that another transaction has locked is skipped, and the batch commit then moves the offset past it. | Proposal phase 3 |
+| P-5 | Offsets are ids. A row whose transaction commits after a higher id was consumed is never fetched, and the sweep later marks it `COMPLETED`. | Proposal phase 3 |
+| P-13 | The sweep completes rows that no group has read. A group or a key with no offset row adds nothing to the watermark. | Proposal phase 3 |
+| P-14 | A running group does not take up a key that was absent at its last rebalance. Discovery runs only inside a join or a leave. | Proposal phase 3 |
+| P-15 | An instance that stops without leaving keeps its keys until another instance joins or leaves. | Proposal phase 3 |
 
 ## Evaluated but unapproved ideas
 

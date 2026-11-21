@@ -1,7 +1,9 @@
 # PeeGeeQ Durable Subscriptions Option Plan (Outbox + Bi-Temporal)
 
 **Status:** Task 4 bitemporal runtime implemented, committed, and focused-verification complete; broader outbox/operations proposals are not implemented
-**Reconciled:** 2026-09-06 against commit `7db748b8`
+**Corrected:** 2026-11-21 against `0ffaafb6` (the earlier hash `7db748b8` no longer resolves): definitions are not reloaded automatically; `SubscriptionKey` is a package-private top-level class; §3.1 adds outbox `STOPPED` (V021) and the V017/V018 objects; the composite replay index exists only for the Flyway `bitemporal_event_log`; §3.6 path; list of parts not built.
+
+**Not built:** the outbox durable coordinator (`DurableOutboxSubscriptionCoordinator`), the `bitemporal_subscription_delivery_log` table, REST endpoints for durable bitemporal subscriptions, the §14 metrics, handler retry/backoff, and any automatic transition to `DEAD`. No production code calls `loadActiveSubscriptionDefinitions()`. Sections that describe these parts are design proposals.
 
 The only live execution order and verification record is [the consolidated task register](../tasks/tasks.md).
 This document is a design reference, not a second task list. Its proposed runtime flows and
@@ -60,11 +62,25 @@ The outbox module already has durable subscription infrastructure:
 
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
-| `outbox_topic_subscriptions` | Subscription lifecycle per (topic, group) | `subscription_status` (ACTIVE/PAUSED/CANCELLED/DEAD), `start_from_message_id`, `last_heartbeat_at`, `backfill_status`, `backfill_checkpoint_id` |
+| `outbox_topic_subscriptions` | Subscription lifecycle per (topic, group) | `subscription_status` (ACTIVE/PAUSED/CANCELLED/DEAD/STOPPED; STOPPED added by V021), `start_from_message_id`, `last_heartbeat_at`, `backfill_status`, `backfill_checkpoint_id`, `rebalance_generation` (V018) |
 | `consumer_group_index` | Denormalized consumer group progress | `last_processed_id`, `last_processed_at`, `pending_count`, `processing_count`, `completed_count`, `failed_count` |
-| `outbox_consumer_groups` | Per-message consumer group status | `status` (PENDING/PROCESSING/COMPLETED/FAILED), `retry_count`, `error_message` |
+| `outbox_consumer_groups` | Per-message consumer group status | `status` (PENDING/PROCESSING/COMPLETED/FAILED/DEAD_LETTER; DEAD_LETTER added by V016), `retry_count`, `error_message` |
 | `processed_ledger` | Audit trail | `message_id`, `group_name`, `processing_duration_ms`, `status` |
 | `outbox_topics` | Topic registry | Topic metadata |
+
+Later migrations add the OFFSET_WATERMARK completion mode:
+
+| Object | Migration | Purpose | Key Columns |
+|--------|-----------|---------|-------------|
+| `outbox_partition_assignments` | V017 | Partition ownership within a consumer group | `topic`, `group_name`, `partition_key`, `assigned_instance_id`, `generation` |
+| `outbox_partition_offsets` | V017 | Offset cursor per (topic, group, partition) | `committed_offset`, `pending_offset`, `generation` |
+| `outbox_topic_watermarks` | V017 | Cleanup boundary per topic | `watermark_id` |
+| `idx_outbox_topic_msggroup_id` | V017 | Partial index on `outbox(topic, message_group, id)` for PENDING/PROCESSING rows | |
+| `outbox_topic_subscriptions.rebalance_generation` | V018 | Serialization point for joinGroup/leaveGroup | |
+
+`STOPPED` means a graceful stop of the whole consumer group. A start stores `ACTIVE` again. The start position and committed offsets are kept (V021 comment).
+
+The tenant template `08b-consumer-table-subscriptions.sql` includes `STOPPED` but has no `rebalance_generation` column. No tenant template creates the three V017 tables. These objects exist only in the Flyway schema.
 
 ### 3.2 Existing SubscriptionService API (peegeeq-api)
 
@@ -90,9 +106,9 @@ Factory: `PeeGeeQManager.createSubscriptionService()`
 ### 3.4 Existing Non-Durable Bitemporal Subscription State
 
 `ReactiveNotificationHandler` has:
-- `SubscriptionKey` private inner class with `eventType` (nullable, supports `*` wildcards) and `aggregateId` (nullable)
+- `SubscriptionKey`, a package-private top-level class in `peegeeq-bitemporal/src/main/java/dev/mars/peegeeq/bitemporal/SubscriptionKey.java`, with `eventType` (nullable, supports `*` wildcards) and `aggregateId` (nullable)
 - Subscription storage: `ConcurrentHashMap<SubscriptionKey, CopyOnWriteArrayList<MessageHandler>>`
-- LISTEN/NOTIFY via PostgreSQL trigger `notify_bitemporal_event()` (V011)
+- LISTEN/NOTIFY via PostgreSQL trigger function `notify_bitemporal_event()` (V011) for the Flyway `bitemporal_event_log`, and `{schema}."notify_{tableName}_events"()` (template `eventstore/03-function.sql`) for per-store tables
 - This non-durable path remains in-memory. The durable service owns a typed event-store listener
   and treats its notifications only as hints to reconcile committed history.
 
@@ -108,7 +124,7 @@ Existing index: `idx_bitemporal_valid_time ON bitemporal_event_log(valid_time)`
 
 ### 3.6 Schema-Tenancy
 
-The project supports per-schema table isolation (see PEEGEEQ_SCHEMA_CONFIGURATION_DESIGN.md). Infrastructure tables like `outbox_topic_subscriptions` are created per tenant schema via template scripts (e.g., `08b-consumer-table-subscriptions.sql`). Any new subscription tables must follow the same isolation model and be included in the template manifest.
+The project supports per-schema table isolation (see [docs-design/analysis/PEEGEEQ_SCHEMA_CONFIGURATION_DESIGN.md](../analysis/PEEGEEQ_SCHEMA_CONFIGURATION_DESIGN.md)). Infrastructure tables like `outbox_topic_subscriptions` are created per tenant schema via template scripts (e.g., `08b-consumer-table-subscriptions.sql`). Any new subscription tables must follow the same isolation model and be included in the template manifest.
 
 ## 4. Current State Summary
 
@@ -116,7 +132,7 @@ Bitemporal non-durable reactive subscriptions (unchanged by Task 4.2):
 - Subscription keys are in memory only (ConcurrentHashMap in ReactiveNotificationHandler)
 - Clients must resubscribe after process restart
 - LISTEN/NOTIFY events while disconnected are not replayed
-- `SubscriptionKey` is a private inner class not directly persistable without extraction
+- `SubscriptionKey` is a package-private top-level class (`bitemporal/SubscriptionKey.java`); it is not persisted, and the durable coordinator uses its own key
 
 Outbox subscriptions:
 - Already durable via `outbox_topic_subscriptions` with status lifecycle, heartbeats, and backfill
@@ -127,7 +143,7 @@ Outbox subscriptions:
 ## 5. Target Functional Requirements
 
 1. Durable mode is opt-in per subscription.
-2. On server restart, durable subscription definitions and cursors are reloaded automatically; delivery resumes when the application re-registers the same durable subscription and handler.
+2. On server restart, durable subscription definitions and cursors remain in `bitemporal_subscriptions`. They are not reloaded automatically: no production code calls `loadActiveSubscriptionDefinitions()`. Delivery resumes from the stored cursor when the application re-registers the same durable subscription and handler.
 3. On reconnect, consumers catch up from last acknowledged cursor before live notifications.
 4. At-least-once delivery guarantee in durable mode.
 5. Existing non-durable API behavior remains unchanged.
@@ -230,6 +246,11 @@ CREATE INDEX idx_bitemporal_subs_table_status
     ON bitemporal_subscriptions(table_name, subscription_status);
 ```
 
+Where each index exists:
+
+- `idx_bitemporal_event_log_id_type_agg` is created only by V012, and only on `bitemporal_event_log` in the Flyway schema (normally `public`), if that table exists. No tenant template (`base/`) and no per-store template (`eventstore/`) creates it. Replay against a tenant or per-store event table has no composite index; it can use the `id` primary key for the range.
+- `idx_bitemporal_subs_table_status` is created by V012 and by the tenant template `08f-bitemporal-subscriptions.sql`.
+
 ## 8. API and Config Changes
 
 ### 8.1 Extend Existing SubscriptionOptions
@@ -310,6 +331,8 @@ use the persisted heartbeat interval/timeout. No new global property namespace i
 
 ### 9.2 Startup Recovery (Metadata + Cursor State)
 
+Steps 1 and 2 are what `loadActiveSubscriptionDefinitions()` does when it is called. No production code calls it, so they do not run on startup. Step 4 is the supported recovery path.
+
 1. Query `bitemporal_subscriptions WHERE subscription_status = 'ACTIVE' AND table_name = ?`
 2. Validate cursor integrity for each row (`last_processed_id <= MAX(id)` of the configured table) and load the durable subscription definition into coordinator state
 3. Handler functions are still application code and are **not** reconstructed from the database
@@ -358,7 +381,7 @@ Subscriptions with wildcard event types such as `order.*` or null event type/agg
 
 Mitigations:
 - Bounded batch sizes (§8.1 `replayBatchSize`)
-- The composite index `(id, event_type, aggregate_id)` enables efficient range scans even with filters
+- The composite index `(id, event_type, aggregate_id)` exists only on the Flyway `bitemporal_event_log` (V012). Tenant-schema and per-store event tables do not have it; their replay range uses the `id` primary key (§7.4). Its effect on replay cost has not been measured.
 - Document that wildcard subscriptions with `FROM_BEGINNING` on large tables will trigger significant I/O, especially when SQL cannot pre-filter by exact event type
 - Consider adding `EXPLAIN ANALYZE` logging for replay queries in development mode
 
@@ -785,7 +808,7 @@ All tests follow pgq-coding-principles.md. Database-touching tests use TestConta
 ## 15. Risks and Mitigations
 
 1. **Risk**: Replay query load spikes on large tables with wildcard subscriptions
-   - Mitigation: bounded batch sizes, composite index `(id, event_type, aggregate_id)`, document cost of `FROM_BEGINNING` on large tables
+   - Mitigation: bounded batch sizes, composite index `(id, event_type, aggregate_id)` (Flyway `bitemporal_event_log` only; see §7.4), document cost of `FROM_BEGINNING` on large tables
 
 2. **Risk**: Cursor corruption or out-of-order replay
    - Mitigation: writer-barrier boundaries plus sequence constraints, bounded numeric validation,
@@ -879,7 +902,7 @@ Do not treat the broader proposed phases above as authorization to implement ext
 | D5 | Separate `BiTemporalSubscriptionService` interface | Outbox keyed by (topic, group). Bitemporal keyed by (table, subscription, eventType, aggregateId). Different shapes. |
 | D6 | Lease columns shipped in Task 4.5 / V020 | Expiry and generation fencing protect concurrent replay acknowledgements. |
 | D7 | Extend `SubscriptionOptions` not new options class | Reuse existing builder pattern and StartPosition enum. |
-| D8 | Task 4.2 uses a public coordinator-local durable key record | Stable `(tableName, subscriptionName, consumerGroup)` identity; the existing private notification-filter key is not extracted or reused. |
+| D8 | Task 4.2 uses a public coordinator-local durable key record | Stable `(tableName, subscriptionName, consumerGroup)` identity; the existing package-private notification-filter key (`SubscriptionKey`) is not reused. |
 | D9 | LISTEN active before catch-up starts | Ensures no NOTIFY gap during handoff. See §9.4. |
 | D10 | Configuration via PeeGeeQConfiguration, not system properties | Follow existing config pattern. |
 | D11 | Phase 1 uses automatic cursor advancement only | Manual ack needs an explicit ack API/token and is deferred. |

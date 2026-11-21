@@ -1,5 +1,11 @@
 # Password-Free SSH from WSL to the PeeGeeQ Linux VM
 
+**Corrected:** 2026-11-21 against `0ffaafb6`: note that the current Jenkins host is `zorin-nuc`.
+
+**Host values are examples.** Every host value in this guide is for the older host
+`ubu24-cicd` at `192.168.137.11`. The current Jenkins host is `zorin-nuc` at
+`192.168.137.32`. Replace the hostname, address, and user name with those of the target host.
+
 ## Purpose
 
 This guide configures SSH public-key authentication from an Ubuntu WSL environment on

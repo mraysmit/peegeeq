@@ -4,6 +4,8 @@
 
 **Last reconciled:** 2026-10-06
 
+**Corrected:** 2026-11-21 against `0ffaafb6`: the container example uses the raw `org.testcontainers.postgresql.PostgreSQLContainer` type of Testcontainers 2.x.
+
 ## Authority
 
 The mandatory rules are defined in
@@ -100,14 +102,20 @@ The terminal handler routes the unexpected outcome to the test context. Assertio
 Use the repository test-support factory rather than constructing an image ad hoc:
 
 ```java
+import org.testcontainers.postgresql.PostgreSQLContainer;
+
 @Testcontainers
 class AccountRepositoryIntegrationTest {
     @Container
     @SuppressWarnings("resource")
-    static PostgreSQLContainer<?> postgres =
+    static PostgreSQLContainer postgres =
         PostgreSQLTestConstants.createStandardContainer();
 }
 ```
+
+The project uses Testcontainers 2.x. Its `org.testcontainers.postgresql.PostgreSQLContainer` is
+not generic, and `PostgreSQLTestConstants.createStandardContainer()` returns that raw type. Do not
+write `PostgreSQLContainer<?>` and do not import `org.testcontainers.containers.PostgreSQLContainer`.
 
 For PeeGeeQ configuration, prefer an isolated property object:
 

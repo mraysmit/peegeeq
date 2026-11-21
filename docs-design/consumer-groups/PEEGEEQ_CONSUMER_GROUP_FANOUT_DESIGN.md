@@ -4,6 +4,10 @@
 
 **Last reconciled:** 2026-10-06 against commit `f1c5d25d`
 
+**Corrected:** 2026-11-21 against `0ffaafb6`: redesign status pointer; `STOPPED` in the status set
+(V021); heartbeat no longer revives `DEAD`; lifecycle table with `STOPPED` and `PAUSED -> DEAD`;
+`SubscriptionService` and `ConsumerGroup` listings; `subscribe` on an existing row; Gaps 5 and 7.
+
 **Author:** Mark Andrew Ray-Smith Cityline Ltd
 
 **Originally created:** 2025-11-11
@@ -20,7 +24,10 @@ User guide: [Consumer Groups Guide](../../docs/PEEGEEQ_CONSUMER_GROUP_GETTING_ST
 Proposed changes to this contract are not in this document. The delivery outcome redesign
 for finding 20 is in
 [PEEGEEQ_DELIVERY_OUTCOME_REDESIGN_PROPOSAL.md](PEEGEEQ_DELIVERY_OUTCOME_REDESIGN_PROPOSAL.md).
-It is a proposal and is not implemented.
+Parts of it are in code: phase 1 increments 1a and 1b (commit `092cf23f`) and the native-queue
+part of phase 6 (commit `09501400`). The rest is not started. The proposal's "Status on
+2026-11-21" block states what is in code per phase. This document describes the code at
+`0ffaafb6`, including those parts.
 
 ---
 
@@ -151,14 +158,14 @@ completed_consumer_groups, required_consumer_groups) WHERE status = 'COMPLETED'`
 | `completion_tracking_mode` | VARCHAR(20) | `'REFERENCE_COUNTING'`; CHECK `('REFERENCE_COUNTING', 'OFFSET_WATERMARK')` |
 | `created_at`, `updated_at` | TIMESTAMPTZ | `NOW()` |
 
-#### `outbox_topic_subscriptions` (V010 §2, V012, V015, V018; template `08b-consumer-table-subscriptions.sql`)
+#### `outbox_topic_subscriptions` (V010 §2, V012, V015, V018, V021; template `08b-consumer-table-subscriptions.sql`)
 
 | Column | Type | Default / constraint | Added by |
 |---|---|---|---|
 | `id` | BIGSERIAL | PRIMARY KEY | V010 |
 | `topic` | VARCHAR(255) | NOT NULL | V010 |
 | `group_name` | VARCHAR(255) | NOT NULL | V010 |
-| `subscription_status` | VARCHAR(20) | `'ACTIVE'`; CHECK `('ACTIVE', 'PAUSED', 'CANCELLED', 'DEAD')` | V010 |
+| `subscription_status` | VARCHAR(20) | `'ACTIVE'`; CHECK `('ACTIVE', 'PAUSED', 'CANCELLED', 'DEAD', 'STOPPED')` | V010; `STOPPED` added by `V021__Add_Stopped_Subscription_Status.sql` and template `08b` |
 | `subscribed_at`, `last_active_at` | TIMESTAMPTZ | `NOW()` | V010 |
 | `start_from_message_id` | BIGINT | NULL | V010 |
 | `start_from_timestamp` | TIMESTAMPTZ | NULL | V010 |
@@ -284,6 +291,20 @@ Predicate<Message<T>> getGroupFilter();
 Future<Void> close();
 ```
 
+Default methods:
+
+```java
+Future<Void> stopGracefully();            // default: stop()
+int getMaxMembers();                      // default: 10
+LoadBalancingStrategy getLoadBalancingStrategy();  // default: ROUND_ROBIN
+long getSessionTimeout();                 // default: 30000
+```
+
+`OutboxConsumerGroup` and `PgNativeConsumerGroup` override `stopGracefully()`. For a group
+started with `start(SubscriptionOptions)` it calls `SubscriptionService.stopGroup` and then
+stops the instance. If the status update fails, the instance still stops and the returned
+`Future` fails with the cause. For a group started with `start()` it is `stop()`.
+
 `QueueFactory.createConsumerGroup(String groupName, String topic, Class<T> payloadType)`
 creates a group. There is no topic-configuration method on `QueueFactory`; topics are
 configured through `TopicConfigService` in the database layer.
@@ -319,8 +340,8 @@ configured through `TopicConfigService` in the database layer.
 Abstract methods:
 
 ```java
-Future<Void> subscribe(String topic, String groupName);
-Future<Void> subscribe(String topic, String groupName, SubscriptionOptions options);
+Future<Void> subscribe(String topic, String groupName, SubscriptionStore store);
+Future<Void> subscribe(String topic, String groupName, SubscriptionStore store, SubscriptionOptions options);
 Future<Void> pause(String topic, String groupName);
 Future<Void> resume(String topic, String groupName);
 Future<Void> cancel(String topic, String groupName);
@@ -335,6 +356,8 @@ Default methods, each failing with `UnsupportedOperationException` unless overri
 Future<JsonObject> startBackfill(String topic, String groupName);
 Future<JsonObject> startBackfill(String topic, String groupName, BackfillScope messageScope);
 Future<Void> cancelBackfill(String topic, String groupName);
+Future<Void> stopGroup(String topic, String groupName);
+Future<SubscriptionInfo> updateSubscriptionSettings(String topic, String groupName, SubscriptionSettingsUpdate update);
 Future<ForceRemoveResult> forceRemoveConsumerGroup(String topic, String groupName);
 Future<List<SubscriptionInfo>> listDeadSubscriptions();
 Future<JsonObject> getSubscriptionHealthSummary();
@@ -346,8 +369,18 @@ Future<Boolean> commitOffset(String topic, String groupName, String partitionKey
 Future<List<PartitionAssignmentInfo>> getPartitionAssignments(String topic, String groupName, String instanceId);
 ```
 
-Supporting records in `dev.mars.peegeeq.api.subscription`: `SubscriptionInfo`,
-`ForceRemoveResult`, `PartitionAssignmentInfo`.
+Supporting types in `dev.mars.peegeeq.api.subscription`: `SubscriptionInfo`,
+`ForceRemoveResult`, `PartitionAssignmentInfo`, `SubscriptionSettingsUpdate`,
+`SubscriptionStateException`, `SubscriptionBoundConflictException`, and the enum
+`SubscriptionStore` (`OUTBOX`, `NATIVE`). The store names the message table, `outbox` or
+`queue_messages`, against which `FROM_NOW` is resolved when the subscription row is created.
+It has no default and is not stored. `QueueFactory.getSubscriptionStore()` returns it for a
+queue; the outbox factory returns `OUTBOX` and the native factory `NATIVE`.
+
+`stopGroup` sets an `ACTIVE` subscription to `STOPPED` and leaves any other status unchanged.
+`updateSubscriptionSettings` changes only the heartbeat settings the update names. It never
+changes the status or the stored start bound. A named start bound that differs from the
+stored one, or `FROM_NOW`, fails with `SubscriptionBoundConflictException`.
 
 #### Database layer (`peegeeq-db`)
 
@@ -371,9 +404,16 @@ Future<Boolean> topicExists(String topic);
 including every default method above. Wiring setters: `setBackfillService(BackfillService)`,
 `setDeadConsumerGroupCleanup(DeadConsumerGroupCleanup)`, and
 `setPartitionedConsumptionServices(PartitionAssignmentService, PartitionedFetcher,
-PartitionedOffsetManager)`. `subscribe` upserts on `(topic, group_name)`; the upsert resets
-`consecutive_misses` to 0 and leaves a `CANCELLED` row `CANCELLED`. `updateHeartbeat` sets
-`last_heartbeat_at`, resets `consecutive_misses` to 0, and changes `DEAD` to `ACTIVE`.
+PartitionedOffsetManager)`. `subscribe` locks the `(topic, group_name)` row first. With no row
+it resolves the start position against the table of the `SubscriptionStore` and inserts the
+row `ACTIVE`. With a row it keeps the stored start bound, resets `consecutive_misses` to 0,
+makes `ACTIVE`, `STOPPED`, and `DEAD` rows `ACTIVE`, and leaves a `PAUSED` row `PAUSED`. On a
+`CANCELLED` row it fails with `SubscriptionStateException` and changes nothing.
+`updateHeartbeat` changes no status. It updates only `ACTIVE` and `PAUSED` rows: it sets
+`last_heartbeat_at` on both and resets `consecutive_misses` to 0 on an `ACTIVE` row. On a
+`STOPPED`, `DEAD`, or `CANCELLED` row it fails with `SubscriptionStateException`, which names
+the status, and changes nothing. A heartbeat does not revive a `DEAD` subscription; `resume`
+or a new `subscribe` does.
 
 `dev.mars.peegeeq.db.subscription.BackfillService`
 (`peegeeq-db/src/main/java/dev/mars/peegeeq/db/subscription/BackfillService.java`):
@@ -472,7 +512,7 @@ creates no subscription row.
 
 1. Rejects a null options argument with `IllegalArgumentException`.
 2. Moves state `NEW` to `STARTING`; any other state fails with `IllegalStateException`.
-3. Calls `SubscriptionService.subscribe(topic, groupName, options)`.
+3. Calls `SubscriptionService.subscribe(topic, groupName, SubscriptionStore.OUTBOX, options)`.
 4. Calls `PartitionedConsumerEngine.isOffsetWatermarkTopic(...)`. If the topic mode is
    `OFFSET_WATERMARK`, it starts a `PartitionedConsumerEngine` with a generated instance id
    and routes every delivered message through `distributeMessage`. Otherwise, or if mode
@@ -490,19 +530,27 @@ There is no zero-member check in `start()` and no last-member guard in `removeCo
 
 ### Subscription Lifecycle
 
-Statuses are the CHECK set `ACTIVE`, `PAUSED`, `CANCELLED`, `DEAD`.
+Statuses are the CHECK set `ACTIVE`, `PAUSED`, `CANCELLED`, `DEAD`, `STOPPED`.
+`SubscriptionManager` holds the accepted source statuses of each call in the sets
+`PAUSE_FROM`, `RESUME_FROM`, `MARK_DEAD_FROM`, and `CANCEL_FROM`. A call from a status outside
+its set fails with `SubscriptionStateException` (a subclass of `IllegalStateException`) and
+leaves the row unchanged.
 
 | Transition | Caused by |
 |---|---|
-| `ACTIVE -> PAUSED` | `SubscriptionService.pause` |
-| `PAUSED -> ACTIVE` | `SubscriptionService.resume` |
-| `ACTIVE -> DEAD` | `DeadConsumerDetector` after `dead_after_misses` consecutive expired heartbeats, or `mark_dead_consumer_groups()` on a single expiry |
-| `DEAD -> ACTIVE` | `SubscriptionService.updateHeartbeat` |
-| `ACTIVE`, `PAUSED`, `DEAD` `-> CANCELLED` | `SubscriptionService.cancel` or `forceRemoveConsumerGroup` |
-| `CANCELLED -> ACTIVE` | Rejected. `resume` fails with `IllegalStateException`; `subscribe` leaves the row `CANCELLED`; `forceRemoveConsumerGroup` rejects an already-cancelled row |
+| `ACTIVE -> PAUSED`, `STOPPED -> PAUSED` | `SubscriptionService.pause` (`PAUSE_FROM`: `ACTIVE`, `STOPPED`, `PAUSED`) |
+| `PAUSED -> ACTIVE`, `DEAD -> ACTIVE` | `SubscriptionService.resume` (`RESUME_FROM`: `ACTIVE`, `PAUSED`, `DEAD`) |
+| `ACTIVE -> STOPPED` | `SubscriptionService.stopGroup`, called by `ConsumerGroup.stopGracefully()` on a group started with options. Any other status is left unchanged. |
+| `STOPPED -> ACTIVE`, `DEAD -> ACTIVE` | `SubscriptionService.subscribe`, which `start(SubscriptionOptions)` calls. The stored start bound is kept. |
+| `STOPPED -> ACTIVE` through `resume` | Rejected. `resume` fails on `STOPPED`. |
+| `ACTIVE -> DEAD`, `PAUSED -> DEAD` | `DeadConsumerDetector` after `dead_after_misses` consecutive expired heartbeats. It reads `ACTIVE` and `PAUSED` rows. `mark_dead_consumer_groups()` marks `ACTIVE` rows only, on a single expiry. |
+| `ACTIVE`, `STOPPED`, `PAUSED`, `DEAD` `-> DEAD -> CANCELLED` | `forceRemoveConsumerGroup` (`MARK_DEAD_FROM`), which marks the row `DEAD`, runs the dead-group cleanup, and then marks it `CANCELLED` |
+| `ACTIVE`, `STOPPED`, `PAUSED`, `DEAD` `-> CANCELLED` | `SubscriptionService.cancel` (`CANCEL_FROM`: every status) |
+| `DEAD -> ACTIVE` through a heartbeat | Rejected. `updateHeartbeat` fails on `STOPPED`, `DEAD`, and `CANCELLED` and changes no status. |
+| `CANCELLED -> ACTIVE` or `PAUSED` | Rejected. `pause`, `resume`, and `subscribe` fail with `SubscriptionStateException`; `forceRemoveConsumerGroup` rejects an already-cancelled row |
 
 `CANCELLED` is terminal. A new subscription requires a new `(topic, group_name)` pair or
-manual deletion of the row.
+manual deletion of the row. `ConsumerGroup.stop()` and `close()` change no status.
 
 ### Retention and Cleanup Defaults
 
@@ -653,9 +701,12 @@ Decision: `Math.abs(hashCode())` was replaced because `Math.abs(Integer.MIN_VALU
 negative. Implemented as `Math.floorMod(hashCode, size)`.
 
 **Gap 5: subscription state machine.**
-Decision: `CANCELLED` is terminal; `DEAD` is recoverable by heartbeat; `PAUSED` is
-recoverable by `resume`. Reason: a cancelled group must not silently resume and pin
-retention; a dead group is usually a crashed process that will restart.
+Decision: `CANCELLED` is terminal; `DEAD` is recoverable by `resume` or a new `subscribe`;
+`PAUSED` is recoverable by `resume`; `STOPPED` is recoverable by a new `subscribe`. Reason: a
+cancelled group must not silently resume and pin retention; a dead group is usually a
+crashed process that will restart. The original decision made `DEAD` recoverable by
+heartbeat. Commit `092cf23f` removed that: a heartbeat changes no status, so a group that
+detection marked `DEAD` stays `DEAD` until an explicit call (proposal OD-16).
 
 **Gap 6: backfill limits.**
 Decision: backfill runs in batches with a configurable maximum message count, a
@@ -667,8 +718,10 @@ on database latency was designed and not implemented; `P4_BackfillVsOLTPTest` in
 **Gap 7: dead consumer detection.**
 Decision: heartbeat rows with a configurable timeout, a scheduled detector that requires
 `dead_after_misses` consecutive expired cycles before marking `DEAD` (flapping
-protection), a cleanup that decrements `required_consumer_groups`, and heartbeat-driven
-resurrection. All timestamps use database `NOW()` to avoid clock skew. Reason: without
+protection), and a cleanup that decrements `required_consumer_groups`. Heartbeat-driven
+resurrection was part of the original decision and was removed in commit `092cf23f`: a
+heartbeat on a `DEAD` row now fails, and `resume` or a new `subscribe` reactivates it. All
+timestamps use database `NOW()` to avoid clock skew. Reason: without
 automatic detection a crashed group blocks cleanup indefinitely; a single-miss rule marks
 restarting pods dead.
 
@@ -777,7 +830,7 @@ No release gate for the fan-out feature is marked pending in this document.
 ## References
 
 - [Partitioned consumption design and implementation record](PEEGEEQ_PARTITIONED_CONSUMPTION_DESIGN.md)
-- [Delivery outcome redesign proposal, not implemented](PEEGEEQ_DELIVERY_OUTCOME_REDESIGN_PROPOSAL.md)
+- [Delivery outcome redesign proposal, partly implemented](PEEGEEQ_DELIVERY_OUTCOME_REDESIGN_PROPOSAL.md)
 - [Consolidated task register](../tasks/tasks.md)
 - [Consumer groups user guide](../../docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md)
 - [Ordering patterns guide](../../docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md)
@@ -790,7 +843,8 @@ No release gate for the fan-out feature is marked pending in this document.
   `V015__Add_Flapping_Protection_Columns.sql`,
   `V016__Add_Consumer_Group_Dead_Letter_Status.sql`,
   `V017__Create_Offset_Watermark_Tables.sql`,
-  `V018__Add_Rebalance_Generation_To_Subscriptions.sql`
+  `V018__Add_Rebalance_Generation_To_Subscriptions.sql`,
+  `V021__Add_Stopped_Subscription_Status.sql`
 - Runtime templates: `peegeeq-db/src/main/resources/db/templates/base/04a-core-table-outbox.sql`,
   `08a-consumer-table-topics.sql`, `08b-consumer-table-subscriptions.sql`,
   `08c-consumer-table-groups.sql`, `09a-consumer-index-active.sql`,

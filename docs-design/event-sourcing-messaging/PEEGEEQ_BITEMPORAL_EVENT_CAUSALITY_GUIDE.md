@@ -2,7 +2,8 @@
 
 **Version**: 1.1.0  
 **Last Updated**: 2026-01-08  
-**Author**: Mark Andrew Ray-Smith Cityline Ltd
+**Author**: Mark Andrew Ray-Smith Cityline Ltd  
+**Corrected:** 2026-11-21 against `0ffaafb6`: SQL examples use the real table names; `appendBuilder()` added as the preferred API; corrections do not carry a causation ID.
 
 ---
 
@@ -29,7 +30,34 @@ PeeGeeQ supports **event causality tracking** through the `causationId` field. T
 
 ## API Reference
 
-### Event Store Append
+### Append Builder (preferred)
+
+`EventStore.appendBuilder()` (in `peegeeq-api`) is the preferred append API. It returns an `EventStoreAppendBuilder<T>`:
+
+```java
+Future<BiTemporalEvent<Payment>> paymentEventFuture = eventStore.appendBuilder()
+    .eventType("PaymentProcessed")        // required
+    .payload(paymentPayload)              // required
+    .validTime(Instant.now())             // required
+    .correlationId("workflow-123")        // optional
+    .causationId(orderEvent.getEventId()) // optional: parent event ID
+    .aggregateId("ORDER-456")             // optional
+    .header("source", "payment-gateway")  // optional
+    .execute();
+
+paymentEventFuture
+    .onSuccess(paymentEvent -> useEventId(paymentEvent.getEventId()))
+    .onFailure(error -> logger.error("Failed to append payment event", error));
+```
+
+- `execute()` returns a failed Future with `IllegalStateException` if `eventType`, `payload` or `validTime` is missing.
+- `.inTransaction(connection)` appends on an existing `SqlConnection` and keeps `causationId`.
+- Without `.inTransaction(...)` or `.correction(...)`, `execute()` calls the seven-argument `append(...)` below.
+- `.correction(originalEventId, reason)` calls `appendCorrection(...)`. No `appendCorrection` overload takes a causation ID, so a `causationId(...)` set on the builder is not stored for a correction.
+
+The overloads `append(eventType, payload, validTime)`, `append(eventType, payload, validTime, headers)` and the shorter `appendInTransaction(...)` overloads are `@Deprecated(since = "2.0")`. The seven-argument `append(...)` below is not deprecated. The builder calls it.
+
+### Event Store Append (seven arguments)
 
 ```java
 eventStore.append(
@@ -196,7 +224,9 @@ sagaFuture
 
 ### Correction Events
 
-When correcting a previous event, reference the original as the cause:
+The example below appends a second, ordinary event that names the first as its cause. It is not a bi-temporal correction: it does not set `is_correction` or `previous_version_id`. A real correction uses `appendCorrection(...)` or `appendBuilder().correction(...)`. Neither stores a causation ID, as stated in the API Reference.
+
+When recording a follow-up event that references the original as the cause:
 
 ```java
 Future<BiTemporalEvent<Payment>> correctionFuture =
@@ -247,10 +277,12 @@ eventStore.append("AccountCreated", accountEvent, Instant.now(),
 
 ## Querying Causation Chains
 
+PeeGeeQ creates no table named `events`. The examples below use `bitemporal_event_log`, the table that Flyway migration V001 creates. A store created through the setup templates has its own table, `{schema}."{tableName}"`, built from `peegeeq-db/src/main/resources/db/templates/eventstore/01-table.sql`. Replace the table name in the queries with that table for such a store. Both kinds of table have a partial index on `causation_id` (`V011__Post_Fanout_Consolidation.sql` and `eventstore/02f1-index-causation.sql`).
+
 ### Find Children of an Event
 
 ```sql
-SELECT * FROM events 
+SELECT * FROM bitemporal_event_log
 WHERE causation_id = 'evt-parent-123'
 ORDER BY transaction_time;
 ```
@@ -261,14 +293,14 @@ ORDER BY transaction_time;
 WITH RECURSIVE event_chain AS (
     -- Start with root event
     SELECT event_id, event_type, causation_id, 0 as depth
-    FROM events 
+    FROM bitemporal_event_log
     WHERE event_id = 'evt-root-456'
     
     UNION ALL
     
     -- Find children recursively
     SELECT e.event_id, e.event_type, e.causation_id, ec.depth + 1
-    FROM events e
+    FROM bitemporal_event_log e
     JOIN event_chain ec ON e.causation_id = ec.event_id
 )
 SELECT * FROM event_chain ORDER BY depth;
@@ -280,14 +312,14 @@ SELECT * FROM event_chain ORDER BY depth;
 WITH RECURSIVE cause_chain AS (
     -- Start with the event in question
     SELECT event_id, event_type, causation_id
-    FROM events 
+    FROM bitemporal_event_log
     WHERE event_id = 'evt-problem-789'
     
     UNION ALL
     
     -- Walk up the chain
     SELECT e.event_id, e.event_type, e.causation_id
-    FROM events e
+    FROM bitemporal_event_log e
     JOIN cause_chain cc ON e.event_id = cc.causation_id
 )
 SELECT * FROM cause_chain 

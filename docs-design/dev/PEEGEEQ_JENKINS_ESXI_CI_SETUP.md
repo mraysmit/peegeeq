@@ -6,7 +6,20 @@
 [Verified state of `ubu24-cicd`](#verified-state-of-ubu24-cicd) and the
 [consolidated task register](../tasks/tasks.md) for dated build evidence.
 
-**Last reconciled:** 2026-09-06
+**Last reconciled:** 2026-11-21 against `Jenkinsfile`, `testcontainers.properties` and the
+archived task register at `0ffaafb6`
+
+**Corrected:** 2026-11-21 against `0ffaafb6`: seven `TEST_SUITE` choices; no browser install in
+the pipeline; named-pipe strategy still open; current host `zorin-nuc`; two commit hashes that no
+longer resolve.
+
+**Current Jenkins host:** builds now run on host `zorin-nuc`, with Jenkins at
+`http://192.168.137.32:8080`. The archived register
+[`TASKS_REGISTER_TO_2026-11-21.md`](../tasks/archive/TASKS_REGISTER_TO_2026-11-21.md) records
+`zorin-nuc` as Ubuntu 24.04, Linux `7.0.0-31-generic`, 12 vCPU, 31 GiB RAM, 2 GiB swap, a
+457 GiB filesystem, and Docker `29.1.3`. The section
+[Verified state of `ubu24-cicd`](#verified-state-of-ubu24-cicd) records the older host
+`ubu24-cicd` (`192.168.137.11`). It does not describe `zorin-nuc`.
 
 ## Purpose
 
@@ -91,7 +104,7 @@ administrator of the whole VM.
 
 ## Why these resources are appropriate
 
-PeeGeeQ is a multi-module Java 25 project whose integration tests use real PostgreSQL
+PeeGeeQ is a multi-module Java 27 project whose integration tests use real PostgreSQL
 instances through Testcontainers. The complete regression profile also invokes the
 management and utilities UI test suites, including Playwright end-to-end tests.
 
@@ -258,6 +271,9 @@ confinement, networking, and full-suite validation.
 
 ### Verified state of `ubu24-cicd`
 
+This section records the older host `ubu24-cicd` (`192.168.137.11`). The current Jenkins host
+is `zorin-nuc` (`192.168.137.32`); see the note at the top of this guide.
+
 The following facts were verified over SSH during provisioning on 2026-08-23. They are a
 snapshot, not permanent package guarantees:
 
@@ -323,7 +339,8 @@ After restart:
   physical-memory test;
 - the verified Temurin package installed successfully and passed `dpkg --verify`; and
 - the exact failed reactor slice, pinned to commit
-  `1454c4e718dee96267e54b0a6fd36504d9bbd484`, passed with Temurin using
+  `1454c4e718dee96267e54b0a6fd36504d9bbd484` (no longer resolves after a history rewrite),
+  passed with Temurin using
   `mvn clean install -DskipTests -pl :peegeeq-test-support -am`.
 
 The worker is therefore usable only on a provisional basis until an offline physical
@@ -494,6 +511,11 @@ That provider is for the Windows Docker named pipe, not a Linux agent using
 the forced `docker.client.strategy` line and allow Testcontainers to detect Linux Docker.
 Do not replace it with another hard-coded platform strategy without a demonstrated need.
 
+**Status 2026-11-21: open.** The file
+`peegeeq-test-support/src/test/resources/testcontainers.properties` still sets
+`docker.client.strategy=org.testcontainers.dockerclient.NpipeSocketClientProviderStrategy`.
+The line has not been removed.
+
 Pre-pull the PostgreSQL image used by PeeGeeQ to reduce the first-run delay:
 
 ```bash
@@ -527,9 +549,11 @@ Two Java roles should be kept conceptually separate:
 
 - Jenkins itself runs on a Jenkins-supported Java runtime. Java 21 is the conservative
   controller choice.
-- PeeGeeQ builds with JDK 25, as required by the root Maven configuration and toolchain.
+- PeeGeeQ builds with JDK 27, as required by the root Maven configuration and toolchain.
+  The root `pom.xml` property `maven.compiler.release` sets the version. PeeGeeQ moved from
+  JDK 25 to JDK 27 on 2026-11-21.
 
-Use Ubuntu OpenJDK 21 for Jenkins and Eclipse Temurin 25 for PeeGeeQ builds. Temurin is
+Use Ubuntu OpenJDK 21 for Jenkins and Eclipse Temurin 27 for PeeGeeQ builds. Temurin is
 installed from Eclipse Adoptium's signed apt repository. This is a deliberate
 third-party repository choice, and its signing key is scoped to that repository rather
 than trusted globally.
@@ -566,19 +590,19 @@ echo \
   sudo tee /etc/apt/sources.list.d/adoptium.list >/dev/null
 
 sudo apt update
-apt-cache policy temurin-25-jdk
-sudo apt install -y temurin-25-jdk
+apt-cache policy temurin-27-jdk
+sudo apt install -y temurin-27-jdk
 
-sudo update-alternatives --set java /usr/lib/jvm/temurin-25-jdk-amd64/bin/java
-sudo update-alternatives --set javac /usr/lib/jvm/temurin-25-jdk-amd64/bin/javac
+sudo update-alternatives --set java /usr/lib/jvm/temurin-27-jdk-amd64/bin/java
+sudo update-alternatives --set javac /usr/lib/jvm/temurin-27-jdk-amd64/bin/javac
 
 java -version
 javac -version
 /usr/lib/jvm/java-21-openjdk-amd64/bin/java -version
-dpkg --verify temurin-25-jdk
+dpkg --verify temurin-27-jdk
 ```
 
-The first two version checks should report Temurin Java 25. The explicit Java 21 check
+The first two version checks should report Temurin Java 27. The explicit Java 21 check
 proves the controller runtime remains available. Confirm the selected JDK location:
 
 ```bash
@@ -594,10 +618,10 @@ all-in-one VM this normally means `/var/lib/jenkins/.m2/toolchains.xml`:
   <toolchain>
     <type>jdk</type>
     <provides>
-      <version>25</version>
+      <version>27</version>
     </provides>
     <configuration>
-      <jdkHome>/usr/lib/jvm/temurin-25-jdk-amd64</jdkHome>
+      <jdkHome>/usr/lib/jvm/temurin-27-jdk-amd64</jdkHome>
     </configuration>
   </toolchain>
 </toolchains>
@@ -609,7 +633,7 @@ Replace `jdkHome` with the actual location reported on the VM. Set ownership cor
 sudo chown -R jenkins:jenkins /var/lib/jenkins/.m2
 ```
 
-The pipeline should set `JAVA_HOME` to `/usr/lib/jvm/temurin-25-jdk-amd64` for Maven
+The pipeline should set `JAVA_HOME` to `/usr/lib/jvm/temurin-27-jdk-amd64` for Maven
 commands. This does not change the Java runtime used by the already-running Jenkins
 service.
 
@@ -649,15 +673,16 @@ Verify as the build account:
 sudo -u jenkins -H mvn -version
 ```
 
-The output used for builds should show JDK 25 after the pipeline environment is applied.
+The output used for builds should show JDK 27 after the pipeline environment is applied.
 
 ## Node, npm, and Playwright
 
 The UI Maven modules pin Node 22.12.0 and npm 10.2.4 through the frontend Maven plugin.
 The plugin can provision those versions inside the build, so a host-level Node
-installation is not required for Maven or Jenkins execution. Browser operating-system
-packages still require a one-time administrative installation on the VM. Browser binaries
-do not: install them as the `jenkins` account so Playwright writes to that account's cache.
+installation is not required for Maven or Jenkins execution. The repository pipeline runs
+the browser tests in the Playwright container image, which holds the browser binaries and
+their operating-system packages. A browser run on the host itself still needs those packages
+installed once by an administrator, and browser binaries installed as the `jenkins` account.
 
 The Maven plugin creates module-local Node, npm, and npx launchers during the rebuild. A
 Git archive or workspace materialization can leave the npm/npx launchers without their
@@ -728,7 +753,7 @@ sudo systemctl enable jenkins
 sudo systemctl restart jenkins
 ```
 
-The system-wide `java` alternative remains Temurin JDK 25 for PeeGeeQ command-line
+The system-wide `java` alternative remains Temurin JDK 27 for PeeGeeQ command-line
 builds. The systemd drop-in pins only the Jenkins controller to Java 21. Current Jenkins
 LTS releases support both Java 21 and Java 25, but keeping the controller runtime
 explicit prevents a future alternatives change from silently changing Jenkins.
@@ -791,7 +816,7 @@ Keep Jenkins core and plugins patched, and remove plugins that are no longer req
 For the preferred two-VM architecture:
 
 1. Install JDK 21 or another controller-compatible agent runtime on the worker.
-2. Install Temurin JDK 25, Maven, Docker, Node, Xvfb, Playwright, Git, and the base
+2. Install Temurin JDK 27, Maven, Docker, Node, Xvfb, Playwright, Git, and the base
    packages on the worker.
 3. Create a dedicated agent account and add only that account to the Docker group,
    recording that this makes the account root-equivalent on the worker.
@@ -858,12 +883,15 @@ an arbitrary shell command:
 | `smoke` | `mvn test -Psmoke-tests` | Explicit ultra-fast end-to-end checks |
 | `integration` | `mvn test -Pintegration-tests` | Explicit Testcontainers integration selection |
 | `untagged` | `mvn test -Puntagged-tests` | Audit for tests missing a supported tag |
+| `performance` | `mvn test -Pperformance-tests -pl :peegeeq-benchmarking -am` | Performance tests of `peegeeq-benchmarking`; records host baseline and `vmstat` output in `performance-results/` |
+| `partitioned-release` | `mvn test -Pperformance-tests -pl :peegeeq-benchmarking -Dtest=PartitionedConsumptionReleaseGate` with a 3,600-second duration, 200 messages per second, 16 partitions, 2 groups per tenant, pool size 4, and `test.timeout.default=100m` | Partitioned consumption release gate; records the same host data as `performance` |
 | `all` | `mvn clean test -Pall-tests` for the Java modules, then `xvfb-run -a mvn clean test -Pall-tests` for the two UI modules | Explicit approximately 90-minute regression gate |
 
 The `all` suite runs in two stages. `Full regression: Java modules` runs every reactor
 module except the two UI modules. `Full regression: UI modules` then runs
 `peegeeq-management-ui` and `peegeeq-utilities-ui` under `xvfb-run`. The browser tests are a
-stage of their own so that a lock can cover them without covering the Java tests.
+stage of their own, and that stage runs inside the Playwright container image. The pipeline holds no
+lock; the lock that once covered this stage was removed on 2026-10-11.
 `scripts/ci/regression-stages.mjs` derives the Maven arguments of each stage from the root
 `pom.xml` and from the UI module list in `scripts/ci/check-ui-reports.mjs`. Its contracts are
 in `scripts/ci/regression-stages.test.mjs`. The Maven logs are `logs/all-tests-java.log` and
@@ -892,8 +920,8 @@ tail is green, rerun `all` from `beginning` for the release gate.
 Every selection first runs `mvn clean install -DskipTests`, which compiles tests and
 installs the complete reactor before verification. This complete rebuild also prepares
 upstream artifacts before a resumed regression. The pipeline then restores executable
-permission on the Maven-provisioned npm/npx launchers and installs Playwright Chromium
-with the pinned module-local Node runtime. It validates Temurin JDK 25, the Maven
+permission on the Maven-provisioned npm/npx launchers. It installs no browser. The
+browsers come from the Playwright container image of the UI stage. It validates Temurin JDK 27, the Maven
 toolchain, Docker socket access, Docker API compatibility, disk, memory, and swap.
 It allows only one build at a time, enforces a 150-minute overall timeout, keeps ten build
 records and five artifact sets, publishes JUnit XML, archives logs and Playwright
@@ -915,7 +943,7 @@ contract rather than silently setting `DOCKER_HOST` in this pipeline.
 ### Verified full-gate snapshot — 2026-08-25
 
 Jenkins build #36 ran `TEST_SUITE=all` and `ALL_TESTS_START_MODULE=beginning` at
-`e8d07e53bf779660a68c47a1df94ec190c3c6665`. It finished `SUCCESS`; the checked-out
+`e8d07e53bf779660a68c47a1df94ec190c3c6665` (no longer resolves after a history rewrite). It finished `SUCCESS`; the checked-out
 revision matched origin and the final worktree was clean. Published results were:
 
 - Java: 4,022 tests, zero failures, zero errors, zero skipped;
@@ -1212,23 +1240,26 @@ do not mark this reference copy complete.
       and full PeeGeeQ test gate instead of mixing rootful and rootless instructions.
 - [ ] Pull `postgres:15.13-alpine3.20`.
 - [ ] Install Java 21 for Jenkins.
-- [ ] Install Temurin JDK 25 for PeeGeeQ.
-- [ ] Configure Maven Toolchains for JDK 25.
+- [ ] Install Temurin JDK 27 for PeeGeeQ.
+- [ ] Configure Maven Toolchains for JDK 27.
 - [ ] Install Maven 3.9.16 and verify its published SHA-512 checksum.
 - [ ] Let Maven provision the pinned Node 22.12.0 and npm 10.2.4 runtimes; a host Node
       installation is optional, not a pipeline prerequisite.
 - [ ] Install `xvfb`, `lsof`, and Playwright operating-system dependencies on the VM.
 - [ ] Verify the pipeline restores owner executable permission on both module-local
-      npm/npx launchers and installs Chromium as the Jenkins account without elevation.
+      npm/npx launchers. The pipeline installs no browser; the UI stage takes Chromium from
+      the Playwright container image.
 
 ### Repository compatibility
 
-- [ ] Remove the Windows-only Testcontainers named-pipe strategy.
+- [ ] Remove the Windows-only Testcontainers named-pipe strategy. Open on 2026-11-21: the
+      line is still in `peegeeq-test-support/src/test/resources/testcontainers.properties`.
 - [ ] Confirm the Linux Docker socket is detected.
 - [ ] Record Docker package, client, server, maximum API, and minimum API versions.
 - [ ] Confirm the daemon accepts API 1.44 without forcing `DOCKER_API_VERSION`.
 - [ ] Confirm headed Playwright runs successfully through `xvfb-run`.
-- [ ] Confirm the browser binary is available in the Jenkins account's Playwright cache.
+- [ ] Confirm the Playwright image tag in the `Jenkinsfile` equals the `@playwright/test`
+      version of both UI modules.
 - [ ] Verify core tests and inspect their per-class counts.
 - [ ] Verify smoke tests and inspect their per-class counts.
 - [ ] Verify a targeted Testcontainers integration module.

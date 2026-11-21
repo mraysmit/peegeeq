@@ -1,22 +1,45 @@
 # PeeGeeQ Authentication and Authorization Decision Summary
 
+**Corrected:** 2026-11-21 against `0ffaafb6`: replaced the dead baseline hash, added the
+credential model that the code implements, recorded the archive of the long design.
+
 **Status:** DESIGN DIRECTION RECORDED — NOT APPROVED OR IMPLEMENTED
 
 **Original decision workshop:** 2025-12-27
 
 **Last reconciled:** 2026-09-06
 
-**Repository baseline:** `7db748b8e77f3aba850be7b73547d192dac5b83f`
+**Repository baseline:** checked 2026-11-21 against `0ffaafb6`; the earlier baseline `7db748b8` no
+longer resolves after a history rewrite.
 
 ## Purpose
 
 This document preserves decisions made while exploring a PeeGeeQ authentication and authorization
 system. It does not describe current runtime behaviour.
 
+This summary is the only live authentication and authorization document. The long design
+`PEEGEEQ_AUTHENTICATION_AUTHORIZATION_DESIGN.md` was archived on 2026-11-21 to
+`docs-design/_archived/superseded-designs/`. It was archived because none of it was built and its
+stored-password model contradicts the credential model in the code.
+
+## Credential model in the code
+
+A credential model is built. Any future authentication or authorization design must fit it.
+
+- The durable binding registry table `peegeeq_setup_bindings`
+  (`peegeeq-db/src/main/resources/db/templates/registry/02-setup-bindings.sql`) stores one row per
+  remembered setup. The row holds connection coordinates (host, port, database, schema, username,
+  SSL flag) and an optional opaque `credential_ref`. It has no password column.
+- The password is resolved at connect time through the `CredentialProvider` interface
+  (`peegeeq-api`, package `dev.mars.peegeeq.api.credentials`). PeeGeeQ passes `credential_ref`
+  to the provider unchanged and never stores the resolved password.
+- Core ships one provider, `SuppliedCredentialProvider`. It cannot resolve a reference. The
+  caller supplies the password on the request or configures another provider.
+
 At the reviewed baseline, PeeGeeQ has no authentication module, JWT middleware, tenant-management
 implementation, tenant-switch endpoint, or implemented authorization boundary. The authoritative
 status is the Authentication and Authorization entry in the
-[consolidated task register](../tasks/tasks.md#unscheduled-product-and-coverage-backlog).
+[consolidated task register](../tasks/tasks.md#unscheduled-backlog).
 
 ## Recorded design direction
 
@@ -91,7 +114,8 @@ security guarantees.
 
 ## References
 
-- [Authentication and authorization design](PEEGEEQ_AUTHENTICATION_AUTHORIZATION_DESIGN.md)
+- [Authentication and authorization design](../_archived/superseded-designs/PEEGEEQ_AUTHENTICATION_AUTHORIZATION_DESIGN.md)
+  (archived 2026-11-21: not built, and its stored-password model contradicts the credential model in code)
 - [Consolidated task register](../tasks/tasks.md)
 - [Coding principles](../dev/pgq-coding-principles.md)
 - [Testing standards](../testing/PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md)

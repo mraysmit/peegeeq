@@ -2,6 +2,7 @@
 
 **Author**: Mark A Ray-Smith Cityline Ltd.  
 **Document type**: Design. This document describes the target system.  
+**Corrected:** 2026-11-21 against `0ffaafb6`: pool ownership and pooled access (§6.1, §6.3) as phase 11 target with current state; breaker R-10/§6.5 (D6); LISTEN R-6/§6.6 (D2) and backoff reset; §7 health current state; §5.4 keys proposed, `request-timeout-ms`, no safety-margin key; §5.8 enforcement built; unread keys marked proposed; S16, S23, R-18 reworded to per-node supervisors; §9.1 status, §9.2 pointer, §9.4 D8; §11.2 and §11.3 not built (phase 14); Appendix A order.  
 **Design revision**: 2026-10-08, Patroni-style local supervision, coordinator port, optional watchdog
 
 ## Table of Contents
@@ -211,16 +212,16 @@ evidence are recorded in
 | R-15 | Automatic promotion requires safe lease handover, the winner's watchdog mode satisfied, and covered-target validation. No failed-host stop reply is required. Missing enforcement or synchronous peers preserves unavailability. |
 | R-16 | Only the target node's current writer lease authorises local promotion. Its supervisor serialises effects with lease-loss shutdown and the selected watchdog mode. Retries cannot authorise a second writer. |
 | R-5 | Discard a connection after a required writer operation is rejected as read-only or the server ends its session. Maximum lifetime closes it when next idle. Business read-only errors do not prove demotion. |
-| R-6 | A LISTEN connection reconnects without an attempt limit, with a bounded backoff. |
+| R-6 | A LISTEN connection reconnects without an attempt limit, with a bounded backoff. Not met today: `ReactiveNotificationHandler` and `PgNativeQueueObserver` stop after 5 attempts (`MAX_RECONNECT_ATTEMPTS = 5`; defect D2, §6.6). |
 | R-7 | A LISTEN connection detects that its node is not the primary and reconnects through the endpoint. |
 | R-8 | After reconnect, acknowledge every LISTEN channel. Durable bitemporal subscriptions complete a finite replay boundary; native consumers complete an executed finite claim/acknowledgement pass. Skipped or deferred work does not establish readiness. Non-durable subscriptions retain their documented loss semantics. |
 | R-9 | Every pooled operation in every module is guarded by the circuit breaker for its pool. |
-| R-10 | The circuit breaker opens on connection-level failures. A business SQL error does not count toward opening it. |
+| R-10 | The circuit breaker opens on connection-level failures. A business SQL error does not count toward opening it. Not met today: `CircuitBreakerManager` records every `Exception`, so business SQL errors count (defect D6, §6.5). |
 | R-11 | The readiness endpoint returns a failure status while the instance cannot use its database or while a required LISTEN connection is down. |
 | R-13 | Every configured timeout is honoured to the millisecond. No connection attempt waits without a bound. |
 | R-14 | The configured schema applies to every pooled operation, including through a transaction pooler. |
 | R-17 | Acknowledged writes survive promotion of a target covered by the required synchronous acknowledgement policy. No automatic asynchronous downgrade is permitted. |
-| R-18 | Dependency timeout, lost response, controller restart, and stale completion are reconciled without assuming success or rollback. |
+| R-18 | Dependency timeout, lost response, supervisor restart, and stale completion are reconciled without assuming success or rollback. |
 | R-19 | Every production SQL proxy layer, including optional PgBouncer, is redundant. Stable SQL and eligibility endpoints have tested ownership transfer and session recovery. |
 | R-20 | The supervisor, the sidecar, and clients depend on the coordinator port only. No component outside an adapter uses a coordinator product's API, types, or vocabulary. One adapter serves an incarnation. |
 
@@ -358,7 +359,13 @@ Design rules for this configuration:
 
 ### 5.4 Supervisor Configuration and Timing
 
-| Property | Selected baseline | Contract |
+**Status (2026-11-21).** Every key in the table below is proposed. No code reads any of them.
+The supervisor takes its values as constructor arguments: `PgNodeConfig` holds identity,
+membership, the four timing values, the watchdog mode, and member tags; the Consul adapters take
+the endpoint and token; `PgDeviceWatchdog` takes the device path. `PgWatchdogMode` parses the
+proposed `watchdog.mode` values, but nothing reads the key.
+
+| Property (proposed) | Selected baseline | Contract |
 |---|---|---|
 | `peegeeq.pg.failover.enabled` | `false` | Enables autonomous takeover; manual mode retains lease renewal and self-demotion |
 | `peegeeq.pg.cluster-id`, `peegeeq.pg.cluster-incarnation`, `peegeeq.pg.node-id` | required | Bind one supervisor to one configured database node and namespace |
@@ -366,15 +373,19 @@ Design rules for this configuration:
 | `peegeeq.pg.coordinator.<type>.*` | adapter-defined | Endpoint, credential reference, and settings of the selected adapter. No component outside that adapter reads them |
 | `peegeeq.pg.node-control.provider` | `local-supervisor` | Local process, admission, grant, and action-receipt boundary; no external stop API |
 | `peegeeq.pg.failover.lease.ttl` | `30s` | Lease TTL requested from the coordinator; expiry can occur later |
-| `peegeeq.pg.failover.loop-interval-ms` | `5000` | Per-node HA loop; lease renewal cannot wait behind SQL or rewind |
-| `peegeeq.pg.failover.retry-timeout-ms` | `3000` | Bounded coordinator/ownership retry budget |
+| `peegeeq.pg.failover.loop-interval-ms` | `5000` | Interval at which `PgRenewalLoop` renews the lease; lease renewal cannot wait behind SQL or rewind |
+| `peegeeq.pg.failover.request-timeout-ms` | `3000` | Bounded coordinator/ownership retry budget. `PgNodeConfig.requestTimeout`; the cluster settings record stores it as `requestTimeoutMillis` |
 | `peegeeq.pg.failover.probe-timeout-ms` | `1000` | Observation deadline; failed observation creates suspicion only |
 | `peegeeq.pg.failover.primary-start-timeout-ms` | `0` | Prefer eligible takeover after confirmed local crash; do not wait for primary restart |
 | `peegeeq.pg.failover.primary-stop-timeout-ms` | `5000` | Local stop/escalation budget; never extend beyond the exclusion deadline |
 | `peegeeq.pg.failover.watchdog.mode` | `automatic` | `automatic`, `off`, or `required`; see the mode table below |
 | `peegeeq.pg.failover.watchdog.device` | `/dev/watchdog` | Linux watchdog interface, used unless the mode is `off` |
-| `peegeeq.pg.failover.watchdog.safety-margin` | `-1` | The watchdog timeout must not exceed half the lease TTL. The deployment sets the device timeout (for example the `softdog` `soft_margin` parameter). The supervisor reads the actual timeout from the device's sysfs `timeout` file before arming and accepts it only when it is at most half the lease TTL, longer than one loop-and-retry cycle, and longer than the stop budget |
 | `peegeeq.pg.nodes.<id>.host`, `.port` | configured | Direct observation/replication identity; application traffic uses the stable endpoint |
+
+**Watchdog timeout rule.** There is no safety-margin key. The deployment sets the device timeout
+(for example the `softdog` `soft_margin` parameter). The supervisor reads the actual timeout from
+the device's sysfs `timeout` file before arming. It accepts the timeout only when it is at most
+half the lease TTL, longer than one loop-and-retry cycle, and longer than the stop budget.
 
 The lease TTL, loop interval, retry budget, and stop budget are cluster settings held by the coordinator (§1.1). The
 values in the table above are each node's deployment values: they bound the read of the settings, apply while no
@@ -529,11 +540,12 @@ commit policy at its final commit boundary. Caller operations cannot commit inde
 bypass that path. Verify attempts to weaken session or transaction policy. Privileged database
 clients outside the PeeGeeQ contract are outside this guarantee.
 
-Phase 7 must implement and test this commit enforcement in `PgConnectionManager` before any
-manual or automatic application-write preservation assertion. Tests use the production manager
-through the stable endpoint, attempt weaker session and transaction settings, and interrupt
-commit acknowledgements. Raw SQL commits do not substitute for that evidence. Full migration
-of the other application modules remains phase 11.
+This commit enforcement is built in `PgConnectionManager`. At the final commit boundary of a
+manager-owned transaction it runs `set_config('synchronous_commit', 'on', true)` and checks
+that the caller did not complete the transaction. `PgConnectionManagerDurabilityIntegrationTest`
+attempts weaker session and transaction settings against it. Raw SQL commits do not substitute
+for that evidence. Calls that use a `Pool` directly bypass this enforcement (§6.3); their
+migration to the manager remains phase 11.
 
 `durabilityPolicy` records the confirmed policy intent eligible for serving. `pendingDurabilityPolicy` records
 the next configuration intent. The control record holds both in A and in B.
@@ -708,7 +720,7 @@ names its target and is not ranked. The lease port and its contract suite are un
 the lease port also implements this port against the same service; the Consul binding is in the
 coordinator design §3.3.
 
-**Selection.** `peegeeq.pg.coordinator.type` names the adapter. One adapter serves an
+**Selection.** `peegeeq.pg.coordinator.type` (a proposed key that no code reads today) names the adapter. One adapter serves an
 incarnation. Manual profile B uses the same coordinator as A. Changing the coordinator requires
 a stopped cluster and a new incarnation. A runtime toggle cannot combine two authorities.
 
@@ -775,10 +787,16 @@ PeeGeeQManager (public facade)
               └── PgBuilder.pool()  ──► io.vertx.pgclient  (Vert.x 5.x)
 ```
 
-`PgConnectionManager` creates and owns every pool in the process. No module builds a pool of its
-own. A module that needs different pool options registers a named `serviceId` with
-`PgConnectionManager` and receives a pool built from the shared connection configuration and
-its own pool configuration.
+**Target rule (phase 11, not met today).** `PgConnectionManager` creates and owns every pool in
+the process. No module builds a pool of its own. A module that needs different pool options
+registers a named `serviceId` with `PgConnectionManager` and receives a pool built from the
+shared connection configuration and its own pool configuration.
+
+**Current state (2026-11-21).** Other production classes build their own pools with
+`PgBuilder.pool()`: `PgBiTemporalEventStore`, `PeeGeeQDatabaseSetupService`,
+`DatabaseTemplateManager`, `VertxPerformanceOptimizer`, `SetupBindingRegistry`, and the REST
+handlers `DatabaseTelemetryHandler`, `ManagementApiHandler`, and `SystemMonitoringHandler`. The
+sidecar's `PgPrimaryCheckVerticle` also builds its own pool; it is a separate process.
 
 ### 6.2 Configuration
 
@@ -795,6 +813,7 @@ peegeeq.database.proxy.host=
 peegeeq.database.proxy.port=
 
 # Endpoint for dedicated LISTEN connections. Blank values inherit the effective endpoint.
+# Proposed; no code reads peegeeq.database.listen.* today.
 peegeeq.database.listen.host=
 peegeeq.database.listen.port=
 
@@ -808,13 +827,14 @@ peegeeq.database.ssl.enabled=false
 peegeeq.database.pool.max-size=32
 peegeeq.database.pool.max-wait-queue-size=128
 peegeeq.database.pool.connection-timeout-ms=30000
+peegeeq.database.pool.idle-timeout-ms=600000
+peegeeq.database.pool.shared=true
+# Proposed; no code reads these three keys today.
 peegeeq.database.operation-timeout-ms=30000
 peegeeq.database.statement-timeout-ms=25000
-peegeeq.database.pool.idle-timeout-ms=600000
 peegeeq.database.pool.max-lifetime-ms=1800000
-peegeeq.database.pool.shared=true
 
-# Dedicated LISTEN connections
+# Dedicated LISTEN connections. Proposed; no code reads these keys today.
 peegeeq.database.listen.probe-interval-ms=5000
 peegeeq.database.listen.probe-timeout-ms=1000
 peegeeq.database.listen.connect-timeout-ms=5000
@@ -825,14 +845,16 @@ peegeeq.database.listen.reconnect-max-delay-ms=5000
 
 # Authenticated read-only writer status through redundant HTTP proxies (§6.6).
 # Required in A and B. The client does not receive coordinator or node-control credentials.
+# Proposed; no code reads peegeeq.database.eligibility.* today.
 peegeeq.database.eligibility.url=https://writer-status.example.internal/writer
 peegeeq.database.eligibility.auth-reference=deployment-secret-reference
 ```
 
 **Effective endpoint.** `PeeGeeQConfiguration.getDatabaseConfig()` resolves one effective host
 and port: the proxy values when they are set, the direct values otherwise. Every pool uses the
-effective endpoint. Every dedicated LISTEN connection uses the LISTEN endpoint, which is the
-effective endpoint unless `peegeeq.database.listen.*` is set (§8).
+effective endpoint. Target: every dedicated LISTEN connection uses the LISTEN endpoint, which is
+the effective endpoint unless `peegeeq.database.listen.*` is set (§8). Today no code reads
+`peegeeq.database.listen.*`.
 
 **Schema.** Every deployment supplies `peegeeq.database.schema`. The shipped value is a
 placeholder. A blank schema is rejected at configuration time.
@@ -843,7 +865,8 @@ overrides.
 
 ### 6.3 Pooled access
 
-Every module performs pooled database work through two methods:
+**Target rule (phase 11, not met today).** Every module performs pooled database work through
+two methods:
 
 - `PgConnectionManager.withTransaction(serviceId, operation)` for writes;
 - `PgConnectionManager.withConnection(serviceId, operation)` for reads.
@@ -852,7 +875,14 @@ This applies to the outbox, the native queue, the bitemporal event store, the de
 recovery managers, the metrics collector, and the subscription and consumer-group services. No
 module calls `withTransaction` or `withConnection` on a `Pool` object directly.
 
-Each call does four things in order:
+**Current state (2026-11-21).** About 65 production calls in `src/main` call
+`withTransaction` or `withConnection` directly on a `Pool`. They are in, among others,
+`PgNativeQueueConsumer`, `DurableBiTemporalSubscriptionCoordinator`, `PgBiTemporalEventStore`,
+`DeadLetterQueueManager`, `StuckMessageRecoveryManager`, `PeeGeeQMetrics`, `HealthCheckManager`,
+`OutboxProducer`, `OutboxConsumer`, `PeeGeeQDatabaseSetupService`, and `SetupBindingRegistry`.
+Those calls do not pass through the four `PgConnectionManager` steps below.
+
+Each `PgConnectionManager` call does four things in order:
 
 1. **Acquires breaker permission** for `db.pool.<serviceId>` (§6.5). An open breaker fails the
    call with `CallNotPermittedException` before any connection is taken.
@@ -873,7 +903,7 @@ A pooled connection ends in one of four ways (R-5):
 
 | Trigger | Action |
 |---|---|
-| The connection reaches `pool.max-lifetime-ms` | The pool closes it when it is next idle and opens a new one through the endpoint. |
+| The connection reaches `pool.max-lifetime-ms` (proposed key; no code reads it today) | The pool closes it when it is next idle and opens a new one through the endpoint. |
 | The connection is idle for `pool.idle-timeout-ms` | The pool closes it. |
 | The server ends the session: SQLSTATE class `08`, or `57P01`, `57P02`, `57P03` | The connection is closed and never returned to the pool. |
 | A required writer operation fails with SQLSTATE `25006` | Close the connection and reconcile writer eligibility. Deliberately read-only business operations do not establish node demotion. |
@@ -892,12 +922,18 @@ Each pool has one Resilience4j circuit breaker named `db.pool.<serviceId>`. `Pee
 creates one `CircuitBreakerManager` and shares it with every pool and with the health checks.
 
 - The breaker brackets the whole pooled call in §6.3 (R-9).
-- It records classified database availability failures: connection refusal or loss, connection
-  deadline, database resource rejection, and server shutdown. Wait-queue saturation is reported
-  distinctly from database reachability. Deliberate cancellation, business read-only errors,
-  and other SQL errors do not become availability failures solely by SQLSTATE class.
-- It records a success for a call that reaches the database and completes, including a call
-  whose statement fails with a business SQL error such as a constraint violation (R-10).
+- Target (not built): it records classified database availability failures: connection refusal
+  or loss, connection deadline, database resource rejection, and server shutdown. Wait-queue
+  saturation is reported distinctly from database reachability. Deliberate cancellation,
+  business read-only errors, and other SQL errors do not become availability failures solely by
+  SQLSTATE class.
+- Target (not built): it records a success for a call that reaches the database and completes,
+  including a call whose statement fails with a business SQL error such as a constraint
+  violation (R-10).
+- Current behaviour (2026-11-21): `CircuitBreakerManager` configures every breaker with
+  `recordExceptions(Exception.class)`. Every failed call counts toward opening the breaker,
+  business SQL errors included. This contradicts R-10 and is open defect D6 in
+  [the task register](../tasks/tasks.md).
 - One pool's breaker does not affect another pool.
 - `getReactiveConnection()` is not bracketed. It exists for callers that own a connection
   explicitly and for recovery probes.
@@ -908,7 +944,8 @@ The breaker thresholds come from the `peegeeq.circuit-breaker.*` keys.
 
 Two components hold a dedicated, non-pooled connection for `LISTEN`: the bitemporal
 `ReactiveNotificationHandler` and the native queue `PgNativeQueueConsumer`. Both follow the same
-rules.
+rules. The `listen.*` and `eligibility.*` keys named in this section are proposed; no code reads
+them today. The current behaviour that differs from these rules is stated under Reconnect.
 
 **Client eligibility interface.** Clients use one authenticated read-only HTTP endpoint,
 `peegeeq.database.eligibility.url`. Redundant HTTP proxies route `/writer` to sidecars using
@@ -944,6 +981,17 @@ The delay never exceeds the cap. There is no attempt limit while a subscriber re
 Socket establishment does not reset backoff. Reset only after eligibility, channel
 acknowledgements, and required finite catch-up succeed. SQL, HTTP, LISTEN, or catch-up failure
 retains the failure count. Only one initialization or replay pass runs per subscription.
+
+Current reconnect behaviour (2026-11-21) differs from this target:
+
+- `ReactiveNotificationHandler` (bitemporal) and `PgNativeQueueObserver` (native `tail`) stop
+  reconnecting after 5 attempts (`MAX_RECONNECT_ATTEMPTS = 5`). This contradicts R-6 and is open
+  defect D2 in [the task register](../tasks/tasks.md).
+- `PgNativeQueueConsumer` has no attempt limit. It resets its backoff to 1 second as soon as the
+  dedicated connection opens and `LISTEN` completes, before any eligibility check or catch-up.
+  Its backoff doubles to a fixed 30-second cap, with no jitter, and does not read
+  `listen.reconnect-max-delay-ms`.
+- No component checks `/writer` eligibility or `peegeeq.node_id` before or after `LISTEN`.
 
 **Probe (R-7).** Run every `listen.probe-interval-ms` without overlapping probes. The total
 `listen.probe-timeout-ms` covers SQL identity and role plus the HTTP eligibility request.
@@ -1050,9 +1098,10 @@ limits; independent request deadlines are not an end-to-end performance guarante
   deadlines. Validate positive values, probe timeout below probe interval, connect timeout
   no greater than initialization timeout, and replay poll interval below catch-up timeout.
 - A health check is bounded by `peegeeq.health.timeout`.
-- `peegeeq.database.operation-timeout-ms` bounds the full call, including acquisition,
-  statements, and commit. `peegeeq.database.statement-timeout-ms` bounds server execution and
-  must be shorter than the operation deadline.
+- Target (proposed keys, not read by code): `peegeeq.database.operation-timeout-ms` bounds the
+  full call, including acquisition, statements, and commit.
+  `peegeeq.database.statement-timeout-ms` bounds server execution and must be shorter than the
+  operation deadline.
 - An expired client deadline stops reuse of the connection, attempts cancellation and cleanup,
   and observes their outcomes. It does not imply that a transaction rolled back. Server-side
   statement limits do not bound a frozen server or a lost network response.
@@ -1062,6 +1111,21 @@ limits; independent request deadlines are not an end-to-end performance guarante
 ---
 
 ## 7. Health Reporting
+
+**Current state (2026-11-21).** Most of this section is target, not built:
+
+- `/health/live` and `/health/ready` do not exist.
+- `/health` in `PeeGeeQRestServer` returns a static `{"status":"UP","service":"peegeeq-rest-api"}`.
+  It runs no check.
+- `/api/v1/setups/:setupId/health` exists. `HealthHandler` returns the setup's overall health
+  with 200 or 503, 404 for an unknown setup, and 500 when the health call fails.
+- `HealthCheckManager` registers `database`, `outbox-queue`, `native-queue`, `dead-letter-queue`,
+  `memory`, and `disk-space`. There is no `listen` check. The `database` check runs `SELECT 1`
+  only.
+- The three queue checks run under the `database` breaker, so their failures count toward
+  opening it.
+
+The table and rules below are the target.
 
 | Route | Meaning | Response |
 |---|---|---|
@@ -1081,8 +1145,9 @@ checks are:
 - **memory** and **disk-space**.
 
 The queue checks (outbox backlog, native queue, dead-letter rate) report a status of their own.
-They are not bracketed by the `database` breaker and do not count toward opening it. A backlog
-is a workload condition, not a database failure.
+Target: they are not bracketed by the `database` breaker and do not count toward opening it. A
+backlog is a workload condition, not a database failure. Today `HealthCheckManager` runs all
+three under the `database` breaker.
 
 `HealthCheckManager` runs a cycle on its timer (`peegeeq.health.check-interval`) and on demand
 when a readiness request arrives and no cycle is in flight.
@@ -1119,7 +1184,7 @@ both pool modes, new connections, active transactions, idle sessions, and LISTEN
 | Pool mode | Pooled operations | LISTEN connections |
 |---|---|---|
 | Session | Supported. | Supported through PgBouncer. |
-| Transaction | Supported. The schema is applied as transaction-local state on every call (§6.3). | Not possible through PgBouncer. `LISTEN` needs a session. Set `peegeeq.database.listen.host` and `.port` to the HAProxy endpoint so LISTEN connections bypass PgBouncer. |
+| Transaction | Supported. The schema is applied as transaction-local state on every call (§6.3). | Not possible through PgBouncer. `LISTEN` needs a session. Target: set `peegeeq.database.listen.host` and `.port` to the HAProxy endpoint so LISTEN connections bypass PgBouncer. No code reads these keys today. |
 
 Native PgBouncer configuration fragment for transaction mode. This is an INI fragment, not
 container-specific environment-variable mapping:
@@ -1156,6 +1221,9 @@ verification described in §9.4.
 
 ### 9.1 Contract
 
+This contract is target. Today only `GET /primary` is built, and it checks `pg_is_in_recovery()`
+only ([sidecar guide, Current State](PEEGEEQ_PG_SIDECAR.md#current-state-2026-11-21)).
+
 ```text
 GET /primary
   200: writable local role, OPEN matching local grant, current lease, watchdog state under the selected mode, synchronous coverage
@@ -1187,21 +1255,8 @@ never modifies authority or performs node-control actions.
 
 ### 9.2 Configuration
 
-The sidecar reads JVM system properties.
-
-| Property | Default | Description |
-|---|---|---|
-| `pg.host` | `localhost` | Address of the local PostgreSQL node |
-| `pg.port` | `5432` | PostgreSQL port |
-| `pg.database` | `postgres` | Database to connect to |
-| `pg.user` | `haproxy_check` | PostgreSQL role |
-| `pg.password` | deployment secret | Non-empty secret or explicit secure local authentication |
-| `pg.query-timeout-ms` | `1000` | End-to-end eligibility request deadline |
-| `http.port` | `8008` | HTTP listen port |
-| `pg.sidecar.mode` | required | Explicit automatic or manual takeover initiation |
-| `peegeeq.pg.cluster-id`, `peegeeq.pg.cluster-incarnation` | required | Supervisor namespace |
-| `peegeeq.pg.node-id` | required | Independent node-local identity |
-| `peegeeq.pg.coordinator.type` | required | Same coordinator adapter as the supervisor; the sidecar uses the port's read only |
+[The sidecar guide §4](PEEGEEQ_PG_SIDECAR.md#4-configuration) owns the sidecar configuration
+keys and states which of them the built launcher reads. This document keeps no second table.
 
 ### 9.3 PostgreSQL role
 
@@ -1215,7 +1270,8 @@ from `PUBLIC` as a sidecar-specific restriction. The role cannot promote or muta
 
 The target packaging provides a runnable jar and a verified GraalVM native artifact. Native
 argument parsing, artifact names, image compatibility, and configuration require release
-validation. JVM-style `-D` properties are the explicit configuration contract. A runnable
+validation. The built launcher reads JVM `-D` system properties; this conflicts with the
+project rule that configuration is explicit and instance-scoped (defect D8). A runnable
 example requires the selected admission integration, explicit mode and identities, and
 verified loader bindings. The sidecar guide owns those packaging and configuration steps.
 
@@ -1253,14 +1309,14 @@ separately. Every dependency failure must remain visible.
 | S13 | Write interrupted around commit | A confirmed commit survives eligible promotion. A lost acknowledgement reports unknown outcome and is reconciled by operation identity. No automatic transaction retry. |
 | S14 | Read-only error | A required writer operation discards its connection and reconciles eligibility. Deliberately read-only business operations do not prove node demotion or open the availability breaker. |
 | S15 | Old primary is partitioned from quorum but reachable by applications | Local renewal fails, admission closes, and self-demotion/watchdog excludes old writes before safe lease handover. Surviving standby takes over without a failed-host stop reply. |
-| S16 | Two controllers | Only current generations authorise effects. Obsolete commands are rejected at the node-control boundary. Retries do not authorise a second writer. |
+| S16 | Two supervisors attempt to hold the writer lease | Only the current lease generation authorises effects. A supervisor whose ownership is obsolete has its local effects rejected at its own admission boundary. Retries do not authorise a second writer. |
 | S17 | One of three coordinator servers fails | Quorum permits current authority and real failure handling. No promotion follows merely from server loss. |
 | S18 | Coordinator quorum or writer connectivity is lost with healthy PostgreSQL | Writer unable to renew self-demotes; an active watchdog covers supervisor failure. Sidecars deny unverified authority. No standby promotes without quorum ownership. Reconcile on return. |
 | S19 | Writer supervisor dies while PostgreSQL remains healthy | With an active watchdog, it excludes the orphan writer before safe lease handover. Without one, no exclusion is claimed and the case is reported as unprotected. Restart loads no open grant as authority. Sidecar/observer death alone does not cause promotion. |
 | S20 | Local stop or watchdog operation throws, rejects, or returns malformed/null evidence | Failure is visible. In `required` mode an unsafe watchdog blocks writer admission; in `automatic` mode it is reported. Uncertain local stop keeps an active watchdog armed. No fabricated exclusion evidence. |
 | S21 | Local stop completes but response is lost | Inspect local process and action. Do not voluntarily release ownership before confirmed exclusion. Unreachable-host takeover uses qualified expiry, not a guessed stop result. |
 | S22 | Promotion completes but response is lost | Reconcile local role, action receipt, ownership/watchdog, and replay before publishing authority. |
-| S23 | Old controller response or command arrives after ownership change | It cannot promote, release a fence, or publish serving authority. |
+| S23 | A coordinator reply or local action result reaches a supervisor after its ownership changed | The late result cannot promote, release a fence, or publish serving authority. |
 | S24 | Local supervisor restarts in each transition state | Control-record intent and local receipts/quarantine prevent unsafe replay. Loaded grants start closed; a fresh lease and the selected watchdog mode are required. |
 | S25 | Required synchronous standby is lost | Writes block or fail within the operation deadline. No automatic asynchronous downgrade. |
 | S26 | Pool acquisition, statement, commit, cancellation, or close fails | Assert specific failure and unknown outcome where appropriate. Cleanup failure remains observable. |
@@ -1309,7 +1365,13 @@ development. It has no sidecar and no failover monitor, and is not a model of pr
 
 ### 11.2 Failover stack (profiles A and B)
 
-`scripts/local-infra/docker-compose-failover-replication.yml` runs:
+**Status (2026-11-21).** This stack is to be built in phase 14 (implementation plan §8,
+"Build target stacks and runbook"). The file
+`scripts/local-infra/docker-compose-failover-replication.yml` does not exist. The only failover
+Compose file in `scripts/local-infra/` is `docker-compose-failover-local.yml`, the profile D
+stack in §11.1.
+
+The target `scripts/local-infra/docker-compose-failover-replication.yml` runs:
 
 - `pg-node-1` as primary and `pg-node-2` and `pg-node-3` as synchronous physical standbys,
   with rewind prerequisites and the explicit acknowledgement policy in §5.8;
@@ -1327,8 +1389,12 @@ This is a target stack definition, not a claim that the Compose file implements 
 
 ### 11.3 Scenario runbook
 
-`scripts/local-infra/FAILOVER-SCENARIOS.md` gives, for each scenario in §10, the fault command,
-the observation command, and the required result. Faults are injected with Docker:
+**Status (2026-11-21).** The runbook is to be built in phase 14. The file
+`scripts/local-infra/FAILOVER-SCENARIOS.md` does not exist.
+
+The target `scripts/local-infra/FAILOVER-SCENARIOS.md` gives, for each scenario in §10, the
+fault command, the observation command, and the required result. Faults are injected with
+Docker:
 
 | Fault | Command |
 |---|---|
@@ -1395,8 +1461,10 @@ not establish fencing. The complete comparison is in
 
 PeeGeeQ implements the Patroni control model without requiring the Patroni product.
 A coordinator does not stop a database; local process control does.
-The selected per-node PeeGeeQ supervisor has its own lifecycle and module. Implement and verify the common supervisor/lease/watchdog boundary with operator initiation in B.
-Then enable and qualify autonomous initiation in A. No remote fencing service is selected.
+The selected per-node PeeGeeQ supervisor has its own lifecycle and module. The common
+supervisor/lease/watchdog boundary is built as tested components. Automatic-mode candidate
+ranking (`PgCandidacy`, `PgTakeover.requirePreferred`) was built before manual mode; the
+authenticated operator entry point for B is not built. No remote fencing service is selected.
 
 ## Appendix B: The JDBC Multi-Host Pattern
 

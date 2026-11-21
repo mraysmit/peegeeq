@@ -2,9 +2,12 @@
 
 **Status:** CURRENT ARCHITECTURE REFERENCE
 **Last reconciled:** 2026-10-06 against commit `f1c5d25d`
+**Corrected:** 2026-11-21 against `0ffaafb6`: Playwright global setup is `src/tests/global-setup-testcontainers.ts`; backend Java and root `pom.xml` line numbers replaced with method and element names.
 
-Every file, route, class, and script named below was confirmed to exist at that commit. Line
-references point at the files as they were at that commit; re-check them after later edits.
+Every file, route, class, and script named below was confirmed to exist at that commit. Backend
+references name the class and method, not a line. The line references into frontend files point at
+those files as they were at `f1c5d25d` and were not re-checked on 2026-11-21; re-check them after
+later edits.
 
 ## Contents
 
@@ -53,12 +56,13 @@ message. Every API the UI calls for display must be read-only against the queue.
 
 This constraint is implemented in the code:
 
-- Message listing: `ManagementApiHandler.getRealMessages` (`peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/ManagementApiHandler.java` L1035-1076) calls
+- Message listing: the private method `ManagementApiHandler.getRealMessages`
+  (`peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/ManagementApiHandler.java`) calls
   `queueFactory.createBrowser(queueName, Object.class)` and then `browser.browse(limit, offset)`.
   No consumer is created.
-- Live stream: `ServerSentEventsHandler.handleQueueMessageStream`
-  (`peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/ServerSentEventsHandler.java`
-  L49-55) is documented as a non-destructive stream backed by `QueueBrowser.tail(...)`, a plain
+- Live stream: the Javadoc of `ServerSentEventsHandler.handleQueueMessageStream`
+  (`peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/ServerSentEventsHandler.java`)
+  documents a non-destructive stream backed by `QueueBrowser.tail(...)`, a plain
   `SELECT` that observes new rows and pushes them over SSE. The browser is closed when the client
   disconnects.
 - UI side: `peegeeq-management-ui/src/pages/MessageBrowser.tsx` L166-169 states that live mode is
@@ -73,7 +77,9 @@ rule and must be covered by a Playwright contract such as
 
 No UI feature ships against mock data. If an endpoint does not exist, the backend is implemented
 first. Playwright end-to-end tests run against a real `peegeeq-rest` server and a Testcontainers
-PostgreSQL instance; see `src/tests/global-setup.ts`.
+PostgreSQL instance; see `src/tests/global-setup-testcontainers.ts`, which `playwright.config.ts`
+names as `globalSetup`. The file `src/tests/global-setup.ts` also exists, but the Playwright
+configuration does not use it.
 
 ### 3. Operational clarity
 
@@ -105,7 +111,7 @@ Principles:
 3. `peegeeq-rest` depends only on `peegeeq-api` and `peegeeq-runtime`.
 4. Each layer depends only on the layer below it.
 
-Full call-propagation detail: `docs-design/peegeeq-call-propagation/PEEGEEQ_CALL_PROPAGATION_GUIDE.md`.
+Full call-propagation detail: `docs-design/analysis/PEEGEEQ_CALL_PROPAGATION_GUIDE.md`.
 
 ## Deployment models
 
@@ -123,7 +129,7 @@ Full call-propagation detail: `docs-design/peegeeq-call-propagation/PEEGEEQ_CALL
 - `npm run build` writes static files to `../peegeeq-rest/src/main/resources/webroot`
   (`vite.config.ts` L32).
 - `peegeeq-rest` serves them at `/ui/*` and redirects `/` to `/ui/`
-  (`PeeGeeQRestServer.java` L532-533).
+  (`PeeGeeQRestServer.createRouter`).
 - Same origin; CORS is not needed for the bundled UI.
 
 ### Known port inconsistency in the code
@@ -157,7 +163,7 @@ fixed by this document.
 
 | Technology | Purpose |
 |---|---|
-| Java 25 (root `pom.xml` L75-77, `maven.compiler.release` 25) | Runtime |
+| Java 27 (root `pom.xml` property `maven.compiler.release` 27) | Runtime |
 | Vert.x | HTTP server, router, SSE, WebSocket |
 | Jackson | JSON serialization |
 | PeeGeeQ core modules | Queue, outbox, and event-store engines |
@@ -330,18 +336,19 @@ There is no theme or user-preference context.
 
 ## REST and streaming reference
 
-Source of truth: `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/PeeGeeQRestServer.java`
-L349-543 (routes) and L202-221 (`routeWebSocket`). Only registered routes are listed. Paths are
+Source of truth: `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/PeeGeeQRestServer.java`,
+method `createRouter` (routes) and method `routeWebSocket` (WebSocket paths). Only registered
+routes are listed. Paths are
 relative to the server root. "UI caller" names the module that issues the call.
 
 ### Health
 
 | Method | Path | Handler | UI caller |
 |---|---|---|---|
-| GET | `/api/v1/health` | inline (L349) | `Settings.tsx`, `ConnectionStatus.tsx` |
-| GET | `/api/v1/sse/health` | inline (L362) | `ConnectionStatus.tsx`, `configService.ts` |
-| GET | `/health` | inline (L536) | none |
-| GET | `/metrics` | inline (L543) | none |
+| GET | `/api/v1/health` | inline in `createRouter` | `Settings.tsx`, `ConnectionStatus.tsx` |
+| GET | `/api/v1/sse/health` | inline in `createRouter` | `ConnectionStatus.tsx`, `configService.ts` |
+| GET | `/health` | inline in `createRouter` | none |
+| GET | `/metrics` | inline in `createRouter` | none |
 
 ### Database setups
 
@@ -428,7 +435,7 @@ Queue-scoped routes (no page calls these; `PeeGeeQClient` defines methods for so
 | POST/GET/DELETE | `/api/v1/consumer-groups/:setupId/:queueName/:groupName/subscription` | `consumerGroupHandler::*SubscriptionOptions` |
 
 Subscription lifecycle, backfill, and partitioned-consumption routes under
-`/api/v1/setups/:setupId/subscriptions/:topic/...` (L497-516) are registered. `PeeGeeQClient`
+`/api/v1/setups/:setupId/subscriptions/:topic/...` (handlers in `SubscriptionHandler`) are registered. `PeeGeeQClient`
 defines methods for list, get, pause, resume, heartbeat, and cancel; no page calls them.
 
 ### Event stores
@@ -454,24 +461,25 @@ There is no `GET /api/v1/management/event-stores/:storeId` detail route.
 
 ### Dead-letter, health, telemetry, alerts, webhooks
 
-Routes under `/api/v1/setups/:setupId/deadletter/...` (L489-494),
-`/api/v1/setups/:setupId/health[...]` (L527-529), `/api/v1/setups/:setupId/db-telemetry` (L519),
-`/api/v1/setups/:setupId/consumer-alerts/...` (L522-524), and the webhook-subscription routes
-(L414-417) are registered. `DEAD_LETTER_ENDPOINTS`, `HEALTH_ENDPOINTS`, and `WEBHOOK_ENDPOINTS`
+Routes under `/api/v1/setups/:setupId/deadletter/...` (`DeadLetterHandler`),
+`/api/v1/setups/:setupId/health[...]` (`HealthHandler`), `/api/v1/setups/:setupId/db-telemetry`
+(`DatabaseTelemetryHandler`), `/api/v1/setups/:setupId/consumer-alerts/...`
+(`ConsumerAlertHandler`), and the webhook-subscription routes (`WebhookSubscriptionHandler`) are
+registered in `PeeGeeQRestServer.createRouter`. `DEAD_LETTER_ENDPOINTS`, `HEALTH_ENDPOINTS`, and `WEBHOOK_ENDPOINTS`
 in `endpoints.ts` cover the dead-letter, health, and webhook routes.
 
 ### Server-Sent Events
 
 | Path | Handler | UI caller |
 |---|---|---|
-| `/api/v1/sse/health` | inline (L362) | `ConnectionStatus.tsx`, `configService.ts`, `Settings.tsx` |
+| `/api/v1/sse/health` | inline in `createRouter` | `ConnectionStatus.tsx`, `configService.ts`, `Settings.tsx` |
 | `/api/v1/sse/metrics` | `monitoringHandler::handleSSEMetrics` | `websocketService.ts` L267, `Overview.tsx` |
 | `/sse/metrics` | `monitoringHandler::handleSSEMetrics` (legacy unversioned) | none |
 | `/api/v1/sse/queues/:setupId` | `sseHandler::handleQueueUpdates` (`event: queue-changed`) | `websocketService.ts` L286, `useRealTimeUpdates.ts` L170 |
 | `/api/v1/queues/:setupId/:queueName/messages/stream` | `sseHandler::handleQueueMessageStream` (non-destructive tail) | `MessageBrowser.tsx` L190 |
 | `/api/v1/queues/:setupId/:queueName/stats/stream` | `sseHandler::handleQueueStatsStream` | `QueueDetailsEnhanced.tsx` |
 
-### WebSocket (`PeeGeeQRestServer.routeWebSocket`, L202-221)
+### WebSocket (`PeeGeeQRestServer.routeWebSocket`)
 
 | Path | Behaviour | UI caller |
 |---|---|---|
@@ -485,10 +493,11 @@ Current state at `f1c5d25d`:
 
 - No authentication or authorization exists in `peegeeq-rest` or the UI. The header's user menu
   shows a static label and a no-op logout.
-- CORS: `PeeGeeQRestServer.java` L149-161 requires a non-empty `allowedOrigins` list and installs
-  a `CorsHandler` (L317, L592). `rest-server.json` L3-12 lists localhost and 127.0.0.1 origins on
-  ports 3000, 3001, 5173, and 8088. A single `*` entry is handled separately at L155; its exact
-  effect was not verified for this document.
+- CORS: `PeeGeeQRestServer.validateCorsConfiguration` requires a non-empty `allowedOrigins` list.
+  `PeeGeeQRestServer.createRouter` installs the `CorsHandler` that `createCorsHandler` builds.
+  `rest-server.json` L3-12 lists localhost and 127.0.0.1 origins on ports 3000, 3001, 5173, and
+  8088. `validateCorsConfiguration` handles a single `*` entry separately; its exact effect was
+  not verified for this document.
 - Credentials entered in the Database Setups form are sent to the backend and are not masked in
   transit; use HTTPS in front of `peegeeq-rest` outside a trusted network.
 
@@ -504,9 +513,9 @@ cd peegeeq-rest
 mvn exec:java -Dexec.mainClass="dev.mars.peegeeq.rest.StartRestServer"
 ```
 
-`StartRestServer.main` (`peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/StartRestServer.java`
-L82) ignores command-line arguments. The port comes from `conf/rest-server.json` (8088), overridden
-by environment variables and then system properties (L87-104).
+`StartRestServer.main` (`peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/StartRestServer.java`)
+ignores command-line arguments. The port comes from `conf/rest-server.json` (8088), overridden
+by environment variables and then system properties (the `ConfigRetriever` stores built in `main`).
 
 ### Start the frontend
 
@@ -547,7 +556,7 @@ There is no `format` script. The Playwright inventory guard
 - `peegeeq-management-ui/docs/PEEGEEQ_MANAGMENT_UI_TESTING_GUIDE.md` — testing approach
 - `peegeeq-management-ui/docs/tasks/MANAGEMENT_UI_ENHANCEMENTS-14-Jun-2026.md` — functionality inventory, screenshots, stub catalogue
 - `peegeeq-management-ui/docs/archive/IMPLEMENTATION_PLAN.md` — original plan (archived)
-- `docs-design/peegeeq-call-propagation/PEEGEEQ_CALL_PROPAGATION_GUIDE.md` — layer call propagation
+- `docs-design/analysis/PEEGEEQ_CALL_PROPAGATION_GUIDE.md` — layer call propagation
 - `docs-design/testing/PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md` — test standards
 - `docs-design/tasks/tasks.md` — live task register
 

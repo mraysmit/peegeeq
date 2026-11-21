@@ -3,11 +3,16 @@
 **Author**: Mark Andrew Ray-Smith Cityline Ltd
 **Created**: 2026-07-18
 **Status**: PROPOSED — NOT IMPLEMENTED; reconciled 2026-08-26
+**Version**: 0.1
+**Corrected:** 2026-11-21 against `0ffaafb6`: required a Flyway migration for the new table,
+changed the compatibility check to POST, recorded that the UI placeholder page is not routed,
+moved the version line into the header.
 
 No schema-registry service, persistence layer, REST API, or automated registry tests were
 found in the current repository. `peegeeq-management-ui/src/pages/SchemaRegistry.tsx` is an
-explicit “coming soon” placeholder. The remainder of this document is design backlog.
-**Version**: 0.1
+explicit “coming soon” placeholder. No file imports it and no route renders it, so the page
+cannot be reached in the UI. `Header.tsx` has a page-title entry for `/schema-registry`, but no
+route uses that path. The remainder of this document is design backlog.
 
 ---
 
@@ -69,6 +74,13 @@ One new table in the setup's PostgreSQL schema, created by the base schema-templ
 (a new `10c-schema-registry.sql` appended to the base `.manifest`, so
 `resolveRequiredTables` includes it in `validateDatabaseInfrastructure` — the same pattern as
 `10a-setup-object-registry.sql` and `10b-setup-metadata.sql`).
+
+The template alone is not enough. A schema created or upgraded by Flyway does not run the base
+templates, so the table also needs a versioned Flyway migration under
+`peegeeq-migrations/src/main/resources/db/migration/`. The
+[schema configuration design](PEEGEEQ_SCHEMA_CONFIGURATION_DESIGN.md) §5 requires both paths for
+every schema change. The two tables named above as the pattern do not yet have a migration; that
+gap is defect D7 in the [task register](../tasks/tasks.md) and must not be copied.
 
 ```sql
 CREATE TABLE IF NOT EXISTS peegeeq_schema_registry (
@@ -170,7 +182,7 @@ The Avro library dependency (`org.apache.avro:avro`) is confined to `peegeeq-db`
 | `POST /api/v1/setups/{setupId}/schemas/{subject}/versions` | Register. Body: `{ schema, compatibilityMode }`. | 201 new / 200 idempotent / 400 parse / 409 incompatible / 404 setup |
 | `GET /api/v1/setups/{setupId}/schemas/{subject}/versions` | List versions. | 200 / 404 |
 | `GET /api/v1/setups/{setupId}/schemas/{subject}/versions/{version}` | One version (`latest` accepted). | 200 / 404 |
-| `GET /api/v1/setups/{setupId}/schemas/{subject}/compatibility` | Dry-run check. Body: `{ schema }`. | 200 with `{ compatible, messages[] }` |
+| `POST /api/v1/setups/{setupId}/schemas/{subject}/compatibility` | Dry-run check. Body: `{ schema }`. Writes nothing; POST is used because the request carries a body. | 200 with `{ compatible, messages[] }` |
 | `GET /api/v1/setups/{setupId}/schemas` | List subjects. | 200 |
 | `GET /api/v1/setups/{setupId}/schemas/ids/{fingerprint}` | Resolve a message's schema reference. | 200 / 404 |
 
@@ -225,7 +237,7 @@ REST layer: status mapping per §9, exercised against a real server (the
 | Phase | Scope | Verification |
 |---|---|---|
 | SR.1 | This design, reviewed. | User review. |
-| SR.2 | `10c-schema-registry.sql` + manifest; table present in create and validated on connect. | Runtime IT: table exists after create; `connectToExistingSetup` passes validation. |
+| SR.2 | `10c-schema-registry.sql` + manifest, and the matching Flyway migration; table present in create and validated on connect. | Runtime IT: table exists after create; `connectToExistingSetup` passes validation. Migration IT: table exists after Flyway migration. |
 | SR.3 | `SchemaRegistryService` in api/db/runtime + compatibility enforcement (Avro validator). | §13 tests 1–5, 7, 8. |
 | SR.4 | REST surface + handler. | §13 REST tests, incl. 6. |
 | SR.5 | Event-store adoption: schema-reference headers on publish, resolve on subscribe. | IT: produce/consume round-trip with schema headers; unregistered topic unchanged. |

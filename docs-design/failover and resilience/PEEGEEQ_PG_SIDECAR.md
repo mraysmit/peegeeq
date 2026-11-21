@@ -3,6 +3,27 @@
 **Author**: Mark A Ray-Smith Cityline Ltd.  
 **Design revision**: 2026-10-08, Patroni-style local supervision, coordinator port, optional watchdog
 **Module**: `peegeeq-pg-sidecar`
+**Corrected:** 2026-11-21 against `0ffaafb6`: added current state, replaced the central-controller wording, marked configuration keys as built or target.
+
+## Current State (2026-11-21)
+
+Only a role check is built. The rest of this guide is target, not built.
+
+- `PgPrimaryCheckVerticle` serves `GET /primary`. It runs `SELECT pg_is_in_recovery()` on a pool
+  of two connections. It returns 200 `primary` when the result is false, 503 `replica` when it
+  is true, and 503 `unavailable: <cause>` when the query fails. Every other path returns 404.
+- `PgPrimaryCheckMain` reads `pg.host`, `pg.port`, `pg.database`, `pg.user`, `pg.password`, and
+  `http.port` from JVM system properties. This conflicts with the project rule that
+  configuration is explicit and instance-scoped. It is open defect D8 in
+  [the task register](../tasks/tasks.md).
+- Stop fails when the pool close fails (commit `8b96af9a`).
+- Tests: `PgPrimaryCheckIntegrationTest` (standalone primary 200, unreachable database 503,
+  unknown paths 404, concurrent requests), `PgPrimaryCheckReplicaIntegrationTest` (standby 503),
+  and `PgPrimaryCheckLifecycleTest` (undeploy and redeploy on the same port).
+
+Not built: `GET /writer`, authentication, the coordinator read, the grant, watchdog, and
+coverage checks, the `peegeeq.node_id` match, the mode and identity keys, the request deadline
+(`pg.query-timeout-ms`), and `Cache-Control: no-store`.
 
 ## 1. Purpose and Scope
 
@@ -197,34 +218,37 @@ also redundant. The system design §8 owns that topology.
 ## 4. Configuration
 
 These are target contracts. New properties require loader, default, contract-test, and
-configuration-guide changes before they are described as shipped.
+configuration-guide changes before they are described as shipped. The Built column states
+whether `PgPrimaryCheckMain` reads the key today.
 
-| Property | Default | Contract |
-|---|---|---|
-| `pg.host`, `pg.port` | `localhost`, `5432` | Local database endpoint |
-| `pg.database`, `pg.user` | `postgres`, `haproxy_check` | Least-privilege observation |
-| `pg.password` | deployment secret | Authentication appropriate to the deployment |
-| `pg.query-timeout-ms` | `1000` | Bounds the complete eligibility request, not just SQL execution |
-| `http.port` | `8008` | Production check port; tests request an available port |
-| `pg.sidecar.mode` | required | `automatic` or `manual`; no implicit fallback |
-| `peegeeq.pg.cluster-id`, `peegeeq.pg.cluster-incarnation` | required | Same deployment namespace as the controller |
-| `peegeeq.pg.node-id` | required | Stable node-local identity, not PostgreSQL system identifier |
-| `peegeeq.pg.coordinator.type` | required | Same coordinator adapter as the supervisor. The sidecar uses the port's read only |
-| `peegeeq.pg.node-control.provider` | `local-supervisor` | Local grant, quarantine, safe lease, and watchdog observation integration |
+| Property | Built | Default | Contract |
+|---|---|---|---|
+| `pg.host`, `pg.port` | yes | `localhost`, `5432` | Local database endpoint |
+| `pg.database`, `pg.user` | yes | `postgres`, `haproxy_check` | Least-privilege observation |
+| `pg.password` | yes; the built default is empty | deployment secret | Authentication appropriate to the deployment |
+| `pg.query-timeout-ms` | no | `1000` | Bounds the complete eligibility request, not just SQL execution |
+| `http.port` | yes | `8008` | Production check port; tests request an available port |
+| `pg.sidecar.mode` | no | required | `automatic` or `manual`; no implicit fallback |
+| `peegeeq.pg.cluster-id`, `peegeeq.pg.cluster-incarnation` | no | required | Same deployment namespace as the node's supervisor |
+| `peegeeq.pg.node-id` | no | required | Stable node-local identity, not PostgreSQL system identifier |
+| `peegeeq.pg.coordinator.type` | no | required | Same coordinator adapter as the supervisor. The sidecar uses the port's read only |
+| `peegeeq.pg.node-control.provider` | no | `local-supervisor` | Local grant, quarantine, safe lease, and watchdog observation integration |
 
 Both modes require authenticated coordinator configuration, read-only local supervisor observation,
 and configured endpoint/TLS bindings. G-1 qualifies the local lifecycle and, where claimed, the independent watchdog.
 G-2 qualifies admission and observations. The same protocol is implemented for Linux hosts/VMs,
 Docker hosts, and Kubernetes; no single production platform must be chosen first. Missing dependencies reject startup.
-The controller and sidecar use the same mode, namespace, and node-supervisor lease generation contract.
+Each node's supervisor and the sidecar beside it use the same mode, namespace, and
+node-supervisor lease generation contract. There is no central controller.
 G-7 qualifies the selected adapter's authority read and lease binding. The sidecar and the
 local supervisor use the same adapter. The sidecar cannot select a second authority or fall back between them.
 The client configuration keys and separate LISTEN deadlines are in the system design §6.2.
 The node-local database identity setting is a PostgreSQL deployment setting, not a copied
 application-table value. Verify it after rewind or rebuild.
 
-The runtime consumes explicit JVM-style `-D` properties unless a tested environment mapping
-is added. Docker `-e` does not automatically populate Java system properties or a native
+The built launcher reads JVM `-D` system properties (defect D8, see Current State). The project
+rule requires explicit instance-scoped configuration. How the launcher receives it is not yet
+designed. Docker `-e` does not automatically populate Java system properties or a native
 binary's configuration.
 
 ## 5. Build and Run

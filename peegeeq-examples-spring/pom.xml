@@ -26,7 +26,7 @@
     <description>Spring and Spring Boot integration examples for PeeGeeQ (standalone, not part of the core reactor)</description>
 
     <properties>
-        <java.version>25</java.version>
+        <java.version>27</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <!-- PeeGeeQ artifacts are consumed from the local repo (installed by the core reactor build). -->
         <peegeeq.version>1.0-SNAPSHOT</peegeeq.version>
@@ -212,6 +212,28 @@
 
     <build>
         <plugins>
+            <!-- Compile and fork tests on the JDK that ~/.m2/toolchains.xml registers for
+                 ${java.version}, as the core reactor does. This project does not inherit the
+                 core reactor's toolchain, so without this it compiles on the JDK that runs Maven. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-toolchains-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>toolchain</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <toolchains>
+                        <jdk>
+                            <version>${java.version}</version>
+                        </jdk>
+                    </toolchains>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>

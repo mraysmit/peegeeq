@@ -3,6 +3,7 @@
 **Author**: Mark A Ray-Smith Cityline Ltd.  
 **Document type**: Design rationale  
 **Design revision**: 2026-10-08, Patroni-style local supervision, coordinator port, optional watchdog
+**Corrected:** 2026-11-21 against `0ffaafb6`: implementation order (automatic ranking built first, manual entry point not built), commit enforcement status, central-controller wording.
 
 ## 1. Purpose and Scope
 
@@ -18,7 +19,7 @@ address, but the design must also decide when promotion is safe and what exclude
 writer. A reachable database, a writable database, and an authorised writer are different
 conditions. Selecting a routing check must account for those differences.
 
-For example, node 1 can lose contact with the controller while remaining reachable by
+For example, node 1 can lose contact with the coordinator while remaining reachable by
 applications. Promoting node 2 and directing new connections to it would leave conflicting
 writers unless node 1 is excluded before ownership transfers. That exclusion is **fencing**.
 The selected Patroni approach uses local lease-loss shutdown and optional independent watchdog protection.
@@ -54,8 +55,8 @@ design §5.10). Consul is the first adapter. Qraft is supported through its own 
 meets the port's obligations. Selecting a coordinator never makes lease ownership enforce itself at PostgreSQL.
 
 The system design names four deployment profiles. **A** uses automatic coordinator-backed
-failover. **B** uses operator-requested promotion through the same node-owned lease and watchdog-mode contracts
-and is the first implementation target. **C** uses an externally managed writer endpoint
+failover. **B** uses operator-requested promotion through the same node-owned lease and watchdog-mode contracts.
+**C** uses an externally managed writer endpoint
 whose operator must supply equivalent safety and durability evidence. **D** uses independent
 development databases for connection-recovery exercises. D does not qualify replicated-data
 failover. The Patroni control model is selected; the Patroni product is not required.
@@ -127,8 +128,13 @@ Both modes require consistent authority observations and local self-demotion. In
 watchdog enforcement is optional and adds protection for a supervisor that cannot act. A SQL-only monitor is insufficient. A lock is advisory and
 cannot stop PostgreSQL accepting writes. [Consul sessions](https://developer.hashicorp.com/consul/docs/automate/session)
 
-Manual mode is the first implementation target. Its operator requests a target, but that
-node must acquire the same writer lease and apply the same watchdog mode as automatic mode.
+Automatic-mode ranking was built before manual mode:
+`PgCandidacy` derives whether a covered standby is a preferred candidate, and
+`PgTakeover.requirePreferred` refuses a non-preferred candidate in automatic mode.
+`PgTakeover.acquire` accepts manual mode and skips the ranking, but the authenticated operator
+entry point that requests a manual takeover is not built. In manual mode the operator requests
+a target, but that node must acquire the same writer lease and apply the same watchdog mode as
+automatic mode.
 Both modes use local preparation, serving publication, and activation. Manual mode disables
 autonomous initiation; it does not substitute operator permission for lease ownership.
 The central provider and all-node generation barrier are removed.
@@ -197,9 +203,11 @@ passes and do not extend the finite recovery batch. Queue backlog remains a work
 
 First-start bootstrap requires verified stopped or standby-only provisioning, closed admission, guarded
 starts, initial synchronous policy confirmation, and prepare/publish/activate (S51). Missing
-coordination history alone is not bootstrap permission. Phase 7b.1 must verify the production
-manager's commit-policy enforcement before bootstrap or failover write-preservation assertions
-(S53). Full application-module migration remains phase 11.
+coordination history alone is not bootstrap permission. The production manager's
+commit-policy enforcement is built and tested: `PgConnectionManager` sets
+`synchronous_commit=on` at the commit boundary of every manager-owned transaction, and
+`PgConnectionManagerDurabilityIntegrationTest` covers it (S53). Calls that use a `Pool`
+directly bypass it; their migration to the manager remains phase 11.
 
 The initial 45-second recovery objective applies to the qualified three-node primary-crash
 case with a qualified local supervisor, the selected watchdog mode, eligible target, usable synchronous peer, specified backlog,
