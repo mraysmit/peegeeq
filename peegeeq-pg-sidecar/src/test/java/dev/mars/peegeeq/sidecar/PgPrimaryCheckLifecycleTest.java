@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.sidecar;
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.DeploymentOptions;
 import io.vertx.core.Vertx;
@@ -14,9 +15,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -41,10 +42,10 @@ class PgPrimaryCheckLifecycleTest {
 
     private static final Logger logger = LoggerFactory.getLogger(PgPrimaryCheckLifecycleTest.class);
 
-    @SuppressWarnings("resource")
+    // The sidecar connects with the HAProxy check role to the postgres maintenance database.
     @Container
-    static PostgreSQLContainer<?> postgres =
-            new PostgreSQLContainer<>(PgSidecarTestImageConstant.POSTGRES_IMAGE)
+    static PostgreSQLContainer postgres =
+            PostgreSQLTestConstants.createStandardContainer()
                     .withDatabaseName("postgres")
                     .withUsername("haproxy_check")
                     .withPassword("haproxy_check");
