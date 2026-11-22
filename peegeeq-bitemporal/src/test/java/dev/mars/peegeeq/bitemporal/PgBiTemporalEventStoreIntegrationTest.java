@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.bitemporal;
 
 import dev.mars.peegeeq.api.BiTemporalEvent;
+import dev.mars.peegeeq.db.EventStoreTestTables;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
@@ -84,125 +85,15 @@ class PgBiTemporalEventStoreIntegrationTest {
                 .property("peegeeq.migration.enabled", "true")
                 .property("peegeeq.migration.auto-migrate", "true")
                 .build();
-        createBiTemporalEventLogTable();
-        logger.info(" ReactiveNotificationHandler integration test setup completed");
-        testContext.completeNow();
-    }
-
-    /**
-     * Create the bitemporal_event_log table following the established pattern from migration scripts.
-     */
-    private void createBiTemporalEventLogTable() throws Exception {
-        logger.info("Creating bitemporal_event_log table using PeeGeeQTestSchemaInitializer...");
-
-        // Use the centralized schema initializer - following established patterns
+        // The centralized schema initializer creates bitemporal_event_log; the test_events
+        // store table comes from the production event-store templates.
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.BITEMPORAL);
-
-        logger.info("bitemporal_event_log table created successfully");
-        
-        // Also create test_events table for this specific test
-        logger.info("Creating test_events table for integration test...");
-        try (var conn = java.sql.DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
-             var stmt = conn.createStatement()) {
-            // Place the unqualified DDL below in the resolved schema so custom-schema
-            // runs see the same table the manager-driven store targets
-            stmt.execute("SET search_path TO " + PostgreSQLTestConstants.TEST_SCHEMA);
-            stmt.execute("""
-                CREATE TABLE IF NOT EXISTS test_events (
-                    event_id VARCHAR(255) PRIMARY KEY,
-                    event_type VARCHAR(255) NOT NULL,
-                    aggregate_id VARCHAR(255),
-                    correlation_id VARCHAR(255),
-                    causation_id VARCHAR(255),
-                    valid_time TIMESTAMPTZ NOT NULL,
-                    transaction_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    payload JSONB NOT NULL,
-                    headers JSONB NOT NULL DEFAULT '{}',
-                    version BIGINT NOT NULL DEFAULT 1,
-                    previous_version_id VARCHAR(255),
-                    is_correction BOOLEAN NOT NULL DEFAULT FALSE,
-                    correction_reason TEXT,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    CONSTRAINT test_events_version_check CHECK (
-                        (version = 1 AND previous_version_id IS NULL) OR
-                        (version > 1 AND previous_version_id IS NOT NULL)
-                    )
-                )
-                """);
-            
-            // Add indexes
-            stmt.execute("CREATE INDEX IF NOT EXISTS idx_test_events_event_type ON test_events(event_type)");
-            stmt.execute("CREATE INDEX IF NOT EXISTS idx_test_events_aggregate_id ON test_events(aggregate_id)");
-            
-            // Add notification trigger with schema-qualified channel names (matching V013 migration)
-            stmt.execute("""
-                CREATE OR REPLACE FUNCTION notify_test_events() RETURNS TRIGGER AS $$
-                DECLARE
-                    schema_name TEXT;
-                    table_name TEXT;
-                    channel_prefix TEXT;
-                    type_channel_name TEXT;
-                    type_base_name TEXT;
-                    hash_suffix TEXT;
-                BEGIN
-                    -- Get schema and table from trigger context
-                    schema_name := TG_TABLE_SCHEMA;
-                    table_name := TG_TABLE_NAME;
-                    
-                    -- Build channel prefix: {schema}_bitemporal_events_{table}
-                    channel_prefix := schema_name || '_bitemporal_events_' || table_name;
-                    
-                    -- Send general notification
-                    PERFORM pg_notify(
-                        channel_prefix,
-                        json_build_object(
-                            'event_id', NEW.event_id,
-                            'event_type', NEW.event_type,
-                            'aggregate_id', NEW.aggregate_id,
-                            'correlation_id', NEW.correlation_id,
-                            'causation_id', NEW.causation_id,
-                            'is_correction', NEW.is_correction,
-                            'transaction_time', extract(epoch from NEW.transaction_time)
-                        )::text
-                    );
-
-                    -- Send type-specific notification with truncation support
-                    type_base_name := channel_prefix || '_' || replace(NEW.event_type, '.', '_');
-                    IF length(type_base_name) > 63 THEN
-                        hash_suffix := '_' || substr(md5(type_base_name), 1, 8);
-                        type_channel_name := substr(type_base_name, 1, 63 - length(hash_suffix)) || hash_suffix;
-                    ELSE
-                        type_channel_name := type_base_name;
-                    END IF;
-                    
-                    PERFORM pg_notify(
-                        type_channel_name,
-                        json_build_object(
-                            'event_id', NEW.event_id,
-                            'event_type', NEW.event_type,
-                            'aggregate_id', NEW.aggregate_id,
-                            'correlation_id', NEW.correlation_id,
-                            'causation_id', NEW.causation_id,
-                            'is_correction', NEW.is_correction,
-                            'transaction_time', extract(epoch from NEW.transaction_time)
-                        )::text
-                    );
-
-                    RETURN NEW;
-                END;
-                $$ LANGUAGE plpgsql;
-                """);
-
-            stmt.execute("""
-                DROP TRIGGER IF EXISTS trigger_notify_test_events ON test_events;
-                CREATE TRIGGER trigger_notify_test_events
-                    AFTER INSERT ON test_events
-                    FOR EACH ROW
-                    EXECUTE FUNCTION notify_test_events();
-                """);
-            
-            logger.info("test_events table created successfully");
-        }
+        EventStoreTestTables.createIfMissing(vertx, postgres, PostgreSQLTestConstants.TEST_SCHEMA, "test_events")
+            .onSuccess(v -> {
+                logger.info(" ReactiveNotificationHandler integration test setup completed");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @Test
