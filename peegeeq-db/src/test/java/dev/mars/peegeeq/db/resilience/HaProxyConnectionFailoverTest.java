@@ -17,7 +17,6 @@ package dev.mars.peegeeq.db.resilience;
  */
 
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
-import dev.mars.peegeeq.db.PgTestImageConstant;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
@@ -55,6 +54,7 @@ import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import dev.mars.peegeeq.test.containers.TestContainerImages;
 import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
@@ -176,12 +176,12 @@ class HaProxyConnectionFailoverTest {
     @BeforeAll
     static void startInfrastructure() {
         long t0 = System.currentTimeMillis();
-        logger.info("=== Infrastructure startup BEGIN (image={}) ===", PgTestImageConstant.POSTGRES_IMAGE);
+        logger.info("=== Infrastructure startup BEGIN (image={}) ===", PostgreSQLTestConstants.POSTGRES_IMAGE);
 
         network = Network.newNetwork();
         logger.debug("[infra] Docker network created: id={}", network.getId());
 
-        primary = new PostgreSQLContainer(PgTestImageConstant.POSTGRES_IMAGE)
+        primary = PostgreSQLTestConstants.createStandardContainer()
             .withNetwork(network)
             .withNetworkAliases("pg_primary")
             .withDatabaseName(DB_NAME)
@@ -190,7 +190,7 @@ class HaProxyConnectionFailoverTest {
             // Creates the 'haproxy_check' user so HAProxy's pgsql-check can probe each node.
             .withInitScript("haproxy-check-init.sql");
 
-        secondary = new PostgreSQLContainer(PgTestImageConstant.POSTGRES_IMAGE)
+        secondary = PostgreSQLTestConstants.createStandardContainer()
             .withNetwork(network)
             .withNetworkAliases("pg_secondary")
             .withDatabaseName(DB_NAME)
@@ -216,7 +216,7 @@ class HaProxyConnectionFailoverTest {
         // Prepare the replacement primary for the failback test (Phase 5).
         // Uses the same alias so HAProxy re-discovers it without config changes.
         // Not started here  started mid-test in Phase 5.
-        primary2 = new PostgreSQLContainer(PgTestImageConstant.POSTGRES_IMAGE)
+        primary2 = PostgreSQLTestConstants.createStandardContainer()
             .withNetwork(network)
             .withNetworkAliases("pg_primary")
             .withDatabaseName(DB_NAME)
@@ -227,7 +227,7 @@ class HaProxyConnectionFailoverTest {
 
         // HAProxy is configured via haproxy-failover.cfg on the classpath.
         // It references pg_primary / pg_secondary by their Docker network aliases.
-        haproxy = new GenericContainer<>("haproxy:2.8-alpine")
+        haproxy = new GenericContainer<>(TestContainerImages.HAPROXY_IMAGE)
             .withNetwork(network)
             .withClasspathResourceMapping(
                 "haproxy-failover.cfg",
