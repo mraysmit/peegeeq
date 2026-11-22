@@ -1,4 +1,6 @@
 # PeeGeeQ Development Environment Setup Guide
+© Mark Andrew Ray-Smith Cityline Ltd 2025  
+Version 1.0
 
 This guide outlines the correct sequence for starting the dependent services required to run or test the PeeGeeQ Management UI.
 
