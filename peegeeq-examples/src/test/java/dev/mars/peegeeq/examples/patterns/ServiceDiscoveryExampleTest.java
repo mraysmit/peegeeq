@@ -18,6 +18,7 @@ package dev.mars.peegeeq.examples.patterns;
 
 import dev.mars.peegeeq.servicemanager.PeeGeeQServiceManager;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.containers.TestContainerImages;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.buffer.Buffer;
@@ -67,7 +68,7 @@ public class ServiceDiscoveryExampleTest {
     private static final int SERVICE_MANAGER_PORT = 9090;
 
     @Container
-    static ConsulContainer consul = new ConsulContainer("hashicorp/consul:1.15");
+    static ConsulContainer consul = new ConsulContainer(TestContainerImages.CONSUL_IMAGE);
 
     private Vertx vertxRef;
     private WebClient client;
