@@ -577,14 +577,6 @@ public class OutboxFactory implements QueueFactory {
         }
     }
 
-    private void assertNotEventLoopForBlocking(String operation, String guidance) {
-        io.vertx.core.Context context = io.vertx.core.Vertx.currentContext();
-        if (context != null && context.isEventLoopContext()) {
-            throw new IllegalStateException(
-                    "Do not call blocking " + operation + " on event-loop thread - " + guidance);
-        }
-    }
-
     /**
      * Gets the ObjectMapper used by this factory.
      *
