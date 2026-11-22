@@ -73,17 +73,7 @@ public class SubscriptionCreateAndBackfillIntegrationTest {
     private static final String BACKFILL_GROUP = "test-backfill-group";
 
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("peegeeq_create_backfill_test");
-        container.withUsername("peegeeq_test");
-        container.withPassword("peegeeq_test");
-        container.withSharedMemorySize(PostgreSQLTestConstants.DEFAULT_SHARED_MEMORY_SIZE);
-        container.withReuse(false);
-        return container;
-    }
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQRestServer server;
     private DatabaseSetupService setupService;
