@@ -81,6 +81,8 @@ import dev.mars.peegeeq.test.vertx.TestCleanup;
 @ExtendWith(VertxExtension.class)
 class ConsumerGroupResilienceTest {
     private static final Logger logger = LoggerFactory.getLogger(ConsumerGroupResilienceTest.class);
+    /** How long a test polls for its expected deliveries before it fails. */
+    private static final long POLL_TIMEOUT_MS = 10_000;
     static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
     private PeeGeeQManager manager;
@@ -187,38 +189,27 @@ class ConsumerGroupResilienceTest {
             createBackupHandler(recoveredCount, vertx),
             MessageFilter.acceptAll());
 
-        // Send only after the group's LISTEN registration has completed.
+        // Send only after the group's LISTEN registration has completed, then poll until a
+        // failure, a success and a backup delivery have all happened, or fail at the deadline.
         orderGroup.start()
-            .onSuccess(started -> testContext.verify(() -> {
+            .compose(started -> {
                 assertEquals(2, orderGroup.getActiveConsumerCount(),
                     "Both consumers should be active");
-
-                // Send test messages that will trigger failures
                 logger.info("INTENTIONAL FAILURE: Sending messages that will trigger consumer failures");
-                sendFailureTestMessages(testContext);
-
-                // Wait for processing and recovery using Vert.x periodic polling
-                vertx.setPeriodic(100, timerId -> {
-                    if (failedCount.get() > 0 && successfulCount.get() > 0 && recoveredCount.get() > 0) {
-                        vertx.cancelTimer(timerId);
-                        try {
-                            logger.info("Failure recovery results:");
-                            logger.info("  Successful processing: {}", successfulCount.get());
-                            logger.info("  Failed processing: {}", failedCount.get());
-                            logger.info("  Recovered by backup: {}", recoveredCount.get());
-
-                            assertTrue(failedCount.get() > 0, "Some failures should have occurred");
-                            assertTrue(successfulCount.get() > 0, "Some messages should have been processed successfully");
-                            assertTrue(recoveredCount.get() > 0, "Backup consumer should have processed messages");
-
-                            orderGroup.close()
-                                .onSuccess(v -> testContext.completeNow())
-                                .onFailure(testContext::failNow);
-                        } catch (Throwable t) {
-                            testContext.failNow(t);
-                        }
-                    }
-                });
+                return sendFailureTestMessages();
+            })
+            .compose(sent -> pollUntil(vertx,
+                () -> failedCount.get() > 0 && successfulCount.get() > 0 && recoveredCount.get() > 0,
+                System.currentTimeMillis() + POLL_TIMEOUT_MS,
+                "a failed delivery, a successful delivery and a backup delivery"))
+            .transform(TestCleanup.cleanup(() -> orderGroup.close()))
+            .onSuccess(v -> testContext.verify(() -> {
+                logger.info("Failure recovery results: successful={}, failed={}, recovered={}",
+                    successfulCount.get(), failedCount.get(), recoveredCount.get());
+                assertTrue(failedCount.get() > 0, "Some failures should have occurred");
+                assertTrue(successfulCount.get() > 0, "Some messages should have been processed successfully");
+                assertTrue(recoveredCount.get() > 0, "Backup consumer should have processed messages");
+                testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
 
@@ -248,31 +239,19 @@ class ConsumerGroupResilienceTest {
             createFilterTestHandler(processedCount, vertx), 
             createExceptionThrowingFilter(filteredCount));
         
-        // Send only after the group's LISTEN registration has completed.
+        // Send only after the group's LISTEN registration has completed, then poll until a
+        // message is processed, or fail at the deadline.
         testGroup.start()
-            .onSuccess(started -> {
-                sendFilterTestMessages(testContext);
-
-                // Wait for processing using Vert.x periodic polling
-                vertx.setPeriodic(100, timerId -> {
-                    if (processedCount.get() > 0) {
-                        vertx.cancelTimer(timerId);
-                        try {
-                            logger.info("Filter handling results:");
-                            logger.info("  Messages processed: {}", processedCount.get());
-                            logger.info("  Filter exceptions: {}", filteredCount.get());
-
-                            assertTrue(processedCount.get() > 0, "Some messages should be processed");
-
-                            testGroup.close()
-                                .onSuccess(v -> testContext.completeNow())
-                                .onFailure(testContext::failNow);
-                        } catch (Throwable th) {
-                            testContext.failNow(th);
-                        }
-                    }
-                });
-            })
+            .compose(started -> sendFilterTestMessages())
+            .compose(sent -> pollUntil(vertx, () -> processedCount.get() > 0,
+                System.currentTimeMillis() + POLL_TIMEOUT_MS, "a processed message"))
+            .transform(TestCleanup.cleanup(() -> testGroup.close()))
+            .onSuccess(v -> testContext.verify(() -> {
+                logger.info("Filter handling results: processed={}, filterExceptions={}",
+                    processedCount.get(), filteredCount.get());
+                assertTrue(processedCount.get() > 0, "Some messages should be processed");
+                testContext.completeNow();
+            }))
             .onFailure(testContext::failNow);
 
         testContext.awaitCompletion(15, TimeUnit.SECONDS);
@@ -298,36 +277,24 @@ class ConsumerGroupResilienceTest {
             createMonitoringHandler(processedCount, vertx), 
             MessageFilter.acceptAll());
         
-        // Send only after the group's LISTEN registration has completed.
+        // Send only after the group's LISTEN registration has completed, then poll until the
+        // member statistics show a processed message, or fail at the deadline. The group state
+        // is asserted before the group is closed.
         monitoringGroup.start()
-            .onSuccess(started -> {
-                sendMonitoringTestMessages(testContext);
-
-                // Wait for processing using Vert.x periodic polling
-                vertx.setPeriodic(100, timerId -> {
-                    if (member.getStats().getMessagesProcessed() > 0) {
-                        vertx.cancelTimer(timerId);
-                        try {
-                            assertTrue(monitoringGroup.isActive(), "Consumer group should be active");
-                            assertEquals(1, monitoringGroup.getActiveConsumerCount(), "One consumer should be active");
-                            assertTrue(member.isActive(), "Consumer member should be active");
-                            assertTrue(member.getStats().getMessagesProcessed() > 0, "Some messages should have been processed");
-
-                            logger.info("Monitoring statistics:");
-                            logger.info("  Group active: {}", monitoringGroup.isActive());
-                            logger.info("  Active consumers: {}", monitoringGroup.getActiveConsumerCount());
-                            logger.info("  Member processed count: {}", member.getStats().getMessagesProcessed());
-                            logger.info("  Total processed: {}", processedCount.get());
-
-                            monitoringGroup.close()
-                                .onSuccess(v -> testContext.completeNow())
-                                .onFailure(testContext::failNow);
-                        } catch (Throwable t) {
-                            testContext.failNow(t);
-                        }
-                    }
-                });
+            .compose(started -> sendMonitoringTestMessages())
+            .compose(sent -> pollUntil(vertx, () -> member.getStats().getMessagesProcessed() > 0,
+                System.currentTimeMillis() + POLL_TIMEOUT_MS, "a processed message in the member statistics"))
+            .compose(polled -> {
+                assertTrue(monitoringGroup.isActive(), "Consumer group should be active");
+                assertEquals(1, monitoringGroup.getActiveConsumerCount(), "One consumer should be active");
+                assertTrue(member.isActive(), "Consumer member should be active");
+                assertTrue(member.getStats().getMessagesProcessed() > 0, "Some messages should have been processed");
+                logger.info("Monitoring statistics: memberProcessed={}, totalProcessed={}",
+                    member.getStats().getMessagesProcessed(), processedCount.get());
+                return Future.<Void>succeededFuture();
             })
+            .transform(TestCleanup.cleanup(() -> monitoringGroup.close()))
+            .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
 
         testContext.awaitCompletion(15, TimeUnit.SECONDS);
@@ -444,11 +411,26 @@ class ConsumerGroupResilienceTest {
     }
 
     /**
-     * Sends messages that will trigger failures in the failing handler.
-     * Sends are issued as a chained {@link Future} sequence; any failure is reported
-     * to {@link VertxTestContext} via {@code failNow}.
+     * Polls {@code condition} every 100 ms. The Future succeeds when the condition holds and
+     * fails with an {@link AssertionError} naming {@code description} once {@code deadline}
+     * (epoch milliseconds) has passed.
      */
-    private void sendFailureTestMessages(VertxTestContext testContext) {
+    private static Future<Void> pollUntil(Vertx vertx, java.util.function.BooleanSupplier condition,
+                                          long deadline, String description) {
+        if (condition.getAsBoolean()) {
+            return Future.succeededFuture();
+        }
+        if (System.currentTimeMillis() >= deadline) {
+            return Future.failedFuture(new AssertionError("Timed out waiting for " + description));
+        }
+        return vertx.timer(100).compose(t -> pollUntil(vertx, condition, deadline, description));
+    }
+
+    /**
+     * Sends messages that will trigger failures in the failing handler, one after another.
+     * The returned Future fails with the first failed send.
+     */
+    private Future<Void> sendFailureTestMessages() {
         Future<Void> chain = Future.succeededFuture();
         for (int i = 1; i <= 20; i++) {
             final int idx = i;
@@ -463,14 +445,13 @@ class ConsumerGroupResilienceTest {
                 return producer.send(event, headers, "failure-test-" + idx, "US").mapEmpty();
             });
         }
-        chain.onSuccess(v -> logger.info("Sent 20 failure test messages"))
-             .onFailure(testContext::failNow);
+        return chain.onSuccess(v -> logger.info("Sent 20 failure test messages"));
     }
 
     /**
-     * Sends messages for filter testing.
+     * Sends messages for filter testing, one after another.
      */
-    private void sendFilterTestMessages(VertxTestContext testContext) {
+    private Future<Void> sendFilterTestMessages() {
         Future<Void> chain = Future.succeededFuture();
         for (int i = 1; i <= 10; i++) {
             final int idx = i;
@@ -486,14 +467,13 @@ class ConsumerGroupResilienceTest {
                 return producer.send(event, headers, "filter-test-" + idx, region).mapEmpty();
             });
         }
-        chain.onSuccess(v -> logger.info("Sent 10 filter test messages"))
-             .onFailure(testContext::failNow);
+        return chain.onSuccess(v -> logger.info("Sent 10 filter test messages"));
     }
 
     /**
-     * Sends messages for monitoring tests.
+     * Sends messages for monitoring tests, one after another.
      */
-    private void sendMonitoringTestMessages(VertxTestContext testContext) {
+    private Future<Void> sendMonitoringTestMessages() {
         Future<Void> chain = Future.succeededFuture();
         for (int i = 1; i <= 15; i++) {
             final int idx = i;
@@ -508,8 +488,7 @@ class ConsumerGroupResilienceTest {
                 return producer.send(event, headers, "monitoring-test-" + idx, "US").mapEmpty();
             });
         }
-        chain.onSuccess(v -> logger.info("Sent 15 monitoring test messages"))
-             .onFailure(testContext::failNow);
+        return chain.onSuccess(v -> logger.info("Sent 15 monitoring test messages"));
     }
 
     /**
