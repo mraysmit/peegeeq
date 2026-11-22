@@ -845,7 +845,7 @@ class EventSourcingCQRSDemoTest {
      */
     @Test
     @DisplayName("CQRS - Command Query Responsibility Segregation (per-account ordering via OFFSET_WATERMARK)")
-    void testCQRS(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testCQRS(VertxTestContext testContext) {
         logger.info("Test: c q r s");
         logger.info("Testing CQRS with OFFSET_WATERMARK partitioned event consumption");
 
@@ -856,12 +856,12 @@ class EventSourcingCQRSDemoTest {
 
         // Configure the event topic for OFFSET_WATERMARK so per-aggregate ordering is enforced.
         configureOffsetWatermarkTopic(eventQueue, eventGroupName)
-            .compose(cfg -> runCqrsScenario(vertx, testContext, commandQueue, eventQueue, eventGroupName))
+            .compose(cfg -> runCqrsScenario(testContext, commandQueue, eventQueue, eventGroupName))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
     }
 
-    private Future<Void> runCqrsScenario(Vertx vertx, VertxTestContext testContext,
+    private Future<Void> runCqrsScenario(VertxTestContext testContext,
                                           String commandQueue, String eventQueue, String eventGroupName) {
         Map<String, BankAccountAggregate> writeModel = new HashMap<>();
         Map<String, AccountReadModel> readModel = new HashMap<>();
@@ -872,8 +872,12 @@ class EventSourcingCQRSDemoTest {
         // It is the only completion signal. The test completes after the final assertions
         // and the graceful stop, so a failed assertion or a failed stop fails the test.
         Promise<Void> allDone = Promise.promise();
+        // A command or event beyond the expected 4 fails the test when it is counted.
         Runnable maybeAllDone = () -> {
-            if (commandsProcessed.get() >= 4 && eventsProcessed.get() >= 4) {
+            if (commandsProcessed.get() > 4 || eventsProcessed.get() > 4) {
+                testContext.failNow(new AssertionError("More than 4 commands or events processed: commands="
+                        + commandsProcessed.get() + ", events=" + eventsProcessed.get()));
+            } else if (commandsProcessed.get() == 4 && eventsProcessed.get() == 4) {
                 allDone.tryComplete();
             }
         };
@@ -1021,11 +1025,10 @@ class EventSourcingCQRSDemoTest {
                 })
                 .onFailure(err -> testContext.failNow(err));
 
-        // Reactive completion: wait for allDone, then settle 500ms, then run final
-        // assertions and shut down. The cqrsScenario Future is returned by this method
-        // and chained to testContext.completeNow() / testContext.failNow().
+        // Reactive completion: wait for allDone, then run final assertions and shut down.
+        // The cqrsScenario Future is returned by this method and chained to
+        // testContext.completeNow() / testContext.failNow().
         return allDone.future()
-                .compose(v -> vertx.timer(500).<Void>mapEmpty())
                 .compose(v -> {
                     testContext.verify(() -> {
                         assertEquals(4, commandsProcessed.get(), "Should have processed 4 commands");
@@ -1080,7 +1083,7 @@ class EventSourcingCQRSDemoTest {
      */
     @Test
     @DisplayName("CQRS - Per-account ordering across multiple aggregates (OFFSET_WATERMARK)")
-    void testCQRS_multipleAccounts_perAccountOrdering(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testCQRS_multipleAccounts_perAccountOrdering(VertxTestContext testContext) {
         logger.info("=== TEST METHOD STARTED: testCQRS_multipleAccounts_perAccountOrdering ===");
 
         // Queue names for command and event streams
@@ -1090,12 +1093,12 @@ class EventSourcingCQRSDemoTest {
 
         // Configure the event topic for OFFSET_WATERMARK so per-aggregate ordering is enforced.
         configureOffsetWatermarkTopic(eventQueue, eventGroupName)
-            .compose(cfg -> runMultiAccountScenario(vertx, testContext, commandQueue, eventQueue, eventGroupName))
+            .compose(cfg -> runMultiAccountScenario(testContext, commandQueue, eventQueue, eventGroupName))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
     }
 
-    private Future<Void> runMultiAccountScenario(Vertx vertx, VertxTestContext testContext,
+    private Future<Void> runMultiAccountScenario(VertxTestContext testContext,
                                                   String commandQueue, String eventQueue, String eventGroupName) {
         List<String> accountIds = List.of(
             "account-cqrs-multi-A-" + System.currentTimeMillis(),
@@ -1116,8 +1119,13 @@ class EventSourcingCQRSDemoTest {
         // It is the only completion signal. The test completes after the final assertions
         // and the graceful stop, so a failed assertion or a failed stop fails the test.
         Promise<Void> allDone = Promise.promise();
+        // A command or event beyond the expected count fails the test when it is counted.
         Runnable maybeAllDone = () -> {
-            if (commandsProcessed.get() >= totalCommands && eventsProcessed.get() >= totalCommands) {
+            if (commandsProcessed.get() > totalCommands || eventsProcessed.get() > totalCommands) {
+                testContext.failNow(new AssertionError("More than " + totalCommands
+                        + " commands or events processed: commands=" + commandsProcessed.get()
+                        + ", events=" + eventsProcessed.get()));
+            } else if (commandsProcessed.get() == totalCommands && eventsProcessed.get() == totalCommands) {
                 allDone.tryComplete();
             }
         };
@@ -1270,9 +1278,8 @@ class EventSourcingCQRSDemoTest {
                 })
                 .onFailure(err -> testContext.failNow(err));
 
-        // Reactive completion: wait for allDone, then settle 500ms, then assertions + shutdown.
+        // Reactive completion: wait for allDone, then assertions + shutdown.
         return allDone.future()
-                .compose(v -> vertx.timer(500).<Void>mapEmpty())
                 .compose(v -> {
                     testContext.verify(() -> {
                         assertEquals(totalCommands, commandsProcessed.get(),
