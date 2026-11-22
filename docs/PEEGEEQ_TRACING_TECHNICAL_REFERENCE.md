@@ -1,6 +1,7 @@
 # PeeGeeQ Tracing Technical Reference
+© Mark Andrew Ray-Smith Cityline Ltd 2025  
+Version 2.1
 
-**Version**: 2.0  
 **Last Updated**: 2026-01-06  
 **Status**: ✅ Production-Ready  
 **Authored by**: Mark Andrew Ray-Smith, Cityline Ltd
