@@ -148,7 +148,6 @@
                     <systemPropertyVariables>
                         <junit.jupiter.execution.timeout.default>${test.timeout.default}</junit.jupiter.execution.timeout.default>
                         <junit.jupiter.execution.timeout.test.method.default>${test.timeout.method}</junit.jupiter.execution.timeout.test.method.default>
-                        <peegeeq.test.container.image>postgres:15.13-alpine3.20</peegeeq.test.container.image>
                     </systemPropertyVariables>
 
                     <!-- Enhanced reporting -->
