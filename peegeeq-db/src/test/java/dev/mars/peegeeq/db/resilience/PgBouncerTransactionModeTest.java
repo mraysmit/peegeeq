@@ -16,11 +16,12 @@ package dev.mars.peegeeq.db.resilience;
  * limitations under the License.
  */
 
-import dev.mars.peegeeq.db.PgTestImageConstant;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.containers.TestContainerImages;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
@@ -76,7 +77,7 @@ class PgBouncerTransactionModeTest {
     @BeforeAll
     static void startInfrastructure() {
         network = Network.newNetwork();
-        postgres = new PostgreSQLContainer(PgTestImageConstant.POSTGRES_IMAGE)
+        postgres = PostgreSQLTestConstants.createStandardContainer()
             .withNetwork(network)
             .withNetworkAliases("postgres")
             .withDatabaseName(DATABASE)
@@ -84,7 +85,7 @@ class PgBouncerTransactionModeTest {
             .withPassword(PASSWORD);
         postgres.start();
 
-        pgbouncer = new GenericContainer<>("edoburu/pgbouncer:v1.25.2-p0")
+        pgbouncer = new GenericContainer<>(TestContainerImages.PGBOUNCER_IMAGE)
             .withNetwork(network)
             .withEnv("DB_HOST", "postgres")
             .withEnv("DB_PORT", "5432")
