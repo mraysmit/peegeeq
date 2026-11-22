@@ -16,11 +16,12 @@ package dev.mars.peegeeq.db.resilience;
  * limitations under the License.
  */
 
-import dev.mars.peegeeq.db.PgTestImageConstant;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.containers.TestContainerImages;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
@@ -80,7 +81,7 @@ class HaProxyStreamingReplicationFailoverTest {
     @BeforeAll
     static void startInfrastructure() throws Exception {
         network = Network.newNetwork();
-        primary = new PostgreSQLContainer(PgTestImageConstant.POSTGRES_IMAGE)
+        primary = PostgreSQLTestConstants.createStandardContainer()
             .withNetwork(network)
             .withNetworkAliases("pg_primary")
             .withDatabaseName(DATABASE)
@@ -100,7 +101,7 @@ class HaProxyStreamingReplicationFailoverTest {
         requireSuccess("primary HBA reload", primary.execInContainer(
             "psql", "-U", USERNAME, "-d", DATABASE, "-c", "SELECT pg_reload_conf()"));
 
-        secondary = new GenericContainer<>(PgTestImageConstant.POSTGRES_IMAGE)
+        secondary = new GenericContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
             .withNetwork(network)
             .withNetworkAliases("pg_secondary")
             .withCommand("tail", "-f", "/dev/null");
@@ -111,7 +112,7 @@ class HaProxyStreamingReplicationFailoverTest {
             "psql", "-U", USERNAME, "-d", DATABASE, "-Atc",
             "SELECT state FROM pg_stat_replication WHERE state = 'streaming'"));
 
-        haproxy = new GenericContainer<>("haproxy:2.8-alpine")
+        haproxy = new GenericContainer<>(TestContainerImages.HAPROXY_IMAGE)
             .withNetwork(network)
             .withClasspathResourceMapping(
                 "haproxy-streaming-replication.cfg",
