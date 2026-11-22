@@ -57,12 +57,7 @@ public class PeeGeeQSelfContainedDemoTest {
         // Start PostgreSQL container
         logger.info("Starting PostgreSQL container...");
         @SuppressWarnings("resource") // Container closed explicitly in finally block
-        PostgreSQLContainer postgres = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)
-                .withDatabaseName("peegeeq_demo")
-                .withUsername("peegeeq_demo")
-                .withPassword("peegeeq_demo")
-                .withSharedMemorySize(256 * 1024 * 1024L) // 256MB for better performance
-                .withReuse(false); // Always start fresh for demo
+        PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
         
         try {
             postgres.start();
