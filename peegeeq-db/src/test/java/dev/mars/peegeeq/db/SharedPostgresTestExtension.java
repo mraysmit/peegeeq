@@ -111,12 +111,11 @@ public class SharedPostgresTestExtension implements BeforeAllCallback {
      * </ul>
      */
     private void initializeContainer() {
-        PostgreSQLContainer tempContainer = new PostgreSQLContainer(PgTestImageConstant.POSTGRES_IMAGE);
+        PostgreSQLContainer tempContainer = PostgreSQLTestConstants.createStandardContainer();
         tempContainer.withDatabaseName("peegeeq_test");
         tempContainer.withUsername("peegeeq_test");
         tempContainer.withPassword("peegeeq_test");
         tempContainer.withSharedMemorySize(256 * 1024 * 1024L); // 256MB
-        tempContainer.withReuse(true); // Reuse container across test runs
         tempContainer.withCommand("postgres",
             "-c", "max_connections=200",      // Support parallel test execution
             "-c", "fsync=off",                // Faster for tests
