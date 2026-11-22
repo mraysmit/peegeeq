@@ -174,7 +174,7 @@ class AdvancedProducerConsumerGroupTest {
      */
     @Test
     @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
-    void testHighFrequencyProducerWithRouting(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testHighFrequencyProducerWithRouting(VertxTestContext testContext) throws Exception {
         logger.info("Testing high-frequency producer with message routing");
         
         final int messageCount = 100;
