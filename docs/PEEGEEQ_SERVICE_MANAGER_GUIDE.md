@@ -1,7 +1,6 @@
 # PeeGeeQ Service Manager Guide
-
-#### © Mark Andrew Ray-Smith Cityline Ltd 2025
-#### Version 0.1 (BETA)
+© Mark Andrew Ray-Smith Cityline Ltd 2025  
+Version 0.1 (BETA)
 
 ## Overview
 
