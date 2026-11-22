@@ -22,7 +22,6 @@ import ch.qos.logback.core.AppenderBase;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
-import dev.mars.peegeeq.db.PgTestImageConstant;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
@@ -60,11 +59,10 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 public class PgConnectionManagerCloseLogLevelTest {
 
-    private static final String POSTGRES_IMAGE = PgTestImageConstant.POSTGRES_IMAGE;
 
     @SuppressWarnings("resource")
     @Container
-    static PostgreSQLContainer postgres = new PostgreSQLContainer(POSTGRES_IMAGE)
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer()
             .withDatabaseName("peegeeq_test")
             .withUsername("peegeeq_test")
             .withPassword("peegeeq_test")
@@ -141,7 +139,7 @@ public class PgConnectionManagerCloseLogLevelTest {
     void testCloseAfterDbShutdownLogsError(Vertx vertx, VertxTestContext testContext) {
         // Create a dedicated container that we can stop
         @SuppressWarnings("resource")
-        PostgreSQLContainer ownContainer = new PostgreSQLContainer(POSTGRES_IMAGE)
+        PostgreSQLContainer ownContainer = PostgreSQLTestConstants.createStandardContainer()
                 .withDatabaseName("peegeeq_test")
                 .withUsername("peegeeq_test")
                 .withPassword("peegeeq_test")
