@@ -7,6 +7,7 @@ import dev.mars.peegeeq.failover.PgLeaseProtocolException;
 import dev.mars.peegeeq.failover.PgNodeConfig;
 import dev.mars.peegeeq.failover.PgWatchdogMode;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.containers.TestContainerImages;
 import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
@@ -48,7 +49,6 @@ import static org.junit.jupiter.api.Assertions.*;
 @Isolated
 class ConsulLeaseCoordinatorIntegrationTest extends PgLeaseCoordinatorContract {
     private static final Logger logger = LoggerFactory.getLogger(ConsulLeaseCoordinatorIntegrationTest.class);
-    private static final String IMAGE = "hashicorp/consul:1.22.1";
     private static final String ADMIN_TOKEN = "00000000-0000-0000-0000-000000000001";
     private static final List<GenericContainer<?>> SERVERS = new ArrayList<>();
     private static Network network;
@@ -64,7 +64,7 @@ class ConsulLeaseCoordinatorIntegrationTest extends PgLeaseCoordinatorContract {
     @BeforeAll static void startQuorum() {
         network = Network.newNetwork();
         for (int i = 1; i <= 3; i++) {
-            var server = new GenericContainer<>(IMAGE).withNetwork(network)
+            var server = new GenericContainer<>(TestContainerImages.CONSUL_IMAGE).withNetwork(network)
                 .withNetworkAliases("consul-" + i).withExposedPorts(8500)
                 .withEnv("CONSUL_BIND_INTERFACE", "eth0")
                 .withEnv("CONSUL_LOCAL_CONFIG", new JsonObject().put("log_level", "warn")
