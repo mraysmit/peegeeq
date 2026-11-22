@@ -18,7 +18,6 @@ package dev.mars.peegeeq.db.resilience;
 
 import dev.mars.peegeeq.db.PeeGeeQDefaults;
 import dev.mars.peegeeq.db.PeeGeeQManager;
-import dev.mars.peegeeq.db.PgTestImageConstant;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
@@ -55,6 +54,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import dev.mars.peegeeq.test.containers.TestContainerImages;
 import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 @Tag(TestCategories.INTEGRATION)
@@ -90,7 +90,7 @@ class PgPoolCircuitBreakerIntegrationTest {
         replacement = postgresNode();
         primary.start();
 
-        haproxy = new GenericContainer<>("haproxy:2.8-alpine")
+        haproxy = new GenericContainer<>(TestContainerImages.HAPROXY_IMAGE)
             .withNetwork(network)
             .withClasspathResourceMapping(
                 "haproxy-circuit-breaker.cfg",
@@ -245,7 +245,7 @@ class PgPoolCircuitBreakerIntegrationTest {
     }
 
     private static PostgreSQLContainer postgresNode() {
-        return new PostgreSQLContainer(PgTestImageConstant.POSTGRES_IMAGE)
+        return PostgreSQLTestConstants.createStandardContainer()
             .withNetwork(network)
             .withNetworkAliases("pg_circuit_breaker")
             .withDatabaseName(DATABASE)
