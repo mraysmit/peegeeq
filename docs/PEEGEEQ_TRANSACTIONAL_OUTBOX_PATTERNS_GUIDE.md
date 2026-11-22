@@ -1,6 +1,6 @@
 # PeeGeeQ Transactional Outbox Pattern - Reactive Implementation
-#### © Mark Andrew Ray-Smith Cityline Ltd 2025
-#### Version 0.9
+© Mark Andrew Ray-Smith Cityline Ltd 2025  
+Version 0.9
 
 <div align="center">
   <img src="docs/PGQ-logo.png" alt="PeeGeeQ Logo" width="200"/>
