@@ -8,6 +8,7 @@ import dev.mars.peegeeq.failover.PgMemberPositionsContract;
 import dev.mars.peegeeq.failover.PgNodeConfig;
 import dev.mars.peegeeq.failover.PgWatchdogMode;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.containers.TestContainerImages;
 import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import dev.mars.peegeeq.test.vertx.TestCleanup;
 import io.vertx.core.Future;
@@ -42,7 +43,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class ConsulMemberPositionsIntegrationTest extends PgMemberPositionsContract {
     private static final String ADMIN_TOKEN = "00000000-0000-0000-0000-000000000001";
     private static final String CONSUL_NODE = "consul-1";
-    private static final GenericContainer<?> CONSUL = new GenericContainer<>("hashicorp/consul:1.22.1")
+    private static final GenericContainer<?> CONSUL = new GenericContainer<>(TestContainerImages.CONSUL_IMAGE)
         .withExposedPorts(8500)
         .withEnv("CONSUL_LOCAL_CONFIG", new JsonObject().put("log_level", "warn")
             .put("acl", new JsonObject().put("enabled", true).put("default_policy", "deny")
