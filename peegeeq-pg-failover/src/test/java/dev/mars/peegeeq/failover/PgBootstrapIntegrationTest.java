@@ -4,6 +4,7 @@ import dev.mars.peegeeq.failover.consul.ConsulClusterConfiguration;
 import dev.mars.peegeeq.failover.consul.ConsulLeaseCoordinator;
 import dev.mars.peegeeq.failover.consul.ConsulMemberPositions;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.containers.TestContainerImages;
 import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
@@ -50,7 +51,7 @@ import dev.mars.peegeeq.test.vertx.TestCleanup;
 class PgBootstrapIntegrationTest {
     private static final List<String> MEMBERS = List.of("pg-node-1", "pg-node-2", "pg-node-3");
     private static final String TOKEN = "unused-without-acls";
-    private static final GenericContainer<?> CONSUL = new GenericContainer<>("hashicorp/consul:1.22.1")
+    private static final GenericContainer<?> CONSUL = new GenericContainer<>(TestContainerImages.CONSUL_IMAGE)
         .withExposedPorts(8500)
         .withCommand("agent", "-dev", "-client=0.0.0.0", "-node=consul-1", "-log-level=warn")
         .waitingFor(Wait.forHttp("/v1/status/leader").forPort(8500).withStartupTimeout(Duration.ofSeconds(60)));
