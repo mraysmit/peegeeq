@@ -21,7 +21,6 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
-import dev.mars.peegeeq.db.PgTestImageConstant;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
@@ -59,7 +58,7 @@ class JsonbConversionValidationTest {
     static PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PgTestImageConstant.POSTGRES_IMAGE);
+        PostgreSQLContainer container = PostgreSQLTestConstants.createStandardContainer();
         container.withDatabaseName("testdb");
         container.withUsername("testuser");
         container.withPassword("testpass");
