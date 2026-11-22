@@ -52,17 +52,8 @@ public class ConsumerGroupSubscriptionIntegrationTest {
     private static final int TEST_PORT = 18081;
     
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("peegeeq_consumer_group_test");
-        container.withUsername("peegeeq_test");
-        container.withPassword("peegeeq_test");
-        container.withSharedMemorySize(PostgreSQLTestConstants.DEFAULT_SHARED_MEMORY_SIZE);
-        container.withReuse(false);
-        return container;
-    }
     
     private PeeGeeQRestServer server;
     private DatabaseSetupService setupService;
