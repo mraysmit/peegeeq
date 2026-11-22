@@ -71,15 +71,7 @@ public class CloudEventsJsonbQueryTest {
     private static final Logger logger = LoggerFactory.getLogger(CloudEventsJsonbQueryTest.class);
 
     @Container
-    private static final PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("peegeeq_test");
-        container.withUsername("test");
-        container.withPassword("test");
-        return container;
-    }
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private static PeeGeeQManager manager;
     private static EventStore<CloudEvent> eventStore;
