@@ -149,9 +149,6 @@ public abstract class ParameterizedPerformanceTestBase extends PeeGeeQTestBase {
         
         logger.info("Running performance test '{}' with profile: {}", testName, profile.getDisplayName());
         
-        // Override the profile for this specific test run
-        this.currentProfile = profile;
-        
         try {
             // Setup container with the specified profile
             setupContainerForProfile(profile);
@@ -192,6 +189,8 @@ public abstract class ParameterizedPerformanceTestBase extends PeeGeeQTestBase {
     /**
      * Setup container for a specific performance profile.
      * This recreates the container if the profile is different from the current one.
+     * {@code currentProfile} is the profile of the running container, so it is set only
+     * once the new container has started.
      */
     protected void setupContainerForProfile(PerformanceProfile profile) {
         if (container != null && container.isRunning() && currentProfile == profile) {
@@ -211,9 +210,7 @@ public abstract class ParameterizedPerformanceTestBase extends PeeGeeQTestBase {
             profile, getDatabaseName(), getUsername(), getPassword(), getCustomSettings());
         
         container.start();
-        
-        // Update database properties
-        setupDatabaseProperties();
+        currentProfile = profile;
         
         logger.debug("Container ready with profile: {}", profile.getDisplayName());
     }
@@ -268,20 +265,6 @@ public abstract class ParameterizedPerformanceTestBase extends PeeGeeQTestBase {
             }
         }
         return "unknown_test";
-    }
-    
-    /**
-     * Setup database properties for the current container.
-     */
-    private void setupDatabaseProperties() {
-        if (container != null) {
-            System.setProperty("test.database.host", container.getHost());
-            System.setProperty("test.database.port", String.valueOf(container.getFirstMappedPort()));
-            System.setProperty("test.database.name", container.getDatabaseName());
-            System.setProperty("test.database.username", container.getUsername());
-            System.setProperty("test.database.password", container.getPassword());
-            System.setProperty("test.database.url", container.getJdbcUrl());
-        }
     }
     
     /**
