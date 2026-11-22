@@ -98,6 +98,15 @@
             <version>${project.version}</version>
             <scope>test</scope>
         </dependency>
+        <!-- EventStoreTestTables: creates named event-store tables from the production templates. -->
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-db</artifactId>
+            <version>${project.version}</version>
+            <type>test-jar</type>
+            <classifier>tests</classifier>
+            <scope>test</scope>
+        </dependency>
 
         <dependency>
             <groupId>org.junit.jupiter</groupId>
