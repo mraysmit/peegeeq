@@ -4,7 +4,9 @@ import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.db.EventStoreTestTables;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
@@ -72,10 +74,13 @@ class WildcardPatternComprehensiveTest {
                 .property("peegeeq.database.ssl.enabled", "false")
                 .build();
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
-        createTestEventsTable();
-        
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
-        peeGeeQManager.start()
+
+        // The wildcard_test_events store table comes from the production event-store templates.
+        EventStoreTestTables.createIfMissing(vertx, postgres, PostgreSQLTestConstants.TEST_SCHEMA, "wildcard_test_events")
+            .compose(v -> {
+                peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
+                return peeGeeQManager.start();
+            })
             .onSuccess(v -> {
                 Class<Map<String, Object>> mapClass = mapClass();
                 eventStore = new PgBiTemporalEventStore<>(vertx, peeGeeQManager, mapClass, "wildcard_test_events", new ObjectMapper());
@@ -92,13 +97,11 @@ class WildcardPatternComprehensiveTest {
 
     @AfterAll
     static void tearDown(VertxTestContext testContext) throws Exception {
-        Future<Void> closeStore = (eventStore != null)
-            ? eventStore.close().transform(ar -> Future.succeededFuture())
-            : Future.succeededFuture();
-        closeStore
-            .compose(v -> (peeGeeQManager != null)
-                ? peeGeeQManager.closeReactive().transform(ar -> Future.succeededFuture())
-                : Future.succeededFuture())
+        // The store closes before the manager; every step runs, and the first failure fails
+        // the teardown.
+        TestCleanup.run(
+                () -> eventStore != null ? eventStore.close() : Future.<Void>succeededFuture(),
+                () -> peeGeeQManager != null ? peeGeeQManager.closeReactive() : Future.<Void>succeededFuture())
             .onSuccess(v -> {
                 PgBiTemporalEventStore.clearCachedPools();
                 testContext.completeNow();
@@ -106,83 +109,8 @@ class WildcardPatternComprehensiveTest {
             .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Teardown timed out");
-    }
-
-    private static void createTestEventsTable() throws Exception {
-        try (var conn = java.sql.DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
-             var stmt = conn.createStatement()) {
-            // Place the unqualified DDL below in the resolved schema so custom-schema
-            // runs see the same table the manager-driven store targets
-            stmt.execute("SET search_path TO " + PostgreSQLTestConstants.TEST_SCHEMA);
-            stmt.execute("""
-                CREATE TABLE IF NOT EXISTS wildcard_test_events (
-                    event_id VARCHAR(255) PRIMARY KEY,
-                    event_type VARCHAR(255) NOT NULL,
-                    aggregate_id VARCHAR(255),
-                    correlation_id VARCHAR(255),
-                    causation_id VARCHAR(255),
-                    valid_time TIMESTAMPTZ NOT NULL,
-                    transaction_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    payload JSONB NOT NULL,
-                    headers JSONB NOT NULL DEFAULT '{}',
-                    version BIGINT NOT NULL DEFAULT 1,
-                    previous_version_id VARCHAR(255),
-                    is_correction BOOLEAN NOT NULL DEFAULT FALSE,
-                    correction_reason TEXT,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )
-                """);
-            stmt.execute("CREATE INDEX IF NOT EXISTS idx_wildcard_test_events_type ON wildcard_test_events(event_type)");
-            // Trigger uses schema-qualified channel names matching V013 migration
-            stmt.execute("""
-                CREATE OR REPLACE FUNCTION notify_wildcard_test_events() RETURNS TRIGGER AS $$
-                DECLARE
-                    schema_name TEXT;
-                    table_name TEXT;
-                    channel_prefix TEXT;
-                    type_channel_name TEXT;
-                    type_base_name TEXT;
-                    hash_suffix TEXT;
-                BEGIN
-                    -- Get schema and table from trigger context
-                    schema_name := TG_TABLE_SCHEMA;
-                    table_name := TG_TABLE_NAME;
-                    
-                    -- Build channel prefix: {schema}_bitemporal_events_{table}
-                    channel_prefix := schema_name || '_bitemporal_events_' || table_name;
-                    
-                    -- Send general notification
-                    PERFORM pg_notify(
-                        channel_prefix,
-                        json_build_object(
-                            'event_id', NEW.event_id, 'event_type', NEW.event_type,
-                            'aggregate_id', NEW.aggregate_id, 'correlation_id', NEW.correlation_id,
-                            'causation_id', NEW.causation_id, 'is_correction', NEW.is_correction,
-                            'transaction_time', extract(epoch from NEW.transaction_time))::text);
-                    
-                    -- Build type-specific channel with truncation support
-                    type_base_name := channel_prefix || '_' || replace(NEW.event_type, '.', '_');
-                    IF length(type_base_name) > 63 THEN
-                        hash_suffix := '_' || substr(md5(type_base_name), 1, 8);
-                        type_channel_name := substr(type_base_name, 1, 63 - length(hash_suffix)) || hash_suffix;
-                    ELSE
-                        type_channel_name := type_base_name;
-                    END IF;
-                    
-                    PERFORM pg_notify(type_channel_name,
-                        json_build_object('event_id', NEW.event_id, 'event_type', NEW.event_type,
-                        'aggregate_id', NEW.aggregate_id, 'correlation_id', NEW.correlation_id,
-                        'causation_id', NEW.causation_id, 'is_correction', NEW.is_correction,
-                        'transaction_time', extract(epoch from NEW.transaction_time))::text);
-                    RETURN NEW;
-                END;
-                $$ LANGUAGE plpgsql;
-                """);
-            stmt.execute("""
-                DROP TRIGGER IF EXISTS trigger_notify_wildcard_test_events ON wildcard_test_events;
-                CREATE TRIGGER trigger_notify_wildcard_test_events AFTER INSERT ON wildcard_test_events
-                    FOR EACH ROW EXECUTE FUNCTION notify_wildcard_test_events();
-                """);
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
         }
     }
 
