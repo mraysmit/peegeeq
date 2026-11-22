@@ -31,7 +31,6 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
-import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Pool;
@@ -83,15 +82,7 @@ public class TransactionalOutboxAnalysisTest {
     private static final Logger logger = LoggerFactory.getLogger(TransactionalOutboxAnalysisTest.class);
 
     @Container
-    private static final PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("testdb");
-        container.withUsername("testuser");
-        container.withPassword("testpass");
-        return container;
-    }
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private OutboxFactory outboxFactory;
@@ -99,7 +90,7 @@ public class TransactionalOutboxAnalysisTest {
     private String testTopic;
 
     @BeforeEach
-    void setUp(Vertx vertx, VertxTestContext ctx) {
+    void setUp(VertxTestContext ctx) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("=== Setting up TransactionalOutboxAnalysisTest ===");
 
@@ -128,10 +119,13 @@ public class TransactionalOutboxAnalysisTest {
     }
 
     @AfterEach
-    void tearDown(VertxTestContext ctx) throws InterruptedException {
+    void tearDown(VertxTestContext ctx) {
         logger.info("=== Tearing down TransactionalOutboxAnalysisTest ===");
-        (outboxFactory != null ? outboxFactory.close() : Future.<Void>succeededFuture())
-            .compose(v -> manager != null ? manager.closeReactive() : Future.succeededFuture())
+        // The factory closes the consumers and producers it created. The manager closes after the
+        // factory close has settled, and the first failure fails the teardown.
+        TestCleanup.run(
+                () -> outboxFactory != null ? outboxFactory.close() : Future.<Void>succeededFuture(),
+                () -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
             .onSuccess(v -> {
                 logger.info("\u2713 Teardown completed");
                 ctx.completeNow();
@@ -140,7 +134,6 @@ public class TransactionalOutboxAnalysisTest {
                 logger.error("Error during teardown", err);
                 ctx.failNow(err);
             });
-        assertTrue(ctx.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -166,7 +159,7 @@ public class TransactionalOutboxAnalysisTest {
      * This is the fundamental guarantee of the transactional outbox pattern.
      */
     @Test
-    void testOutboxTransactionParticipation(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testOutboxTransactionParticipation(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Outbox Transaction Participation ===");
 
         MessageProducer<String> producer = outboxFactory.createProducer(testTopic, String.class);
@@ -226,7 +219,7 @@ public class TransactionalOutboxAnalysisTest {
      * This ensures no orphaned data exists for failed business operations.
      */
     @Test
-    void testTransactionRollbackBehavior(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testTransactionRollbackBehavior(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Transaction Rollback Behavior ===");
 
         String orderId = "rollback-order-" + UUID.randomUUID().toString().substring(0, 8);
@@ -267,7 +260,7 @@ public class TransactionalOutboxAnalysisTest {
      * ensuring no cross-contamination of data.
      */
     @Test
-    void testConcurrentTransactionHandling(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testConcurrentTransactionHandling(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Concurrent Transaction Handling ===");
 
         int numConcurrentTransactions = 5;
