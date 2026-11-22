@@ -57,12 +57,11 @@ import static org.junit.jupiter.api.Assertions.*;
 class PeeGeeQManagerCloseReactiveErrorPropagationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQManagerCloseReactiveErrorPropagationTest.class);
-    private static final String POSTGRES_IMAGE = PgTestImageConstant.POSTGRES_IMAGE;
 
     // Container with NO schema initialization start() will fail with "Database required tables missing"
     @SuppressWarnings("resource")
     @Container
-    static PostgreSQLContainer postgres = new PostgreSQLContainer(POSTGRES_IMAGE)
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer()
             .withDatabaseName("peegeeq_empty")
             .withUsername("peegeeq_test")
             .withPassword("peegeeq_test")
