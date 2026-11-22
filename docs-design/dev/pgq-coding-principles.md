@@ -327,7 +327,7 @@ build time. All six are `@Tag(TestCategories.CORE)` and run under plain `mvn tes
 | `OnSuccessExceptionSwallowingGuardTest` | Bare assertions and `.close()` inside `.onSuccess`, `Future.await()`, `Thread.sleep`/`parkNanos`, `@Tag("blocking-exempt")`, `.onComplete` latch swallowing, discarded `stop()`/`close()`/`subscribe()` Futures, and `assertNotNull` on an async operation in test sources. |
 | `DisabledTestsGuardTest` | `@Disabled` annotations not recorded in `quality/disabled-tests-allowlist.csv`. |
 | `InvalidDurationLiteralGuardTest` | ISO-8601 duration literals written with a millisecond suffix (`PT`, digits, `MS`), which `Duration.parse` rejects. It scans Java, properties, YAML, JSON, XML, and every Markdown file under `docs` and `docs-design`, so the literal must not appear in documentation either. |
-| `SchemaInitializerTestInfrastructureGuardTest` | Hand-built `new PostgreSQLContainer(` and raw JDBC imports in schema-initializer tests. |
+| `SchemaInitializerTestInfrastructureGuardTest` | Hand-built `new PostgreSQLContainer(` and raw JDBC imports in schema-initializer tests, in the `peegeeq-migrations` tests, and in the `peegeeq-examples` tests. |
 
 Two module guards sit outside `quality/`:
 
