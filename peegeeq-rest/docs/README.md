@@ -214,12 +214,6 @@ mvn test -Dtest=PeeGeeQRestServerTest
 
 # Run test suite
 mvn test -Dtest=PeeGeeQRestTestSuite
-
-# Run performance tests
-mvn test -Dtest=PeeGeeQRestPerformanceTest
-
-# Run with debug logging
-mvn test -Dpeegeeq.logging.level=DEBUG
 ```
 
 ### Test Coverage
