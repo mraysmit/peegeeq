@@ -104,11 +104,7 @@ class PeeGeeQExampleTest {
         logger.info("Testing PeeGeeQExample with TestContainers database");
 
         // Start PostgreSQL container
-        try (PostgreSQLContainer postgres = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)) {
-            postgres.withDatabaseName("peegeeq_test")
-                    .withUsername("peegeeq_test")
-                    .withPassword("peegeeq_test");
-
+        try (PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer()) {
             postgres.start();
             logger.info("PostgreSQL container started: {}", postgres.getJdbcUrl());
 
@@ -140,13 +136,7 @@ class PeeGeeQExampleTest {
 
         // Start PostgreSQL container with proper JUnit lifecycle management
         logger.info(">> Starting PostgreSQL container...");
-        try (PostgreSQLContainer postgres = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)) {
-            postgres.withDatabaseName("peegeeq_demo")
-                    .withUsername("peegeeq_demo")
-                    .withPassword("peegeeq_demo")
-                    .withSharedMemorySize(256 * 1024 * 1024L) // 256MB for better performance
-                    .withReuse(false); // Always start fresh for test
-
+        try (PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer()) {
             postgres.start();
             logger.info(">> PostgreSQL container started successfully");
             logger.info("   > Container URL: {}", postgres.getJdbcUrl());
@@ -182,7 +172,8 @@ class PeeGeeQExampleTest {
 
     /**
      * Runs all PeeGeeQ feature demonstrations as a chained {@link Future} sequence.
-     * The manager is closed in {@code .eventually(...)} so it is released even on failure.
+     * The manager is closed through {@link TestCleanup}, so it is released on failure too,
+     * and a failed close fails the chain.
      */
     private Future<Void> runAllDemonstrations(Properties testProps) {
         logger.info("...Starting PeeGeeQ feature demonstrations...");
