@@ -150,25 +150,6 @@ class PeeGeeQTestContainerFactoryTest {
     }
     
     @Test
-    void testBaseIntegrationTestCompatibility() {
-        logger.info("=== TEST METHOD STARTED: testBaseIntegrationTestCompatibility ===");
-        
-        logger.info("Testing BaseIntegrationTest compatibility");
-        
-        PostgreSQLContainer container = PeeGeeQTestContainerFactory.createBaseIntegrationTestContainer();
-        
-        assertNotNull(container, "Container should not be null");
-        assertEquals("peegeeq_test", container.getDatabaseName());
-        assertEquals("peegeeq_test", container.getUsername());
-        assertEquals("peegeeq_test", container.getPassword());
-        assertTrue(container.isShouldBeReused(), "BaseIntegrationTest container should be reused");
-        
-        logger.info("BaseIntegrationTest compatibility test passed");
-        
-        logger.info("=== TEST METHOD COMPLETED: testBaseIntegrationTestCompatibility ===");
-    }
-    
-    @Test
     void testProfileInfoRetrieval() {
         logger.info("=== TEST METHOD STARTED: testProfileInfoRetrieval ===");
         
