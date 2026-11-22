@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.bitemporal;
 
 import dev.mars.peegeeq.api.BiTemporalEvent;
+import dev.mars.peegeeq.db.EventStoreTestTables;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
@@ -85,10 +86,13 @@ class PgBiTemporalEventStorePerformanceTest {
                 .build();
 
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
-        createTestEventsTable();
 
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
-        peeGeeQManager.start()
+        // The perf_test_events store table comes from the production event-store templates.
+        EventStoreTestTables.createIfMissing(vertx, postgres, PostgreSQLTestConstants.TEST_SCHEMA, "perf_test_events")
+            .compose(created -> {
+                peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
+                return peeGeeQManager.start();
+            })
             .onSuccess(v -> {
                 eventStore = new PgBiTemporalEventStore<>(vertx, peeGeeQManager, mapClass(), "perf_test_events", new ObjectMapper());
                 logger.info("Performance test setup completed");
@@ -133,86 +137,7 @@ class PgBiTemporalEventStorePerformanceTest {
     }
 
 
-    private void createTestEventsTable() throws Exception {
-        logger.info("Creating perf_test_events table...");
-        try (var conn = java.sql.DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
-             var stmt = conn.createStatement()) {
-            // Place the unqualified DDL below in the resolved schema so custom-schema
-            // runs see the same table the manager-driven store targets
-            String schema = PostgreSQLTestConstants.TEST_SCHEMA;
-            stmt.execute("CREATE SCHEMA IF NOT EXISTS " + schema);
-            stmt.execute("SET search_path TO " + schema);
-            stmt.execute("""
-                CREATE TABLE IF NOT EXISTS perf_test_events (
-                    event_id VARCHAR(255) PRIMARY KEY,
-                    event_type VARCHAR(255) NOT NULL,
-                    aggregate_id VARCHAR(255),
-                    correlation_id VARCHAR(255),
-                    causation_id VARCHAR(255),
-                    valid_time TIMESTAMPTZ NOT NULL,
-                    transaction_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    payload JSONB NOT NULL,
-                    headers JSONB NOT NULL DEFAULT '{}',
-                    version BIGINT NOT NULL DEFAULT 1,
-                    previous_version_id VARCHAR(255),
-                    is_correction BOOLEAN NOT NULL DEFAULT FALSE,
-                    correction_reason TEXT,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )
-                """);
-            
-            stmt.execute("CREATE INDEX IF NOT EXISTS idx_perf_test_events_event_type ON perf_test_events(event_type)");
-            
-            // Add notification trigger with schema-qualified channel names (matching V013 migration)
-            stmt.execute("""
-                CREATE OR REPLACE FUNCTION notify_perf_test_events() RETURNS TRIGGER AS $$
-                DECLARE
-                    schema_name TEXT;
-                    table_name TEXT;
-                    channel_prefix TEXT;
-                    type_channel_name TEXT;
-                    type_base_name TEXT;
-                    hash_suffix TEXT;
-                BEGIN
-                    -- Get schema and table from trigger context
-                    schema_name := TG_TABLE_SCHEMA;
-                    table_name := TG_TABLE_NAME;
-                    
-                    -- Build channel prefix: {schema}_bitemporal_events_{table}
-                    channel_prefix := schema_name || '_bitemporal_events_' || table_name;
-                    
-                    -- Send general notification
-                    PERFORM pg_notify(channel_prefix, json_build_object(
-                        'event_id', NEW.event_id, 'event_type', NEW.event_type,
-                        'aggregate_id', NEW.aggregate_id, 'correlation_id', NEW.correlation_id,
-                        'causation_id', NEW.causation_id, 'is_correction', NEW.is_correction,
-                        'transaction_time', extract(epoch from NEW.transaction_time))::text);
-                    
-                    -- Build type-specific channel with truncation support
-                    type_base_name := channel_prefix || '_' || replace(NEW.event_type, '.', '_');
-                    IF length(type_base_name) > 63 THEN
-                        hash_suffix := '_' || substr(md5(type_base_name), 1, 8);
-                        type_channel_name := substr(type_base_name, 1, 63 - length(hash_suffix)) || hash_suffix;
-                    ELSE
-                        type_channel_name := type_base_name;
-                    END IF;
-                    
-                    PERFORM pg_notify(type_channel_name,
-                        json_build_object('event_id', NEW.event_id, 'event_type', NEW.event_type,
-                        'aggregate_id', NEW.aggregate_id, 'correlation_id', NEW.correlation_id,
-                        'causation_id', NEW.causation_id, 'is_correction', NEW.is_correction,
-                        'transaction_time', extract(epoch from NEW.transaction_time))::text);
-                    RETURN NEW;
-                END;
-                $$ LANGUAGE plpgsql;
-                """);
-            stmt.execute("""
-                DROP TRIGGER IF EXISTS trigger_notify_perf_test_events ON perf_test_events;
-                CREATE TRIGGER trigger_notify_perf_test_events AFTER INSERT ON perf_test_events
-                    FOR EACH ROW EXECUTE FUNCTION notify_perf_test_events();
-                """);
-        }
-    }
+
 
     /**
      * Test 1: Compare batch append vs single append performance.
