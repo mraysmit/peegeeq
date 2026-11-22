@@ -45,6 +45,10 @@ Declare containers through the test-support factory. Do not construct a
 `PostgreSQLContainer` with an inline image string. The image name lives in one place:
 `PostgreSQLTestConstants.POSTGRES_IMAGE` in
 `peegeeq-test-support/src/main/java/dev/mars/peegeeq/test/PostgreSQLTestConstants.java`.
+The images of the other test containers (HAProxy, PgBouncer, Consul) are in
+`TestContainerImages` in
+`peegeeq-test-support/src/main/java/dev/mars/peegeeq/test/containers/TestContainerImages.java`.
+No test names an image itself, for any container type.
 
 ```java
 // CORRECT: integration test with a standard container
@@ -327,7 +331,7 @@ build time. All six are `@Tag(TestCategories.CORE)` and run under plain `mvn tes
 | `OnSuccessExceptionSwallowingGuardTest` | Bare assertions and `.close()` inside `.onSuccess`, `Future.await()`, `Thread.sleep`/`parkNanos`, `@Tag("blocking-exempt")`, `.onComplete` latch swallowing, discarded `stop()`/`close()`/`subscribe()` Futures, and `assertNotNull` on an async operation in test sources. |
 | `DisabledTestsGuardTest` | `@Disabled` annotations not recorded in `quality/disabled-tests-allowlist.csv`. |
 | `InvalidDurationLiteralGuardTest` | ISO-8601 duration literals written with a millisecond suffix (`PT`, digits, `MS`), which `Duration.parse` rejects. It scans Java, properties, YAML, JSON, XML, and every Markdown file under `docs` and `docs-design`, so the literal must not appear in documentation either. |
-| `SchemaInitializerTestInfrastructureGuardTest` | Hand-built `new PostgreSQLContainer(` and raw JDBC imports in schema-initializer tests, in the `peegeeq-migrations` tests, and in the `peegeeq-examples` tests. |
+| `SchemaInitializerTestInfrastructureGuardTest` | Hand-built `new PostgreSQLContainer(` and raw JDBC imports in the `src/test/java` tree of every top-level module, `@Container PostgreSQLContainer` fields that do not come from a test-support container factory, and container images named in the test instead of `PostgreSQLTestConstants.POSTGRES_IMAGE` or `TestContainerImages`. One class keeps raw JDBC by a named exception: `SharedPostgresTestExtension` in `peegeeq-db`, until Task 9 moves its schema to the Flyway test path. |
 
 Two module guards sit outside `quality/`:
 
