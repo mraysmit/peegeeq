@@ -86,7 +86,7 @@ Five scan source files. `VertxTeardownAfterFailureGuardTest` runs fixture tests 
 | `VertxAsyncForbiddenPatternsGuardTest` | Vert.x async forbidden patterns in production and test sources (`new VertxTestContext(`, `.toCompletionStage(`, `.toCompletableFuture(`, `CompletableFuture`, `.recover(`, `.otherwise(`, `Handler<AsyncResult`) ratcheted against a checked-in baseline. Two further checks have no baseline: any `.eventually(` call in test sources, and any `VertxTestContext` method that vertx-junit5 5.1 deprecates (`checkpoint(int)`, `laxCheckpoint(int)`, `failing()`, `completing()`) in test sources. |
 | `DisabledTestsGuardTest` | Unapproved JUnit `@Disabled` annotations and stale allowlist rows. |
 | `InvalidDurationLiteralGuardTest` | Millisecond-suffixed ISO-8601 duration literals that `Duration.parse` rejects, in Java sources, configuration resources, and documentation examples. |
-| `SchemaInitializerTestInfrastructureGuardTest` | Schema-initializer tests that regress to hand-built PostgreSQL containers or raw JDBC verification. |
+| `SchemaInitializerTestInfrastructureGuardTest` | Schema-initializer tests, `peegeeq-migrations` tests and `peegeeq-examples` tests that regress to hand-built PostgreSQL containers or raw JDBC verification. |
 | `VertxTeardownAfterFailureGuardTest` | A regression in which an asynchronous `@AfterEach` of a failed test is cancelled or not awaited. It runs fixture tests through `EngineTestKit` and protects `VertxTeardownAfterFailureExtension`. |
 
 Two module guards sit outside `quality/`:
@@ -860,7 +860,10 @@ pool.preparedQuery("SELECT jsonb_typeof(payload) FROM queue_messages WHERE topic
 
 `SchemaComponent.QUEUE_ALL` expands to `OUTBOX`, `NATIVE_QUEUE`, and `DEAD_LETTER_QUEUE`.
 The pool comes from `PgDatabaseService.getPool()`. `SchemaInitializerTestInfrastructureGuardTest`
-rejects regressions in the initializer's own tests.
+rejects regressions in the initializer's own tests, in the `peegeeq-migrations` tests, and in the
+`peegeeq-examples` tests. Flyway
+itself connects through JDBC in those tests; that is the behaviour under test, and the test then
+reads the schema through a Vert.x pool.
 
 ---
 
