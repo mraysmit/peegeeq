@@ -68,17 +68,7 @@ public class DatabaseSetupServiceIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(DatabaseSetupServiceIntegrationTest.class);
     
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("peegeeq_setup_test");
-        container.withUsername("peegeeq_test");
-        container.withPassword("peegeeq_test");
-        container.withSharedMemorySize(256 * 1024 * 1024L);
-        container.withReuse(false);
-        return container;
-    }
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
     
     private DatabaseSetupService setupService;
     private String testSetupId;
