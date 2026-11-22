@@ -28,6 +28,7 @@ import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
+import io.vertx.pgclient.PgException;
 
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
@@ -42,6 +43,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -67,13 +69,11 @@ public class TransactionParticipationIntegrationTest {
     static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
     
     private PeeGeeQManager peeGeeQManager;
-    private Vertx vertx;
     private PgBiTemporalEventStore<TestEvent> eventStore;
     
     @BeforeEach
     void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info(" Setting up TransactionParticipationIntegrationTest");
-        this.vertx = vertx;
 
         // Initialize database schema using centralized schema initializer
         logger.info("Creating ALL database tables using PeeGeeQTestSchemaInitializer...");
@@ -110,23 +110,18 @@ public class TransactionParticipationIntegrationTest {
     void tearDown(VertxTestContext testContext) throws Exception {
         logger.info(" Cleaning up TransactionParticipationIntegrationTest");
 
-        if (eventStore != null) {
-            try { eventStore.close(); } catch (Exception e) { logger.warn("EventStore close: {}", e.getMessage()); }
-        }
-
-        if (peeGeeQManager != null) {
-            peeGeeQManager.closeReactive()
-                .onSuccess(v -> {
-                    logger.info("Cleanup completed successfully");
-                    testContext.completeNow();
-                })
-                .onFailure(e -> {
-                    logger.error("Manager close failed", e);
-                    testContext.failNow(e);
-                });
-        } else {
-            testContext.completeNow();
-        }
+        // The store closes before the manager whose pool it uses; a failed close fails the test.
+        TestCleanup.run(
+                () -> eventStore != null ? eventStore.close() : Future.<Void>succeededFuture(),
+                () -> peeGeeQManager != null ? peeGeeQManager.closeReactive() : Future.<Void>succeededFuture())
+            .onSuccess(v -> {
+                logger.info("Cleanup completed successfully");
+                testContext.completeNow();
+            })
+            .onFailure(e -> {
+                logger.error("Teardown failed", e);
+                testContext.failNow(e);
+            });
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "tearDown timed out");
     }
@@ -141,6 +136,15 @@ public class TransactionParticipationIntegrationTest {
             )
             """;
 
+        Pool pool = createTestPool(vertx);
+        return pool.query(createTableSql).execute()
+            .<Void>mapEmpty()
+            .transform(TestCleanup.cleanup(() -> pool.close()))
+            .onSuccess(v -> logger.info("Business table created successfully"));
+    }
+
+    /** A pool on the test schema, separate from the manager's, that each test closes itself. */
+    private static Pool createTestPool(Vertx vertx) {
         PgConnectOptions connectOptions = new PgConnectOptions()
             .setHost(postgres.getHost())
             .setPort(postgres.getFirstMappedPort())
@@ -149,10 +153,7 @@ public class TransactionParticipationIntegrationTest {
             .setPassword(postgres.getPassword())
             .setProperties(Map.of("search_path", PostgreSQLTestConstants.TEST_SCHEMA));
 
-        Pool pool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
-        return pool.query(createTableSql).execute()
-            .compose(v -> pool.close())
-            .onSuccess(v -> logger.info("Business table created successfully"));
+        return PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
     }
     
     @Test
@@ -161,15 +162,7 @@ public class TransactionParticipationIntegrationTest {
         logger.info(" Testing simple transaction participation");
 
         // Create a direct connection pool for transaction testing
-        PgConnectOptions connectOptions = new PgConnectOptions()
-            .setHost(postgres.getHost())
-            .setPort(postgres.getFirstMappedPort())
-            .setDatabase(postgres.getDatabaseName())
-            .setUser(postgres.getUsername())
-            .setPassword(postgres.getPassword())
-            .setProperties(Map.of("search_path", PostgreSQLTestConstants.TEST_SCHEMA));
-
-        Pool pool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
+        Pool pool = createTestPool(vertx);
 
         // Test data
         String businessName = "Test Business Record";
@@ -248,7 +241,7 @@ public class TransactionParticipationIntegrationTest {
                 return retrievedPayload;
             });
         })
-        .compose(v -> pool.close())
+        .transform(TestCleanup.cleanup(() -> pool.close()))
         .onComplete(testContext.succeeding(v -> testContext.completeNow()));
     }
 
@@ -258,15 +251,7 @@ public class TransactionParticipationIntegrationTest {
         logger.info(" Testing business table + bitemporal_event_log consistency verification");
 
         // Create a direct connection pool for transaction testing
-        PgConnectOptions connectOptions = new PgConnectOptions()
-            .setHost(postgres.getHost())
-            .setPort(postgres.getFirstMappedPort())
-            .setDatabase(postgres.getDatabaseName())
-            .setUser(postgres.getUsername())
-            .setPassword(postgres.getPassword())
-            .setProperties(Map.of("search_path", PostgreSQLTestConstants.TEST_SCHEMA));
-
-        Pool pool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
+        Pool pool = createTestPool(vertx);
 
         // Test data with correlation
         String businessName = "Consistency Test Record";
@@ -356,7 +341,7 @@ public class TransactionParticipationIntegrationTest {
             logger.info("COMPREHENSIVE CONSISTENCY TEST PASSED: Business table and bitemporal_event_log are fully consistent");
             return v;
         })
-        .compose(v -> pool.close())
+        .transform(TestCleanup.cleanup(() -> pool.close()))
         .onComplete(testContext.succeeding(v -> testContext.completeNow()));
     }
 
@@ -366,15 +351,7 @@ public class TransactionParticipationIntegrationTest {
         logger.info(" Testing transaction commit verification with timing validation");
 
         // Create a direct connection pool for transaction testing
-        PgConnectOptions connectOptions = new PgConnectOptions()
-            .setHost(postgres.getHost())
-            .setPort(postgres.getFirstMappedPort())
-            .setDatabase(postgres.getDatabaseName())
-            .setUser(postgres.getUsername())
-            .setPassword(postgres.getPassword())
-            .setProperties(Map.of("search_path", PostgreSQLTestConstants.TEST_SCHEMA));
-
-        Pool pool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
+        Pool pool = createTestPool(vertx);
 
         // Test data
         String businessName = "Commit Verification Test";
@@ -468,7 +445,7 @@ public class TransactionParticipationIntegrationTest {
                 });
             });
         })
-        .compose(v -> pool.close())
+        .transform(TestCleanup.cleanup(() -> pool.close()))
         .onComplete(testContext.succeeding(v -> testContext.completeNow()));
     }
 
@@ -482,15 +459,7 @@ public class TransactionParticipationIntegrationTest {
         logger.info(" Testing business operation failure after bitemporal append - rollback scenario");
 
         // Create a direct connection pool for transaction testing
-        PgConnectOptions connectOptions = new PgConnectOptions()
-            .setHost(postgres.getHost())
-            .setPort(postgres.getFirstMappedPort())
-            .setDatabase(postgres.getDatabaseName())
-            .setUser(postgres.getUsername())
-            .setPassword(postgres.getPassword())
-            .setProperties(Map.of("search_path", PostgreSQLTestConstants.TEST_SCHEMA));
-
-        Pool pool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
+        Pool pool = createTestPool(vertx);
 
         // Test data
         String eventType = "business.rollback.test.after.append";
@@ -519,15 +488,18 @@ public class TransactionParticipationIntegrationTest {
                         });
                 });
         })
-        .onSuccess(v -> testContext.failNow(new AssertionError("Transaction should have failed but succeeded")))
-        .onFailure(thrownException -> {
-            logger.info("THIS IS AN INTENTIONAL TEST ERROR: Captured expected rollback trigger (business SQL failure): {}", thrownException.getMessage());
+        .transform(outcome -> {
+            // The transaction must fail with the planted error, the missing table, and nothing else.
+            PgException failure = assertInstanceOf(PgException.class, outcome.cause(),
+                "The transaction must fail with the planted SQL error");
+            assertEquals("42P01", failure.getSqlState(), "The planted error is the missing table");
+            logger.info("THIS IS AN INTENTIONAL TEST ERROR: Captured expected rollback trigger (business SQL failure): {}", failure.getMessage());
 
             // CRITICAL ROLLBACK VERIFICATION
             logger.info(" Verifying complete rollback - no partial data should exist");
 
             // 1. Verify NO bitemporal event exists (should be rolled back)
-            pool.withConnection(connection -> {
+            return pool.withConnection(connection -> {
                 String selectEventSql = "SELECT COUNT(*) FROM bitemporal_event_log WHERE correlation_id = $1 AND event_type = $2";
                 return connection.preparedQuery(selectEventSql)
                     .execute(Tuple.of(correlationId, eventType))
@@ -576,10 +548,11 @@ public class TransactionParticipationIntegrationTest {
             .compose(totalRecords -> {
                 assertEquals(0, totalRecords, "Database should be in completely clean state after rollback");
                 logger.info("COMPREHENSIVE ROLLBACK TEST PASSED: Business operation failure after bitemporal append correctly rolled back all operations");
-                return pool.close();
-            })
-            .onComplete(testContext.succeeding(v -> testContext.completeNow()));
-        });
+                return Future.<Void>succeededFuture();
+            });
+        })
+        .transform(TestCleanup.cleanup(() -> pool.close()))
+        .onComplete(testContext.succeeding(v -> testContext.completeNow()));
     }
 
     @Test
@@ -588,15 +561,7 @@ public class TransactionParticipationIntegrationTest {
         logger.info(" Testing bitemporal append failure after business operation - rollback scenario");
 
         // Create a direct connection pool for transaction testing
-        PgConnectOptions connectOptions = new PgConnectOptions()
-            .setHost(postgres.getHost())
-            .setPort(postgres.getFirstMappedPort())
-            .setDatabase(postgres.getDatabaseName())
-            .setUser(postgres.getUsername())
-            .setPassword(postgres.getPassword())
-            .setProperties(Map.of("search_path", PostgreSQLTestConstants.TEST_SCHEMA));
-
-        Pool pool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
+        Pool pool = createTestPool(vertx);
 
         // Test data
         String businessName = "Rollback Test Business Record";
@@ -624,15 +589,18 @@ public class TransactionParticipationIntegrationTest {
                         });
                 });
         })
-        .onSuccess(v -> testContext.failNow(new AssertionError("Transaction should have failed but succeeded")))
-        .onFailure(thrownException -> {
-            logger.info("THIS IS AN INTENTIONAL TEST ERROR: Captured expected rollback trigger (append validation failure): {}", thrownException.getMessage());
+        .transform(outcome -> {
+            // The transaction must fail with the planted error, the null payload, and nothing else.
+            IllegalArgumentException failure = assertInstanceOf(IllegalArgumentException.class, outcome.cause(),
+                "The transaction must fail with the append validation error");
+            assertEquals("Event payload cannot be null", failure.getMessage(), "The planted error is the null payload");
+            logger.info("THIS IS AN INTENTIONAL TEST ERROR: Captured expected rollback trigger (append validation failure): {}", failure.getMessage());
 
             // CRITICAL ROLLBACK VERIFICATION
             logger.info(" Verifying complete rollback - no partial data should exist");
 
             // 1. Verify NO business data exists (should be rolled back)
-            pool.withConnection(connection -> {
+            return pool.withConnection(connection -> {
                 String selectBusinessSql = "SELECT COUNT(*) FROM business_data WHERE name LIKE $1";
                 return connection.preparedQuery(selectBusinessSql)
                     .execute(Tuple.of("%" + correlationId + "%"))
@@ -654,10 +622,11 @@ public class TransactionParticipationIntegrationTest {
                 assertEquals(0, eventCount, "NO bitemporal events should exist after rollback");
                 logger.info("Rollback verification: {} bitemporal event(s) found (expected 0)", eventCount);
                 logger.info("COMPREHENSIVE ROLLBACK TEST PASSED: Bitemporal append failure after business operation correctly rolled back all operations");
-                return pool.close();
-            })
-            .onComplete(testContext.succeeding(v -> testContext.completeNow()));
-        });
+                return Future.<Void>succeededFuture();
+            });
+        })
+        .transform(TestCleanup.cleanup(() -> pool.close()))
+        .onComplete(testContext.succeeding(v -> testContext.completeNow()));
     }
 
     @Test
@@ -666,15 +635,7 @@ public class TransactionParticipationIntegrationTest {
         logger.info(" Testing transaction boundary integrity - no partial commits");
 
         // Create a direct connection pool for transaction testing
-        PgConnectOptions connectOptions = new PgConnectOptions()
-            .setHost(postgres.getHost())
-            .setPort(postgres.getFirstMappedPort())
-            .setDatabase(postgres.getDatabaseName())
-            .setUser(postgres.getUsername())
-            .setPassword(postgres.getPassword())
-            .setProperties(Map.of("search_path", PostgreSQLTestConstants.TEST_SCHEMA));
-
-        Pool pool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
+        Pool pool = createTestPool(vertx);
 
         // Test data for multiple operations
         String correlationId = "BOUNDARY-INTEGRITY-TEST-" + System.currentTimeMillis();
@@ -728,15 +689,18 @@ public class TransactionParticipationIntegrationTest {
                         });
                 });
         })
-        .onSuccess(v -> testContext.failNow(new AssertionError("Transaction should have failed but succeeded")))
-        .onFailure(thrownException -> {
-            logger.info("THIS IS AN INTENTIONAL TEST ERROR: Captured expected boundary-integrity rollback trigger: {}", thrownException.getMessage());
+        .transform(outcome -> {
+            // The transaction must fail with the planted error, the missing table, and nothing else.
+            PgException failure = assertInstanceOf(PgException.class, outcome.cause(),
+                "The transaction must fail with the planted SQL error");
+            assertEquals("42P01", failure.getSqlState(), "The planted error is the missing table");
+            logger.info("THIS IS AN INTENTIONAL TEST ERROR: Captured expected boundary-integrity rollback trigger: {}", failure.getMessage());
 
             // COMPREHENSIVE TRANSACTION BOUNDARY VERIFICATION
             logger.info(" Verifying transaction boundary integrity - ALL operations should be rolled back");
 
             // 1. Verify NO business data exists (all should be rolled back)
-            pool.withConnection(connection -> {
+            return pool.withConnection(connection -> {
                 String selectBusinessSql = "SELECT COUNT(*) FROM business_data WHERE name LIKE $1";
                 return connection.preparedQuery(selectBusinessSql)
                     .execute(Tuple.of("%" + correlationId + "%"))
@@ -788,10 +752,11 @@ public class TransactionParticipationIntegrationTest {
             })
             .compose(v -> {
                 logger.info("COMPREHENSIVE TRANSACTION BOUNDARY INTEGRITY TEST PASSED: All operations correctly rolled back, no partial commits");
-                return pool.close();
-            })
-            .onComplete(testContext.succeeding(v -> testContext.completeNow()));
-        });
+                return Future.<Void>succeededFuture();
+            });
+        })
+        .transform(TestCleanup.cleanup(() -> pool.close()))
+        .onComplete(testContext.succeeding(v -> testContext.completeNow()));
     }
 
     /**
@@ -825,15 +790,7 @@ public class TransactionParticipationIntegrationTest {
         logger.info(" Testing multiple bitemporal events in single transaction");
 
         // Create a direct connection pool for transaction testing
-        PgConnectOptions connectOptions = new PgConnectOptions()
-            .setHost(postgres.getHost())
-            .setPort(postgres.getFirstMappedPort())
-            .setDatabase(postgres.getDatabaseName())
-            .setUser(postgres.getUsername())
-            .setPassword(postgres.getPassword())
-            .setProperties(Map.of("search_path", PostgreSQLTestConstants.TEST_SCHEMA));
-
-        Pool pool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
+        Pool pool = createTestPool(vertx);
 
         Instant testStart = Instant.now();
         List<String> eventIds = new ArrayList<>();
@@ -954,7 +911,7 @@ public class TransactionParticipationIntegrationTest {
             logger.info("COMPREHENSIVE MULTIPLE BITEMPORAL EVENTS TEST PASSED: All {} events committed together with business data", eventIds.size());
             return eventDetails;
         })
-        .compose(v -> pool.close())
+        .transform(TestCleanup.cleanup(() -> pool.close()))
         .onComplete(testContext.succeeding(v -> testContext.completeNow()));
     }
 
@@ -964,15 +921,7 @@ public class TransactionParticipationIntegrationTest {
         logger.info(" Testing mixed operation sequences - business  bitemporal  business");
 
         // Create a direct connection pool for transaction testing
-        PgConnectOptions connectOptions = new PgConnectOptions()
-            .setHost(postgres.getHost())
-            .setPort(postgres.getFirstMappedPort())
-            .setDatabase(postgres.getDatabaseName())
-            .setUser(postgres.getUsername())
-            .setPassword(postgres.getPassword())
-            .setProperties(Map.of("search_path", PostgreSQLTestConstants.TEST_SCHEMA));
-
-        Pool pool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
+        Pool pool = createTestPool(vertx);
 
         Instant testStart = Instant.now();
         List<Integer> businessIds = new ArrayList<>();
@@ -1118,7 +1067,7 @@ public class TransactionParticipationIntegrationTest {
             logger.info("COMPREHENSIVE MIXED OPERATION SEQUENCES TEST PASSED: {} business operations and {} events committed together", businessIds.size(), eventIds.size());
             return details;
         })
-        .compose(v -> pool.close())
+        .transform(TestCleanup.cleanup(() -> pool.close()))
         .onComplete(testContext.succeeding(v -> testContext.completeNow()));
     }
 
@@ -1128,15 +1077,7 @@ public class TransactionParticipationIntegrationTest {
         logger.info(" Testing batch operation performance");
 
         // Create a direct connection pool for transaction testing
-        PgConnectOptions connectOptions = new PgConnectOptions()
-            .setHost(postgres.getHost())
-            .setPort(postgres.getFirstMappedPort())
-            .setDatabase(postgres.getDatabaseName())
-            .setUser(postgres.getUsername())
-            .setPassword(postgres.getPassword())
-            .setProperties(Map.of("search_path", PostgreSQLTestConstants.TEST_SCHEMA));
-
-        Pool pool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
+        Pool pool = createTestPool(vertx);
 
         final int BATCH_SIZE = 10; // Reasonable size for integration test
         Instant testStart = Instant.now();
@@ -1232,7 +1173,7 @@ public class TransactionParticipationIntegrationTest {
             long duration = durationAndTimes.getKey();
             List<Instant> transactionTimes = durationAndTimes.getValue();
 
-            assertTrue(transactionTimes.size() <= BATCH_SIZE, "Transaction times should be reasonable (each event gets its own timestamp)");
+            assertEquals(BATCH_SIZE, transactionTimes.size(), "Each append assigns its own transaction time");
             assertEquals(BATCH_SIZE, eventIds.size(), "Should have collected all event IDs");
 
             // Performance assertions
@@ -1248,14 +1189,7 @@ public class TransactionParticipationIntegrationTest {
             logger.info("COMPREHENSIVE BATCH OPERATION PERFORMANCE TEST PASSED: {} events processed in {} ms", BATCH_SIZE, duration);
             return durationAndTimes;
         })
-        .compose(v -> pool.close())
+        .transform(TestCleanup.cleanup(() -> pool.close()))
         .onComplete(testContext.succeeding(v -> testContext.completeNow()));
     }
 }
-
-
-
-
-
-
-
