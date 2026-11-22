@@ -33,6 +33,7 @@ import dev.mars.peegeeq.failover.PgWatchdogException;
 import dev.mars.peegeeq.failover.PgWatchdogMode;
 import dev.mars.peegeeq.failover.PgWriterGrant;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.containers.TestContainerImages;
 import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import dev.mars.peegeeq.test.vertx.TestCleanup;
 import io.vertx.core.Future;
@@ -76,7 +77,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class PgFailoverMonitorIntegrationTest {
     private static final List<String> MEMBERS = List.of("pg-node-1", "pg-node-2", "pg-node-3");
     private static final String TOKEN = "unused-without-acls";
-    private static final GenericContainer<?> CONSUL = new GenericContainer<>("hashicorp/consul:1.22.1")
+    private static final GenericContainer<?> CONSUL = new GenericContainer<>(TestContainerImages.CONSUL_IMAGE)
         .withExposedPorts(8500)
         .withCommand("agent", "-dev", "-client=0.0.0.0", "-node=consul-1", "-log-level=warn")
         .waitingFor(Wait.forHttp("/v1/status/leader").forPort(8500).withStartupTimeout(Duration.ofSeconds(60)));
