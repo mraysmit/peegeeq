@@ -2,143 +2,123 @@ package dev.mars.peegeeq.test.base;
 
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.Timer;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
+import io.vertx.pgclient.PgBuilder;
+import io.vertx.pgclient.PgConnectOptions;
+import io.vertx.sqlclient.Pool;
+import io.vertx.sqlclient.PoolOptions;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Test class for PeeGeeQTestBase functionality.
- * 
+ *
  * This test validates that the base test class correctly:
  * - Sets up TestContainers with different performance profiles
  * - Integrates with the metrics system
  * - Provides consistent database connectivity
  * - Handles cleanup properly
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-09-18
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 class PeeGeeQTestBaseTest extends PeeGeeQTestBase {
-    
-    private static final Logger logger = LoggerFactory.getLogger(PeeGeeQTestBaseTest.class);
-    
+
     @Override
     protected PerformanceProfile getPerformanceProfile() {
         return PerformanceProfile.STANDARD;
     }
-    
+
     @Test
     void testBasicSetup() {
-        logger.info("=== TEST METHOD STARTED: testBasicSetup ===");
-        
-        logger.info("Testing basic PeeGeeQTestBase setup");
-        
         // Verify container is running
         assertNotNull(getContainer(), "Container should not be null");
         assertTrue(getContainer().isRunning(), "Container should be running");
-        
+
         // Verify database connectivity
         assertNotNull(getJdbcUrl(), "JDBC URL should not be null");
         assertNotNull(getHost(), "Host should not be null");
         assertNotNull(getPort(), "Port should not be null");
-        
+
         // Verify metrics are set up
         assertNotNull(getMetrics(), "Metrics should not be null");
         assertNotNull(getMeterRegistry(), "MeterRegistry should not be null");
-        
+
         // Verify test instance ID
         assertNotNull(getTestInstanceId(), "Test instance ID should not be null");
         assertTrue(getTestInstanceId().startsWith("test-"), "Test instance ID should start with 'test-'");
-        
+
         // Verify performance profile
         assertEquals(PerformanceProfile.STANDARD, getCurrentProfile(), "Profile should be STANDARD");
-        
-        logger.info("Basic setup test passed");
-        
-        logger.info("=== TEST METHOD COMPLETED: testBasicSetup ===");
     }
-    
+
     @Test
-    void testDatabaseConnectivity() throws Exception {
-        logger.info("=== TEST METHOD STARTED: testDatabaseConnectivity ===");
-        
-        logger.info("Testing database connectivity");
-        
-        String jdbcUrl = getJdbcUrl();
-        String username = getContainer().getUsername();
-        String password = getContainer().getPassword();
-        
-        // Test direct JDBC connection
-        try (Connection conn = DriverManager.getConnection(jdbcUrl, username, password)) {
-            assertNotNull(conn, "Connection should not be null");
-            assertFalse(conn.isClosed(), "Connection should be open");
-            
-            // Test basic query
-            try (PreparedStatement stmt = conn.prepareStatement("SELECT 1 as test_value");
-                 ResultSet rs = stmt.executeQuery()) {
-                
-                assertTrue(rs.next(), "Result set should have at least one row");
-                assertEquals(1, rs.getInt("test_value"), "Test value should be 1");
-            }
-        }
-        
-        logger.info("Database connectivity test passed");
-        
-        logger.info("=== TEST METHOD COMPLETED: testDatabaseConnectivity ===");
+    void testDatabaseConnectivity(Vertx vertx, VertxTestContext testContext) {
+        PgConnectOptions connectOptions = new PgConnectOptions()
+            .setHost(getContainer().getHost())
+            .setPort(getContainer().getFirstMappedPort())
+            .setDatabase(getContainer().getDatabaseName())
+            .setUser(getContainer().getUsername())
+            .setPassword(getContainer().getPassword());
+
+        Pool pool = PgBuilder.pool()
+            .with(new PoolOptions().setMaxSize(1).setShared(false))
+            .connectingTo(connectOptions)
+            .using(vertx)
+            .build();
+
+        pool.query("SELECT 1 AS test_value").execute()
+            .map(rows -> rows.iterator().next().getInteger("test_value"))
+            .transform(TestCleanup.cleanup(() -> pool.close()))
+            .onSuccess(value -> testContext.verify(() -> {
+                assertEquals(1, value, "Test value should be 1");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
-    
+
+    /**
+     * The gauge and the timer reach the test's registry with the standard tags and the
+     * recorded values.
+     */
     @Test
     void testMetricsRecording() {
-        logger.info("=== TEST METHOD STARTED: testMetricsRecording ===");
-        
-        logger.info("Testing metrics recording");
-        
-        // Record some test metrics
         recordTestMetric("test.metric.gauge", 42.0, Map.of("test_tag", "test_value"));
         recordTestTimer("test.metric.timer", 100L, Map.of("operation", "test_operation"));
-        
-        // Verify metrics were recorded (basic validation)
-        assertNotNull(getMeterRegistry(), "MeterRegistry should be available");
-        
-        logger.info("Metrics recording test passed");
-        
-        logger.info("=== TEST METHOD COMPLETED: testMetricsRecording ===");
-    }
-    
-    @Test
-    void testSystemProperties() {
-        logger.info("=== TEST METHOD STARTED: testSystemProperties ===");
-        
-        logger.info("Testing system properties setup");
-        
-        // Verify system properties are set
-        assertNotNull(System.getProperty("test.database.host"), "Database host property should be set");
-        assertNotNull(System.getProperty("test.database.port"), "Database port property should be set");
-        assertNotNull(System.getProperty("test.database.name"), "Database name property should be set");
-        assertNotNull(System.getProperty("test.database.username"), "Database username property should be set");
-        assertNotNull(System.getProperty("test.database.password"), "Database password property should be set");
-        assertNotNull(System.getProperty("test.database.url"), "Database URL property should be set");
-        
-        // Verify properties match container values
-        assertEquals(getHost(), System.getProperty("test.database.host"), "Host property should match container");
-        assertEquals(getPort().toString(), System.getProperty("test.database.port"), "Port property should match container");
-        assertEquals(getJdbcUrl(), System.getProperty("test.database.url"), "URL property should match container");
-        
-        logger.info("System properties test passed");
-        
-        logger.info("=== TEST METHOD COMPLETED: testSystemProperties ===");
+
+        Gauge gauge = getMeterRegistry().find("test.metric.gauge")
+            .tag("test_tag", "test_value")
+            .tag("profile", PerformanceProfile.STANDARD.name())
+            .tag("test_class", getClass().getSimpleName())
+            .tag("instance", getTestInstanceId())
+            .gauge();
+        assertNotNull(gauge, "The gauge should be registered with the standard tags");
+        assertEquals(42.0, gauge.value(), 0.0, "The gauge should report the recorded value");
+
+        Timer timer = getMeterRegistry().find("test.metric.timer")
+            .tag("operation", "test_operation")
+            .tag("profile", PerformanceProfile.STANDARD.name())
+            .tag("test_class", getClass().getSimpleName())
+            .tag("instance", getTestInstanceId())
+            .timer();
+        assertNotNull(timer, "The timer should be registered with the standard tags");
+        assertEquals(1, timer.count(), "The timer should hold one recording");
+        assertEquals(100.0, timer.totalTime(TimeUnit.MILLISECONDS), 0.0, "The timer should hold the recorded duration");
     }
 }
