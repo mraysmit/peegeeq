@@ -26,6 +26,7 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.sqlclient.Tuple;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -68,17 +69,7 @@ public class DeadConsumerAlertingIntegrationTest {
     private static final String DEAD_GROUP = "dead-consumer-group";
 
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("peegeeq_alerting_test");
-        container.withUsername("peegeeq_test");
-        container.withPassword("peegeeq_test");
-        container.withSharedMemorySize(PostgreSQLTestConstants.DEFAULT_SHARED_MEMORY_SIZE);
-        container.withReuse(false);
-        return container;
-    }
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQRestServer server;
     private DatabaseSetupService setupService;
@@ -136,7 +127,7 @@ public class DeadConsumerAlertingIntegrationTest {
             return subscriptionService.subscribe(TOPIC_NAME, HEALTHY_GROUP, SubscriptionStore.OUTBOX, healthyOptions)
                 .compose(ignored -> subscriptionService.subscribe(TOPIC_NAME, DEAD_GROUP, SubscriptionStore.OUTBOX, deadOptions));
         })
-        .compose(v -> makeGroupDead(vertx))
+        .compose(v -> makeGroupDead())
         .onSuccess(v -> {
             logger.info("Test setup complete with healthy and dead subscriptions");
             testContext.completeNow();
@@ -145,32 +136,28 @@ public class DeadConsumerAlertingIntegrationTest {
     }
 
     /**
-     * Forces the named consumer group to become DEAD using JDBC. This is deterministic test
-     * precondition setup; dead-consumer detection itself is covered by the database module.
+     * Forces the named consumer group to become DEAD, in one transaction on the manager's pool.
+     * This is deterministic test precondition setup; dead-consumer detection itself is covered
+     * by the database module.
      */
-    private Future<Void> makeGroupDead(Vertx vertx) {
-        return vertx.executeBlocking(() -> {
-            try (java.sql.Connection conn = java.sql.DriverManager.getConnection(
-                    postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
-                 java.sql.PreparedStatement stmt = conn.prepareStatement("""
-                    UPDATE outbox_topic_subscriptions
-                    SET subscription_status = 'DEAD',
-                        last_heartbeat_at = NOW() - INTERVAL '10 seconds',
-                        consecutive_misses = dead_after_misses,
-                        last_active_at = NOW()
-                    WHERE topic = ? AND group_name = ?
-                    """)) {
-                stmt.setString(1, TOPIC_NAME);
-                stmt.setString(2, DEAD_GROUP);
-                int count = stmt.executeUpdate();
-                if (count != 1) {
-                    throw new IllegalStateException(
-                            "Expected exactly one dead-group subscription row, updated " + count);
+    private Future<Void> makeGroupDead() {
+        String sql = "UPDATE " + PostgreSQLTestConstants.TEST_SCHEMA + ".outbox_topic_subscriptions "
+            + "SET subscription_status = 'DEAD', "
+            + "last_heartbeat_at = NOW() - INTERVAL '10 seconds', "
+            + "consecutive_misses = dead_after_misses, "
+            + "last_active_at = NOW() "
+            + "WHERE topic = $1 AND group_name = $2";
+        return peeGeeQManager.getPool().withTransaction(connection -> connection
+                .preparedQuery(sql)
+                .execute(Tuple.of(TOPIC_NAME, DEAD_GROUP)))
+            .compose(result -> {
+                if (result.rowCount() != 1) {
+                    return Future.<Void>failedFuture(new IllegalStateException(
+                            "Expected exactly one dead-group subscription row, updated " + result.rowCount()));
                 }
                 logger.info("Established DEAD state for subscription {}/{}", TOPIC_NAME, DEAD_GROUP);
-                return null;
-            }
-        });
+                return Future.<Void>succeededFuture();
+            });
     }
 
     @AfterAll
