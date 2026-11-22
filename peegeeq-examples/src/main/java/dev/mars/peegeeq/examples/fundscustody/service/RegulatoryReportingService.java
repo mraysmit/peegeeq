@@ -75,10 +75,31 @@ public class RegulatoryReportingService {
             String reportType) {
 
         // Use current time to capture state "as of now"
-        Instant filingDateTime = Instant.now();
+        return getRegulatorySnapshot(fundId, reportingDate, reportType, Instant.now());
+    }
 
-        logger.info("Generating {} regulatory snapshot for fund {} as of {}",
-            reportType, fundId, reportingDate);
+    /**
+     * Generate regulatory report showing the state as it was known at a given filing time.
+     *
+     * <p>Use Case: "Reproduce the report exactly as it was filed at that moment"
+     *
+     * <p>The filing time is a transaction time: an event recorded after it is not in the
+     * report, even when its valid time falls inside the reporting period.
+     *
+     * @param fundId fund identifier
+     * @param reportingDate date of regulatory filing
+     * @param reportType type of report (AIFMD, MiFID_II, etc.)
+     * @param filingDateTime the transaction time the report is taken as of (inclusive)
+     * @return future containing regulatory report
+     */
+    public Future<RegulatoryReport> getRegulatorySnapshot(
+            String fundId,
+            LocalDate reportingDate,
+            String reportType,
+            Instant filingDateTime) {
+
+        logger.info("Generating {} regulatory snapshot for fund {} as of {} (filed {})",
+            reportType, fundId, reportingDate, filingDateTime);
         
         // Get NAV as reported
         Future<NAVSnapshot> navSnapshot = 
@@ -130,6 +151,23 @@ public class RegulatoryReportingService {
         
         logger.info("Generating AIFMD report for fund {} for {}", fundId, reportingDate);
         return getRegulatorySnapshot(fundId, reportingDate, "AIFMD");
+    }
+
+    /**
+     * Generate AIFMD report as it was known at a given filing time.
+     *
+     * @param fundId fund identifier
+     * @param reportingDate quarterly reporting date
+     * @param filingDateTime the transaction time the report is taken as of (inclusive)
+     * @return future containing AIFMD report
+     */
+    public Future<RegulatoryReport> getAIFMDReport(
+            String fundId,
+            LocalDate reportingDate,
+            Instant filingDateTime) {
+
+        logger.info("Generating AIFMD report for fund {} for {} as of {}", fundId, reportingDate, filingDateTime);
+        return getRegulatorySnapshot(fundId, reportingDate, "AIFMD", filingDateTime);
     }
     
     /**
