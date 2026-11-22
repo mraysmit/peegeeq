@@ -237,17 +237,6 @@ public class PeeGeeQTestContainerFactory {
     }
     
     /**
-     * Create a container with the same configuration as BaseIntegrationTest.
-     * This method provides backward compatibility with existing tests.
-     * 
-     * @return PostgreSQL container configured like BaseIntegrationTest
-     */
-    public static PostgreSQLContainer createBaseIntegrationTestContainer() {
-        return createContainer(PerformanceProfile.STANDARD)
-                .withReuse(true); // BaseIntegrationTest uses reuse=true
-    }
-    
-    /**
      * Get performance profile information for logging and reporting.
      * 
      * @param profile the performance profile
