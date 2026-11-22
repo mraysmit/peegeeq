@@ -1,20 +1,30 @@
 package dev.mars.peegeeq.migrations;
 
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
+import io.vertx.pgclient.PgBuilder;
+import io.vertx.pgclient.PgConnectOptions;
+import io.vertx.sqlclient.Pool;
+import io.vertx.sqlclient.PoolOptions;
+import io.vertx.sqlclient.Tuple;
 import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.output.MigrateResult;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -22,32 +32,68 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests for custom schema deployment scenarios.
  * Verifies that migrations can be deployed to named schemas instead of the default 'public' schema.
+ *
+ * <p>Flyway connects through JDBC; that is the behaviour under test. The test reads the
+ * resulting schema through a Vert.x pool.</p>
  */
-@Tag("integration")
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 class CustomSchemaIntegrationTest {
 
     private static final Logger log = LoggerFactory.getLogger(CustomSchemaIntegrationTest.class);
 
-    @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
+    private static final List<String> EXPECTED_TABLES = List.of(
+            "schema_version",
+            "outbox",
+            "outbox_consumer_groups",
+            "queue_messages",
+            "message_processing",
+            "dead_letter_queue",
+            "bitemporal_event_log",
+            "bitemporal_subscriptions");
 
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("peegeeq_custom_schema_test");
-        container.withUsername("test");
-        container.withPassword("test");
-        return container;
+    private static final String TABLE_COUNT_SQL =
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2";
+
+    @Container
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
+
+    private Vertx vertx;
+    private Pool pool;
+
+    @BeforeEach
+    void setUp(Vertx vertx) {
+        this.vertx = vertx;
+        PgConnectOptions connectOptions = new PgConnectOptions()
+            .setHost(postgres.getHost())
+            .setPort(postgres.getFirstMappedPort())
+            .setDatabase(postgres.getDatabaseName())
+            .setUser(postgres.getUsername())
+            .setPassword(postgres.getPassword());
+
+        pool = PgBuilder.pool()
+            .with(new PoolOptions().setMaxSize(2).setShared(false))
+            .connectingTo(connectOptions)
+            .using(vertx)
+            .build();
+    }
+
+    @AfterEach
+    void tearDown(VertxTestContext testContext) {
+        pool.close()
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testMigrationsToCustomSchemaViaJdbcUrl() throws SQLException {
+    void testMigrationsToCustomSchemaViaJdbcUrl(VertxTestContext testContext) {
         log.info("TEST: Deploying migrations to custom schema via JDBC URL parameter");
         String customSchema = "peegeeq_custom";
-        
+
         // Configure Flyway to use custom schema via JDBC URL parameter
         String jdbcUrl = postgres.getJdbcUrl() + "?currentSchema=" + customSchema + "&options=-c%20statement_timeout=60000";
-        
+
         Flyway flyway = Flyway.configure()
                 .dataSource(jdbcUrl, postgres.getUsername(), postgres.getPassword())
                 .schemas(customSchema)
@@ -59,27 +105,25 @@ class CustomSchemaIntegrationTest {
                 .connectRetries(10)
                 .load();
 
-        log.info("  Running migrations to schema: {}", customSchema);
-        var result = flyway.migrate();
-
-        assertTrue(result.success, "Migration to schema " + customSchema + " should succeed");
-        assertTrue(result.migrationsExecuted > 0, "At least one migration should run, ran " + result.migrationsExecuted);
-        
-        log.info("  Verifying tables in custom schema...");
-        verifyTablesInSchema(customSchema);
-        verifyTablesNotInPublicSchema();
-        
-        log.info(" Migrations successfully deployed to custom schema via JDBC URL");
+        migrate(flyway)
+            .compose(result -> {
+                assertTrue(result.success, "Migration to schema " + customSchema + " should succeed");
+                assertTrue(result.migrationsExecuted > 0, "At least one migration should run, ran " + result.migrationsExecuted);
+                return verifyTablesInSchema(customSchema);
+            })
+            .compose(v -> verifyTablesNotInPublicSchema())
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testMigrationsToCustomSchemaViaDefaultSchema() throws SQLException {
+    void testMigrationsToCustomSchemaViaDefaultSchema(VertxTestContext testContext) {
         log.info("TEST: Deploying migrations to custom schema via defaultSchema configuration");
         String customSchema = "peegeeq_configured";
-        
+
         // Configure Flyway with explicit defaultSchema
         String jdbcUrl = postgres.getJdbcUrl() + "?options=-c%20statement_timeout=60000";
-        
+
         Flyway flyway = Flyway.configure()
                 .dataSource(jdbcUrl, postgres.getUsername(), postgres.getPassword())
                 .defaultSchema(customSchema)
@@ -92,122 +136,93 @@ class CustomSchemaIntegrationTest {
                 .connectRetries(10)
                 .load();
 
-        log.info("  Running migrations with defaultSchema: {}", customSchema);
-        var result = flyway.migrate();
-
-        assertTrue(result.success, "Migration to schema " + customSchema + " should succeed");
-        assertTrue(result.migrationsExecuted > 0, "At least one migration should run, ran " + result.migrationsExecuted);
-        
-        log.info("  Verifying tables in configured schema...");
-        verifyTablesInSchema(customSchema);
-        
-        log.info(" Migrations successfully deployed to custom schema via defaultSchema config");
+        migrate(flyway)
+            .compose(result -> {
+                assertTrue(result.success, "Migration to schema " + customSchema + " should succeed");
+                assertTrue(result.migrationsExecuted > 0, "At least one migration should run, ran " + result.migrationsExecuted);
+                return verifyTablesInSchema(customSchema);
+            })
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testMultipleSchemaIsolation() throws SQLException {
+    void testMultipleSchemaIsolation(VertxTestContext testContext) {
         log.info("TEST: Testing schema isolation - deploying to multiple schemas in same database");
-        
+
         String schema1 = "peegeeq_tenant1";
         String schema2 = "peegeeq_tenant2";
-        
-        // Deploy to first schema
-        log.info("  Deploying to schema: {}", schema1);
-        deployToSchema(schema1);
-        
-        // Deploy to second schema
-        log.info("  Deploying to schema: {}", schema2);
-        deployToSchema(schema2);
-        
-        // Verify both schemas have tables
-        log.info("  Verifying schema isolation...");
-        verifyTablesInSchema(schema1);
-        verifyTablesInSchema(schema2);
-        
-        // Verify schemas are isolated (data in one doesn't affect the other)
-        verifySchemaIsolation(schema1, schema2);
-        
-        log.info(" Multiple schema isolation verified successfully");
+
+        deployToSchema(schema1)
+            .compose(v -> deployToSchema(schema2))
+            .compose(v -> verifyTablesInSchema(schema1))
+            .compose(v -> verifyTablesInSchema(schema2))
+            // Verify schemas are isolated (data in one doesn't affect the other)
+            .compose(v -> insertOutboxRow(schema1, "data1"))
+            .compose(v -> insertOutboxRow(schema2, "data2"))
+            .compose(v -> countOutboxRows(schema1, "data1"))
+            .compose(count -> {
+                assertEquals(1L, count, "Schema1 should have its own data");
+                return countOutboxRows(schema2, "data2");
+            })
+            .compose(count -> {
+                assertEquals(1L, count, "Schema2 should have its own data");
+                return countOutboxRows(schema1, "data2");
+            })
+            .onSuccess(count -> testContext.verify(() -> {
+                assertEquals(0L, count, "Schema1 should NOT have schema2's data");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testFlywayHistoryTableInCustomSchema() throws SQLException {
+    void testFlywayHistoryTableInCustomSchema(VertxTestContext testContext) {
         log.info("TEST: Verifying Flyway history table is created in custom schema");
         String customSchema = "peegeeq_history";
-        
-        deployToSchema(customSchema);
-        
-        // Verify flyway_schema_history exists in custom schema
-        try (Connection conn = DriverManager.getConnection(
-                postgres.getJdbcUrl(), 
-                postgres.getUsername(), 
-                postgres.getPassword())) {
-            
-            String query = "SELECT COUNT(*) FROM information_schema.tables " +
-                    "WHERE table_schema = ? AND table_name = ?";
-            
-            try (var stmt = conn.prepareStatement(query)) {
-                stmt.setString(1, customSchema);
-                stmt.setString(2, "flyway_schema_history");
-                
-                ResultSet rs = stmt.executeQuery();
-                assertTrue(rs.next(), "COUNT(*) should return a row");
-                int count = rs.getInt(1);
-                
-                assertEquals(1, count, "flyway_schema_history should exist in custom schema");
-            }
-            
-            // Verify it's NOT in public schema
-            try (var stmt = conn.prepareStatement(query)) {
-                stmt.setString(1, "public");
-                stmt.setString(2, "flyway_schema_history");
-                
-                ResultSet rs = stmt.executeQuery();
-                assertTrue(rs.next(), "COUNT(*) should return a row");
-                int count = rs.getInt(1);
-                
-                assertEquals(0, count, "flyway_schema_history should NOT be in public schema");
-            }
-        }
-        
-        log.info(" Flyway history table correctly placed in custom schema");
+
+        deployToSchema(customSchema)
+            .compose(v -> queryCount(TABLE_COUNT_SQL, Tuple.of(customSchema, "flyway_schema_history")))
+            .compose(count -> {
+                assertEquals(1L, count, "flyway_schema_history should exist in custom schema");
+                return queryCount(TABLE_COUNT_SQL, Tuple.of("public", "flyway_schema_history"));
+            })
+            .onSuccess(count -> testContext.verify(() -> {
+                assertEquals(0L, count, "flyway_schema_history should NOT be in public schema");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testSchemaCreatedAutomatically() throws SQLException {
+    void testSchemaCreatedAutomatically(VertxTestContext testContext) {
         log.info("TEST: Verifying custom schema is created automatically if it doesn't exist");
         String nonExistentSchema = "peegeeq_autocreate";
-        
-        // Verify schema doesn't exist yet
-        try (Connection conn = DriverManager.getConnection(
-                postgres.getJdbcUrl(), 
-                postgres.getUsername(), 
-                postgres.getPassword())) {
-            
-            assertFalse(schemaExists(conn, nonExistentSchema), "Schema should not exist before migration");
-        }
-        
-        // Deploy migrations - should auto-create schema
-        log.info("  Deploying migrations (schema should be auto-created)...");
-        deployToSchema(nonExistentSchema);
-        
-        // Verify schema was created
-        try (Connection conn = DriverManager.getConnection(
-                postgres.getJdbcUrl(), 
-                postgres.getUsername(), 
-                postgres.getPassword())) {
-            
-            assertTrue(schemaExists(conn, nonExistentSchema), "Schema should be auto-created during migration");
-        }
-        
-        log.info(" Custom schema auto-created successfully");
+        String schemaCountSql = "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = $1";
+
+        queryCount(schemaCountSql, Tuple.of(nonExistentSchema))
+            .compose(count -> {
+                assertEquals(0L, count, "Schema should not exist before migration");
+                return deployToSchema(nonExistentSchema);
+            })
+            .compose(v -> queryCount(schemaCountSql, Tuple.of(nonExistentSchema)))
+            .onSuccess(count -> testContext.verify(() -> {
+                assertEquals(1L, count, "Schema should be auto-created during migration");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     // Helper methods
 
-    private void deployToSchema(String schemaName) {
+    /** Flyway blocks, so the migration runs on a worker thread. */
+    private Future<MigrateResult> migrate(Flyway flyway) {
+        return vertx.executeBlocking(flyway::migrate, false);
+    }
+
+    private Future<Void> deployToSchema(String schemaName) {
         String jdbcUrl = postgres.getJdbcUrl() + "?options=-c%20statement_timeout=60000";
-        
+
         Flyway flyway = Flyway.configure()
                 .dataSource(jdbcUrl, postgres.getUsername(), postgres.getPassword())
                 .defaultSchema(schemaName)
@@ -220,126 +235,59 @@ class CustomSchemaIntegrationTest {
                 .connectRetries(10)
                 .load();
 
-        var result = flyway.migrate();
-        assertTrue(result.success, "Migration to schema " + schemaName + " should succeed");
+        return migrate(flyway).compose(result -> {
+            assertTrue(result.success, "Migration to schema " + schemaName + " should succeed");
+            return Future.<Void>succeededFuture();
+        });
     }
 
-    private void verifyTablesInSchema(String schemaName) throws SQLException {
-        List<String> expectedTables = List.of(
-                "schema_version",
-                "outbox",
-                "outbox_consumer_groups",
-                "queue_messages",
-                "message_processing",
-                "dead_letter_queue",
-            "bitemporal_event_log",
-            "bitemporal_subscriptions"
-        );
-
-        try (Connection conn = DriverManager.getConnection(
-                postgres.getJdbcUrl(), 
-                postgres.getUsername(), 
-                postgres.getPassword())) {
-
-            for (String tableName : expectedTables) {
-                String query = "SELECT COUNT(*) FROM information_schema.tables " +
-                        "WHERE table_schema = ? AND table_name = ?";
-                
-                try (var stmt = conn.prepareStatement(query)) {
-                    stmt.setString(1, schemaName);
-                    stmt.setString(2, tableName);
-                    
-                    try (ResultSet rs = stmt.executeQuery()) {
-                        assertTrue(rs.next(), "COUNT(*) should return a row");
-                        
-                        int count = rs.getInt(1);
-                        assertEquals(1, count, String.format("Table %s should exist in schema %s", tableName, schemaName));
-                    }
-                }
-            }
+    private Future<Void> verifyTablesInSchema(String schemaName) {
+        Future<Void> chain = Future.succeededFuture();
+        for (String tableName : EXPECTED_TABLES) {
+            chain = chain
+                .compose(v -> queryCount(TABLE_COUNT_SQL, Tuple.of(schemaName, tableName)))
+                .compose(count -> {
+                    assertEquals(1L, count, String.format("Table %s should exist in schema %s", tableName, schemaName));
+                    return Future.<Void>succeededFuture();
+                });
         }
+        return chain;
     }
 
-    private void verifyTablesNotInPublicSchema() throws SQLException {
-        List<String> peegeeqTables = List.of(
-                "outbox",
-                "queue_messages",
-                "dead_letter_queue"
-        );
-
-        try (Connection conn = DriverManager.getConnection(
-                postgres.getJdbcUrl(), 
-                postgres.getUsername(), 
-                postgres.getPassword())) {
-
-            for (String tableName : peegeeqTables) {
-                String query = "SELECT COUNT(*) FROM information_schema.tables " +
-                        "WHERE table_schema = 'public' AND table_name = ?";
-                
-                try (var stmt = conn.prepareStatement(query)) {
-                    stmt.setString(1, tableName);
-                    
-                    try (ResultSet rs = stmt.executeQuery()) {
-                        assertTrue(rs.next(), "COUNT(*) should return a row");
-                        
-                        int count = rs.getInt(1);
-                        assertEquals(0, count, String.format("Table %s should NOT exist in public schema", tableName));
-                    }
-                }
-            }
+    private Future<Void> verifyTablesNotInPublicSchema() {
+        Future<Void> chain = Future.succeededFuture();
+        for (String tableName : List.of("outbox", "queue_messages", "dead_letter_queue")) {
+            chain = chain
+                .compose(v -> queryCount(TABLE_COUNT_SQL, Tuple.of("public", tableName)))
+                .compose(count -> {
+                    assertEquals(0L, count, String.format("Table %s should NOT exist in public schema", tableName));
+                    return Future.<Void>succeededFuture();
+                });
         }
+        return chain;
     }
 
-    private void verifySchemaIsolation(String schema1, String schema2) throws SQLException {
-        try (Connection conn = DriverManager.getConnection(
-                postgres.getJdbcUrl(), 
-                postgres.getUsername(), 
-                postgres.getPassword())) {
-
-            // Insert data into schema1
-            try (var stmt = conn.createStatement()) {
-                stmt.execute("SET search_path TO " + schema1);
-                stmt.execute("INSERT INTO outbox (topic, payload) VALUES ('test-topic', '{\"test\": \"data1\"}'::jsonb)");
-            }
-
-            // Insert data into schema2
-            try (var stmt = conn.createStatement()) {
-                stmt.execute("SET search_path TO " + schema2);
-                stmt.execute("INSERT INTO outbox (topic, payload) VALUES ('test-topic', '{\"test\": \"data2\"}'::jsonb)");
-            }
-
-            // Verify schema1 has only its data
-            try (var stmt = conn.createStatement()) {
-                stmt.execute("SET search_path TO " + schema1);
-                ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM outbox WHERE payload->>'test' = 'data1'");
-                assertTrue(rs.next(), "COUNT(*) should return a row");
-                assertEquals(1, rs.getInt(1), "Schema1 should have its own data");
-            }
-
-            // Verify schema2 has only its data
-            try (var stmt = conn.createStatement()) {
-                stmt.execute("SET search_path TO " + schema2);
-                ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM outbox WHERE payload->>'test' = 'data2'");
-                assertTrue(rs.next(), "COUNT(*) should return a row");
-                assertEquals(1, rs.getInt(1), "Schema2 should have its own data");
-            }
-
-            // Verify schema1 does NOT have schema2's data
-            try (var stmt = conn.createStatement()) {
-                stmt.execute("SET search_path TO " + schema1);
-                ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM outbox WHERE payload->>'test' = 'data2'");
-                assertTrue(rs.next(), "COUNT(*) should return a row");
-                assertEquals(0, rs.getInt(1), "Schema1 should NOT have schema2's data");
-            }
-        }
+    /**
+     * The outbox triggers name other tables without a schema, so they resolve them through
+     * search_path. As in PgConnectionManager.withTransaction, the schema is set for this
+     * transaction only, before the insert.
+     */
+    private Future<Void> insertOutboxRow(String schema, String marker) {
+        String sql = "INSERT INTO " + schema + ".outbox (topic, payload) "
+                + "VALUES ('test-topic', jsonb_build_object('test', $1::text))";
+        return pool.withTransaction(connection ->
+            connection.query("SET LOCAL search_path TO " + schema).execute()
+                .compose(set -> connection.preparedQuery(sql).execute(Tuple.of(marker)))
+                .mapEmpty());
     }
 
-    private boolean schemaExists(Connection conn, String schemaName) throws SQLException {
-        String query = "SELECT 1 FROM information_schema.schemata WHERE schema_name = ?";
-        try (var stmt = conn.prepareStatement(query)) {
-            stmt.setString(1, schemaName);
-            ResultSet rs = stmt.executeQuery();
-            return rs.next();
-        }
+    private Future<Long> countOutboxRows(String schema, String marker) {
+        return queryCount("SELECT COUNT(*) FROM " + schema + ".outbox WHERE payload->>'test' = $1", Tuple.of(marker));
+    }
+
+    private Future<Long> queryCount(String sql, Tuple params) {
+        return pool.preparedQuery(sql)
+            .execute(params)
+            .map(rows -> rows.iterator().next().getLong(0));
     }
 }
