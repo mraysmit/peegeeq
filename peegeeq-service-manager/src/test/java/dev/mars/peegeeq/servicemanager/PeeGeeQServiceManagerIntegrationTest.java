@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.servicemanager;
 
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.containers.TestContainerImages;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
@@ -36,7 +37,7 @@ class PeeGeeQServiceManagerIntegrationTest {
     private static final int TEST_PORT = 9090;
     
     @Container
-    static ConsulContainer consul = new ConsulContainer("hashicorp/consul:1.15.3");
+    static ConsulContainer consul = new ConsulContainer(TestContainerImages.CONSUL_IMAGE);
     
     private PeeGeeQServiceManager serviceManager;
     private WebClient webClient;
