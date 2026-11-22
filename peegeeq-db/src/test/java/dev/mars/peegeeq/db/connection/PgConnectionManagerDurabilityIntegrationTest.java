@@ -8,6 +8,7 @@ import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.containers.TestContainerImages;
 import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -87,7 +88,7 @@ class PgConnectionManagerDurabilityIntegrationTest {
             "ALTER SYSTEM SET synchronous_standby_names = 'ANY 2 (\"pg-node-2\", \"pg-node-3\")'"));
         requireSuccess(primary.execInContainer("psql", "-U", primary.getUsername(),
             "-d", primary.getDatabaseName(), "-c", "SELECT pg_reload_conf()"));
-        haproxy = new GenericContainer<>("haproxy:2.8-alpine")
+        haproxy = new GenericContainer<>(TestContainerImages.HAPROXY_IMAGE)
             .withNetwork(network).withExposedPorts(5400)
             .withClasspathResourceMapping("haproxy-durability.cfg",
                 "/usr/local/etc/haproxy/haproxy.cfg", BindMode.READ_ONLY)
