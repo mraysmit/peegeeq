@@ -172,7 +172,7 @@ class PartitionedOrderingDemoTest {
     // ------------------------------------------------------------------
     @Test
     @DisplayName("2a per-aggregate version order strictly ascending")
-    void testPartitionedOrdering_eventsPerAggregateInOrder(Vertx vertx, VertxTestContext testContext) {
+    void testPartitionedOrdering_eventsPerAggregateInOrder(VertxTestContext testContext) {
         String topic = "pod-2a-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "pod-2a-group";
 
@@ -364,7 +364,7 @@ class PartitionedOrderingDemoTest {
     @Test
     @DisplayName("2c no messageGroup  __default__ partition serial order")
     void testPartitionedOrdering_defaultPartition_noMessageGroup(
-            Vertx vertx, VertxTestContext testContext) {
+            VertxTestContext testContext) {
         String topic = "pod-2c-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "pod-2c-group";
 
@@ -446,7 +446,7 @@ class PartitionedOrderingDemoTest {
     @Test
     @DisplayName("2d committed offset prevents redelivery after restart")
     void testPartitionedOrdering_idempotentRedelivery(
-            Vertx vertx, VertxTestContext testContext) {
+            VertxTestContext testContext) {
         String topic = "pod-2d-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "pod-2d-group";
 
