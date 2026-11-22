@@ -1,8 +1,9 @@
 # PeeGeeQ Database Setup Guide
+© Mark Andrew Ray-Smith Cityline Ltd 2025  
+Version 1.1
 
 **Comprehensive guide to database initialization across all services and environments**
 
-Version: 1.1  
 Date: December 11, 2025  
 Author: Mark Andrew Ray-Smith Cityline Ltd  
 
