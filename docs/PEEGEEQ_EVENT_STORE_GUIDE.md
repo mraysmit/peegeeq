@@ -1,4 +1,6 @@
 # PeeGeeQ Event Store Guide
+© Mark Andrew Ray-Smith Cityline Ltd 2025  
+Version 1.0
 
 **Status:** CURRENT CATEGORY GUIDE — IMPLEMENTED AND PROPOSED MATERIAL SEPARATED
 
