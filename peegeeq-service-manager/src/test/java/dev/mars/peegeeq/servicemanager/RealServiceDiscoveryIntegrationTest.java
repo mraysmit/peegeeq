@@ -5,6 +5,7 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import dev.mars.peegeeq.servicemanager.discovery.ConsulServiceDiscovery;
 import dev.mars.peegeeq.servicemanager.model.PeeGeeQInstance;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.containers.TestContainerImages;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
@@ -54,7 +55,7 @@ class RealServiceDiscoveryIntegrationTest {
     
     @SuppressWarnings("resource") // Container managed by @Testcontainers lifecycle
     @Container
-    static ConsulContainer consul = new ConsulContainer("hashicorp/consul:1.15.3")
+    static ConsulContainer consul = new ConsulContainer(TestContainerImages.CONSUL_IMAGE)
             .waitingFor(Wait.forHttp("/v1/status/leader").forPort(8500).forStatusCode(200));
     
     // Static fields for container reuse across tests
