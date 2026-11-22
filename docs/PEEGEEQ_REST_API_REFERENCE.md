@@ -1,7 +1,7 @@
 # PeeGeeQ REST API Reference
+© Mark Andrew Ray-Smith Cityline Ltd 2025  
+Version 1.0
 
-**© Mark Andrew Ray-Smith Cityline Ltd 2025**
-Version: 1.0  
 Date: Jun 14, 2026  
 Author: Mark Andrew Ray-Smith Cityline Ltd
 
