@@ -67,17 +67,8 @@ public class PeeGeeQRestPerformanceTest {
     private static final int TEST_PORT = 8082;
     
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("peegeeq_perf_test");
-        container.withUsername("peegeeq_test");
-        container.withPassword("peegeeq_test");
-        container.withSharedMemorySize(512 * 1024 * 1024L); // 512MB for better performance
-        container.withReuse(false);
-        return container;
-    }
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer()
+            .withSharedMemorySize(PostgreSQLTestConstants.HIGH_PERFORMANCE_SHARED_MEMORY_SIZE);
     
     private WebClient client;
     private String testSetupId;
