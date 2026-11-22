@@ -3,6 +3,7 @@ package dev.mars.peegeeq.failover;
 import dev.mars.peegeeq.failover.consul.ConsulLeaseCoordinator;
 import dev.mars.peegeeq.failover.consul.ConsulMemberPositions;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.containers.TestContainerImages;
 import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
 import io.vertx.core.AsyncResult;
 import io.vertx.core.Future;
@@ -49,7 +50,7 @@ class PgPlannedStopIntegrationTest {
     private static final String TOKEN = "unused-without-acls";
     private static final Duration LEASE_TTL = Duration.ofSeconds(10);
     private static final Duration COMMAND_TIMEOUT = Duration.ofSeconds(20);
-    private static final GenericContainer<?> CONSUL = new GenericContainer<>("hashicorp/consul:1.22.1")
+    private static final GenericContainer<?> CONSUL = new GenericContainer<>(TestContainerImages.CONSUL_IMAGE)
         .withExposedPorts(8500)
         .withCommand("agent", "-dev", "-client=0.0.0.0", "-node=consul-1", "-log-level=warn")
         .waitingFor(Wait.forHttp("/v1/status/leader").forPort(8500).withStartupTimeout(Duration.ofSeconds(60)));
