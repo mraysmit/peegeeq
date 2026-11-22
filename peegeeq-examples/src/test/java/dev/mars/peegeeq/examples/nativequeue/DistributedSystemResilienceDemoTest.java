@@ -16,8 +16,8 @@ import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.Timeout;
@@ -223,7 +223,7 @@ class DistributedSystemResilienceDemoTest {
         public final AtomicInteger successCount = new AtomicInteger(0);
         public final AtomicInteger failureCount = new AtomicInteger(0);
         public final AtomicInteger timeoutCount = new AtomicInteger(0);
-        public volatile double failureRate = 0.0; // Configurable failure rate for testing
+        public volatile double failureRate = 0.0; // Share of each 10 requests that fail, in request order
 
         public ResilientService(String serviceId, int failureThreshold, long circuitTimeoutMs) {
             this.serviceId = serviceId;
@@ -243,7 +243,10 @@ class DistributedSystemResilienceDemoTest {
                 );
             }
             
-            boolean shouldFail = Math.random() < failureRate;
+            // Deterministic failure pattern: of every 10 requests, the first
+            // round(failureRate * 10) fail, so a test run always sees the same sequence.
+            int positionInTen = (requestCount.get() - 1) % 10;
+            boolean shouldFail = positionInTen < Math.round(failureRate * 10);
 
             if (shouldFail) {
                 failureCount.incrementAndGet();
@@ -335,22 +338,22 @@ class DistributedSystemResilienceDemoTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) {
         logger.info("Cleaning up Distributed System Resilience Demo Test");
-        if (manager == null) { testContext.completeNow(); return; }
-        manager.closeReactive()
+        // The factory closes the consumers and producers it created. The manager closes after the
+        // factory close has settled, and the first failure fails the teardown.
+        TestCleanup.run(
+                () -> queueFactory != null ? queueFactory.close() : Future.<Void>succeededFuture(),
+                () -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
             .onSuccess(v -> testContext.completeNow())
             .onFailure(err -> {
-                logger.error("Error during manager cleanup", err);
+                logger.error("Error during factory or manager cleanup", err);
                 testContext.failNow(err);
             });
-
-        // Clean up system properties
-        logger.info("Cleanup complete");
     }
 
     @Test
     @DisplayName("Circuit Breaker Pattern - Preventing Cascade Failures")
     @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
-    void testCircuitBreakerPattern(Vertx vertx, VertxTestContext testContext) {
+    void testCircuitBreakerPattern(VertxTestContext testContext) {
         logger.info("Test: circuit breaker pattern");
         logger.info("Testing Circuit Breaker Pattern");
 
@@ -449,9 +452,13 @@ class DistributedSystemResilienceDemoTest {
             logger.info("  Final circuit state: {}", service.circuitBreaker.state);
             logger.info("  Service metrics: {}", service.getMetrics().encodePrettily());
 
-            // Verify circuit breaker opened
-            assertTrue(circuitBreakerFailures > 0, "Circuit breaker should have rejected some requests");
-            assertTrue(service.circuitBreaker.failureCount.get() >= 3, "Should have recorded failures");
+            // Requests 1 to 7 are set to fail. The circuit opens after the third failure
+            // (threshold 3) and stays open for 5 s, so requests 4 to 10 are rejected by it.
+            assertEquals(0, successCount, "No request should succeed");
+            assertEquals(3, failureCount - circuitBreakerFailures, "The first 3 requests should fail in the service");
+            assertEquals(7, circuitBreakerFailures, "The open circuit should reject the remaining 7 requests");
+            assertEquals(CircuitBreaker.State.OPEN, service.circuitBreaker.state, "The circuit should be open");
+            assertEquals(3, service.circuitBreaker.failureCount.get(), "The circuit should record 3 failures");
 
             // Cleanup
             requestConsumer.close();
