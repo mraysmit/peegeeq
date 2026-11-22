@@ -8,6 +8,7 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
@@ -26,9 +27,6 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.Statement;
 import java.time.Instant;
 import java.util.Properties;
 import java.util.UUID;
@@ -89,25 +87,23 @@ class DatabaseWorkerVerticleTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down: closing event stores and manager");
-        if (secondaryEventStore != null) {
-            secondaryEventStore.close();
-            secondaryEventStore = null;
-        }
-        if (eventStore != null) {
-            eventStore.close();
-            eventStore = null;
-        }
-        Future<Void> closeFuture = (manager != null)
-                ? manager.closeReactive().transform(ar -> {
-                    if (ar.failed()) logger.warn("Error closing manager: {}", ar.cause().getMessage());
-                    return Future.succeededFuture();
-                })
-                : Future.succeededFuture();
-        closeFuture.onSuccess(v -> {
-            manager = null;
-            logger.info("Teardown complete");
-            testContext.completeNow();
-        }).onFailure(testContext::failNow);
+        // The stores close before the manager; every step runs, and the first failure fails
+        // the teardown.
+        PgBiTemporalEventStore<TestEvent> secondary = secondaryEventStore;
+        PgBiTemporalEventStore<TestEvent> primary = eventStore;
+        PeeGeeQManager managerToClose = manager;
+        secondaryEventStore = null;
+        eventStore = null;
+        manager = null;
+        TestCleanup.run(
+                () -> secondary != null ? secondary.close() : Future.<Void>succeededFuture(),
+                () -> primary != null ? primary.close() : Future.<Void>succeededFuture(),
+                () -> managerToClose != null ? managerToClose.closeReactive() : Future.<Void>succeededFuture())
+            .onSuccess(v -> {
+                logger.info("Teardown complete");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @Test
@@ -208,14 +204,14 @@ class DatabaseWorkerVerticleTest {
         String secondaryTable = "bitemporal_event_log_secondary";
 
         logger.info("Creating secondary table '{}' and deploying workers for both tables", secondaryTable);
-        createSecondaryBitemporalTable(secondaryTable);
-
-        secondaryEventStore = new PgBiTemporalEventStore<>(
-            vertx, manager, TestEvent.class, secondaryTable,
-            new com.fasterxml.jackson.databind.ObjectMapper()
-        );
-
-        PgBiTemporalEventStore.deployDatabaseWorkerVerticles(vertx, 1, primaryTable)
+        createSecondaryBitemporalTable(secondaryTable)
+            .compose(created -> {
+                secondaryEventStore = new PgBiTemporalEventStore<>(
+                    vertx, manager, TestEvent.class, secondaryTable,
+                    new com.fasterxml.jackson.databind.ObjectMapper()
+                );
+                return PgBiTemporalEventStore.deployDatabaseWorkerVerticles(vertx, 1, primaryTable);
+            })
             .compose(v -> PgBiTemporalEventStore.deployDatabaseWorkerVerticles(vertx, 1, secondaryTable))
             .compose(v -> eventStore.appendBuilder().eventType("table.primary")
                     .payload(new TestEvent("p1", "primary", 1)).validTime(Instant.now()).execute())
@@ -267,12 +263,6 @@ class DatabaseWorkerVerticleTest {
         String secondaryTable = "bitemporal_event_log_secondary_ambiguous";
 
         logger.info("Creating secondary table with same default client key to force ambiguity");
-        createSecondaryBitemporalTable(secondaryTable);
-
-        secondaryEventStore = new PgBiTemporalEventStore<>(
-            vertx, manager, TestEvent.class, secondaryTable,
-            new com.fasterxml.jackson.databind.ObjectMapper()
-        );
 
         JsonObject payload = new JsonObject()
             .put("id", "ambiguous-id")
@@ -290,7 +280,14 @@ class DatabaseWorkerVerticleTest {
             .put("aggregateId", "agg-ambiguous");
 
         logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = ambiguous legacy clientKey fallback across worker deployments");
-        PgBiTemporalEventStore.deployDatabaseWorkerVerticles(vertx, 1, primaryTable)
+        createSecondaryBitemporalTable(secondaryTable)
+            .compose(created -> {
+                secondaryEventStore = new PgBiTemporalEventStore<>(
+                    vertx, manager, TestEvent.class, secondaryTable,
+                    new com.fasterxml.jackson.databind.ObjectMapper()
+                );
+                return PgBiTemporalEventStore.deployDatabaseWorkerVerticles(vertx, 1, primaryTable);
+            })
             .compose(v -> vertx.eventBus().<JsonObject>request(
                     PgBiTemporalEventStore.databaseOperationAddress(primaryTable), message)
                     .map(msg -> msg.body()))
@@ -307,16 +304,17 @@ class DatabaseWorkerVerticleTest {
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
     }
 
-    private void createSecondaryBitemporalTable(String tableName) throws Exception {
-        String createSql = "CREATE TABLE IF NOT EXISTS " + tableName + " (LIKE bitemporal_event_log INCLUDING ALL)";
-        try (Connection connection = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
-             Statement statement = connection.createStatement()) {
-            // The LIKE source and the new table must live in the resolved schema the
-            // manager targets (suite-wide convention)
-            statement.execute("SET search_path TO " + PostgreSQLTestConstants.TEST_SCHEMA);
-            statement.execute(createSql);
-            statement.execute("TRUNCATE TABLE " + tableName);
-        }
+    /**
+     * Creates an empty copy of bitemporal_event_log in the test schema the manager targets,
+     * in one transaction on the manager's pool.
+     */
+    private Future<Void> createSecondaryBitemporalTable(String tableName) {
+        String schema = PostgreSQLTestConstants.TEST_SCHEMA;
+        return manager.getPool().withTransaction(connection -> connection
+            .query("CREATE TABLE IF NOT EXISTS " + schema + "." + tableName
+                + " (LIKE " + schema + ".bitemporal_event_log INCLUDING ALL)").execute()
+            .compose(created -> connection.query("TRUNCATE TABLE " + schema + "." + tableName).execute())
+            .<Void>mapEmpty());
     }
 
     private Future<Long> countRowsForEventType(String tableName, String eventType) {
