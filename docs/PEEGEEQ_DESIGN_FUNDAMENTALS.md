@@ -1,6 +1,7 @@
 # PostgreSQL as a Transactional Message Queue: Architecture, Failure Modes, and Safe Implementation
+© Mark Andrew Ray-Smith Cityline Ltd 2025  
+Version 1.1
 
-Version: 1.1  
 Date: May 11, 2025  
 Author: Mark Andrew Ray-Smith Cityline Ltd
 
