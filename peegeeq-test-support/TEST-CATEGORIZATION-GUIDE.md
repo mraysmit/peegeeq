@@ -100,7 +100,7 @@ The peegeeq-test-support module uses JUnit 5 `@Tag` annotations with Maven profi
 - **Parallel Execution**: None (1 thread)
 
 **Current SLOW tests:**
-- `ParameterizedPerformanceDemoTest` - Comprehensive performance demonstration across profiles
+- `MemoryAndResourceLeakTest` (`peegeeq-native`) - memory and resource leak checks
 
 ## Maven Profiles
 
