@@ -1,4 +1,6 @@
 # PeeGeeQ Keyset Pagination — User and Technical Guide
+© Mark Andrew Ray-Smith Cityline Ltd 2025  
+Version 1.0
 
 **Scope**: bi-temporal event store queries (`peegeeq-bitemporal`), the REST events endpoint
 (`peegeeq-rest`), and the Aggregate Stream page in the Management UI.
