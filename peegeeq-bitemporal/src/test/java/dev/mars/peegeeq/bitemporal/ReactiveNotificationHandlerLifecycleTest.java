@@ -33,9 +33,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.Statement;
+
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -93,7 +91,6 @@ class ReactiveNotificationHandlerLifecycleTest {
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres,
             PostgreSQLTestConstants.TEST_SCHEMA,
             PeeGeeQTestSchemaInitializer.SchemaComponent.BITEMPORAL);
-        ensureBitemporalCompatibilityColumns();
 
         // Create connection options
         this.connectOptions = new PgConnectOptions()
@@ -118,23 +115,6 @@ class ReactiveNotificationHandlerLifecycleTest {
         };
     }
 
-    private void ensureBitemporalCompatibilityColumns() {
-        String sql = """
-            ALTER TABLE IF EXISTS public.bitemporal_event_log
-            ADD COLUMN IF NOT EXISTS correlation_id VARCHAR(255),
-            ADD COLUMN IF NOT EXISTS causation_id VARCHAR(255),
-            ADD COLUMN IF NOT EXISTS is_correction BOOLEAN DEFAULT FALSE,
-            ADD COLUMN IF NOT EXISTS headers JSONB DEFAULT '{}'::jsonb
-            """;
-
-        try (Connection conn = DriverManager.getConnection(
-                postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
-             Statement stmt = conn.createStatement()) {
-            stmt.execute(sql);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to enforce bitemporal test table compatibility", e);
-        }
-    }
 
     @Test
     @Order(1)
