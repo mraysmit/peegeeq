@@ -34,7 +34,6 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.vertx.TestCleanup;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.Timeout;
@@ -75,7 +74,7 @@ public class ServerSideFilteringTest {
     private PgNativeQueueFactory nativeFactory;
 
     @BeforeEach
-    void setUp(Vertx vertx, VertxTestContext ctx) {
+    void setUp(VertxTestContext ctx) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("=== Setting up ServerSideFilteringTest ===");
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
@@ -119,7 +118,7 @@ public class ServerSideFilteringTest {
 
     @Test
     @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
-    void testServerSideFilterEquals(Vertx vertx, VertxTestContext testContext) {
+    void testServerSideFilterEquals(VertxTestContext testContext) {
         logger.info("=== Testing Server-Side Filter EQUALS ===");
         String topic = "filter-equals-test-" + System.currentTimeMillis();
 
@@ -174,7 +173,7 @@ public class ServerSideFilteringTest {
 
     @Test
     @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
-    void testServerSideFilterIn(Vertx vertx, VertxTestContext testContext) {
+    void testServerSideFilterIn(VertxTestContext testContext) {
         logger.info("=== Testing Server-Side Filter IN ===");
         String topic = "filter-in-test-" + System.currentTimeMillis();
 
@@ -230,7 +229,7 @@ public class ServerSideFilteringTest {
 
     @Test
     @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
-    void testServerSideFilterAnd(Vertx vertx, VertxTestContext testContext) {
+    void testServerSideFilterAnd(VertxTestContext testContext) {
         logger.info("=== Testing Server-Side Filter AND ===");
         String topic = "filter-and-test-" + System.currentTimeMillis();
 
@@ -289,7 +288,7 @@ public class ServerSideFilteringTest {
 
     @Test
     @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
-    void testServerSideFilterNotEquals(Vertx vertx, VertxTestContext testContext) {
+    void testServerSideFilterNotEquals(VertxTestContext testContext) {
         logger.info("=== Testing Server-Side Filter NOT_EQUALS ===");
         String topic = "filter-not-equals-test-" + System.currentTimeMillis();
 
@@ -347,7 +346,7 @@ public class ServerSideFilteringTest {
 
     @Test
     @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
-    void testServerSideFilterOr(Vertx vertx, VertxTestContext testContext) {
+    void testServerSideFilterOr(VertxTestContext testContext) {
         logger.info("=== Testing Server-Side Filter OR ===");
         String topic = "filter-or-test-" + System.currentTimeMillis();
 
@@ -407,7 +406,7 @@ public class ServerSideFilteringTest {
 
     @Test
     @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
-    void testServerSideFilterLike(Vertx vertx, VertxTestContext testContext) {
+    void testServerSideFilterLike(VertxTestContext testContext) {
         logger.info("=== Testing Server-Side Filter LIKE ===");
         String topic = "filter-like-test-" + System.currentTimeMillis();
 
@@ -464,7 +463,7 @@ public class ServerSideFilteringTest {
 
     @Test
     @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
-    void testServerSideFilterMissingHeader(Vertx vertx, VertxTestContext testContext) {
+    void testServerSideFilterMissingHeader(VertxTestContext testContext) {
         logger.info("=== Testing Server-Side Filter with Missing Headers ===");
         String topic = "filter-missing-header-test-" + System.currentTimeMillis();
 
