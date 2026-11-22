@@ -1,6 +1,7 @@
 # PeeGeeQ Financial Services Event Catalogue
+© Mark Andrew Ray-Smith Cityline Ltd 2025  
+Version 1.0
 
-#### © Mark Andrew Ray-Smith Cityline Ltd 2025
 *10 Sep 2025*
 
 A comprehensive guide for standardised event-driven architecture in financial services using PeeGeeQ's bitemporal event store capabilities.
