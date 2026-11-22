@@ -54,9 +54,7 @@ class PgBiTemporalEventStorePerformanceTest {
 
     @Container
     @SuppressWarnings("resource") // Managed by Testcontainers framework
-    static PostgreSQLContainer postgres = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withSharedMemorySize(256 * 1024 * 1024L)
-            .withReuse(false);
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private Vertx vertx;
     private PeeGeeQManager peeGeeQManager;
