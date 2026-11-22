@@ -43,6 +43,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import dev.mars.peegeeq.test.containers.TestContainerImages;
 import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 @Tag(TestCategories.INTEGRATION)
@@ -87,7 +88,7 @@ class HaProxyNotificationFailoverIntegrationTest {
         primary.start();
         secondary.start();
 
-        haproxy = new GenericContainer<>("haproxy:2.8-alpine")
+        haproxy = new GenericContainer<>(TestContainerImages.HAPROXY_IMAGE)
             .withNetwork(network)
             .withClasspathResourceMapping(
                 "haproxy-notification-failover.cfg",
@@ -100,7 +101,9 @@ class HaProxyNotificationFailoverIntegrationTest {
 
     @SuppressWarnings("resource")
     private static PostgreSQLContainer postgres(String networkAlias) {
-        return new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)
+        // The standard container on the shared network. The manager connects through HAProxy
+        // with the fixed database, user and password below, so they are set explicitly.
+        return PostgreSQLTestConstants.createStandardContainer()
             .withNetwork(network)
             .withNetworkAliases(networkAlias)
             .withDatabaseName(DATABASE)
