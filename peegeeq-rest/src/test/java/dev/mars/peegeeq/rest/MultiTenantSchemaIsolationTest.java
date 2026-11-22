@@ -58,15 +58,7 @@ class MultiTenantSchemaIsolationTest {
     private static final int TEST_PORT = 18093;
 
     @Container
-    private static final PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("multitenant_test");
-        container.withUsername("test_user");
-        container.withPassword("test_pass");
-        return container;
-    }
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private String deploymentId;
     private WebClient client;
@@ -339,5 +331,4 @@ class MultiTenantSchemaIsolationTest {
                 })));
     }
 }
-
 
