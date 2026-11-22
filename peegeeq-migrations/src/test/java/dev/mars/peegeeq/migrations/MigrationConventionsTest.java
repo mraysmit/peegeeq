@@ -13,6 +13,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.categories.TestCategories;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -30,22 +31,14 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests migration file naming, ordering, and conventions.
  * Validates that migrations follow Flyway best practices.
  */
-@Tag("integration")
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 class MigrationConventionsTest {
 
     private static final Logger log = LoggerFactory.getLogger(MigrationConventionsTest.class);
 
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("peegeeq_conventions_test");
-        container.withUsername("test");
-        container.withPassword("test");
-        return container;
-    }
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private static Flyway flyway;
 
@@ -79,10 +72,13 @@ class MigrationConventionsTest {
     void testMigrationFilesFollowNamingConvention() throws IOException {
         Path migrationsDir = Paths.get("src/main/resources/db/migration");
         
-        List<Path> migrationFiles = Files.list(migrationsDir)
-                .filter(p -> p.toString().endsWith(".sql"))
-                .filter(p -> !p.getFileName().toString().contains("rollback")) // Exclude rollback scripts
-                .collect(Collectors.toList());
+        List<Path> migrationFiles;
+        try (Stream<Path> listing = Files.list(migrationsDir)) {
+            migrationFiles = listing
+                    .filter(p -> p.toString().endsWith(".sql"))
+                    .filter(p -> !p.getFileName().toString().contains("rollback")) // Exclude rollback scripts
+                    .collect(Collectors.toList());
+        }
 
         assertFalse(migrationFiles.isEmpty(), "Migration directory should contain SQL files");
 
@@ -164,9 +160,12 @@ class MigrationConventionsTest {
     void testMigrationFilesContainRollbackComments() throws IOException {
         Path migrationsDir = Paths.get("src/main/resources/db/migration");
         
-        List<Path> migrationFiles = Files.list(migrationsDir)
-                .filter(p -> p.toString().endsWith(".sql"))
-                .collect(Collectors.toList());
+        List<Path> migrationFiles;
+        try (Stream<Path> listing = Files.list(migrationsDir)) {
+            migrationFiles = listing
+                    .filter(p -> p.toString().endsWith(".sql"))
+                    .collect(Collectors.toList());
+        }
 
         for (Path file : migrationFiles) {
             String content = Files.readString(file);
