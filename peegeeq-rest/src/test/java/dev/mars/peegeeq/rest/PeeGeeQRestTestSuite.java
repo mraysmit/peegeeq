@@ -92,13 +92,7 @@ public class PeeGeeQRestTestSuite {
      * 
      * # Run specific test suite
      * mvn test -Dtest=PeeGeeQRestTestSuite
-     * 
-     * # Run with debug logging
-     * mvn test -Dtest=PeeGeeQRestTestSuite -Dpeegeeq.logging.level=DEBUG
-     * 
-     * # Run with specific PostgreSQL version
-     * mvn test -Dtest=PeeGeeQRestTestSuite -Dtestcontainers.postgres.image=postgres:15
-     * 
+     *
      * Expected Results:
      * - All tests should pass with real PostgreSQL database
      * - No mocking is used - all tests are true integration tests
