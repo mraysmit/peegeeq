@@ -475,7 +475,7 @@ class EventSourcingCQRSDemoTest {
     }
 
     /**
-     * Configure system properties for TestContainers PostgreSQL connection
+     * Starts the manager against the shared container and creates the outbox factory.
      */
     @BeforeEach
     void setUp(VertxTestContext testContext) {
@@ -520,31 +520,17 @@ class EventSourcingCQRSDemoTest {
     }
 
     @AfterEach
-    void tearDown(Vertx vertx, VertxTestContext testContext) {
-        logger.info("Tearing down: closing resources and manager");
+    void tearDown(VertxTestContext testContext) {
         logger.info("Cleaning up Event Sourcing & CQRS Demo Test");
-
-        if (manager == null) {
-            testContext.completeNow();
-            return;
-        }
-
-        logger.info("Closing PeeGeeQ manager...");
-        manager.closeReactive()
-            .onSuccess(v -> logger.info("PeeGeeQ manager closed successfully"))
-            .onFailure(err -> logger.warn("Error during manager cleanup: {}", err.getMessage()))
-            // CRITICAL: Wait for all resources to be fully released
-            // This prevents connection pool exhaustion between tests.
-            // NOTE: wall-clock settle delay (3s) is a deeper antipattern flagged for follow-up;
-            // kept here to preserve existing inter-test isolation behaviour.
-            .transform(TestCleanup.cleanup(() -> vertx.timer(3000)))
-            .onSuccess(v -> {
-                logger.info("Resource cleanup wait completed");
-                logger.info("Cleanup complete");
-                testContext.completeNow();
-            })
+        // The factory closes the consumers, consumer groups and producers it created, so no
+        // consumer keeps polling after the test. The manager closes after the factory close has
+        // settled, and the first failure fails the teardown.
+        TestCleanup.run(
+                () -> queueFactory != null ? queueFactory.close() : Future.<Void>succeededFuture(),
+                () -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+            .onSuccess(v -> testContext.completeNow())
             .onFailure(err -> {
-                logger.error("Cleanup wait error", err);
+                logger.error("Event Sourcing & CQRS teardown failed", err);
                 testContext.failNow(err);
             });
     }
@@ -611,9 +597,8 @@ class EventSourcingCQRSDemoTest {
 
             logger.info("Processing command: {} for aggregate: {}", command.commandType, command.aggregateId);
 
+            BankAccountAggregate aggregate;
             try {
-                BankAccountAggregate aggregate;
-
                 //  WORKAROUND: Handle OpenAccount command specially to avoid race conditions
                 // PRODUCTION NOTE: In real systems, this would be handled by proper aggregate repositories
                 // and command ordering mechanisms, not manual checks like this
@@ -654,32 +639,36 @@ class EventSourcingCQRSDemoTest {
                             String reason = (String) command.getCommandData().get("reason");
                             aggregate.freeze(command.getCommandId(), reason);
                             break;
+                        default:
+                            throw new IllegalArgumentException("Unknown command: " + command.getCommandType());
                     }
                 }
-
-                // Publish uncommitted events to the event stream
-                // In event sourcing, commands generate events that represent state changes
-                for (DomainEvent event : aggregate.getUncommittedEvents()) {
-                    eventProducer.send(event)
-                            .onFailure(err -> logger.error("Failed to publish event {} for aggregate {}", event.eventType.eventName, event.aggregateId, err));
-                }
-
-                // Mark events as committed (they've been published)
-                //  PRODUCTION NOTE: In real systems, this would be part of a transaction
-                // ensuring events are both stored and published atomically
-                aggregate.markEventsAsCommitted();
-
-                commandsProcessed.incrementAndGet();
-
             } catch (Exception e) {
-                logger.warn("Error processing command {}: {}", command.commandId, e.getMessage());
-                //  PRODUCTION NOTE: Real systems would have proper error handling,
-                // dead letter queues, and retry mechanisms
+                // A rejected command means the scenario is broken; fail the test with the cause.
+                testContext.failNow(e);
+                return Future.failedFuture(e);
             }
 
-            //  TEST-ONLY: Flag checkpoint for test synchronization
-            commandCheckpoint.run();
-            return Future.succeededFuture();
+            // Publish uncommitted events to the event stream. In event sourcing, commands
+            // generate events that represent state changes. The command handler completes only
+            // after every event send has succeeded, and a failed send fails the test.
+            Future<Void> sendChain = Future.succeededFuture();
+            for (DomainEvent event : aggregate.getUncommittedEvents()) {
+                final DomainEvent e = event;
+                sendChain = sendChain.compose(v -> eventProducer.send(e));
+            }
+            final BankAccountAggregate finalAggregate = aggregate;
+            return sendChain
+                    .onSuccess(v -> {
+                        // Mark events as committed (they've been published)
+                        //  PRODUCTION NOTE: In real systems, this would be part of a transaction
+                        // ensuring events are both stored and published atomically
+                        finalAggregate.markEventsAsCommitted();
+                        commandsProcessed.incrementAndGet();
+                        //  TEST-ONLY: Flag checkpoint for test synchronization
+                        commandCheckpoint.run();
+                    })
+                    .onFailure(testContext::failNow);
         });
 
         // Event store - stores events for replay (the heart of event sourcing)
@@ -1327,7 +1316,7 @@ class EventSourcingCQRSDemoTest {
      */
     private Future<Void> configureOffsetWatermarkTopic(String topic, String groupName) {
         return databaseService.getPool()
-                .withConnection(conn -> conn.preparedQuery(
+                .withTransaction(conn -> conn.preparedQuery(
                         "INSERT INTO outbox_topics (topic, semantics, completion_tracking_mode) " +
                         "VALUES ($1, 'PUB_SUB', 'OFFSET_WATERMARK') " +
                         "ON CONFLICT (topic) DO UPDATE SET completion_tracking_mode = 'OFFSET_WATERMARK'")

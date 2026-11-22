@@ -47,6 +47,9 @@ import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.core.Promise;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -212,56 +215,44 @@ class AdvancedProducerConsumerGroupTest {
         AtomicInteger euCount = new AtomicInteger(0);
         AtomicInteger asiaCount = new AtomicInteger(0);
 
+        // The region filters do not overlap and the group gives each message to one eligible
+        // consumer, so every message is processed exactly once by its region's consumer.
+        final int messagesPerRegion = 10;
+        final int expectedTotal = messagesPerRegion * 3;
+        AtomicInteger totalProcessedCount = new AtomicInteger(0);
+        Promise<Void> allMessagesProcessed = Promise.promise();
+
         // Add region-specific consumers
         orderGroup.addConsumer("US-Consumer",
-            createRegionHandler("US", usCount, vertx),
+            createRegionHandler(usCount, totalProcessedCount, expectedTotal, allMessagesProcessed, vertx),
             MessageFilter.byRegion(Set.of("US")));
 
         orderGroup.addConsumer("EU-Consumer",
-            createRegionHandler("EU", euCount, vertx),
+            createRegionHandler(euCount, totalProcessedCount, expectedTotal, allMessagesProcessed, vertx),
             MessageFilter.byRegion(Set.of("EU")));
 
         orderGroup.addConsumer("ASIA-Consumer",
-            createRegionHandler("ASIA", asiaCount, vertx),
+            createRegionHandler(asiaCount, totalProcessedCount, expectedTotal, allMessagesProcessed, vertx),
             MessageFilter.byRegion(Set.of("ASIA")));
 
-        // Start the consumer group
-        orderGroup.start();
-        assertEquals(3, orderGroup.getActiveConsumerCount(),
-            "All three regional consumers should be active");
-
-        // Send test messages with region headers
-        final int messagesPerRegion = 10;
-        sendRegionalMessages(messagesPerRegion)
-            .onFailure(testContext::failNow)
-            .onSuccess(sent -> {
-                // Wait for processing using Vert.x periodic polling
-                vertx.setPeriodic(100, timerId -> {
-                    if (usCount.get() + euCount.get() + asiaCount.get() >= messagesPerRegion * 3 * 0.6) {
-                        vertx.cancelTimer(timerId);
-                        try {
-                            int totalProcessed = usCount.get() + euCount.get() + asiaCount.get();
-                            logger.info("Region-based processing results:");
-                            logger.info("  US consumer processed: {}", usCount.get());
-                            logger.info("  EU consumer processed: {}", euCount.get());
-                            logger.info("  ASIA consumer processed: {}", asiaCount.get());
-                            logger.info("  Total processed: {} (expected: {})", totalProcessed, messagesPerRegion * 3);
-
-                            assertTrue(totalProcessed >= (messagesPerRegion * 3) * 0.6,
-                                "At least 60% of messages should be processed");
-
-                            int activeConsumers = (usCount.get() > 0 ? 1 : 0) + (euCount.get() > 0 ? 1 : 0) + (asiaCount.get() > 0 ? 1 : 0);
-                            assertTrue(activeConsumers >= 2, "At least 2 consumers should process some messages");
-                            assertTrue(totalProcessed > 0, "Some messages should be processed");
-
-                            orderGroup.close().onFailure(testContext::failNow);
-                            testContext.completeNow();
-                        } catch (Throwable t) {
-                            testContext.failNow(t);
-                        }
-                    }
-                });
-            });
+        // Send only after the group's LISTEN registration has completed.
+        orderGroup.start()
+            .compose(started -> {
+                assertEquals(3, orderGroup.getActiveConsumerCount(),
+                    "All three regional consumers should be active");
+                return sendRegionalMessages(messagesPerRegion);
+            })
+            .compose(sent -> allMessagesProcessed.future())
+            .transform(TestCleanup.cleanup(() -> orderGroup.close()))
+            .onSuccess(ignored -> testContext.verify(() -> {
+                logger.info("Region-based processing results: US={}, EU={}, ASIA={}",
+                    usCount.get(), euCount.get(), asiaCount.get());
+                assertEquals(messagesPerRegion, usCount.get(), "US consumer should process every US message");
+                assertEquals(messagesPerRegion, euCount.get(), "EU consumer should process every EU message");
+                assertEquals(messagesPerRegion, asiaCount.get(), "ASIA consumer should process every ASIA message");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
         testContext.awaitCompletion(20, TimeUnit.SECONDS);
         logger.info("Region-based consumer groups test completed successfully");
@@ -283,52 +274,50 @@ class AdvancedProducerConsumerGroupTest {
         AtomicInteger highPriorityCount = new AtomicInteger(0);
         AtomicInteger normalPriorityCount = new AtomicInteger(0);
 
+        // byPriority is a minimum: byPriority("NORMAL") also accepts HIGH. A HIGH message is
+        // eligible for both consumers and the group gives it to one of them; a NORMAL message is
+        // eligible only for the normal consumer. Each message is processed exactly once.
+        final int highPriorityMessages = 5;
+        final int normalPriorityMessages = 15;
+        final int expectedTotal = highPriorityMessages + normalPriorityMessages;
+        AtomicInteger totalProcessedCount = new AtomicInteger(0);
+        Promise<Void> allMessagesProcessed = Promise.promise();
+        // A message whose priority the receiving consumer's filter rejects is recorded here.
+        List<String> filterViolations = Collections.synchronizedList(new ArrayList<>());
+
         // Add priority-based consumers
         paymentGroup.addConsumer("HighPriority-Consumer",
-            createPriorityHandler("HIGH", highPriorityCount, 50, vertx),
+            createCheckedHandler("HIGH-PRIORITY", highPriorityCount, 50,
+                headers -> "HIGH".equals(headers.get("priority")),
+                filterViolations, totalProcessedCount, expectedTotal, allMessagesProcessed, vertx),
             MessageFilter.byPriority("HIGH"));
 
         paymentGroup.addConsumer("Normal-Consumer",
-            createPriorityHandler("NORMAL", normalPriorityCount, 200, vertx),
+            createCheckedHandler("NORMAL-OR-ABOVE", normalPriorityCount, 200,
+                headers -> "HIGH".equals(headers.get("priority")) || "NORMAL".equals(headers.get("priority")),
+                filterViolations, totalProcessedCount, expectedTotal, allMessagesProcessed, vertx),
             MessageFilter.byPriority("NORMAL"));
 
-        // Start the consumer group
-        paymentGroup.start();
-        assertEquals(2, paymentGroup.getActiveConsumerCount(),
-            "Both priority consumers should be active");
-
-        // Send test messages with priority headers
-        final int highPriorityMessages = 5;
-        final int normalPriorityMessages = 15;
-        sendPriorityMessages(highPriorityMessages, normalPriorityMessages)
-            .onFailure(testContext::failNow)
-            .onSuccess(sent -> {
-                // Wait for processing using Vert.x periodic polling
-                vertx.setPeriodic(100, timerId -> {
-                    if (highPriorityCount.get() + normalPriorityCount.get() >= (highPriorityMessages + normalPriorityMessages) * 0.6) {
-                        vertx.cancelTimer(timerId);
-                        try {
-                            int totalProcessed = highPriorityCount.get() + normalPriorityCount.get();
-                            logger.info("Priority-based processing results:");
-                            logger.info("  High priority consumer processed: {}", highPriorityCount.get());
-                            logger.info("  Normal priority consumer processed: {}", normalPriorityCount.get());
-                            logger.info("  Total processed: {} (expected: {})", totalProcessed, highPriorityMessages + normalPriorityMessages);
-
-                            assertTrue(totalProcessed >= (highPriorityMessages + normalPriorityMessages) * 0.6,
-                                "At least 60% of messages should be processed");
-
-                            int activeConsumers = (highPriorityCount.get() > 0 ? 1 : 0) + (normalPriorityCount.get() > 0 ? 1 : 0);
-                            assertTrue(activeConsumers >= 1, "At least 1 consumer should process some messages");
-                            assertTrue(totalProcessed > 0, "Some messages should be processed");
-
-                            paymentGroup.close().onFailure(testContext::failNow);
-                            testContext.completeNow();
-                        } catch (Throwable t) {
-                            testContext.failNow(t);
-                        }
-                    }
-                });
-            });
+        // Send only after the group's LISTEN registration has completed.
+        paymentGroup.start()
+            .compose(started -> {
+                assertEquals(2, paymentGroup.getActiveConsumerCount(),
+                    "Both priority consumers should be active");
+                return sendPriorityMessages(highPriorityMessages, normalPriorityMessages);
+            })
+            .compose(sent -> allMessagesProcessed.future())
+            .transform(TestCleanup.cleanup(() -> paymentGroup.close()))
+            .onSuccess(ignored -> testContext.verify(() -> {
+                logger.info("Priority-based processing results: high={}, normal={}",
+                    highPriorityCount.get(), normalPriorityCount.get());
+                assertEquals(expectedTotal, highPriorityCount.get() + normalPriorityCount.get(),
+                    "Each message should be processed exactly once");
+                // With no violations, every NORMAL message reached the normal consumer.
+                assertEquals(List.of(), filterViolations,
+                    "Each consumer should receive only messages its filter accepts");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
         testContext.awaitCompletion(20, TimeUnit.SECONDS);
         logger.info("Priority-based consumer groups test completed successfully");
@@ -351,9 +340,19 @@ class AdvancedProducerConsumerGroupTest {
         AtomicInteger highPriorityCount = new AtomicInteger(0);
         AtomicInteger auditCount = new AtomicInteger(0);
 
+        // The filters overlap and the audit consumer accepts everything, so every message has at
+        // least one eligible consumer and the group gives it to exactly one of them.
+        final int expectedTotal = 30;
+        AtomicInteger totalProcessedCount = new AtomicInteger(0);
+        Promise<Void> allMessagesProcessed = Promise.promise();
+        // A message whose headers do not match the receiving consumer's filter is recorded here.
+        List<String> filterViolations = Collections.synchronizedList(new ArrayList<>());
+
         // Add consumer for US premium orders
         analyticsGroup.addConsumer("US-Premium-Consumer",
-            createAnalyticsHandler("US-PREMIUM", premiumUsCount, vertx),
+            createCheckedHandler("US-PREMIUM", premiumUsCount, 5,
+                headers -> "US".equals(headers.get("region")) && "PREMIUM".equals(headers.get("type")),
+                filterViolations, totalProcessedCount, expectedTotal, allMessagesProcessed, vertx),
             MessageFilter.and(
                 MessageFilter.byRegion(Set.of("US")),
                 MessageFilter.byType(Set.of("PREMIUM"))
@@ -361,45 +360,36 @@ class AdvancedProducerConsumerGroupTest {
 
         // Add consumer for high-priority orders from any region
         analyticsGroup.addConsumer("HighPriority-Consumer",
-            createAnalyticsHandler("HIGH-PRIORITY", highPriorityCount, vertx),
+            createCheckedHandler("HIGH-PRIORITY", highPriorityCount, 5,
+                headers -> "HIGH".equals(headers.get("priority")),
+                filterViolations, totalProcessedCount, expectedTotal, allMessagesProcessed, vertx),
             MessageFilter.byPriority("HIGH"));
 
         // Add audit consumer that accepts all messages
         analyticsGroup.addConsumer("Audit-Consumer",
-            createAnalyticsHandler("AUDIT", auditCount, vertx),
+            createCheckedHandler("AUDIT", auditCount, 5, headers -> true,
+                filterViolations, totalProcessedCount, expectedTotal, allMessagesProcessed, vertx),
             MessageFilter.acceptAll());
 
-        // Start the consumer group
-        analyticsGroup.start();
-        assertEquals(3, analyticsGroup.getActiveConsumerCount(),
-            "All analytics consumers should be active");
-
-        // Send test messages with various combinations
-        sendComplexFilteringMessages()
-            .onFailure(testContext::failNow)
-            .onSuccess(sent -> {
-                // Wait for processing using Vert.x periodic polling
-                vertx.setPeriodic(100, timerId -> {
-                    if (premiumUsCount.get() + highPriorityCount.get() + auditCount.get() > 0) {
-                        vertx.cancelTimer(timerId);
-                        try {
-                            int totalProcessed = premiumUsCount.get() + highPriorityCount.get() + auditCount.get();
-                            assertTrue(totalProcessed > 0, "Some messages should be processed");
-
-                            logger.info("Multi-header filtering results:");
-                            logger.info("  US Premium consumer processed: {}", premiumUsCount.get());
-                            logger.info("  High priority consumer processed: {}", highPriorityCount.get());
-                            logger.info("  Audit consumer processed: {}", auditCount.get());
-                            logger.info("  Total processed: {}", totalProcessed);
-
-                            analyticsGroup.close().onFailure(testContext::failNow);
-                            testContext.completeNow();
-                        } catch (Throwable t) {
-                            testContext.failNow(t);
-                        }
-                    }
-                });
-            });
+        // Send only after the group's LISTEN registration has completed.
+        analyticsGroup.start()
+            .compose(started -> {
+                assertEquals(3, analyticsGroup.getActiveConsumerCount(),
+                    "All analytics consumers should be active");
+                return sendComplexFilteringMessages();
+            })
+            .compose(sent -> allMessagesProcessed.future())
+            .transform(TestCleanup.cleanup(() -> analyticsGroup.close()))
+            .onSuccess(ignored -> testContext.verify(() -> {
+                int totalProcessed = premiumUsCount.get() + highPriorityCount.get() + auditCount.get();
+                logger.info("Multi-header filtering results: usPremium={}, highPriority={}, audit={}",
+                    premiumUsCount.get(), highPriorityCount.get(), auditCount.get());
+                assertEquals(expectedTotal, totalProcessed, "Each message should be processed exactly once");
+                assertEquals(List.of(), filterViolations,
+                    "Each consumer should receive only messages its filter accepts");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
         testContext.awaitCompletion(20, TimeUnit.SECONDS);
         logger.info("Multi-header filtering test completed successfully");
@@ -526,36 +516,46 @@ class AdvancedProducerConsumerGroupTest {
     }
 
     /**
-     * Creates a region-specific message handler.
+     * Creates a region-specific message handler. It completes {@code allProcessed} when the
+     * handlers of the group have finished {@code expectedTotal} messages between them.
      */
-    private MessageHandler<OrderEvent> createRegionHandler(String region, AtomicInteger counter, Vertx vertx) {
+    private MessageHandler<OrderEvent> createRegionHandler(AtomicInteger counter,
+            AtomicInteger totalCounter, int expectedTotal, Promise<Void> allProcessed, Vertx vertx) {
         return message -> {
             counter.incrementAndGet();
             // Simulate minimal processing time using Vert.x timer
-            return vertx.timer(10).<Void>mapEmpty();
+            return vertx.timer(10).<Void>map(t -> {
+                countProcessed(totalCounter, expectedTotal, allProcessed);
+                return null;
+            });
         };
     }
 
     /**
-     * Creates a priority-specific message handler.
+     * Creates a message handler that checks the headers of each message it receives. A message
+     * whose headers fail {@code expectedHeaders} is added to {@code filterViolations}. The handler
+     * simulates {@code processingTimeMs} of work, and completes {@code allProcessed} when the
+     * handlers of the group have finished {@code expectedTotal} messages between them.
      */
-    private MessageHandler<OrderEvent> createPriorityHandler(String priority, AtomicInteger counter, int processingTime, Vertx vertx) {
+    private MessageHandler<OrderEvent> createCheckedHandler(String name, AtomicInteger counter, int processingTimeMs,
+            java.util.function.Predicate<Map<String, String>> expectedHeaders, List<String> filterViolations,
+            AtomicInteger totalCounter, int expectedTotal, Promise<Void> allProcessed, Vertx vertx) {
         return message -> {
             counter.incrementAndGet();
-            // Simulate processing time based on priority using Vert.x timer
-            return vertx.timer(processingTime).<Void>mapEmpty();
+            if (!expectedHeaders.test(message.getHeaders())) {
+                filterViolations.add(name + " received a message with headers " + message.getHeaders());
+            }
+            return vertx.timer(processingTimeMs).<Void>map(t -> {
+                countProcessed(totalCounter, expectedTotal, allProcessed);
+                return null;
+            });
         };
     }
 
-    /**
-     * Creates an analytics message handler.
-     */
-    private MessageHandler<OrderEvent> createAnalyticsHandler(String type, AtomicInteger counter, Vertx vertx) {
-        return message -> {
-            counter.incrementAndGet();
-            // Analytics processing is typically fast using Vert.x timer
-            return vertx.timer(5).<Void>mapEmpty();
-        };
+    private static void countProcessed(AtomicInteger totalCounter, int expectedTotal, Promise<Void> allProcessed) {
+        if (totalCounter.incrementAndGet() == expectedTotal) {
+            allProcessed.tryComplete();
+        }
     }
 
     /**

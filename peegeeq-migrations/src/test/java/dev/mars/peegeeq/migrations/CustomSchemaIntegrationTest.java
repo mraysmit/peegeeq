@@ -17,7 +17,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Tests for custom schema deployment scenarios.
@@ -62,8 +62,8 @@ class CustomSchemaIntegrationTest {
         log.info("  Running migrations to schema: {}", customSchema);
         var result = flyway.migrate();
 
-        assertThat(result.success).isTrue();
-        assertThat(result.migrationsExecuted).isGreaterThan(0);
+        assertTrue(result.success, "Migration to schema " + customSchema + " should succeed");
+        assertTrue(result.migrationsExecuted > 0, "At least one migration should run, ran " + result.migrationsExecuted);
         
         log.info("  Verifying tables in custom schema...");
         verifyTablesInSchema(customSchema);
@@ -95,8 +95,8 @@ class CustomSchemaIntegrationTest {
         log.info("  Running migrations with defaultSchema: {}", customSchema);
         var result = flyway.migrate();
 
-        assertThat(result.success).isTrue();
-        assertThat(result.migrationsExecuted).isGreaterThan(0);
+        assertTrue(result.success, "Migration to schema " + customSchema + " should succeed");
+        assertTrue(result.migrationsExecuted > 0, "At least one migration should run, ran " + result.migrationsExecuted);
         
         log.info("  Verifying tables in configured schema...");
         verifyTablesInSchema(customSchema);
@@ -151,12 +151,10 @@ class CustomSchemaIntegrationTest {
                 stmt.setString(2, "flyway_schema_history");
                 
                 ResultSet rs = stmt.executeQuery();
-                assertThat(rs.next()).isTrue();
+                assertTrue(rs.next(), "COUNT(*) should return a row");
                 int count = rs.getInt(1);
                 
-                assertThat(count)
-                        .as("flyway_schema_history should exist in custom schema")
-                        .isEqualTo(1);
+                assertEquals(1, count, "flyway_schema_history should exist in custom schema");
             }
             
             // Verify it's NOT in public schema
@@ -165,12 +163,10 @@ class CustomSchemaIntegrationTest {
                 stmt.setString(2, "flyway_schema_history");
                 
                 ResultSet rs = stmt.executeQuery();
-                assertThat(rs.next()).isTrue();
+                assertTrue(rs.next(), "COUNT(*) should return a row");
                 int count = rs.getInt(1);
                 
-                assertThat(count)
-                        .as("flyway_schema_history should NOT be in public schema")
-                        .isEqualTo(0);
+                assertEquals(0, count, "flyway_schema_history should NOT be in public schema");
             }
         }
         
@@ -188,9 +184,7 @@ class CustomSchemaIntegrationTest {
                 postgres.getUsername(), 
                 postgres.getPassword())) {
             
-            assertThat(schemaExists(conn, nonExistentSchema))
-                    .as("Schema should not exist before migration")
-                    .isFalse();
+            assertFalse(schemaExists(conn, nonExistentSchema), "Schema should not exist before migration");
         }
         
         // Deploy migrations - should auto-create schema
@@ -203,9 +197,7 @@ class CustomSchemaIntegrationTest {
                 postgres.getUsername(), 
                 postgres.getPassword())) {
             
-            assertThat(schemaExists(conn, nonExistentSchema))
-                    .as("Schema should be auto-created during migration")
-                    .isTrue();
+            assertTrue(schemaExists(conn, nonExistentSchema), "Schema should be auto-created during migration");
         }
         
         log.info(" Custom schema auto-created successfully");
@@ -229,7 +221,7 @@ class CustomSchemaIntegrationTest {
                 .load();
 
         var result = flyway.migrate();
-        assertThat(result.success).isTrue();
+        assertTrue(result.success, "Migration to schema " + schemaName + " should succeed");
     }
 
     private void verifyTablesInSchema(String schemaName) throws SQLException {
@@ -258,12 +250,10 @@ class CustomSchemaIntegrationTest {
                     stmt.setString(2, tableName);
                     
                     try (ResultSet rs = stmt.executeQuery()) {
-                        assertThat(rs.next()).isTrue();
+                        assertTrue(rs.next(), "COUNT(*) should return a row");
                         
                         int count = rs.getInt(1);
-                        assertThat(count)
-                                .as("Table %s should exist in schema %s", tableName, schemaName)
-                                .isEqualTo(1);
+                        assertEquals(1, count, String.format("Table %s should exist in schema %s", tableName, schemaName));
                     }
                 }
             }
@@ -290,12 +280,10 @@ class CustomSchemaIntegrationTest {
                     stmt.setString(1, tableName);
                     
                     try (ResultSet rs = stmt.executeQuery()) {
-                        assertThat(rs.next()).isTrue();
+                        assertTrue(rs.next(), "COUNT(*) should return a row");
                         
                         int count = rs.getInt(1);
-                        assertThat(count)
-                                .as("Table %s should NOT exist in public schema", tableName)
-                                .isEqualTo(0);
+                        assertEquals(0, count, String.format("Table %s should NOT exist in public schema", tableName));
                     }
                 }
             }
@@ -324,30 +312,24 @@ class CustomSchemaIntegrationTest {
             try (var stmt = conn.createStatement()) {
                 stmt.execute("SET search_path TO " + schema1);
                 ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM outbox WHERE payload->>'test' = 'data1'");
-                assertThat(rs.next()).isTrue();
-                assertThat(rs.getInt(1))
-                        .as("Schema1 should have its own data")
-                        .isEqualTo(1);
+                assertTrue(rs.next(), "COUNT(*) should return a row");
+                assertEquals(1, rs.getInt(1), "Schema1 should have its own data");
             }
 
             // Verify schema2 has only its data
             try (var stmt = conn.createStatement()) {
                 stmt.execute("SET search_path TO " + schema2);
                 ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM outbox WHERE payload->>'test' = 'data2'");
-                assertThat(rs.next()).isTrue();
-                assertThat(rs.getInt(1))
-                        .as("Schema2 should have its own data")
-                        .isEqualTo(1);
+                assertTrue(rs.next(), "COUNT(*) should return a row");
+                assertEquals(1, rs.getInt(1), "Schema2 should have its own data");
             }
 
             // Verify schema1 does NOT have schema2's data
             try (var stmt = conn.createStatement()) {
                 stmt.execute("SET search_path TO " + schema1);
                 ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM outbox WHERE payload->>'test' = 'data2'");
-                assertThat(rs.next()).isTrue();
-                assertThat(rs.getInt(1))
-                        .as("Schema1 should NOT have schema2's data")
-                        .isEqualTo(0);
+                assertTrue(rs.next(), "COUNT(*) should return a row");
+                assertEquals(0, rs.getInt(1), "Schema1 should NOT have schema2's data");
             }
         }
     }

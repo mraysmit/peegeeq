@@ -15,7 +15,7 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import java.sql.*;
 import java.util.*;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Schema Contract Test - Validates that migrations create schemas compatible with application modules.
@@ -282,9 +282,7 @@ public class SchemaContractTest {
                 try (PreparedStatement stmt = conn.prepareStatement(sql)) {
                     stmt.setString(1, indexName);
                     try (ResultSet rs = stmt.executeQuery()) {
-                        assertThat(rs.next())
-                            .as("Critical index %s must exist", indexName)
-                            .isTrue();
+                        assertTrue(rs.next(), "Critical index " + indexName + " must exist");
                         log.info("   Index exists: {}", indexName);
                     }
                 }
@@ -319,9 +317,7 @@ public class SchemaContractTest {
                 try (PreparedStatement stmt = conn.prepareStatement(sql)) {
                     stmt.setString(1, functionName);
                     try (ResultSet rs = stmt.executeQuery()) {
-                        assertThat(rs.next())
-                            .as("Required function %s must exist", functionName)
-                            .isTrue();
+                        assertTrue(rs.next(), "Required function " + functionName + " must exist");
                         log.info("   Function exists: {}", functionName);
                     }
                 }
@@ -357,15 +353,12 @@ public class SchemaContractTest {
                 String columnName = required.getKey();
                 String expectedType = required.getValue();
 
-                assertThat(actualColumns)
-                    .as("Table %s must have column %s", tableName, columnName)
-                    .containsKey(columnName);
+                assertTrue(actualColumns.containsKey(columnName),
+                    "Table " + tableName + " must have column " + columnName);
 
                 String actualType = actualColumns.get(columnName);
-                assertThat(actualType)
-                    .as("Column %s.%s must be type %s but was %s",
-                        tableName, columnName, expectedType, actualType)
-                    .isEqualTo(expectedType);
+                assertEquals(expectedType, actualType,
+                    "Column " + tableName + "." + columnName + " must be type " + expectedType);
 
                 log.debug("   {}.{} : {}", tableName, columnName, actualType);
             }

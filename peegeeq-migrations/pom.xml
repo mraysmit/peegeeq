@@ -17,11 +17,6 @@
 
     <!-- Flyway, the PostgreSQL driver, JUnit and Testcontainers versions come from the root pom, so this
          module's tests run peegeeq-test-support on the Flyway version it was compiled against. -->
-    <properties>
-        <!-- AssertJ is used only by this module's tests. The coding principles make JUnit Jupiter
-             assertions the project standard; replacing AssertJ here is recorded in the task register. -->
-        <assertj.version>3.24.2</assertj.version>
-    </properties>
 
     <dependencies>
         <!-- Flyway Core -->
@@ -73,13 +68,6 @@
             <artifactId>testcontainers-junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
-
-        <dependency>
-            <groupId>org.assertj</groupId>
-            <artifactId>assertj-core</artifactId>
-            <version>${assertj.version}</version>
-            <scope>test</scope>
-        </dependency>
     </dependencies>
 
     <build>
@@ -120,6 +108,10 @@
                                 </filter>
                             </filters>
                             <finalName>peegeeq-migrations</finalName>
+                            <!-- finalName writes the shaded jar to a separate file, so the installed artifact is
+                                 the thin jar. A dependency-reduced pom would drop Flyway and the PostgreSQL driver
+                                 that the thin jar needs, so the installed pom stays the real pom. -->
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
                         </configuration>
                     </execution>
                 </executions>

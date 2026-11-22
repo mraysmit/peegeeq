@@ -2548,7 +2548,8 @@ Correction 2. The four known places that discarded a failed `stopGracefully()`.
   logged WARN, and the teardown passed. The teardown now runs the stop, the close, and
   the manager close in that order, runs each step whatever the result of the step before
   it, and fails with the first failure. It uses `CleanupResultSupport.merge`, the helper
-  of that module.
+  of that module. (2026-11-22: the teardown now uses `TestCleanup.run` from
+  `peegeeq-test-support`, and `CleanupResultSupport` is deleted.)
 
 The tests were corrected after the code they test. The red was therefore reconstructed:
 `stopGracefully` of `OutboxConsumerGroup` and of `PgNativeConsumerGroup` was changed
@@ -3330,7 +3331,9 @@ Found in phase 1, and not in the proposal before.
     runs every cleanup step and fails with the first failure, in the shape of
     `CleanupResultSupport.merge` of `peegeeq-examples`; the test cleanup sites moved to
     it; the two standards documents corrected; and a guard test beside
-    `VertxAsyncForbiddenPatternsGuardTest`.
+    `VertxAsyncForbiddenPatternsGuardTest`. (2026-11-22: that helper is `TestCleanup` in
+    `peegeeq-test-support`; the last `CleanupResultSupport` users moved to it and the class
+    is deleted.)
 
 Not done in increment 1a.
 

@@ -6,7 +6,6 @@ import dev.mars.peegeeq.api.messaging.*;
 import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.db.config.MultiConfigurationManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
-import dev.mars.peegeeq.examples.shared.CleanupResultSupport;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import java.util.Properties;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
@@ -60,8 +59,7 @@ class MultiConfigurationIntegrationTest {
     private final List<QueueFactory> openFactories = new ArrayList<>();
 
     /**
-     * Track a factory so it gets closed in @AfterEach (on the JUnit worker thread,
-     * never on the event-loop where {@code QueueFactory.close()} would fail its guard).
+     * Track a factory so that @AfterEach closes it.
      */
     private <F extends QueueFactory> F track(F factory) {
         openFactories.add(factory);
@@ -106,29 +104,18 @@ class MultiConfigurationIntegrationTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) {
-        Throwable factoryCloseFailure = null;
-        for (QueueFactory f : openFactories) {
-            try {
-                f.close();
-            } catch (Exception e) {
-                logger.error("Error closing queue factory", e);
-                if (factoryCloseFailure == null) {
-                    factoryCloseFailure = e;
-                } else {
-                    factoryCloseFailure.addSuppressed(e);
-                }
-            }
-        }
+        // Each factory closes after the previous close has settled, then the manager closes.
+        // Every close runs, and the first failure fails the teardown.
+        List<QueueFactory> factories = new ArrayList<>(openFactories);
         openFactories.clear();
 
-        Future<Void> factoryClose = factoryCloseFailure == null
-            ? Future.succeededFuture()
-            : Future.failedFuture(factoryCloseFailure);
-        Future<Void> managerClose = configManager == null
-            ? Future.succeededFuture()
-            : configManager.close();
-
-        CleanupResultSupport.merge(factoryClose, managerClose)
+        Future<Void> cleanup = Future.succeededFuture();
+        for (QueueFactory f : factories) {
+            cleanup = cleanup.transform(TestCleanup.cleanup(() -> f.close()));
+        }
+        cleanup
+            .transform(TestCleanup.cleanup(
+                () -> configManager != null ? configManager.close() : Future.<Void>succeededFuture()))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(err -> {
                 logger.error("Error during MultiConfigurationIntegrationTest cleanup", err);

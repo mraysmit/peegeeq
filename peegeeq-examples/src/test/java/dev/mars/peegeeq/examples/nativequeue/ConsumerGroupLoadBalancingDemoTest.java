@@ -9,7 +9,6 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
-import dev.mars.peegeeq.examples.shared.CleanupResultSupport;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -17,6 +16,7 @@ import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.json.JsonObject;
 import org.junit.jupiter.api.*;
@@ -187,21 +187,17 @@ class ConsumerGroupLoadBalancingDemoTest {
 
         // Stop and close the consumer group (if set) BEFORE the manager so that all pooled
         // connections used by in-flight ACK / LISTEN operations are returned before
-        // pool.close() is called inside manager.closeReactive(). Every step runs, in order,
-        // and the first failure fails the teardown.
+        // pool.close() is called inside manager.closeReactive(). The factory then closes the
+        // consumers and producers it created. Every step runs, in order, and the first failure
+        // fails the teardown.
         ConsumerGroup<WorkItem> groupToClose = consumerGroupToCleanup;
         consumerGroupToCleanup = null;
 
-        Future<Void> groupClose = Future.succeededFuture();
-        if (groupToClose != null) {
-            Future<Void> groupStop = groupToClose.stopGracefully();
-            groupClose = CleanupResultSupport.merge(
-                groupStop, groupStop.transform(ignored -> groupToClose.close()));
-        }
-        Future<Void> orderedGroupClose = groupClose;
-
-        CleanupResultSupport.merge(
-                orderedGroupClose, orderedGroupClose.transform(ignored -> manager.closeReactive()))
+        TestCleanup.run(
+                () -> groupToClose != null ? groupToClose.stopGracefully() : Future.<Void>succeededFuture(),
+                () -> groupToClose != null ? groupToClose.close() : Future.<Void>succeededFuture(),
+                () -> queueFactory != null ? queueFactory.close() : Future.<Void>succeededFuture(),
+                () -> manager.closeReactive())
             .onSuccess(v -> {
                 logger.info("Cleanup complete");
                 testContext.completeNow();

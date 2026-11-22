@@ -30,12 +30,12 @@ import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import java.util.Properties;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
-import dev.mars.peegeeq.examples.shared.CleanupResultSupport;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
@@ -155,20 +155,11 @@ class PartitionedOrderingDemoTest {
 
     @AfterEach
     void tearDown(VertxTestContext ctx) {
-        Future<Void> factoryClose = Future.succeededFuture();
-        if (factory != null) {
-            try {
-                factory.close();
-            } catch (Exception e) {
-                logger.error("Error closing outbox factory", e);
-                factoryClose = Future.failedFuture(e);
-            }
-        }
-        Future<Void> managerClose = manager == null
-            ? Future.succeededFuture()
-            : manager.closeReactive();
-
-        CleanupResultSupport.merge(factoryClose, managerClose)
+        // The factory closes the consumer groups and producers it created. The manager closes
+        // after the factory close has settled, and the first failure fails the teardown.
+        TestCleanup.run(
+                () -> factory != null ? factory.close() : Future.<Void>succeededFuture(),
+                () -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
             .onSuccess(v -> ctx.completeNow())
             .onFailure(err -> {
                 logger.error("Error during partitioned ordering test cleanup", err);
@@ -310,17 +301,19 @@ class PartitionedOrderingDemoTest {
                     .mapEmpty();
         });
 
-        Future<Void> sendChain2b = Future.succeededFuture();
-        for (int v = 1; v <= eventsPerAggregate; v++) {
-            for (String aggId : aggIds) {
-                final long version = v;
-                AggEvent ev = new AggEvent(aggId, version, "p-" + aggId + "-v" + version);
-                sendChain2b = sendChain2b.compose(x -> producer.send(ev, null, null, aggId));
-            }
-        }
-        final Future<Void> sendChain2bFinal = sendChain2b;
+        // The sends start only after the topic is configured, as in test 2a.
         configureOffsetWatermarkTopic(topic, groupName)
-                .compose(cfg -> sendChain2bFinal)
+                .compose(cfg -> {
+                    Future<Void> sendChain = Future.succeededFuture();
+                    for (int v = 1; v <= eventsPerAggregate; v++) {
+                        for (String aggId : aggIds) {
+                            final long version = v;
+                            AggEvent ev = new AggEvent(aggId, version, "p-" + aggId + "-v" + version);
+                            sendChain = sendChain.compose(x -> producer.send(ev, null, null, aggId));
+                        }
+                    }
+                    return sendChain;
+                })
                 .compose(v -> group.start(SubscriptionOptions.fromBeginning()))
                 .compose(v -> allReceived.future())
                 .compose(v -> {
@@ -397,17 +390,18 @@ class PartitionedOrderingDemoTest {
             return Future.succeededFuture();
         });
 
-        // Send all 5 messages WITHOUT messageGroup, then start consumer.
-        Future<Void> sendChain2c = Future.succeededFuture();
-        for (long v = 1; v <= total; v++) {
-            final long version = v;
-            AggEvent ev = new AggEvent("default-agg", version, "p-default-v" + version);
-            // Note: send(payload) no messageGroup, no headers, no correlationId.
-            sendChain2c = sendChain2c.compose(x -> producer.send(ev));
-        }
-        final Future<Void> sendChain2cFinal = sendChain2c;
+        // Configure the topic, send all 5 messages WITHOUT messageGroup, then start consumer.
         configureOffsetWatermarkTopic(topic, groupName)
-                .compose(cfg -> sendChain2cFinal)
+                .compose(cfg -> {
+                    Future<Void> sendChain = Future.succeededFuture();
+                    for (long v = 1; v <= total; v++) {
+                        final long version = v;
+                        AggEvent ev = new AggEvent("default-agg", version, "p-default-v" + version);
+                        // Note: send(payload) no messageGroup, no headers, no correlationId.
+                        sendChain = sendChain.compose(x -> producer.send(ev));
+                    }
+                    return sendChain;
+                })
                 .compose(v -> group.start(SubscriptionOptions.fromBeginning()))
                 .compose(v -> allReceived.future())
                 .compose(v -> {
@@ -496,16 +490,17 @@ class PartitionedOrderingDemoTest {
             return Future.succeededFuture();
         });
 
-        Future<Void> sendBatch1 = Future.succeededFuture();
-        for (long v = 1; v <= firstBatch; v++) {
-            final long version = v;
-            AggEvent ev = new AggEvent("agg-2d", version, "batch1-v" + version);
-            sendBatch1 = sendBatch1.compose(x -> producer.send(ev, null, null, "agg-2d"));
-        }
-        final Future<Void> sendBatch1Final = sendBatch1;
-
+        // The first batch is sent only after the topic is configured.
         configureOffsetWatermarkTopic(topic, groupName)
-                .compose(cfg -> sendBatch1Final)
+                .compose(cfg -> {
+                    Future<Void> sendBatch1 = Future.succeededFuture();
+                    for (long v = 1; v <= firstBatch; v++) {
+                        final long version = v;
+                        AggEvent ev = new AggEvent("agg-2d", version, "batch1-v" + version);
+                        sendBatch1 = sendBatch1.compose(x -> producer.send(ev, null, null, "agg-2d"));
+                    }
+                    return sendBatch1;
+                })
                 .compose(v -> group1.start(SubscriptionOptions.fromBeginning()))
                 .compose(v -> batch1Received.future())
                 .compose(v -> {
@@ -556,7 +551,7 @@ class PartitionedOrderingDemoTest {
      */
     private Future<Void> configureOffsetWatermarkTopic(String topic, String groupName) {
         return databaseService.getPool()
-                .withConnection(conn -> conn.preparedQuery(
+                .withTransaction(conn -> conn.preparedQuery(
                         "INSERT INTO outbox_topics (topic, semantics, completion_tracking_mode) " +
                         "VALUES ($1, 'PUB_SUB', 'OFFSET_WATERMARK') " +
                         "ON CONFLICT (topic) DO UPDATE SET completion_tracking_mode = 'OFFSET_WATERMARK'")

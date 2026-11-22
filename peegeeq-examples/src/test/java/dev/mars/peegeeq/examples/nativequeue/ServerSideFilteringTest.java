@@ -27,12 +27,12 @@ import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.ConsumerConfig;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.pgqueue.PgNativeQueueFactory;
-import dev.mars.peegeeq.examples.shared.CleanupResultSupport;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
@@ -102,20 +102,11 @@ public class ServerSideFilteringTest {
     void tearDown(VertxTestContext ctx) {
         logger.info("Tearing down: closing resources and manager");
         logger.info("=== Tearing down ServerSideFilteringTest ===");
-        Future<Void> factoryClose = Future.succeededFuture();
-        if (nativeFactory != null) {
-            try {
-                nativeFactory.close();
-            } catch (Exception e) {
-                logger.error("Error closing native factory", e);
-                factoryClose = Future.failedFuture(e);
-            }
-        }
-        Future<Void> managerClose = manager == null
-            ? Future.succeededFuture()
-            : manager.closeReactive();
-
-        CleanupResultSupport.merge(factoryClose, managerClose)
+        // The factory closes the consumers and producers it created. The manager closes after the
+        // factory close has settled, and the first failure fails the teardown.
+        TestCleanup.run(
+                () -> nativeFactory != null ? nativeFactory.close() : Future.<Void>succeededFuture(),
+                () -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
             .onSuccess(v -> {
                 logger.info("Server-side filtering test teardown completed");
                 ctx.completeNow();

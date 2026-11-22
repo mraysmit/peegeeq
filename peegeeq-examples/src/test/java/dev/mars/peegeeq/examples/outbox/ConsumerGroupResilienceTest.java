@@ -140,21 +140,16 @@ class ConsumerGroupResilienceTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
-        if (producer != null) {
-            producer.close();
-        }
-        if (manager == null) {
-            testContext.completeNow();
-            return;
-        }
-        manager.closeReactive()
-            .onSuccess(v -> logger.info("PeeGeeQ manager closed"))
-            .onFailure(err -> logger.error("Error closing manager", err))
-            .transform(TestCleanup.cleanup(() -> {
-                logger.info("Resilience test teardown completed");
-                testContext.completeNow();
-                return Future.<Void>succeededFuture();
-            }));
+        // The factory closes the consumer groups and the producer it created. Each close runs
+        // after the previous one has settled, and the first failure fails the teardown.
+        TestCleanup.run(
+                () -> queueFactory != null ? queueFactory.close() : Future.<Void>succeededFuture(),
+                () -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(err -> {
+                logger.error("Resilience test teardown failed", err);
+                testContext.failNow(err);
+            });
     }
     
     /**
@@ -192,36 +187,40 @@ class ConsumerGroupResilienceTest {
             createBackupHandler(recoveredCount, vertx),
             MessageFilter.acceptAll());
 
-        // Start the consumer group
-        orderGroup.start();
-        assertEquals(2, orderGroup.getActiveConsumerCount(),
-            "Both consumers should be active");
+        // Send only after the group's LISTEN registration has completed.
+        orderGroup.start()
+            .onSuccess(started -> testContext.verify(() -> {
+                assertEquals(2, orderGroup.getActiveConsumerCount(),
+                    "Both consumers should be active");
 
-        // Send test messages that will trigger failures
-        logger.info("INTENTIONAL FAILURE: Sending messages that will trigger consumer failures");
-        sendFailureTestMessages(testContext);
+                // Send test messages that will trigger failures
+                logger.info("INTENTIONAL FAILURE: Sending messages that will trigger consumer failures");
+                sendFailureTestMessages(testContext);
 
-        // Wait for processing and recovery using Vert.x periodic polling
-        vertx.setPeriodic(100, timerId -> {
-            if (failedCount.get() > 0 && successfulCount.get() > 0 && recoveredCount.get() > 0) {
-                vertx.cancelTimer(timerId);
-                try {
-                    logger.info("Failure recovery results:");
-                    logger.info("  Successful processing: {}", successfulCount.get());
-                    logger.info("  Failed processing: {}", failedCount.get());
-                    logger.info("  Recovered by backup: {}", recoveredCount.get());
+                // Wait for processing and recovery using Vert.x periodic polling
+                vertx.setPeriodic(100, timerId -> {
+                    if (failedCount.get() > 0 && successfulCount.get() > 0 && recoveredCount.get() > 0) {
+                        vertx.cancelTimer(timerId);
+                        try {
+                            logger.info("Failure recovery results:");
+                            logger.info("  Successful processing: {}", successfulCount.get());
+                            logger.info("  Failed processing: {}", failedCount.get());
+                            logger.info("  Recovered by backup: {}", recoveredCount.get());
 
-                    assertTrue(failedCount.get() > 0, "Some failures should have occurred");
-                    assertTrue(successfulCount.get() > 0, "Some messages should have been processed successfully");
-                    assertTrue(recoveredCount.get() > 0, "Backup consumer should have processed messages");
+                            assertTrue(failedCount.get() > 0, "Some failures should have occurred");
+                            assertTrue(successfulCount.get() > 0, "Some messages should have been processed successfully");
+                            assertTrue(recoveredCount.get() > 0, "Backup consumer should have processed messages");
 
-                    orderGroup.close().onFailure(testContext::failNow);
-                    testContext.completeNow();
-                } catch (Throwable t) {
-                    testContext.failNow(t);
-                }
-            }
-        });
+                            orderGroup.close()
+                                .onSuccess(v -> testContext.completeNow())
+                                .onFailure(testContext::failNow);
+                        } catch (Throwable t) {
+                            testContext.failNow(t);
+                        }
+                    }
+                });
+            }))
+            .onFailure(testContext::failNow);
 
         testContext.awaitCompletion(20, TimeUnit.SECONDS);
         logger.info("SUCCESS: Consumer failure recovery mechanisms worked correctly");
@@ -249,30 +248,32 @@ class ConsumerGroupResilienceTest {
             createFilterTestHandler(processedCount, vertx), 
             createExceptionThrowingFilter(filteredCount));
         
-        // Start the consumer group
-        testGroup.start();
-        
-        // Send test messages
-        sendFilterTestMessages(testContext);
+        // Send only after the group's LISTEN registration has completed.
+        testGroup.start()
+            .onSuccess(started -> {
+                sendFilterTestMessages(testContext);
 
-        // Wait for processing using Vert.x periodic polling
-        vertx.setPeriodic(100, timerId -> {
-            if (processedCount.get() > 0) {
-                vertx.cancelTimer(timerId);
-                try {
-                    logger.info("Filter handling results:");
-                    logger.info("  Messages processed: {}", processedCount.get());
-                    logger.info("  Filter exceptions: {}", filteredCount.get());
+                // Wait for processing using Vert.x periodic polling
+                vertx.setPeriodic(100, timerId -> {
+                    if (processedCount.get() > 0) {
+                        vertx.cancelTimer(timerId);
+                        try {
+                            logger.info("Filter handling results:");
+                            logger.info("  Messages processed: {}", processedCount.get());
+                            logger.info("  Filter exceptions: {}", filteredCount.get());
 
-                    assertTrue(processedCount.get() > 0, "Some messages should be processed");
+                            assertTrue(processedCount.get() > 0, "Some messages should be processed");
 
-                    testGroup.close().onFailure(testContext::failNow);
-                    testContext.completeNow();
-                } catch (Throwable th) {
-                    testContext.failNow(th);
-                }
-            }
-        });
+                            testGroup.close()
+                                .onSuccess(v -> testContext.completeNow())
+                                .onFailure(testContext::failNow);
+                        } catch (Throwable th) {
+                            testContext.failNow(th);
+                        }
+                    }
+                });
+            })
+            .onFailure(testContext::failNow);
 
         testContext.awaitCompletion(15, TimeUnit.SECONDS);
         logger.info("Invalid message filter handling test completed successfully");
@@ -297,35 +298,37 @@ class ConsumerGroupResilienceTest {
             createMonitoringHandler(processedCount, vertx), 
             MessageFilter.acceptAll());
         
-        // Start the consumer group
-        monitoringGroup.start();
-        
-        // Send test messages
-        sendMonitoringTestMessages(testContext);
+        // Send only after the group's LISTEN registration has completed.
+        monitoringGroup.start()
+            .onSuccess(started -> {
+                sendMonitoringTestMessages(testContext);
 
-        // Wait for processing using Vert.x periodic polling
-        vertx.setPeriodic(100, timerId -> {
-            if (member.getStats().getMessagesProcessed() > 0) {
-                vertx.cancelTimer(timerId);
-                try {
-                    assertTrue(monitoringGroup.isActive(), "Consumer group should be active");
-                    assertEquals(1, monitoringGroup.getActiveConsumerCount(), "One consumer should be active");
-                    assertTrue(member.isActive(), "Consumer member should be active");
-                    assertTrue(member.getStats().getMessagesProcessed() > 0, "Some messages should have been processed");
+                // Wait for processing using Vert.x periodic polling
+                vertx.setPeriodic(100, timerId -> {
+                    if (member.getStats().getMessagesProcessed() > 0) {
+                        vertx.cancelTimer(timerId);
+                        try {
+                            assertTrue(monitoringGroup.isActive(), "Consumer group should be active");
+                            assertEquals(1, monitoringGroup.getActiveConsumerCount(), "One consumer should be active");
+                            assertTrue(member.isActive(), "Consumer member should be active");
+                            assertTrue(member.getStats().getMessagesProcessed() > 0, "Some messages should have been processed");
 
-                    logger.info("Monitoring statistics:");
-                    logger.info("  Group active: {}", monitoringGroup.isActive());
-                    logger.info("  Active consumers: {}", monitoringGroup.getActiveConsumerCount());
-                    logger.info("  Member processed count: {}", member.getStats().getMessagesProcessed());
-                    logger.info("  Total processed: {}", processedCount.get());
+                            logger.info("Monitoring statistics:");
+                            logger.info("  Group active: {}", monitoringGroup.isActive());
+                            logger.info("  Active consumers: {}", monitoringGroup.getActiveConsumerCount());
+                            logger.info("  Member processed count: {}", member.getStats().getMessagesProcessed());
+                            logger.info("  Total processed: {}", processedCount.get());
 
-                    monitoringGroup.close().onFailure(testContext::failNow);
-                    testContext.completeNow();
-                } catch (Throwable t) {
-                    testContext.failNow(t);
-                }
-            }
-        });
+                            monitoringGroup.close()
+                                .onSuccess(v -> testContext.completeNow())
+                                .onFailure(testContext::failNow);
+                        } catch (Throwable t) {
+                            testContext.failNow(t);
+                        }
+                    }
+                });
+            })
+            .onFailure(testContext::failNow);
 
         testContext.awaitCompletion(15, TimeUnit.SECONDS);
         logger.info("Consumer group statistics test completed successfully");

@@ -22,8 +22,9 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Tests migration file naming, ordering, and conventions.
@@ -83,17 +84,14 @@ class MigrationConventionsTest {
                 .filter(p -> !p.getFileName().toString().contains("rollback")) // Exclude rollback scripts
                 .collect(Collectors.toList());
 
-        assertThat(migrationFiles)
-                .as("Migration directory should contain SQL files")
-                .isNotEmpty();
+        assertFalse(migrationFiles.isEmpty(), "Migration directory should contain SQL files");
 
         Pattern namingPattern = Pattern.compile("V\\d+__[A-Za-z_]+\\.sql");
         
         for (Path file : migrationFiles) {
             String fileName = file.getFileName().toString();
-            assertThat(fileName)
-                    .as("Migration file should follow naming convention V<VERSION>__<Description>.sql")
-                    .matches(namingPattern.pattern());
+            assertTrue(namingPattern.matcher(fileName).matches(),
+                    "Migration file should follow naming convention V<VERSION>__<Description>.sql: " + fileName);
         }
     }
 
@@ -101,9 +99,7 @@ class MigrationConventionsTest {
     void testMigrationVersionsAreSequential() {
         MigrationInfo[] migrations = flyway.info().all();
 
-        assertThat(migrations)
-                .as("Should have at least one migration")
-                .isNotEmpty();
+        assertTrue(migrations.length > 0, "Should have at least one migration");
 
         // Extract version numbers and verify they exist and are in ascending order
         List<Integer> versions = Arrays.stream(migrations)
@@ -114,9 +110,8 @@ class MigrationConventionsTest {
 
         // Verify versions are in ascending order (not necessarily sequential due to V001, V010, etc.)
         for (int i = 1; i < versions.size(); i++) {
-            assertThat(versions.get(i))
-                    .as("Migration versions should be in ascending order")
-                    .isGreaterThan(versions.get(i - 1));
+            assertTrue(versions.get(i) > versions.get(i - 1),
+                    "Migration versions should be unique and ascending: " + versions.get(i - 1) + " then " + versions.get(i));
         }
     }
 
@@ -124,9 +119,7 @@ class MigrationConventionsTest {
     void testAllMigrationsAreApplied() {
         MigrationInfo[] pending = flyway.info().pending();
         
-        assertThat(pending)
-                .as("All migrations should be applied, no pending migrations")
-                .isEmpty();
+        assertEquals(List.of(), describe(pending), "All migrations should be applied, no pending migrations");
     }
 
     @Test
@@ -135,9 +128,7 @@ class MigrationConventionsTest {
                 .filter(m -> m.getState() == MigrationState.FAILED)
                 .toArray(MigrationInfo[]::new);
 
-        assertThat(failed)
-                .as("There should be no failed migrations")
-                .isEmpty();
+        assertEquals(List.of(), describe(failed), "There should be no failed migrations");
     }
 
     @Test
@@ -147,18 +138,14 @@ class MigrationConventionsTest {
         for (MigrationInfo migration : migrations) {
             String description = migration.getDescription();
             
-            assertThat(description)
-                    .as("Migration description should not be empty")
-                    .isNotEmpty();
+            assertNotNull(description, "Migration description should not be null");
+            assertFalse(description.isEmpty(), "Migration description should not be empty");
 
-            assertThat(description.length())
-                    .as("Migration description should be descriptive (at least 5 characters)")
-                    .isGreaterThanOrEqualTo(5);
+            assertTrue(description.length() >= 5,
+                    "Migration description should be descriptive (at least 5 characters): " + description);
 
             // Flyway converts underscores to spaces in descriptions, so both are acceptable
-            assertThat(description)
-                    .as("Migration description should be meaningful")
-                    .matches("[A-Za-z ]+");
+            assertTrue(description.matches("[A-Za-z ]+"), "Migration description should be meaningful: " + description);
         }
     }
 
@@ -168,9 +155,7 @@ class MigrationConventionsTest {
 
         for (MigrationInfo migration : migrations) {
             if (migration.getState() == MigrationState.SUCCESS) {
-                assertThat(migration.getChecksum())
-                        .as("Applied migration %s should have a checksum", migration.getVersion())
-                        .isNotNull();
+                assertNotNull(migration.getChecksum(), "Applied migration " + migration.getVersion() + " should have a checksum");
             }
         }
     }
@@ -186,14 +171,12 @@ class MigrationConventionsTest {
         for (Path file : migrationFiles) {
             String content = Files.readString(file);
             
-            assertThat(content)
-                    .as("Migration file %s should not be empty", file.getFileName())
-                    .isNotEmpty();
+            assertFalse(content.isEmpty(), "Migration file " + file.getFileName() + " should not be empty");
 
             // Check for basic SQL structure
-            assertThat(content.toLowerCase())
-                    .as("Migration file %s should contain SQL statements", file.getFileName())
-                    .containsAnyOf("create", "alter", "insert", "update");
+            String lowerCaseContent = content.toLowerCase();
+            assertTrue(Stream.of("create", "alter", "insert", "update").anyMatch(lowerCaseContent::contains),
+                    "Migration file " + file.getFileName() + " should contain SQL statements");
         }
     }
 
@@ -203,10 +186,9 @@ class MigrationConventionsTest {
 
         for (MigrationInfo migration : migrations) {
             if (migration.getState() == MigrationState.SUCCESS && migration.getExecutionTime() != null) {
-                assertThat(migration.getExecutionTime())
-                        .as("Migration %s should complete in reasonable time (< 60 seconds)", 
-                            migration.getVersion())
-                        .isLessThan(60000); // 60 seconds in milliseconds
+                assertTrue(migration.getExecutionTime() < 60000, // 60 seconds in milliseconds
+                        "Migration " + migration.getVersion() + " should complete in reasonable time (< 60 seconds), took "
+                                + migration.getExecutionTime() + " ms");
             }
         }
     }
@@ -223,30 +205,21 @@ class MigrationConventionsTest {
         flyway.clean();
         var secondRun = flyway.migrate();
 
-        assertThat(firstRun.migrationsExecuted)
-                .as("Both migration runs should execute same number of migrations")
-                .isEqualTo(secondRun.migrationsExecuted);
+        assertEquals(secondRun.migrationsExecuted, firstRun.migrationsExecuted,
+                "Both migration runs should execute same number of migrations");
 
-        assertThat(firstRun.success)
-                .as("First migration run should succeed")
-                .isTrue();
+        assertTrue(firstRun.success, "First migration run should succeed");
 
-        assertThat(secondRun.success)
-                .as("Second migration run should succeed")
-                .isTrue();
+        assertTrue(secondRun.success, "Second migration run should succeed");
         
         log.info(" Migrations are repeatable - {} migrations executed in each run", firstRun.migrationsExecuted);
     }
 
     @Test
     void testBaselineVersion() {
-        assertThat(flyway.info().current())
-                .as("Should have a current migration version")
-                .isNotNull();
+        assertNotNull(flyway.info().current(), "Should have a current migration version");
 
-        assertThat(flyway.info().current().getVersion())
-                .as("Current version should not be null")
-                .isNotNull();
+        assertNotNull(flyway.info().current().getVersion(), "Current version should not be null");
     }
 
     @Test
@@ -254,21 +227,20 @@ class MigrationConventionsTest {
         MigrationInfo[] migrations = flyway.info().all();
 
         for (MigrationInfo migration : migrations) {
-            assertThat(migration.getVersion())
-                    .as("Migration should have a version")
-                    .isNotNull();
+            assertNotNull(migration.getVersion(), "Migration should have a version");
 
-            assertThat(migration.getDescription())
-                    .as("Migration should have a description")
-                    .isNotNull();
+            assertNotNull(migration.getDescription(), "Migration should have a description");
 
-            assertThat(migration.getType())
-                    .as("Migration should have a type")
-                    .isNotNull();
+            assertNotNull(migration.getType(), "Migration should have a type");
 
-            assertThat(migration.getScript())
-                    .as("Migration should have a script name")
-                    .isNotEmpty();
+            assertNotNull(migration.getScript(), "Migration should have a script name");
+            assertFalse(migration.getScript().isEmpty(), "Migration should have a script name");
         }
+    }
+
+    private static List<String> describe(MigrationInfo[] migrations) {
+        return Arrays.stream(migrations)
+                .map(m -> m.getVersion() + " " + m.getDescription() + " " + m.getState())
+                .collect(Collectors.toList());
     }
 }

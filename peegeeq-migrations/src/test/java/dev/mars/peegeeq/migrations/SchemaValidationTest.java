@@ -18,9 +18,10 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Validates the integrity and completeness of the database schema.
@@ -93,73 +94,67 @@ class SchemaValidationTest {
         Map<String, String> actualColumns = getTableColumns("queue_messages");
 
         for (Map.Entry<String, String> expected : expectedColumns.entrySet()) {
-            assertThat(actualColumns)
-                    .as("queue_messages should have column %s with correct type", expected.getKey())
-                    .containsKey(expected.getKey());
-            
-            assertThat(actualColumns.get(expected.getKey()))
-                    .as("Column %s should have type %s", expected.getKey(), expected.getValue())
-                    .containsIgnoringCase(expected.getValue());
+            assertTrue(actualColumns.containsKey(expected.getKey()),
+                    "queue_messages should have column " + expected.getKey());
+
+            String actualType = actualColumns.get(expected.getKey());
+            assertTrue(actualType.toLowerCase().contains(expected.getValue().toLowerCase()),
+                    "Column " + expected.getKey() + " should have type " + expected.getValue() + " but was " + actualType);
         }
     }
 
     @Test
     void testOutboxTableStructure() throws SQLException {
-        Map<String, String> expectedColumns = new HashMap<>();
-        expectedColumns.put("id", "uuid");
-        expectedColumns.put("topic", "character varying");
-        expectedColumns.put("payload", "jsonb");
-        expectedColumns.put("created_at", "timestamp without time zone");
-        expectedColumns.put("processed_at", "timestamp without time zone");
-        expectedColumns.put("processing_started_at", "timestamp without time zone");
-        expectedColumns.put("status", "character varying");
-        expectedColumns.put("retry_count", "integer");
-        expectedColumns.put("max_retries", "integer");
-        expectedColumns.put("next_retry_at", "timestamp with time zone");
-        expectedColumns.put("version", "integer");
-        expectedColumns.put("headers", "jsonb");
-        expectedColumns.put("error_message", "text");
-        expectedColumns.put("correlation_id", "character varying");
-        expectedColumns.put("message_group", "character varying");
-        expectedColumns.put("priority", "integer");
-        expectedColumns.put("payload", "jsonb");
-        expectedColumns.put("status", "character varying");
-        expectedColumns.put("created_at", "timestamp with time zone");
+        // Column names only; SchemaContractTest asserts the outbox column types.
+        List<String> expectedColumns = List.of(
+                "id",
+                "topic",
+                "payload",
+                "created_at",
+                "processed_at",
+                "processing_started_at",
+                "status",
+                "retry_count",
+                "max_retries",
+                "next_retry_at",
+                "version",
+                "headers",
+                "error_message",
+                "correlation_id",
+                "message_group",
+                "priority");
 
         Map<String, String> actualColumns = getTableColumns("outbox");
 
-        for (Map.Entry<String, String> expected : expectedColumns.entrySet()) {
-            assertThat(actualColumns)
-                    .as("outbox should have column %s", expected.getKey())
-                    .containsKey(expected.getKey());
+        for (String expected : expectedColumns) {
+            assertTrue(actualColumns.containsKey(expected), "outbox should have column " + expected);
         }
     }
 
     @Test
     void testBitemporalEventLogTableStructure() throws SQLException {
-        Map<String, String> expectedColumns = new HashMap<>();
-        expectedColumns.put("id", "uuid");
-        expectedColumns.put("event_id", "character varying");
-        expectedColumns.put("event_type", "character varying");
-        expectedColumns.put("valid_time", "timestamp with time zone");
-        expectedColumns.put("transaction_time", "timestamp with time zone");
-        expectedColumns.put("payload", "jsonb");
-        expectedColumns.put("headers", "jsonb");
-        expectedColumns.put("version", "bigint");
-        expectedColumns.put("previous_version_id", "character varying");
-        expectedColumns.put("is_correction", "boolean");
-        expectedColumns.put("correction_reason", "text");
-        expectedColumns.put("correlation_id", "character varying");
-        expectedColumns.put("causation_id", "character varying");
-        expectedColumns.put("aggregate_id", "character varying");
-        expectedColumns.put("created_at", "timestamp without time zone");
+        // Column names only; the types are not asserted here.
+        List<String> expectedColumns = List.of(
+                "id",
+                "event_id",
+                "event_type",
+                "valid_time",
+                "transaction_time",
+                "payload",
+                "headers",
+                "version",
+                "previous_version_id",
+                "is_correction",
+                "correction_reason",
+                "correlation_id",
+                "causation_id",
+                "aggregate_id",
+                "created_at");
 
         Map<String, String> actualColumns = getTableColumns("bitemporal_event_log");
 
-        for (Map.Entry<String, String> expected : expectedColumns.entrySet()) {
-            assertThat(actualColumns)
-                    .as("bitemporal_event_log should have column %s", expected.getKey())
-                    .containsKey(expected.getKey());
+        for (String expected : expectedColumns) {
+            assertTrue(actualColumns.containsKey(expected), "bitemporal_event_log should have column " + expected);
         }
     }
 
@@ -179,9 +174,7 @@ class SchemaValidationTest {
             while (rs.next()) {
                 String column = rs.getString("column_name");
                 String isNullable = rs.getString("is_nullable");
-                assertThat(isNullable)
-                        .as("Critical column %s should be NOT NULL", column)
-                        .isEqualTo("NO");
+                assertEquals("NO", isNullable, "Critical column " + column + " should be NOT NULL");
             }
 
                 ResultSet dlqRs = stmt.executeQuery(
@@ -190,13 +183,9 @@ class SchemaValidationTest {
                         "AND column_name = 'failed_at'"
                 );
 
-                assertThat(dlqRs.next())
-                    .as("dead_letter_queue.failed_at column should exist")
-                    .isTrue();
+                assertTrue(dlqRs.next(), "dead_letter_queue.failed_at column should exist");
 
-                assertThat(dlqRs.getString("is_nullable"))
-                    .as("dead_letter_queue.failed_at should be NOT NULL")
-                    .isEqualTo("NO");
+                assertEquals("NO", dlqRs.getString("is_nullable"), "dead_letter_queue.failed_at should be NOT NULL");
         }
     }
 
@@ -219,10 +208,9 @@ class SchemaValidationTest {
             while (rs.next()) {
                 String table = rs.getString("table_name");
                 String columnDefault = rs.getString("column_default");
-                assertThat(columnDefault)
-                        .as("Table %s should have default value for created_at", table)
-                        .isNotNull()
-                        .containsIgnoringCase("now()");
+                assertNotNull(columnDefault, "Table " + table + " should have default value for created_at");
+                assertTrue(columnDefault.toLowerCase().contains("now()"),
+                        "Table " + table + " created_at default should call now(), was " + columnDefault);
             }
         }
     }
@@ -238,10 +226,8 @@ class SchemaValidationTest {
                             "AND table_schema = 'public'"
             );
 
-            rs.next();
-            assertThat(rs.getInt(1))
-                    .as("Schema should have UNIQUE constraints")
-                    .isGreaterThanOrEqualTo(0); // Some tables may have unique constraints
+            assertTrue(rs.next(), "COUNT(*) should return a row");
+            assertTrue(rs.getInt(1) > 0, "Schema should have UNIQUE constraints");
         }
     }
 
@@ -256,11 +242,9 @@ class SchemaValidationTest {
                             "AND table_schema = 'public'"
             );
 
-            rs.next();
+            assertTrue(rs.next(), "COUNT(*) should return a row");
             int checkConstraints = rs.getInt(1);
-            assertThat(checkConstraints)
-                    .as("Schema may have CHECK constraints for data validation")
-                    .isGreaterThanOrEqualTo(0);
+            assertTrue(checkConstraints > 0, "Schema should have CHECK constraints for data validation");
         }
     }
 
@@ -279,9 +263,8 @@ class SchemaValidationTest {
 
             while (rs.next()) {
                 String indexName = rs.getString("indexname");
-                assertThat(indexName)
-                        .as("Index should follow naming convention idx_<table>_<column> or uq_<table>_<column>")
-                        .matches("idx_.*|uq_.*|.*_pkey|.*_key");
+                assertTrue(indexName.matches("idx_.*|uq_.*|.*_pkey|.*_key"),
+                        "Index should follow naming convention idx_<table>_<column> or uq_<table>_<column>: " + indexName);
             }
         }
     }
@@ -293,19 +276,19 @@ class SchemaValidationTest {
 
             // Test bitemporal_current_state view
             ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM bitemporal_current_state");
-            assertThat(rs.next()).isTrue();
+            assertTrue(rs.next(), "COUNT(*) on bitemporal_current_state should return a row");
 
             // Test bitemporal_latest_events view
             rs = stmt.executeQuery("SELECT COUNT(*) FROM bitemporal_latest_events");
-            assertThat(rs.next()).isTrue();
+            assertTrue(rs.next(), "COUNT(*) on bitemporal_latest_events should return a row");
 
             // Test bitemporal_event_stats view
             rs = stmt.executeQuery("SELECT COUNT(*) FROM bitemporal_event_stats");
-            assertThat(rs.next()).isTrue();
+            assertTrue(rs.next(), "COUNT(*) on bitemporal_event_stats should return a row");
 
             // Test bitemporal_event_type_stats view
             rs = stmt.executeQuery("SELECT COUNT(*) FROM bitemporal_event_type_stats");
-            assertThat(rs.next()).isTrue();
+            assertTrue(rs.next(), "COUNT(*) on bitemporal_event_type_stats should return a row");
         }
     }
 
@@ -318,8 +301,8 @@ class SchemaValidationTest {
             ResultSet rs = stmt.executeQuery(
                     "SELECT * FROM get_events_as_of_time(NOW(), NOW())"
             );
-            // Function returns table, just verify it's callable (may return empty results)
-            assertThat(rs).isNotNull();
+            // This class inserts no bitemporal events, so the function returns no rows
+            assertFalse(rs.next(), "get_events_as_of_time should return no rows for a schema with no events");
         }
     }
 
@@ -340,14 +323,10 @@ class SchemaValidationTest {
                 jsonbColumns++;
                 String table = rs.getString("table_name");
                 String column = rs.getString("column_name");
-                assertThat(column)
-                        .as("JSONB column should have meaningful name in table %s", table)
-                        .isNotEmpty();
+                assertFalse(column.isEmpty(), "JSONB column should have meaningful name in table " + table);
             }
 
-            assertThat(jsonbColumns)
-                    .as("Schema should have JSONB columns for flexible data storage")
-                    .isGreaterThan(0);
+            assertTrue(jsonbColumns > 0, "Schema should have JSONB columns for flexible data storage");
         }
     }
 
@@ -368,9 +347,8 @@ class SchemaValidationTest {
                 String column = rs.getString("column_name");
                 String dataType = rs.getString("data_type");
                 
-                assertThat(dataType)
-                        .as("Timestamp column %s.%s should be timestamp type", table, column)
-                        .containsIgnoringCase("timestamp");
+                assertTrue(dataType.toLowerCase().contains("timestamp"),
+                        "Timestamp column " + table + "." + column + " should be timestamp type, was " + dataType);
             }
         }
     }

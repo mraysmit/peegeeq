@@ -18,8 +18,9 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Integration tests for PeeGeeQ database migrations.
@@ -80,9 +81,9 @@ class MigrationIntegrationTest {
         long duration = System.currentTimeMillis() - startTime;
         log.info("  Completed in {}ms - {} migrations executed", duration, result.migrationsExecuted);
 
-        assertThat(result.success).isTrue();
-        assertThat(result.migrationsExecuted).isGreaterThan(0);
-        assertThat(result.warnings).isEmpty();
+        assertTrue(result.success, "Migration should succeed");
+        assertTrue(result.migrationsExecuted > 0, "At least one migration should run, ran " + result.migrationsExecuted);
+        assertEquals(List.of(), result.warnings, "Migration should report no warnings");
         
         log.info(" Migration execution successful");
     }
@@ -97,9 +98,9 @@ class MigrationIntegrationTest {
         log.info("  Second migration run...");
         var secondResult = flyway.migrate();
 
-        assertThat(firstResult.success).isTrue();
-        assertThat(secondResult.success).isTrue();
-        assertThat(secondResult.migrationsExecuted).isZero(); // No new migrations on second run
+        assertTrue(firstResult.success, "First migration run should succeed");
+        assertTrue(secondResult.success, "Second migration run should succeed");
+        assertEquals(0, secondResult.migrationsExecuted, "No new migrations should run on the second run");
         
         log.info(" Migrations are idempotent - no changes on second run");
     }
@@ -124,16 +125,14 @@ class MigrationIntegrationTest {
 
         List<String> actualTables = getTableNames();
 
-        assertThat(actualTables)
-                .as("All required tables should exist")
-                .containsAll(expectedTables);
+        List<String> missing = expectedTables.stream().filter(name -> !actualTables.contains(name)).collect(Collectors.toList());
+        assertEquals(List.of(), missing, "All required tables should exist");
 
         // V019 (2026-08-09): the write-only metrics persistence tables are DROPPED. Their
         // ABSENCE is the contract now - recreating them without a reader reintroduces dead
         // weight (queue_metrics was written on a timer and read by nothing, ever).
-        assertThat(actualTables)
-                .as("V019 must have dropped the write-only metrics tables")
-                .doesNotContain("queue_metrics", "connection_pool_metrics");
+        assertFalse(actualTables.contains("queue_metrics"), "V019 must have dropped the write-only metrics tables");
+        assertFalse(actualTables.contains("connection_pool_metrics"), "V019 must have dropped the write-only metrics tables");
         
         log.info(" All {} required tables verified (including V010 tables)", expectedTables.size());
     }
@@ -159,13 +158,10 @@ class MigrationIntegrationTest {
                 foundColumns.add(rs.getString(1));
             }
             
-            assertThat(foundColumns)
-                .as("V010 fanout columns should exist in outbox table")
-                .containsExactlyInAnyOrder(
-                    "required_consumer_groups",
-                    "completed_consumer_groups", 
-                    "completed_groups_bitmap"
-                );
+            assertEquals(
+                List.of("completed_consumer_groups", "completed_groups_bitmap", "required_consumer_groups"),
+                foundColumns.stream().sorted().collect(Collectors.toList()),
+                "V010 fanout columns should exist in outbox table");
         }
         
         log.info(" All V010 fanout columns verified");
@@ -191,9 +187,7 @@ class MigrationIntegrationTest {
             }
             
             // Key columns from V010
-            assertThat(columns)
-                .as("outbox_topics should have all expected columns")
-                .contains(
+            List<String> expectedColumns = List.of(
                     "topic",
                     "semantics",
                     "message_retention_hours",
@@ -203,6 +197,8 @@ class MigrationIntegrationTest {
                     "created_at",
                     "updated_at"
                 );
+            List<String> missing = expectedColumns.stream().filter(name -> !columns.contains(name)).collect(Collectors.toList());
+            assertEquals(List.of(), missing, "outbox_topics should have all expected columns");
         }
         
         log.info(" outbox_topics table structure verified");
@@ -228,9 +224,7 @@ class MigrationIntegrationTest {
             }
             
             // Key columns from V010
-            assertThat(columns)
-                .as("outbox_topic_subscriptions should have all expected columns")
-                .contains(
+            List<String> expectedColumns = List.of(
                     "id",
                     "topic",
                     "group_name",
@@ -243,6 +237,8 @@ class MigrationIntegrationTest {
                     "last_heartbeat_at",
                     "backfill_status"
                 );
+            List<String> missing = expectedColumns.stream().filter(name -> !columns.contains(name)).collect(Collectors.toList());
+            assertEquals(List.of(), missing, "outbox_topic_subscriptions should have all expected columns");
         }
         
         log.info(" outbox_topic_subscriptions table structure verified");
@@ -267,9 +263,7 @@ class MigrationIntegrationTest {
                 columns.add(rs.getString(1));
             }
 
-            assertThat(columns)
-                .as("bitemporal_subscriptions should have all expected columns")
-                .contains(
+            List<String> expectedColumns = List.of(
                     "id",
                     "table_name",
                     "subscription_name",
@@ -286,6 +280,8 @@ class MigrationIntegrationTest {
                     "subscribed_at",
                     "last_active_at"
                 );
+            List<String> missing = expectedColumns.stream().filter(name -> !columns.contains(name)).collect(Collectors.toList());
+            assertEquals(List.of(), missing, "bitemporal_subscriptions should have all expected columns");
         }
 
         log.info(" bitemporal_subscriptions table structure verified");
@@ -311,13 +307,11 @@ class MigrationIntegrationTest {
             }
             
             // Should have new column name, not old
-            assertThat(columns)
-                .as("Should use message_id (new name)")
-                .contains("message_id", "group_name");
-                
-            assertThat(columns)
-                .as("Should NOT have old column names")
-                .doesNotContain("outbox_message_id", "consumer_group_name");
+            assertTrue(columns.contains("message_id"), "Should use message_id (new name)");
+            assertTrue(columns.contains("group_name"), "Should use group_name (new name)");
+
+            assertFalse(columns.contains("outbox_message_id"), "Should NOT have old column outbox_message_id");
+            assertFalse(columns.contains("consumer_group_name"), "Should NOT have old column consumer_group_name");
         }
         
         log.info(" Column rename verified - using message_id and group_name");
@@ -345,9 +339,8 @@ class MigrationIntegrationTest {
             "idx_bitemporal_no_fork"
         );
 
-        assertThat(actualIndexes)
-                .as("All required indexes should exist")
-                .containsAll(requiredIndexes);
+        List<String> missing = requiredIndexes.stream().filter(name -> !actualIndexes.contains(name)).collect(Collectors.toList());
+        assertEquals(List.of(), missing, "All required indexes should exist");
     }
 
     @Test
@@ -364,9 +357,8 @@ class MigrationIntegrationTest {
 
         List<String> actualViews = getViewNames();
 
-        assertThat(actualViews)
-                .as("All required views should exist")
-                .containsAll(expectedViews);
+        List<String> missing = expectedViews.stream().filter(name -> !actualViews.contains(name)).collect(Collectors.toList());
+        assertEquals(List.of(), missing, "All required views should exist");
     }
 
     @Test
@@ -387,16 +379,14 @@ class MigrationIntegrationTest {
 
         List<String> actualFunctions = getFunctionNames();
 
-        assertThat(actualFunctions)
-                .as("All required functions should exist")
-                .containsAll(expectedFunctions);
+        List<String> missing = expectedFunctions.stream().filter(name -> !actualFunctions.contains(name)).collect(Collectors.toList());
+        assertEquals(List.of(), missing, "All required functions should exist");
 
         // V019 (2026-08-09): cleanup_old_metrics was the retention function for the write-only
         // metrics tables — defined, never invoked by anything, dropped with its tables. Its
         // ABSENCE is the contract now.
-        assertThat(actualFunctions)
-                .as("V019 must have dropped the never-invoked metrics retention function")
-                .doesNotContain("cleanup_old_metrics");
+        assertFalse(actualFunctions.contains("cleanup_old_metrics"),
+                "V019 must have dropped the never-invoked metrics retention function");
     }
 
     @Test
@@ -415,9 +405,8 @@ class MigrationIntegrationTest {
 
         List<String> actualTriggers = getTriggerNames();
 
-        assertThat(actualTriggers)
-                .as("All required triggers should exist")
-                .containsAll(expectedTriggers);
+        List<String> missing = expectedTriggers.stream().filter(name -> !actualTriggers.contains(name)).collect(Collectors.toList());
+        assertEquals(List.of(), missing, "All required triggers should exist");
     }
 
     @Test
@@ -434,10 +423,8 @@ class MigrationIntegrationTest {
                             "WHERE table_name = 'queue_messages' " +
                             "AND constraint_type = 'PRIMARY KEY'"
             );
-            rs.next();
-            assertThat(rs.getInt(1))
-                    .as("queue_messages should have a primary key")
-                    .isEqualTo(1);
+            assertTrue(rs.next(), "COUNT(*) should return a row");
+            assertEquals(1, rs.getInt(1), "queue_messages should have a primary key");
 
             // Check outbox primary key
             rs = stmt.executeQuery(
@@ -445,10 +432,8 @@ class MigrationIntegrationTest {
                             "WHERE table_name = 'outbox' " +
                             "AND constraint_type = 'PRIMARY KEY'"
             );
-            rs.next();
-            assertThat(rs.getInt(1))
-                    .as("outbox should have a primary key")
-                    .isEqualTo(1);
+            assertTrue(rs.next(), "COUNT(*) should return a row");
+            assertEquals(1, rs.getInt(1), "outbox should have a primary key");
         }
     }
 
@@ -464,10 +449,8 @@ class MigrationIntegrationTest {
                     "SELECT COUNT(*) FROM information_schema.table_constraints " +
                             "WHERE constraint_type = 'FOREIGN KEY'"
             );
-            rs.next();
-            assertThat(rs.getInt(1))
-                    .as("Schema should have foreign key constraints")
-                    .isGreaterThan(0);
+            assertTrue(rs.next(), "COUNT(*) should return a row");
+            assertTrue(rs.getInt(1) > 0, "Schema should have foreign key constraints");
         }
     }
 
@@ -489,10 +472,8 @@ class MigrationIntegrationTest {
             ResultSet rs = stmt.executeQuery(
                     "SELECT COUNT(*) FROM queue_messages WHERE topic = 'test_topic'"
             );
-            rs.next();
-            assertThat(rs.getInt(1))
-                    .as("Test message should be inserted successfully")
-                    .isEqualTo(1);
+            assertTrue(rs.next(), "COUNT(*) should return a row");
+            assertEquals(1, rs.getInt(1), "Test message should be inserted successfully");
         }
     }
 
@@ -516,9 +497,7 @@ class MigrationIntegrationTest {
                 columns.add(rs.getString(1));
             }
 
-            assertThat(columns)
-                    .as("bitemporal_event_log should have all required columns")
-                    .contains(
+            List<String> expectedColumns = List.of(
                             "id",
                             "event_id",
                             "event_type",
@@ -534,6 +513,8 @@ class MigrationIntegrationTest {
                             "aggregate_id",
                             "created_at"
                     );
+            List<String> missing = expectedColumns.stream().filter(name -> !columns.contains(name)).collect(Collectors.toList());
+            assertEquals(List.of(), missing, "bitemporal_event_log should have all required columns");
         }
     }
 
@@ -556,9 +537,7 @@ class MigrationIntegrationTest {
                 columns.add(rs.getString(1));
             }
 
-            assertThat(columns)
-                    .as("dead_letter_queue should have all required columns")
-                    .contains(
+            List<String> expectedColumns = List.of(
                             "id",
                             "original_table",
                             "original_id",
@@ -572,6 +551,8 @@ class MigrationIntegrationTest {
                             "correlation_id",
                             "message_group"
                     );
+            List<String> missing = expectedColumns.stream().filter(name -> !columns.contains(name)).collect(Collectors.toList());
+            assertEquals(List.of(), missing, "dead_letter_queue should have all required columns");
         }
     }
 
@@ -589,10 +570,8 @@ class MigrationIntegrationTest {
                             "JOIN pg_class c ON d.objoid = c.oid " +
                             "WHERE c.relkind = 'r'"
             );
-            rs.next();
-            assertThat(rs.getInt(1))
-                    .as("Tables should have comments for documentation")
-                    .isGreaterThan(0);
+            assertTrue(rs.next(), "COUNT(*) should return a row");
+            assertTrue(rs.getInt(1) > 0, "Tables should have comments for documentation");
         }
     }
 
