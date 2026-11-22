@@ -1,4 +1,6 @@
 # Getting Started with PeeGeeQ
+© Mark Andrew Ray-Smith Cityline Ltd 2025  
+Version 1.0
 
 This guide is the maintained entry point for learning and evaluating PeeGeeQ. It deliberately
 routes detailed subjects to focused guides instead of repeating their content.
