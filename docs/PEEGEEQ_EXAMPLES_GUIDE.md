@@ -1,4 +1,6 @@
 # PeeGeeQ Examples Guide
+© Mark Andrew Ray-Smith Cityline Ltd 2025  
+Version 1.0
 
 **Status:** CURRENT
 
