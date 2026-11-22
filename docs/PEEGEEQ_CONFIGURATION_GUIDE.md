@@ -1,4 +1,6 @@
 # PeeGeeQ Configuration Guide
+© Mark Andrew Ray-Smith Cityline Ltd 2025  
+Version 1.0
 
 **Authoritative runtime-property reference**
 **Reconciled:** August 29, 2026
