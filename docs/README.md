@@ -1,4 +1,6 @@
 # PeeGeeQ Documentation
+© Mark Andrew Ray-Smith Cityline Ltd 2025  
+Version 1.0
 
 This directory contains the current, user-facing and operator-facing documentation for PeeGeeQ.
 Design proposals, implementation records, task tracking, and historical evidence remain under
