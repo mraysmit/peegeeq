@@ -110,9 +110,6 @@ public abstract class ConsumerModePerformanceTestBase extends ParameterizedPerfo
         logger.info("Running consumer mode test '{}' with scenario: {}", testName, scenario.getScenarioName());
         logger.debug("Scenario details: {}", scenario.getDescription());
         
-        // Override the profile for this specific test run
-        this.currentProfile = scenario.getPerformanceProfile();
-        
         try {
             // Setup container with the specified profile
             setupContainerForProfile(scenario.getPerformanceProfile());
@@ -120,10 +117,7 @@ public abstract class ConsumerModePerformanceTestBase extends ParameterizedPerfo
             // Execute the consumer mode test operation
             Map<String, Object> operationMetrics = operation.execute(scenario);
 
-            // Debug logging to verify operation metrics
-            logger.info("Operation metrics from execute(): {}", operationMetrics);
-            System.err.println("=== OPERATION METRICS: " + operationMetrics + " ===");
-            System.err.flush();
+            logger.debug("Operation metrics from execute(): {}", operationMetrics);
 
             Instant endTime = Instant.now();
 
@@ -131,10 +125,7 @@ public abstract class ConsumerModePerformanceTestBase extends ParameterizedPerfo
             ConsumerModeTestResult result = new ConsumerModeTestResult(
                 scenario, testName, startTime, endTime, true, null, operationMetrics);
 
-            // Debug logging to verify result metrics after construction
-            logger.info("Result metrics after construction: {}", result.getMetrics());
-            System.err.println("=== RESULT METRICS AFTER CONSTRUCTION: " + result.getMetrics() + " ===");
-            System.err.flush();
+            logger.debug("Result metrics after construction: {}", result.getMetrics());
             
             // Record consumer mode specific metrics
             recordConsumerModeMetrics(result);
