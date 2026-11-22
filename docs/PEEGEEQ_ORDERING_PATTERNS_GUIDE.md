@@ -1,6 +1,6 @@
 # PeeGeeQ Ordering Patterns Guide
-*© Mark Andrew Ray-Smith Cityline Ltd 2025*  
-*Version 1.2*
+© Mark Andrew Ray-Smith Cityline Ltd 2025  
+Version 1.2
 
 **Status:** IMPLEMENTED — TASK 6 RELEASE GATE COMPLETE
 
