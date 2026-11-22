@@ -59,15 +59,8 @@ public class RestApiStreamingExampleTest {
     
     private static final Logger logger = LoggerFactory.getLogger(RestApiStreamingExampleTest.class);
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("peegeeq_streaming_demo");
-        container.withUsername("postgres");
-        container.withPassword("password");
-        return container;
-    }
     
     private Vertx vertx;
     private WebClient client;
