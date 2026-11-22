@@ -72,10 +72,10 @@ import static org.junit.jupiter.api.Assertions.*;
 @TestPropertySource(properties = {
     "peegeeq.database.host=${DB_HOST:localhost}",
     "peegeeq.database.port=${DB_PORT:5432}",
-    "peegeeq.database.name=${DB_NAME:peegeeq_shared_test}",
+    "peegeeq.database.name=${DB_NAME:peegeeq_test}",
     "peegeeq.database.username=${DB_USERNAME:peegeeq_test}",
     "peegeeq.database.password=${DB_PASSWORD:peegeeq_test}",
-    "spring.r2dbc.url=r2dbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:peegeeq_shared_test}",
+    "spring.r2dbc.url=r2dbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:peegeeq_test}",
     "spring.r2dbc.username=${DB_USERNAME:peegeeq_test}",
     "spring.r2dbc.password=${DB_PASSWORD:peegeeq_test}"
 })
