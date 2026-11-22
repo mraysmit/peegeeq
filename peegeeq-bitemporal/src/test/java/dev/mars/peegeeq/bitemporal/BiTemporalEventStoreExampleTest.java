@@ -98,11 +98,7 @@ class BiTemporalEventStoreExampleTest {
     
     @Container
     @SuppressWarnings("resource") // Managed by Testcontainers framework
-    static PostgreSQLContainer sharedPostgres = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)
-        .withDatabaseName("peegeeq_bitemporal_test")
-        .withUsername("postgres")
-        .withPassword("password")
-        .withSharedMemorySize(256 * 1024 * 1024L) // 256MB shared memory
+    static PostgreSQLContainer sharedPostgres = PostgreSQLTestConstants.createStandardContainer()
         .withCommand("postgres", "-c", "max_connections=300", "-c", "fsync=off", "-c", "synchronous_commit=off"); // Performance optimizations for tests
     
     private Vertx vertx;
