@@ -1,13 +1,12 @@
 package dev.mars.peegeeq.examples.fundscustody;
 
+import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.examples.fundscustody.domain.Currency;
 import dev.mars.peegeeq.examples.fundscustody.domain.TradeType;
 import dev.mars.peegeeq.examples.fundscustody.model.TradeRequest;
 import dev.mars.peegeeq.examples.fundscustody.model.RegulatoryReport;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
-import io.vertx.core.Promise;
-import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.Tag;
@@ -15,31 +14,29 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Tests for RegulatoryReportingService - regulatory snapshots and compliance reporting.
+ *
+ * <p>{@code append} completes after the event is stored, so a read chained on it sees the
+ * event. Snapshots are taken as of the transaction time the store assigned to the last event
+ * the test wrote, so they do not depend on the JVM clock.</p>
  */
 @Tag(TestCategories.INTEGRATION)
 @ExtendWith(VertxExtension.class)
 class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
 
-    private Future<Void> delay(Vertx vertx, long ms) {
-        Promise<Void> p = Promise.promise();
-        vertx.setTimer(ms, id -> p.complete());
-        return p.future();
-    }
-    
     @Test
-    void testGetRegulatorySnapshot(Vertx vertx, VertxTestContext testContext) {
+    void testGetRegulatorySnapshot(VertxTestContext testContext) {
         String fundId = "FUND-001";
         LocalDate reportingDate = LocalDate.of(2025, 10, 31);
 
-        setupFundDataAsync(fundId, reportingDate, vertx)
-            .compose(v -> delay(vertx, 200))
-            .compose(v -> regulatoryService.getRegulatorySnapshot(fundId, reportingDate, "AIFMD"))
+        setupFundDataAsync(fundId, reportingDate)
+            .compose(asOf -> regulatoryService.getRegulatorySnapshot(fundId, reportingDate, "AIFMD", asOf))
             .onComplete(testContext.succeeding(report -> testContext.verify(() -> {
                 assertNotNull(report);
                 assertEquals(fundId, report.fundId());
@@ -52,19 +49,18 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
                 assertNotNull(report.positions());
                 assertFalse(report.positions().isEmpty());
                 assertNotNull(report.tradesInPeriod());
-                assertFalse(report.tradesInPeriod().isEmpty());
+                assertEquals(3, report.tradesInPeriod().size(), "The report should include the 3 recorded trades");
                 testContext.completeNow();
             })));
     }
-    
+
     @Test
-    void testGetAIFMDReport(Vertx vertx, VertxTestContext testContext) {
+    void testGetAIFMDReport(VertxTestContext testContext) {
         String fundId = "FUND-002";
         LocalDate reportingDate = LocalDate.of(2025, 9, 30);
 
-        setupFundDataAsync(fundId, reportingDate, vertx)
-            .compose(v -> delay(vertx, 200))
-            .compose(v -> regulatoryService.getAIFMDReport(fundId, reportingDate))
+        setupFundDataAsync(fundId, reportingDate)
+            .compose(asOf -> regulatoryService.getAIFMDReport(fundId, reportingDate, asOf))
             .onComplete(testContext.succeeding(report -> testContext.verify(() -> {
                 assertNotNull(report);
                 assertEquals("AIFMD", report.reportType());
@@ -75,20 +71,18 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
                 testContext.completeNow();
             })));
     }
-    
+
     @Test
-    void testGetMiFIDTransactionReport(Vertx vertx, VertxTestContext testContext) {
+    void testGetMiFIDTransactionReport(VertxTestContext testContext) {
         String fundId = "FUND-003";
         LocalDate tradingDay = LocalDate.of(2025, 10, 15);
 
         recordTradeAsync(fundId, "AAPL", tradingDay, TradeType.BUY, "100", "150.00")
             .compose(v -> recordTradeAsync(fundId, "MSFT", tradingDay, TradeType.BUY, "200", "300.00"))
             .compose(v -> recordTradeAsync(fundId, "GOOGL", tradingDay, TradeType.SELL, "50", "2800.00"))
-            .compose(v -> delay(vertx, 200))
             .compose(v -> navService.calculateNAV(fundId, tradingDay,
                     new BigDecimal("5000000.00"), new BigDecimal("100000.00"),
                     new BigDecimal("50000"), Currency.USD, "nav-calc"))
-            .compose(v -> delay(vertx, 100))
             .compose(v -> regulatoryService.getMiFIDTransactionReport(fundId, tradingDay))
             .onComplete(testContext.succeeding(report -> testContext.verify(() -> {
                 assertNotNull(report);
@@ -104,25 +98,24 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
                 testContext.completeNow();
             })));
     }
-    
+
     @Test
-    void testRegulatorySnapshotPointInTime(Vertx vertx, VertxTestContext testContext) {
+    void testRegulatorySnapshotPointInTime(VertxTestContext testContext) {
         String fundId = "FUND-004";
         LocalDate reportingDate = LocalDate.of(2025, 10, 1);
 
+        // The first report is taken as of the trade; the auditor's NAV is recorded after it,
+        // so only the second report sees the corrected NAV.
         navService.calculateNAV(fundId, reportingDate,
                 new BigDecimal("10000000.00"), new BigDecimal("500000.00"),
                 new BigDecimal("100000.00"), Currency.USD, "nav-calc")
-            .compose(v -> delay(vertx, 200))
             .compose(v -> recordTradeAsync(fundId, "AAPL", reportingDate, TradeType.BUY, "100", "150.00"))
-            .compose(v -> delay(vertx, 100))
-            .compose(v -> regulatoryService.getRegulatorySnapshot(fundId, reportingDate, "AIFMD"))
-            .compose(report1 -> delay(vertx, 100)
-                .compose(v -> navService.calculateNAV(fundId, reportingDate,
+            .compose(firstFiling -> regulatoryService.getRegulatorySnapshot(fundId, reportingDate, "AIFMD", firstFiling))
+            .compose(report1 -> navService.calculateNAV(fundId, reportingDate,
                         new BigDecimal("10100000.00"), new BigDecimal("500000.00"),
-                        new BigDecimal("100000.00"), Currency.USD, "nav-auditor"))
-                .compose(v -> delay(vertx, 200))
-                .compose(v -> regulatoryService.getRegulatorySnapshot(fundId, reportingDate, "AIFMD"))
+                        new BigDecimal("100000.00"), Currency.USD, "nav-auditor")
+                .compose(correction -> regulatoryService.getRegulatorySnapshot(
+                        fundId, reportingDate, "AIFMD", correction.getTransactionTime()))
                 .map(report2 -> new RegulatoryReport[]{ report1, report2 })
             )
             .onComplete(testContext.succeeding(reports -> testContext.verify(() -> {
@@ -135,9 +128,9 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
                 testContext.completeNow();
             })));
     }
-    
+
     @Test
-    void testEmptyRegulatoryReport(Vertx vertx, VertxTestContext testContext) {
+    void testEmptyRegulatoryReport(VertxTestContext testContext) {
         String fundId = "FUND-EMPTY";
         LocalDate reportingDate = LocalDate.of(2025, 10, 1);
 
@@ -152,9 +145,9 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
                 testContext.completeNow();
             })));
     }
-    
+
     @Test
-    void testMiFIDReportOnlyIncludesTradingDayTrades(Vertx vertx, VertxTestContext testContext) {
+    void testMiFIDReportOnlyIncludesTradingDayTrades(VertxTestContext testContext) {
         String fundId = "FUND-005";
         LocalDate tradingDay = LocalDate.of(2025, 10, 15);
         LocalDate previousDay = tradingDay.minusDays(1);
@@ -163,7 +156,6 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
         recordTradeAsync(fundId, "AAPL", previousDay, TradeType.BUY, "100", "150.00")
             .compose(v -> recordTradeAsync(fundId, "MSFT", tradingDay, TradeType.BUY, "200", "300.00"))
             .compose(v -> recordTradeAsync(fundId, "GOOGL", nextDay, TradeType.SELL, "50", "2800.00"))
-            .compose(v -> delay(vertx, 200))
             .compose(v -> regulatoryService.getMiFIDTransactionReport(fundId, tradingDay))
             .onComplete(testContext.succeeding(report -> testContext.verify(() -> {
                 assertNotNull(report);
@@ -173,30 +165,28 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
                 testContext.completeNow();
             })));
     }
-    
+
     // Helper methods
 
-    private Future<Void> setupFundDataAsync(String fundId, LocalDate date, Vertx vertx) {
+    /** Records a NAV and three trades; the Future holds the transaction time of the last trade. */
+    private Future<Instant> setupFundDataAsync(String fundId, LocalDate date) {
         LocalDate startDate = date.minusDays(15);
         return navService.calculateNAV(fundId, date,
                 new BigDecimal("10000000.00"), new BigDecimal("500000.00"),
                 new BigDecimal("100000.00"), Currency.USD, "nav-calculator")
-            .compose(v -> delay(vertx, 200))
             .compose(v -> recordTradeAsync(fundId, "AAPL", startDate, TradeType.BUY, "100", "150.00"))
-            .compose(v -> delay(vertx, 50))
             .compose(v -> recordTradeAsync(fundId, "MSFT", startDate.plusDays(5), TradeType.BUY, "200", "300.00"))
-            .compose(v -> delay(vertx, 50))
             .compose(v -> recordTradeAsync(fundId, "GOOGL", startDate.plusDays(10), TradeType.SELL, "50", "2800.00"));
     }
 
-    private Future<Void> recordTradeAsync(String fundId, String securityId, LocalDate tradeDate,
-                                          TradeType tradeType, String quantity, String price) {
+    /** Records one trade; the Future holds the transaction time the store assigned to it. */
+    private Future<Instant> recordTradeAsync(String fundId, String securityId, LocalDate tradeDate,
+                                             TradeType tradeType, String quantity, String price) {
         TradeRequest request = new TradeRequest(
             fundId, securityId, tradeType,
             new BigDecimal(quantity), new BigDecimal(price),
             Currency.USD, tradeDate, tradeDate.plusDays(2), "BROKER-A"
         );
-        return tradeService.recordTrade(request).mapEmpty();
+        return tradeService.recordTrade(request).map(BiTemporalEvent::getTransactionTime);
     }
 }
-
