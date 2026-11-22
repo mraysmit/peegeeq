@@ -25,6 +25,7 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
@@ -33,9 +34,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
+
 import java.util.Set;
 import java.util.function.Consumer;
 
@@ -70,17 +69,7 @@ public class PartitionedConsumptionRestIntegrationTest {
     private static final String GROUP_NAME = "test-partitioned-group";
 
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("peegeeq_partitioned_rest_test");
-        container.withUsername("peegeeq_test");
-        container.withPassword("peegeeq_test");
-        container.withSharedMemorySize(PostgreSQLTestConstants.DEFAULT_SHARED_MEMORY_SIZE);
-        container.withReuse(false);
-        return container;
-    }
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQRestServer server;
     private PeeGeeQManager peeGeeQManager;
@@ -126,62 +115,42 @@ public class PartitionedConsumptionRestIntegrationTest {
             .onFailure(testContext::failNow);
     }
 
+    /**
+     * Configures the topic for OFFSET_WATERMARK, registers the subscription and inserts five
+     * messages (3 in partition-A, 2 in partition-B), in one transaction on the manager's pool.
+     */
     private Future<Void> setupTestData() {
-        try {
-            String jdbcUrl = postgres.getJdbcUrl();
-            try (Connection conn = DriverManager.getConnection(jdbcUrl,
-                    postgres.getUsername(), postgres.getPassword())) {
-
-                // Update the topic to OFFSET_WATERMARK mode
-                try (PreparedStatement stmt = conn.prepareStatement(
-                        "UPDATE outbox_topics SET completion_tracking_mode = 'OFFSET_WATERMARK' WHERE topic = ?")) {
-                    stmt.setString(1, TOPIC_NAME);
-                    int updated = stmt.executeUpdate();
-                    if (updated == 0) {
-                        // Topic doesn't exist yet insert it
-                        try (PreparedStatement ins = conn.prepareStatement(
-                                "INSERT INTO outbox_topics (topic, completion_tracking_mode) VALUES (?, 'OFFSET_WATERMARK')")) {
-                            ins.setString(1, TOPIC_NAME);
-                            ins.executeUpdate();
-                        }
-                    }
-                }
-
+        String schema = PostgreSQLTestConstants.TEST_SCHEMA;
+        String insertSql = "INSERT INTO " + schema + ".outbox (topic, payload, status, message_group, created_at) "
+            + "VALUES ($1, $2, 'PENDING', $3, NOW())";
+        return peeGeeQManager.getPool().withTransaction(connection -> {
+            // Update the topic to OFFSET_WATERMARK mode, inserting it if it does not exist yet
+            Future<Void> chain = connection.preparedQuery(
+                    "UPDATE " + schema + ".outbox_topics SET completion_tracking_mode = 'OFFSET_WATERMARK' WHERE topic = $1")
+                .execute(Tuple.of(TOPIC_NAME))
+                .compose(updated -> updated.rowCount() > 0
+                    ? Future.<Void>succeededFuture()
+                    : connection.preparedQuery(
+                            "INSERT INTO " + schema + ".outbox_topics (topic, completion_tracking_mode) VALUES ($1, 'OFFSET_WATERMARK')")
+                        .execute(Tuple.of(TOPIC_NAME)).<Void>mapEmpty())
                 // Create subscription
-                try (PreparedStatement stmt = conn.prepareStatement(
-                        "INSERT INTO outbox_topic_subscriptions (topic, group_name, subscription_status) " +
-                        "VALUES (?, ?, 'ACTIVE') ON CONFLICT (topic, group_name) DO NOTHING")) {
-                    stmt.setString(1, TOPIC_NAME);
-                    stmt.setString(2, GROUP_NAME);
-                    stmt.executeUpdate();
-                }
-
-                // Insert messages with different message_group for partitions
-                String insertSql = "INSERT INTO outbox (topic, payload, status, message_group, created_at) " +
-                        "VALUES (?, ?::jsonb, 'PENDING', ?, NOW())";
-                for (int i = 0; i < 3; i++) {
-                    try (PreparedStatement stmt = conn.prepareStatement(insertSql)) {
-                        stmt.setString(1, TOPIC_NAME);
-                        stmt.setString(2, "{\"index\":" + i + "}");
-                        stmt.setString(3, "partition-A");
-                        stmt.executeUpdate();
-                    }
-                }
-                for (int i = 0; i < 2; i++) {
-                    try (PreparedStatement stmt = conn.prepareStatement(insertSql)) {
-                        stmt.setString(1, TOPIC_NAME);
-                        stmt.setString(2, "{\"index\":" + i + "}");
-                        stmt.setString(3, "partition-B");
-                        stmt.executeUpdate();
-                    }
-                }
-
-                logger.info("Test data inserted: 5 messages (3 in partition-A, 2 in partition-B)");
+                .compose(v -> connection.preparedQuery(
+                        "INSERT INTO " + schema + ".outbox_topic_subscriptions (topic, group_name, subscription_status) "
+                            + "VALUES ($1, $2, 'ACTIVE') ON CONFLICT (topic, group_name) DO NOTHING")
+                    .execute(Tuple.of(TOPIC_NAME, GROUP_NAME)).<Void>mapEmpty());
+            // Insert messages with different message_group for partitions
+            for (int i = 0; i < 3; i++) {
+                JsonObject payload = new JsonObject().put("index", i);
+                chain = chain.compose(v -> connection.preparedQuery(insertSql)
+                    .execute(Tuple.of(TOPIC_NAME, payload, "partition-A")).<Void>mapEmpty());
             }
-            return Future.succeededFuture();
-        } catch (Exception e) {
-            return Future.failedFuture(e);
-        }
+            for (int i = 0; i < 2; i++) {
+                JsonObject payload = new JsonObject().put("index", i);
+                chain = chain.compose(v -> connection.preparedQuery(insertSql)
+                    .execute(Tuple.of(TOPIC_NAME, payload, "partition-B")).<Void>mapEmpty());
+            }
+            return chain;
+        }).onSuccess(v -> logger.info("Test data inserted: 5 messages (3 in partition-A, 2 in partition-B)"));
     }
 
     @AfterAll
