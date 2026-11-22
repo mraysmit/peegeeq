@@ -8,13 +8,15 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 /**
  * Shared TestContainers configuration for PeeGeeQ Examples.
  *
- * This class provides reusable PostgreSQL containers to reduce test startup overhead
- * and improve overall test execution performance. Containers are configured with
- * high-performance settings optimized for testing.
+ * <p>Provides one PostgreSQL container per test JVM, started on first use and reused by
+ * every test class that asks for it. The container starts from
+ * {@link PostgreSQLTestConstants#createStandardContainer()}, so the image, database,
+ * credentials and reuse policy are the project defaults. This class adds only what the
+ * example tests need on top: a larger shared memory segment and PostgreSQL settings for
+ * many concurrent connections.</p>
  *
  * Usage:
  * ```java
- * @Container
  * static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
  * ```
  */
@@ -25,21 +27,16 @@ public class SharedTestContainers {
     private static PostgreSQLContainer sharedPostgres;
 
     /**
-     * Gets a shared PostgreSQL container with high-performance configuration.
-     * The container is started once and reused across multiple test classes.
+     * Gets the shared PostgreSQL container, starting it on first use.
      *
      * @return shared PostgreSQL container
      */
     public static synchronized PostgreSQLContainer getSharedPostgreSQLContainer() {
         if (sharedPostgres == null) {
-            logger.info("Creating shared PostgreSQL container with high-performance configuration");
+            logger.info("Creating shared PostgreSQL container for the example tests");
 
-            PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)
-                    .withDatabaseName("peegeeq_shared_test")
-                    .withUsername("peegeeq_test")
-                    .withPassword("peegeeq_test")
-                    .withSharedMemorySize(512 * 1024 * 1024L) // 512MB for better performance
-                    .withReuse(true) // Enable container reuse
+            PostgreSQLContainer container = PostgreSQLTestConstants.createStandardContainer()
+                    .withSharedMemorySize(PostgreSQLTestConstants.HIGH_PERFORMANCE_SHARED_MEMORY_SIZE)
                     .withCommand("postgres",
                         // High-performance PostgreSQL settings for testing
                         "-c", "fsync=off",                    // Disable fsync for speed (test only!)
@@ -60,76 +57,10 @@ public class SharedTestContainers {
             container.start();
             sharedPostgres = container;
 
-            logger.info("Shared PostgreSQL container created and started successfully");
-            logger.info("Container details: host={}, port={}, database={}, username={}",
+            logger.info("Shared PostgreSQL container started: host={}, port={}, database={}, username={}",
                 container.getHost(), container.getFirstMappedPort(), container.getDatabaseName(), container.getUsername());
         }
 
         return sharedPostgres;
-    }
-
-    /**
-     * Gets a dedicated PostgreSQL container for tests that need isolation.
-     * Use this for tests that modify global state or need specific configurations.
-     *
-     * @param databaseName unique database name for isolation
-     * @return dedicated PostgreSQL container
-     */
-    public static PostgreSQLContainer getDedicatedPostgreSQLContainer(String databaseName) {
-        logger.info("Creating dedicated PostgreSQL container for database: {}", databaseName);
-
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)
-                .withDatabaseName(databaseName)
-                .withUsername("peegeeq_test")
-                .withPassword("peegeeq_test")
-                .withSharedMemorySize(256 * 1024 * 1024L) // 256MB for dedicated containers
-                .withReuse(false) // No reuse for dedicated containers
-                .withCommand("postgres",
-                    // Performance settings for dedicated containers
-                    "-c", "fsync=off",
-                    "-c", "synchronous_commit=off",
-                    "-c", "max_connections=200",
-                    "-c", "shared_buffers=64MB",
-                    "-c", "effective_cache_size=128MB",
-                    "-c", "work_mem=8MB"
-                );
-
-        logger.info("Dedicated PostgreSQL container created for: {}", databaseName);
-        return container;
-    }
-
-    /**
-     * Creates a high-performance container for performance benchmarks.
-     *
-     * @return high-performance PostgreSQL container
-     */
-    public static PostgreSQLContainer getHighPerformanceContainer() {
-        logger.info("Creating high-performance PostgreSQL container for benchmarks");
-
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)
-                .withDatabaseName("peegeeq_perf_test")
-                .withUsername("peegeeq_test")
-                .withPassword("peegeeq_test")
-                .withSharedMemorySize(1024 * 1024 * 1024L) // 1GB for maximum performance
-                .withReuse(false) // Fresh container for each benchmark
-                .withCommand("postgres",
-                    // Maximum performance settings (test only!)
-                    "-c", "fsync=off",
-                    "-c", "synchronous_commit=off",
-                    "-c", "full_page_writes=off",
-                    "-c", "max_connections=500",
-                    "-c", "shared_buffers=256MB",
-                    "-c", "effective_cache_size=512MB",
-                    "-c", "work_mem=32MB",
-                    "-c", "maintenance_work_mem=128MB",
-                    "-c", "checkpoint_completion_target=0.9",
-                    "-c", "wal_buffers=32MB",
-                    "-c", "random_page_cost=1.0",
-                    "-c", "effective_io_concurrency=300",
-                    "-c", "max_prepared_transactions=200"
-                );
-
-        logger.info("High-performance PostgreSQL container created");
-        return container;
     }
 }
