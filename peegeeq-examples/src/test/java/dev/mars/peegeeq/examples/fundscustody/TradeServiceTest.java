@@ -207,21 +207,17 @@ class TradeServiceTest extends FundsCustodyTestBase {
             "Morgan Stanley"
         );
 
-        // Record at 10:30 (simulated by immediate recording)
+        // The transaction time is the time the store records the trade, which is long after
+        // the 2024 cutoff, so both trades are late confirmations for that trading day.
         tradeService.recordTrade(earlyTrade)
-            // Simulate late confirmation by waiting a bit
-            .compose(v -> vertx.timer(100).mapEmpty())
             .compose(v -> tradeService.recordTrade(lateTrade))
             // When: Checking for late trades
-            // Note: In real scenario, we'd control transaction time more precisely
-            // For this test, we'll verify the query works correctly
             .compose(v -> tradeService.getLateTradeConfirmations("FUND-001", tradingDay, cutoffTime))
             .onSuccess(lateTrades -> testContext.verify(() -> {
-                // Then: Query executes successfully
-                // In production, late trades would be those with transaction time after cutoff
-                assertNotNull(lateTrades);
-
-                // All returned trades should have trade date on the trading day
+                // Then: both trades are reported, each with a trade date on the trading day
+                assertEquals(2, lateTrades.size(), "Both trades were confirmed after the cutoff");
+                assertEquals(List.of("AAPL", "MSFT"),
+                    lateTrades.stream().map(trade -> trade.getPayload().securityId()).sorted().toList());
                 assertTrue(lateTrades.stream()
                     .allMatch(trade -> {
                         LocalDate tradeDate = LocalDate.ofInstant(
