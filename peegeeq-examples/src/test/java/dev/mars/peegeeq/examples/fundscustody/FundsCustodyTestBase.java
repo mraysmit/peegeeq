@@ -18,6 +18,7 @@ import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
@@ -74,9 +75,9 @@ public abstract class FundsCustodyTestBase {
     protected RegulatoryReportingService regulatoryService;
 
     /**
-     * Delete all bi-temporal events. Returns a Future that completes once the
-     * cleanup pool has been closed. A "table does not exist" failure on first run
-     * is logged and treated as success.
+     * Delete all bi-temporal events from the test schema. The cleanup pool is closed whatever
+     * the outcome; a failed delete or a failed close fails the returned Future. setUp creates
+     * the schema before the first cleanup, so the table always exists.
      */
     protected Future<Void> cleanupDatabase() {
         PgConnectOptions connectOptions = new PgConnectOptions()
@@ -86,7 +87,7 @@ public abstract class FundsCustodyTestBase {
             .setUser(postgres.getUsername())
             .setPassword(postgres.getPassword())
             // The unqualified DELETE below must hit the explicit test schema, not the
-            // connection default; a miss is silently tolerated by the first-run guard
+            // connection default
             .setProperties(java.util.Map.of("search_path", PostgreSQLTestConstants.TEST_SCHEMA));
 
         Pool cleanupPool = PgBuilder.pool()
@@ -95,28 +96,8 @@ public abstract class FundsCustodyTestBase {
             .build();
 
         return cleanupPool.withTransaction(conn ->
-                conn.query("DELETE FROM bitemporal_event_log").execute()
-                    .compose(deleteResult ->
-                        conn.query("SELECT COUNT(*) AS count FROM bitemporal_event_log").execute())
-                    .map(countResult -> {
-                        int remaining = countResult.iterator().next().getInteger("count");
-                        if (remaining > 0) {
-                            logger.warn("Database cleanup incomplete - {} rows remaining", remaining);
-                        }
-                        return (Void) null;
-                    }))
-            .transform(ar -> {
-                if (ar.failed()) {
-                    String msg = ar.cause().getMessage();
-                    if (msg == null || !msg.contains("does not exist")) {
-                        logger.info("Database cleanup info: {} - {}",
-                            ar.cause().getClass().getSimpleName(),
-                            msg != null ? msg : "no message");
-                    }
-                }
-                // Always attempt to close the pool; surface a close failure if one occurs.
-                return cleanupPool.close();
-            });
+                conn.query("DELETE FROM bitemporal_event_log").execute().<Void>mapEmpty())
+            .transform(TestCleanup.cleanup(() -> cleanupPool.close()));
     }
 
     @BeforeEach
@@ -168,30 +149,19 @@ public abstract class FundsCustodyTestBase {
     void tearDown(VertxTestContext ctx) {
         logger.info("Tearing down funds-custody test: closing event stores, manager, and DB");
 
-        Future<Void> closeStores = closeStoreQuietly("trade event store", tradeEventStore)
-            .compose(v -> closeStoreQuietly("cancellation event store", cancellationEventStore))
-            .compose(v -> closeStoreQuietly("NAV event store", navEventStore));
-
-        Future<Void> chain = closeStores.compose(v -> (manager != null)
-            ? manager.closeReactive().transform(ar -> {
-                if (ar.failed()) {
-                    logger.warn("Error closing PeeGeeQ manager: {}", ar.cause().getMessage());
-                }
-                return cleanupDatabase();
-            })
-            : cleanupDatabase());
-
-        chain.onComplete(ctx.succeedingThenComplete());
-    }
-
-    private Future<Void> closeStoreQuietly(String label, dev.mars.peegeeq.api.EventStore<?> store) {
-        if (store == null) return Future.succeededFuture();
-        return store.close().transform(ar -> {
-            if (ar.failed()) {
-                logger.warn("Error closing {}: {}", label, ar.cause().getMessage());
-            }
-            return Future.succeededFuture();
-        });
+        // Every step runs in order, each after the previous one has settled, and the first
+        // failure fails the teardown.
+        TestCleanup.run(
+                () -> tradeEventStore != null ? tradeEventStore.close() : Future.<Void>succeededFuture(),
+                () -> cancellationEventStore != null ? cancellationEventStore.close() : Future.<Void>succeededFuture(),
+                () -> navEventStore != null ? navEventStore.close() : Future.<Void>succeededFuture(),
+                () -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture(),
+                () -> postgres != null ? cleanupDatabase() : Future.<Void>succeededFuture())
+            .onSuccess(v -> ctx.completeNow())
+            .onFailure(err -> {
+                logger.error("Funds-custody teardown failed", err);
+                ctx.failNow(err);
+            });
     }
 }
 
