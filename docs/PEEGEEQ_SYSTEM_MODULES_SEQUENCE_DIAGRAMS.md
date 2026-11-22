@@ -1,4 +1,6 @@
 # PeeGeeQ Platform Sequence Flows
+© Mark Andrew Ray-Smith Cityline Ltd 2025  
+Version 1.0
 
 This document maps concrete runtime flows across the PeeGeeQ platform, starting with implemented `peegeeq-db` fanout/backfill and producer/consumer lifecycle sequences.
 
