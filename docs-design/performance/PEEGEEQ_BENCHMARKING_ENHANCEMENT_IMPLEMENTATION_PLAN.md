@@ -674,7 +674,7 @@ Tasks:
 - [ ] `BENCH-002` Record the current core and performance test counts as migration controls.
 - [ ] `BENCH-003` Add a `logback-test.xml` to `peegeeq-benchmarking`, mirroring the one in `peegeeq-db`. Rerun the focused performance command in section 16 and record the `DEBUG` line count before and after.
 - [ ] `BENCH-004` Delete `PerformanceTestResultsExampleTest` (DD-17).
-- [ ] `BENCH-005` Delete `PerformanceHistoryRepository` and `PerformanceHistoryAnalyzer`. Remove the H2 dependency from the `peegeeq-benchmarking` pom and from root dependency management. Remove the H2 and history usage from `ParameterizedPerformanceDemoTest` (DD-16).
+- [ ] `BENCH-005` Delete `PerformanceHistoryRepository` and `PerformanceHistoryAnalyzer`. Remove the H2 dependency from the `peegeeq-benchmarking` pom and from root dependency management. Remove the H2 and history usage from `ParameterizedPerformanceDemoTest` (DD-16). (2026-11-22: `ParameterizedPerformanceDemoTest` is deleted, register row D22; the repository and analyzer have no other user.)
 - [ ] `BENCH-006` Update documents that describe the H2 store so they match the code after `BENCH-005`: `peegeeq-benchmarking/README.md`, `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md`, `docs/PEEGEEQ_SYSTEM_MODULES_SEQUENCE_DIAGRAMS.md`, (`docs-design/performance/PeeGeeQ-Performance-Tuning-Harness.md` was archived on 2026-11-21 to `docs-design/_archived/historical-evidence/`, so it is no longer in scope).
 - [ ] `BENCH-007` Add a repository check that fails when a hard-coded performance value is written into an evidence tree.
 - [ ] `BENCH-008` Add `benchmark-evidence/` to `.gitignore`.
@@ -931,7 +931,7 @@ Tasks:
 - [ ] `BENCH-705` Migrate bi-temporal workloads.
 - [ ] `BENCH-706` Migrate fan-out and backfill workloads.
 - [ ] `BENCH-707` Migrate database and connection-pool workloads.
-- [ ] `BENCH-708` Migrate remaining examples. Delete `ParameterizedPerformanceTestBase`, `ParameterizedPerformanceDemoTest`, and their tests.
+- [ ] `BENCH-708` Migrate remaining examples. Delete `ParameterizedPerformanceTestBase`, `ParameterizedPerformanceDemoTest`, and their tests. (2026-11-22: `ParameterizedPerformanceDemoTest` is deleted, register row D22: it asserted nothing, ran every profile on the same container, and recorded random metrics. 2026-11-22, register row D23: `ParameterizedPerformanceTestBase` and `ConsumerModePerformanceTestBase` set the requested profile before the container switch, so every profile ran on the STANDARD container; the switch is fixed and `ParameterizedPerformanceTestBaseTest` checks the running server's settings.)
 - [ ] `BENCH-709` Migrate partitioned-consumption release scenarios. Select the release gate by specification and remove the non-Surefire class name (DD-25). Replace its eight system properties, its output-directory property, and its five environment reads with specification fields and arguments (DD-04). Remove the five `-Dpeegeeq.task6.*` properties from the Jenkinsfile. Delete its private `LatencyHistogram`. Its parity test asserts that each HdrHistogram percentile falls inside the legacy bucket that the old gate reported, because the old value is a bucket upper bound and the old combined value is a maximum across groups.
 - [ ] `BENCH-710` Delete `PerformanceSnapshot`, `PerformanceComparison`, `PerformanceMetricsCollector`, `PerformanceTestResultsGenerator`, `HardwareAwarePerformanceResult`, and their tests. Delete `HardwareProfile` and `ResourceUsageSnapshot` if the environment model does not use them.
 
