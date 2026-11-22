@@ -23,6 +23,7 @@ import java.util.HashMap;
  * - Standardized TestContainers setup with different performance profiles
  * - Integrated metrics collection for shared test utilities
  * - Consistent test configuration and cleanup
+ * - Connection details through {@link #getContainer()}; the class sets no System properties
  * - Support for parameterized testing with different PostgreSQL configurations
  * 
  * Usage:
@@ -105,9 +106,6 @@ public abstract class PeeGeeQTestBase {
     
     @BeforeEach
     protected void setUpPeeGeeQTestBase() {
-        System.err.println("=== PeeGeeQTestBase setUp() started ===");
-        System.err.flush();
-        
         // Generate unique test instance ID
         testInstanceId = "test-" + UUID.randomUUID().toString().substring(0, 8);
         currentProfile = getPerformanceProfile();
@@ -121,42 +119,29 @@ public abstract class PeeGeeQTestBase {
         // Setup metrics
         setupMetrics();
         
-        // Setup database connection properties for tests that need them
-        setupDatabaseProperties();
-        
         logger.info("PeeGeeQ test base setup complete for instance: {}", testInstanceId);
-        
-        System.err.println("=== PeeGeeQTestBase setUp() completed ===");
-        System.err.flush();
     }
     
+    /**
+     * Records the completion metric and stops the container this test started. A failure in
+     * either step propagates and fails the test.
+     */
     @AfterEach
     protected void tearDownPeeGeeQTestBase() {
-        System.err.println("=== PeeGeeQTestBase tearDown() started ===");
-        System.err.flush();
-        
         logger.info("Tearing down PeeGeeQ test base for instance: {}", testInstanceId);
         
-        try {
-            // Record final metrics if available
-            if (metrics != null && meterRegistry != null) {
-                recordTestCompletionMetrics();
-            }
-            
-            // Stop container if it was started by this test
-            if (container != null && container.isRunning()) {
-                logger.debug("Stopping PostgreSQL container for instance: {}", testInstanceId);
-                container.stop();
-            }
-            
-        } catch (Exception e) {
-            logger.warn("Error during test teardown for instance: {}", testInstanceId, e);
+        // Record final metrics if available
+        if (metrics != null && meterRegistry != null) {
+            recordTestCompletionMetrics();
+        }
+        
+        // Stop container if it was started by this test
+        if (container != null && container.isRunning()) {
+            logger.debug("Stopping PostgreSQL container for instance: {}", testInstanceId);
+            container.stop();
         }
         
         logger.info("PeeGeeQ test base teardown complete for instance: {}", testInstanceId);
-        
-        System.err.println("=== PeeGeeQTestBase tearDown() completed ===");
-        System.err.flush();
     }
     
     /**
@@ -191,21 +176,6 @@ public abstract class PeeGeeQTestBase {
         metrics = new TestSupportMetrics(meterRegistry, testInstanceId);
         
         logger.debug("Metrics setup complete for instance: {}", testInstanceId);
-    }
-    
-    /**
-     * Setup system properties for database connection.
-     * This allows tests to use the container database easily.
-     */
-    private void setupDatabaseProperties() {
-        System.setProperty("test.database.host", container.getHost());
-        System.setProperty("test.database.port", String.valueOf(container.getFirstMappedPort()));
-        System.setProperty("test.database.name", container.getDatabaseName());
-        System.setProperty("test.database.username", container.getUsername());
-        System.setProperty("test.database.password", container.getPassword());
-        System.setProperty("test.database.url", container.getJdbcUrl());
-        
-        logger.debug("Database properties set for test instance: {}", testInstanceId);
     }
     
     /**
