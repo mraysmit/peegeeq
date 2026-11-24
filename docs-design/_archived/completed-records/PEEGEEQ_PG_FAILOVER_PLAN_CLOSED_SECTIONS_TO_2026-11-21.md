@@ -2111,6 +2111,10 @@ writer-side step of a rebuild: replace exactly a lost member slot by a new slot 
 rebuild then takes its base backup through that slot, so the writer keeps the WAL the backup needs from before the
 backup starts. Who decides to rebuild, and the rebuild commands on the member, stay with §9.20 row 10, which awaits
 the owner. The fixture performs the member side, as it stands for the deployment (OD-10).
+Correction, 2026-11-24: "one with `-S <slot>` alone fails" is wrong, and no probe of this increment checked it.
+§9.32 check 10 (2026-11-15) and a local probe on 15.13 on 2026-11-24 (`logs/review-lost-slot-probe-20261124.log`)
+each took a base backup through a lost slot with exit 0; in the second, the slot afterwards held a position again. The
+other reason above, that the writer keeps the WAL the backup needs from before the backup starts, was not probed.
 
 **Data model.** No stored field is added. Whether a slot is lost is derived live from `wal_status` in
 `pg_replication_slots`. The slot name is derived (§9.24).
@@ -2639,6 +2643,12 @@ table) is a later item.
    (with the source's user and slot). Without `-R` it writes no `standby.signal`, so the node would start writable.
    Into a non-empty directory it fails: `directory ... exists but is not empty`.
 10. A base backup with `-S` through a **lost** slot succeeded. The slot stays lost and keeps no WAL afterwards.
+    Correction, 2026-11-24: the second sentence is wrong. A local probe on 15.13 lost the slot under
+    `max_slot_wal_keep_size = 1MB`, removed the limit, and took the base backup through it. Before the backup the slot
+    read `lost` with no `restart_lsn`. Directly after it, and again after more WAL and a checkpoint, it read
+    `reserved|0/E000000`, and `READ_REPLICATION_SLOT` returned `physical|0/E000000|1`
+    (`logs/review-lost-slot-probe-20261124.log`). The data model row "Slot usable" below cites this check; the
+    claim that a lost slot keeps no WAL after a base backup does not hold.
 11. An absent data directory: `pg_ctl status` exit 4, `pg_controldata` exit 1. A partial one (no `global/pg_control`):
     `pg_ctl status` exit 3, `pg_controldata` exit 1 with the same message.
 

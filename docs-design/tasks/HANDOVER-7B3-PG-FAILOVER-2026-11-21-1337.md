@@ -184,6 +184,20 @@ R2 red 12 on the stub, green 12; probes 51 to 70 and 53b, all detected after the
 regression `rejoin-regress-*-20261115.log`: integration tier 23 classes, 348 tests, core 416, guards 77, all 0
 failures. No Jenkins job build has run this code.
 
+**2026-11-24, local rerun of the 2026-11-15 and 2026-11-14 Jenkins-host evidence.** The Jenkins host did not answer
+within 8 seconds; local Docker 29.9.3. Logs in `logs/`.
+- Checks 1 to 11 (`review-rewind-facts-probe2-`, `review-rewind-checks-probe-`, `review-lost-slot-probe-20261124.log`):
+  as recorded, except check 4 (D27) and check 10 (D28).
+- `PgRejoinControlIntegrationTest` 23 of 23 (`-review-conf-green-class-`). `PgRejoinIntegrationTest` 12 of 13
+  (`-review-r2-class-`); the 13th stopped on the fixture's standby base backup, a `docker exec` over its 30-second
+  limit, and passed alone, 1 of 1 (`-review-r2-rerun-`).
+- The list of probes 51 to 70 is only in the Jenkins log. In its place, 38 mutations, one per rule of §9.32 contracts
+  1 to 6, the 2026-11-14 follow fix, and the acquire refusal (`review-rejoin-mutation-summary-20261124.log`): 31
+  detected, each on an assertion of the mutated rule; SHA-256 of the four production files equal before and after.
+  Seven not detected (D29): restore and saved copy after a failed rewind, the source slot-row check, the timeline and
+  system-identifier conditions of the catch-up, the monitor's catch-up step, and the second source check before the
+  removal. The follow fix (P9) and the acquire refusal (K1) were detected, as recorded on 2026-11-14.
+
 **2026-11-17 and 2026-11-18, restart, reload, `pending_restart` (plan §9.33).** Owner's workstation, local Docker
 29.9.3; the Jenkins host did not answer either day. Logs in `logs/`. RS1 to RS3 red and green, probes 71 to 103 (no
 89), SHA-256 equal: plan §9.33. Integration tier, 2026-11-17, 18:20 to 20:13, on files equal to the 20:08 commits
