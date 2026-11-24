@@ -325,9 +325,13 @@ logs, Windows quoting, Git Bash paths, stale IDE diagnostics, no Python, Jenkins
 
 New on 2026-11-15 (plan §9.32):
 
-- **`pg_rewind` removes `standby.signal`** and copies the source's `postgresql.auto.conf`, `pg_hba.conf`, and
-  `pg_ident.conf`. A base backup without `-R` writes no `standby.signal`. Either would start the node writable; the
-  adapter recreates the inhibitor after both.
+- **`pg_rewind` removes `standby.signal`** and copies the source's `postgresql.conf`, `postgresql.auto.conf`,
+  `pg_hba.conf`, and `pg_ident.conf`. The 2026-11-15 record does not name `postgresql.conf`. A probe on 2026-11-24
+  on 15.13 showed it: source and target had different ports, and after the rewind the target had the source's port
+  (`logs/review-rewind-facts-probe2-20261124.log`). The adapter saves and restores every top-level `*.conf` file.
+  `PgRejoinControlIntegrationTest` marks `postgresql.conf`, `pg_hba.conf`, and `pg_ident.conf` of the target, so a
+  lost copy of either of the first two fails it (mutation probes M1 and M2, 2026-11-24). A base backup without `-R`
+  writes no `standby.signal`. Either would start the node writable; the adapter recreates the inhibitor after both.
 - **`pg_rewind` cannot complete crash recovery while `standby.signal` exists** ("standby mode is not supported by
   single-user servers"). The adapter starts the target in recovery with `primary_conninfo=''` and stops it fast first.
   A test of the rewind must put the inhibitor in place, as the monitor's stop does; without it `pg_rewind` recovers the

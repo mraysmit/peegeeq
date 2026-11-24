@@ -413,11 +413,17 @@ class PgRejoinControlIntegrationTest {
             });
     }
 
-    /** Adds a line to the node's own {@code pg_ident.conf}, then returns the digest of its node-local files. */
+    /**
+     * Adds a line to the node's own {@code postgresql.conf}, {@code pg_hba.conf}, and {@code pg_ident.conf}, then returns
+     * the digest of its node-local files. The fixture's base backups give every node the same copy of these three files,
+     * so without the line a node that received the source's copy would show the same digest. A rewind and a base
+     * backup both copy all three from the source (plan §9.32, checks 4 and 9). {@code postgresql.auto.conf} already
+     * differs between nodes: each standby's copy names its own replication user.
+     */
     private Future<String> markConfiguration(String nodeId) {
         String directory = NODES.dataDirectory();
-        return checked(NODES.node(nodeId).exec(runner, "sh", "-c",
-            "printf '" + MARKER + "\\n' >> " + directory + "/pg_ident.conf"))
+        return checked(NODES.node(nodeId).exec(runner, "sh", "-c", "for file in postgresql.conf pg_hba.conf pg_ident.conf;"
+            + " do printf '" + MARKER + "\\n' >> " + directory + "/$file || exit 1; done"))
             .compose(ignored -> configurationDigest(nodeId));
     }
 

@@ -2622,7 +2622,9 @@ table) is a later item.
 4. **A rewind removes `standby.signal`**, writes `backup_label`, and copies the source's `postgresql.auto.conf`, which
    holds the source's own `primary_conninfo` (its user) and `primary_slot_name`, and its `pg_hba.conf` and
    `pg_ident.conf` (a node-local marker in `pg_ident.conf` was lost). Started in that state, the node would end
-   recovery and become writable: a second writer.
+   recovery and become writable: a second writer. Correction, 2026-11-24: the rewind also copies the source's
+   `postgresql.conf`. This item did not name it. A local probe on 15.13 with different ports on source and target
+   showed the target with the source's port after the rewind (`logs/review-rewind-facts-probe2-20261124.log`).
 5. A standby that stopped before the fork: `servers diverged at WAL location 0/4027AD8 on timeline 1`, `no rewind
    required`, exit 0; `standby.signal` and `postgresql.auto.conf` unchanged. A source on the same timeline (a standby
    was named as source): `source and target cluster are on the same timeline`, `no rewind required`. So `pg_rewind`
