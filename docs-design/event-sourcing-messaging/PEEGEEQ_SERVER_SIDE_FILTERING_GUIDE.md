@@ -1267,7 +1267,7 @@ The first character must be a letter.
 
 - [PeeGeeQ Main README](../../README.md)
 - [Native Queue Module Guide](../../peegeeq-native/docs/PEEGEEQ_NATIVE_MODULE_GUIDE.md)
-- [Transactional Outbox Patterns Guide](../../docs/PEEGEEQ_TRANSACTIONAL_OUTBOX_PATTERNS_GUIDE.md)
+- [Messaging Guide](../../docs/PEEGEEQ_MESSAGING_GUIDE.md)
 - [Database Schema Documentation](../../peegeeq-migrations/README.md)
 
 ### Version History

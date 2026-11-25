@@ -900,7 +900,7 @@ See the following test files for categorization examples:
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/)
 - [Testcontainers](https://www.testcontainers.org/)
 - Project: `docs/PEEGEEQ_BITEMPORAL_PERFORMANCE_BENCHMARKS.md` (Performance results and strategy)
-- Project: `docs/PEEGEEQ_COMPLETE_GUIDE.md` (API usage examples)
+- Project: `docs/PEEGEEQ_EVENT_STORE_GUIDE.md` (event store API usage)
 
 ---
 

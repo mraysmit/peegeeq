@@ -46,7 +46,7 @@ Testcontainers workloads.
 
 This guide complements:
 
-- [PeeGeeQ Development Environment Setup](../../docs/PEEGEEQ_DEVELOPMENT_ENVIRONMENT_SETUP.md)
+- [PeeGeeQ Getting Started](../../docs/PEEGEEQ_GETTING_STARTED.md)
 - [PeeGeeQ Test Commands](../testing/PEEGEEQ-TEST-COMMANDS.md)
 - [PeeGeeQ Coding Principles](pgq-coding-principles.md)
 - [PeeGeeQ Testing Standards and Antipatterns](../testing/PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md)

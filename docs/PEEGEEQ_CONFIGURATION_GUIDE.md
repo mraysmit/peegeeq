@@ -3,7 +3,6 @@
 Version 1.0
 
 **Authoritative runtime-property reference**
-**Reconciled:** August 29, 2026
 
 ## Scope and contract
 
@@ -13,15 +12,41 @@ properties with an explicit production owner outside that loader.
 
 The executable inventory is
 `ShippedConfigurationPropertyContractTest`. The 11 profiles in
-`peegeeq-db/src/main/resources` may contain only keys in that inventory. A profile entry is
-therefore evidence that a key has an owner, but behavioral support is established by the
-production call site and a non-default test—not by the file alone.
+`peegeeq-db/src/main/resources` may contain only `peegeeq.*` keys in that inventory. The test
+checks only keys that start with `peegeeq.`: three profiles (`bitemporal-optimized`,
+`extreme-performance`, `vertx5-optimized`) also ship `logging.level.*` keys, which no PeeGeeQ
+code reads. A profile entry is therefore evidence that a key is in the inventory, but behavioral
+support is established by the production call site and a non-default test—not by the file alone.
+
+`peegeeq-examples/src/main/resources` ships four profile files of its own, in two groups:
+
+- `peegeeq-development.properties` and `peegeeq-production.properties` carry the same names as
+  bundled profiles. Their database, pool and queue keys are `peegeeq.db.*`,
+  `peegeeq.connection.*` and similar spellings that the loader does not read.
+- `peegeeq-demo.properties` and `peegeeq-staging.properties` use canonical keys and the
+  circuit-breaker compatibility aliases, plus keys the loader does not read. Among them are
+  `peegeeq.database.pool.max-lifetime-ms`, `peegeeq.database.pool.auto-commit`, and keys of the
+  `migration.*`, `performance.*`, `backpressure.*` and `maintenance.*` families listed as
+  UNSUPPORTED below.
+
+The loader reads a profile with `Class.getResourceAsStream`, which returns the first match on the
+classpath. On a classpath where the `peegeeq-examples` resources come before `peegeeq-db`,
+`development` and `production` load the examples files instead of the bundled profiles (read in
+code, not run). The examples production file holds placeholders with no defaults:
+`${PEEGEEQ_DB_URL}`, `${PEEGEEQ_DB_USERNAME}`, `${PEEGEEQ_DB_PASSWORD}`, `${PEEGEEQ_POOL_SIZE}` and
+`${PEEGEEQ_CONSUMER_THREADS}`. Under that shadowing, a caller that supplies only the `DB_*`
+overrides of the bundled production profile gets `IllegalStateException`.
+`ConfigurationValidationTest` in `peegeeq-examples` depends on the shadowing: it overrides the
+`peegeeq.db.*` keys of the examples file (read in code, not run). Defect D40 records this.
 
 Statuses in this guide mean:
 
 - **OK** — parsed, consumed by production code, and covered with a non-default contract.
 - **EXTERNAL** — deliberately owned by a named production component outside the core
   `PeeGeeQConfiguration` adapter path.
+- **NO PRODUCTION EFFECT** — shipped in bundled profiles and listed in the contract inventory,
+  but its only reader is `VertxPerformanceOptimizer`, which has no production caller. Setting
+  the key changes nothing at runtime.
 - **COMPATIBILITY ALIAS** — still readable but never shipped. Source-layer precedence is
   applied first; when both spellings occur in one layer, the canonical spelling wins.
 - **UNSUPPORTED** — no effective production behavior; not shipped and not a supported control.
@@ -114,21 +139,37 @@ queue-prefetch, or invented outbox property namespace.
 | `peegeeq.database.password` | OK | same connection path | configuration/database integration tests |
 | `peegeeq.database.schema` | OK | connection `search_path` and schema-scoped SQL | schema-isolation integration tests |
 | `peegeeq.database.ssl.enabled` | OK | `PgConnectionConfig -> PgConnectOptions` | connection-config tests |
-| `peegeeq.database.pool.max-size` | OK | `PgPoolConfig -> PgPoolAdapter` | `PgPoolConfigPropertyBindingTest` |
-| `peegeeq.database.pool.max-wait-queue-size` | OK | `PgPoolConfig -> PgPoolAdapter` | `PgPoolConfigPropertyBindingTest` |
-| `peegeeq.database.pool.connection-timeout-ms` | OK | `PgPoolConfig -> PgPoolAdapter` | exact binding across all 11 profiles |
-| `peegeeq.database.pool.idle-timeout-ms` | OK | `PgPoolConfig -> PgPoolAdapter` | exact binding across all 11 profiles |
-| `peegeeq.database.pool.shared` | OK | `PgPoolConfig -> PgPoolAdapter` | `PgPoolConfigPropertyBindingTest` |
-| `peegeeq.database.pool.wait-queue-multiplier` | EXTERNAL | bitemporal optimized-pool construction | bitemporal pool tests |
-| `peegeeq.database.pipelining.enabled` | EXTERNAL | `VertxPerformanceOptimizer` | optimizer tests |
-| `peegeeq.database.pipelining.limit` | EXTERNAL | optimizer and bitemporal pool construction | optimizer/bitemporal tests |
-| `peegeeq.database.event.loop.size` | EXTERNAL | `VertxPerformanceOptimizer` and bitemporal path | optimizer tests |
-| `peegeeq.database.worker.pool.size` | EXTERNAL | `VertxPerformanceOptimizer` | optimizer tests |
-| `peegeeq.database.use.event.bus.distribution` | EXTERNAL | `PgBiTemporalEventStore` | bitemporal tests |
-| `peegeeq.verticle.instances` | EXTERNAL | `VertxPerformanceOptimizer` | optimizer tests |
+| `peegeeq.database.pool.max-size` | OK | `PgPoolConfig -> PgConnectionManager`; also sizes the bitemporal pool | `PgPoolConfigPropertyBindingTest` |
+| `peegeeq.database.pool.max-wait-queue-size` | OK | `PgPoolConfig -> PgConnectionManager`; not used by the bitemporal pool | `PgPoolConfigPropertyBindingTest` |
+| `peegeeq.database.pool.connection-timeout-ms` | OK | `PgPoolConfig -> PgConnectionManager`; not used by the bitemporal pool | exact binding across all 11 profiles |
+| `peegeeq.database.pool.idle-timeout-ms` | OK | `PgPoolConfig -> PgConnectionManager`; not used by the bitemporal pool | exact binding across all 11 profiles |
+| `peegeeq.database.pool.shared` | OK | `PgPoolConfig -> PgConnectionManager`; not used by the bitemporal pool | `PgPoolConfigPropertyBindingTest` |
+| `peegeeq.database.pool.wait-queue-multiplier` | EXTERNAL | `PgBiTemporalEventStore` pool: maximum wait queue = `pool.max-size` × multiplier | `BiTemporalPerformanceParityTest` and `PgBiTemporalEventStorePerformanceTest` (`peegeeq-benchmarking`) set 64 but do not assert the wait-queue size; no test asserts the effect |
+| `peegeeq.database.pipelining.enabled` | NO PRODUCTION EFFECT | `VertxPerformanceOptimizer` only; the bitemporal pool sets its pipelining limit whatever this value is | optimizer tests |
+| `peegeeq.database.pipelining.limit` | EXTERNAL | `PgBiTemporalEventStore` pool; default 1024; not clamped | no non-default test of the bitemporal path found |
+| `peegeeq.database.event.loop.size` | EXTERNAL | `PgBiTemporalEventStore` pool, applied with `PoolOptions.setEventLoopSize` when greater than 0; not clamped | `VertxPerformanceOptimizationValidationTest` (`peegeeq-benchmarking`) sets 8 and asserts only the configuration value, not the pool; no test asserts the effect |
+| `peegeeq.database.worker.pool.size` | NO PRODUCTION EFFECT | `VertxPerformanceOptimizer` only | optimizer tests |
+| `peegeeq.database.use.event.bus.distribution` | EXTERNAL | `PgBiTemporalEventStore` append path | `DatabaseWorkerVerticleTest` |
+| `peegeeq.verticle.instances` | NO PRODUCTION EFFECT | `VertxPerformanceOptimizer` only | optimizer tests |
 
 The EXTERNAL keys are not applied by `PeeGeeQManager` merely because they appear in a
 profile. Their named owners must receive the corresponding configuration object.
+
+`VertxPerformanceOptimizer` clamps `pipelining.limit` to 8–256, `event.loop.size` to 2–32,
+`worker.pool.size` to 4–64 and `verticle.instances` to 1–16. The clamps apply only when that
+class is called, and no production code calls it. The bitemporal pool applies no clamp.
+`SystemInfoCollector` also reads `pool.wait-queue-multiplier` and `pipelining.limit` (defaults 10
+and 1024), for its system-information report only.
+
+`PgConnectionManager` converts the two `-ms` pool timeouts to whole seconds before it passes
+them to Vert.x, so a value below 1000 ms becomes 0 (read in code, not run; D40).
+
+The `PgBiTemporalEventStore` pool takes its size from `peegeeq.database.pool.max-size`. It sets
+`shared=false` and calls `setConnectionTimeout(30000)` and `setIdleTimeout(600000)` without a
+unit. `PoolOptions` defaults both units to seconds, so the connection timeout is about 8.3 hours
+and the idle timeout about 6.9 days; the code comments that say "30 seconds" and "10 minutes" are
+wrong (D40). The pool timeout, `shared` and `max-wait-queue-size` properties do not reach this
+pool.
 
 The proxy host and port are optional and resolve independently. A blank proxy host inherits
 `peegeeq.database.host`; a blank proxy port inherits `peegeeq.database.port`. When either proxy
@@ -184,7 +225,7 @@ starts no depth, event-loop-lag, or pool-acquisition sampler.
 
 `peegeeq.metrics.jvm.enabled` and `peegeeq.metrics.database.enabled` were removed from
 `MetricsConfig`: neither had a consumer. Extended persistence/export/detail flags are also
-unsupported; applications should bind their chosen Micrometer JVM/database binders explicitly.
+unsupported; an application that needs JVM or database meters binds the Micrometer binders itself.
 
 ### Circuit breaker
 
@@ -269,16 +310,35 @@ not be presented as live deployment controls.
 | UNSUPPORTED bitemporal feature toggles | `peegeeq.bitemporal.notification.enabled`, `correction.enabled`, `versioning.enabled`, `bulk.operations.enabled` |
 | UNSUPPORTED logging wrapper | `peegeeq.logging.level.root`, `logging.level.peegeeq`, `logging.pattern` |
 
+`peegeeq.metrics.reporting-interval` has no consumer, but construction still validates it when
+metrics are enabled: a value below one second, or a value that is not an ISO-8601 duration,
+fails construction. Do not set it.
+
 CLI-only test-runner selectors such as `peegeeq.performance.suite` and
 `peegeeq.performance.tests` are test metadata, not `PeeGeeQConfiguration` runtime
 properties.
 
 ## Validation
 
-Construction aggregates validation errors and throws `IllegalStateException`.
+Construction aggregates range and presence errors and throws one `IllegalStateException`.
+Two kinds of error stop construction earlier, without aggregation:
 
-- Database host, name, username, password, and schema are required; an empty password is
-  permitted with a warning. Database and nonblank proxy ports must be 1–65535.
+- A value that does not parse throws `IllegalArgumentException` naming the property. Integers,
+  longs and decimal numbers must parse strictly. Booleans must be `true` or `false`, in any letter
+  case, after leading and trailing spaces are removed; any other value fails. Durations must be
+  ISO-8601, for example `PT30S`. Pool timeouts are plain millisecond numbers.
+- A required placeholder `${NAME}` with no matching override throws `IllegalStateException`
+  naming the property. The seven-argument constructor throws `IllegalArgumentException` for a
+  blank schema.
+
+A value that is parsed only by a getter, not during validation (for example the UNSUPPORTED
+`peegeeq.queue.priority.default`), fails when that getter is first called.
+
+Range and presence rules:
+
+- Database host, name, username and schema are required. An empty password is permitted and
+  logs a warning. Database and nonblank proxy ports must be 1–65535. A nonblank proxy port that
+  is not an integer is one of the aggregated errors, not an `IllegalArgumentException`.
 - Pool connection timeout must be positive; idle timeout must be non-negative.
 - Queue retries must be non-negative; visibility must be at least one second; batch size must
   be 1–1000.
@@ -286,7 +346,8 @@ Construction aggregates validation errors and throws `IllegalStateException`.
   interval must be greater than the processing timeout.
 - Enabled dead-consumer detection and consumer-group retry require intervals of at least ten
   seconds.
-- Enabled metrics require a depth-cache interval of at least one second.
+- Enabled metrics require a depth-cache interval and a reporting interval of at least one
+  second.
 - Enabled circuit breakers require positive/range-valid settings, and the sliding window must
   be at least the minimum number of calls.
 

@@ -6,6 +6,8 @@
 
 **Corrected:** 2026-11-21 against `0ffaafb6`: the container example uses the raw `org.testcontainers.postgresql.PostgreSQLContainer` type of Testcontainers 2.x.
 
+**Corrected:** 2026-11-25: added "Schema setup for integration tests", checked against `PeeGeeQTestSchemaInitializer`, `PeeGeeQDatabaseSetupService` and the setup templates. It replaces the test-setup material formerly in `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md`.
+
 ## Authority
 
 The mandatory rules are defined in
@@ -132,6 +134,129 @@ PeeGeeQConfiguration configuration =
 
 Avoid process-wide system properties. If a legacy boundary truly requires them, serialize the test
 and restore every original value in cleanup.
+
+## Schema setup for integration tests
+
+Create the test schema the way the production path under test creates it. PeeGeeQ has two
+provisioning paths, Flyway migrations and setup templates, and they create different objects. The
+[PeeGeeQ Database Guide](../../docs/PEEGEEQ_DATABASE_GUIDE.md) lists the differences.
+
+| Production path under test | Test schema | Reference test |
+|---|---|---|
+| `PeeGeeQManager` built from `PeeGeeQConfiguration` on a Flyway schema | Flyway schema in the container database, from `PeeGeeQTestSchemaInitializer` | `peegeeq-examples` `nativequeue/ServerSideFilteringTest`, `setUp` and `tearDown` only. Copy the lifecycle, not the logging: its `logger.info` narration lines break hygiene rule 3 of the [standards](PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md) |
+| `DatabaseSetupService` (`PeeGeeQRuntime`, REST server) | A new database provisioned by `createCompleteSetup` | `peegeeq-db` `setup/SetupBindingPersistenceIntegrationTest`: one service per test method, verification through `PgConnectionManager`, no ordering, no narration. Deviation: it runs `destroySetup` through `compose`, so a failed earlier step skips it; `close()` still runs |
+
+Tests in `peegeeq-db` extend `BaseIntegrationTest`, as the
+[coding principles](../dev/pgq-coding-principles.md) require. Do not apply both paths to one schema: the
+tables that both create have different definitions.
+
+### Flyway schema: `PeeGeeQTestSchemaInitializer`
+
+```java
+PeeGeeQTestSchemaInitializer.initializeSchema(PostgreSQLContainer postgres, String schema,
+        SchemaComponent... components);
+PeeGeeQTestSchemaInitializer.initializeSchema(String jdbcUrl, String username, String password,
+        String schema, SchemaComponent... components);
+```
+
+- The schema argument is required and must be a plain identifier. There is no overload without it.
+- The initializer runs Flyway over `peegeeq-migrations/src/main/resources/db/migration`, which it finds
+  from the working directory (the repository root or a module directory). It creates the schema if it is
+  absent. It then adds `causation_id` to `bitemporal_event_log` if that column is absent.
+- Every call migrates the schema to the latest version of the full migration set. The component
+  arguments do not limit what is created; they matter only to `cleanupTestData`.
+- The call is synchronous JDBC and throws `RuntimeException` on failure. Call it directly in the
+  lifecycle method, before the first `Future` chain starts. Do not call it inside a `Future` callback,
+  because it blocks the thread that runs the callback.
+- `SchemaComponent` is nested in `PeeGeeQTestSchemaInitializer`. Its values are `SCHEMA_VERSION`,
+  `OUTBOX`, `NATIVE_QUEUE`, `DEAD_LETTER_QUEUE`, `BITEMPORAL`, `CONSUMER_GROUP_FANOUT`, `QUEUE_ALL` and
+  `ALL`.
+- The resulting schema has no `queue_template`, `event_store_template`, `peegeeq_object_registry` or
+  `peegeeq_setup_metadata`. `DatabaseSetupService.connectToExistingSetup` cannot attach to it.
+
+```java
+@BeforeEach
+void setUp(VertxTestContext testContext) {
+    PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA,
+            SchemaComponent.ALL);
+    Properties properties = PeeGeeQTestConfig.builder()
+            .from(postgres)
+            .schema(PostgreSQLTestConstants.TEST_SCHEMA)
+            .build();
+    manager = new PeeGeeQManager(new PeeGeeQConfiguration("test", properties), new SimpleMeterRegistry());
+    manager.start()
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
+}
+
+@AfterEach
+void tearDown(VertxTestContext testContext) {
+    TestCleanup.run(() -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
+}
+```
+
+`cleanupTestData(postgres, schema, components...)` truncates the tables of each named component through
+raw JDBC. With `ALL`, or with no component, it truncates nothing. Prefer a unique topic and group name
+per test to truncation: in a container shared by several test classes, a truncation also removes rows
+that other running tests own.
+
+### Template-provisioned database: `DatabaseSetupService`
+
+- Obtain the service with `PeeGeeQRuntime.createDatabaseSetupService()` in `@BeforeEach`. In
+  `@AfterEach`, run `destroySetup(setupId)` and then `close()` through `TestCleanup.run`. `close()`
+  closes every active setup manager but not the setup's queue factories or event stores;
+  `destroySetup` closes those. Neither drops a database. The databases a test creates remain until the
+  container stops.
+- Each `createCompleteSetup` creates a new database and refuses a name that already exists. Generate a
+  unique name that is a valid identifier, for example `"setup_db_" + System.nanoTime()`. A name built
+  from `UUID.randomUUID()` contains hyphens and is rejected.
+- The schema is required. Use `PostgreSQLTestConstants.TEST_SCHEMA` or a per-test literal.
+- The template schema lacks the objects that only Flyway creates, such as the `OFFSET_WATERMARK` tables
+  and `bitemporal_event_log`. A test of those features uses the Flyway schema, as
+  `peegeeq-rest` `PartitionedConsumptionRestIntegrationTest` does.
+- A subscription record is created through `setupService.getSubscriptionServiceForSetup(setupId)`, which
+  returns null for an unknown setup, and its `subscribe(topic, groupName, store)` or
+  `subscribe(topic, groupName, store, options)`. The `SubscriptionStore` value `OUTBOX` or `NATIVE`
+  names the message table of the queue.
+- Verification queries against the provisioned database go through a secondary `PgConnectionManager`
+  that the test closes. The helper `queryBinding` in `SetupBindingPersistenceIntegrationTest` shows the
+  form.
+
+```java
+@Test
+void createsSetupWithQueue(VertxTestContext testContext) {
+    DatabaseConfig database = new DatabaseConfig.Builder()
+            .host(postgres.getHost())
+            .port(postgres.getFirstMappedPort())
+            .databaseName("setup_db_" + System.nanoTime())
+            .username(postgres.getUsername())
+            .password(postgres.getPassword())
+            .schema(PostgreSQLTestConstants.TEST_SCHEMA)
+            .build();
+    DatabaseSetupRequest request = new DatabaseSetupRequest(setupId, database,
+            List.of(new QueueConfig.Builder().queueName("orders").build()), List.of(), Map.of());
+
+    setupService.createCompleteSetup(request)
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                assertEquals(DatabaseSetupStatus.ACTIVE, result.getStatus());
+                assertTrue(result.getQueueFactories().containsKey("orders"));
+                testContext.completeNow();
+            })));
+}
+
+@AfterEach
+void tearDown(VertxTestContext testContext) {
+    if (setupService == null) {
+        testContext.completeNow();
+        return;
+    }
+    TestCleanup.run(() -> setupService.destroySetup(setupId), () -> setupService.close())
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
+}
+```
 
 ## Database verification pattern
 

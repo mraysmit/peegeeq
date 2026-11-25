@@ -613,7 +613,7 @@ This is inconsistent with the handler organization pattern.
 ## 7. References
 
 - `docs-design/analysis/PEEGEEQ_CALL_PROPAGATION_GUIDE.md` - Architecture and call propagation paths
-- `docs/PEEGEEQ_REST_API_REFERENCE.md` - Complete REST API documentation
+- `docs/PEEGEEQ_REST_API_GUIDE.md` - REST API documentation
 - `peegeeq-management-ui/src/api/PeeGeeQClient.ts` - TypeScript client implementation
 - `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/PeeGeeQRestServer.java` - REST server routes
 

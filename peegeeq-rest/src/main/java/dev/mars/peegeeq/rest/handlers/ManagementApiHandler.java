@@ -2422,8 +2422,7 @@ public class ManagementApiHandler {
      * {@code management_event} frames; the UI composes the display label and drives the
      * notification bell. Transient broadcast only — nothing is persisted.
      *
-     * <p>Aligned with the PeeGeeQ Financial Services Event Catalogue naming convention
-     * {@code {entity}.{action}.{state}} (see {@code docs/PEEGEEQ_FINANCIAL_SERVICES_EVENT_CATALOGUE.md}).
+     * <p>The event name follows the convention {@code {entity}.{action}.{state}}.
      * The composed {@code eventName} is emitted alongside the individual structured components so
      * consumers can route/filter on the name (e.g. {@code queue.*.*}) or on the discrete fields,
      * and new entities/actions/states slot in without a new shape. {@code entity} uses kebab-case

@@ -232,6 +232,6 @@ TDD plan before implementation.
 ## References
 
 - [Consolidated task register](../tasks/tasks.md)
-- [Ordering patterns guide](../../docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md)
+- [Ordering Guide](../../docs/PEEGEEQ_ORDERING_GUIDE.md)
 - [Fan-out design](PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md)
 - [Testing standards](../testing/PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md)

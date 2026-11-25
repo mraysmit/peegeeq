@@ -1,9 +1,10 @@
 # PeeGeeQ Documentation Reduction Plan
 
-**Status:** PROPOSED 2026-11-21. Task 10 in [tasks.md](tasks.md).
+**Status:** COMPLETE 2026-11-25 except OD-5. Proposed 2026-11-21; released by the owner on 2026-11-25 to run ahead of Task 8. Task 10 in
+[tasks.md](tasks.md).
 **Reader:** the agent that carries out this plan in a later session. Read this file in full before starting a phase.
-**Ordering constraint:** owner direction 2026-11-17 says Task 8 is completed before any other task starts. Do not
-start phase 1 until the owner either releases Task 8 or says this task may run first.
+**Code check:** a full review of all 24 files against the code was made on 2026-11-25. Its findings are the
+evidence base for phases 1 to 6 (section 6.1).
 
 ## 1. Purpose and end state
 
@@ -157,6 +158,15 @@ it removes. A rewrite that drops the offending text resolves the item; record wh
 - E5 Swallowed failures: `.onFailure(Throwable::printStackTrace)` throughout the Database Setup Guide; Consumer Groups
   "permanent error, send to DLQ" handler returns success, which acknowledges the message.
 
+### 6.1 Code check of 2026-11-25
+
+[PEEGEEQ_DOCUMENTATION_REVIEW_2026-11-25.md](PEEGEEQ_DOCUMENTATION_REVIEW_2026-11-25.md) records the review of
+all 24 files against the code, the migrations, the templates, the poms, the router, and the OpenAPI file. It
+confirms L1, L2 and L4 to L7, C1 to C7, and the Vert.x version part of C8, and adds about 100 HIGH findings. It
+did not check L3 or the header and footer versions of the Tracing Technical Reference. Its section 9 lists code defects found
+during the review; they go to the defect table in tasks.md, not into this task. Each rewrite in phases 2 to 6 still
+re-reads the code it rests on; the review names where to look, it does not replace the reading.
+
 ## 7. Phases
 
 One phase at a time. After each phase: run the checks in 7.8, report, and stop for the owner. Docs-only phases need
@@ -242,10 +252,10 @@ These go into the new README in phase 6 and apply from phase 1 on.
 
 | ID | Decision | Recommendation | Ruling |
 |---|---|---|---|
-| OD-1 | Removed text: delete and rely on git history, or move to `docs-design/_archived` | Delete; git history keeps it. Moving keeps the volume | Pending |
-| OD-2 | REST endpoint detail: OpenAPI as the single source | Yes, once phase 2 shows the YAML matches the routes | Pending |
-| OD-3 | Service Manager guide: fold into the Operations Guide, or keep as `peegeeq-service-manager/README.md` | Module README; it documents one optional module | Pending |
-| OD-4 | Financial Services Event Catalogue: delete, or move to `docs-design/` as a proposal | Delete; its APIs do not exist | Pending |
+| OD-1 | Removed text: delete and rely on git history, or move to `docs-design/_archived` | Delete; git history keeps it. Moving keeps the volume | Delete (owner, 2026-11-25) |
+| OD-2 | REST endpoint detail: OpenAPI as the single source | Yes, once phase 2 shows the YAML matches the routes | The YAML does not match (D33). The guide owns endpoint detail, written from the router and handlers, until D33 is fixed; then the guide's endpoint tables become a link (owner, 2026-11-25) |
+| OD-3 | Service Manager guide: fold into the Operations Guide, or keep as `peegeeq-service-manager/README.md` | Module README; it documents one optional module | Module README (owner, 2026-11-25) |
+| OD-4 | Financial Services Event Catalogue: delete, or move to `docs-design/` as a proposal | Delete; its APIs do not exist | Delete (owner, 2026-11-25) |
 | OD-5 | Add a link check to the build | Owner's call; it adds a tool | Pending |
 
 ## 10. Working constraints for the agent
@@ -269,3 +279,9 @@ These go into the new README in phase 6 and apply from phase 1 on.
 | Date | Phase | Result |
 |---|---|---|
 | 2026-11-21 | Plan written | No `docs/` file changed |
+| 2026-11-25 | Code review of all 24 files | Section 6.1. No `docs/` file changed |
+| 2026-11-25 | Phase 0 | Owner released Task 10 ahead of Task 8. OD-1 delete, OD-3 module README, OD-4 delete. OD-2 and OD-5 pending |
+| 2026-11-25 | Phases 2 to 6 | Owner direction: run in parallel instead of one at a time. Each phase is drafted by a separate agent that writes only its own target files and an evidence map; the coordinator checks every draft against the code, deletes the source files, repoints inbound links, rewrites README.md last, and runs the section 7.8 checks once over the combined result |
+| 2026-11-25 | Phases 3 to 6 and final step | Done. Each new or rewritten guide was checked against the code by an independent agent; the coordinator re-checked the WRONG items and each new code defect in code before the drafter applied the corrections. New and rewritten: `PEEGEEQ_DATABASE_GUIDE.md` (and the test-setup section of `docs-design/testing/PEEGEEQ_TESTING_STANDARDS_PATTERNS.md`), `PEEGEEQ_MESSAGING_GUIDE.md`, `PEEGEEQ_ARCHITECTURE.md`, `PEEGEEQ_ORDERING_GUIDE.md`, `PEEGEEQ_EVENT_STORE_GUIDE.md`, `PEEGEEQ_OPERATIONS_GUIDE.md`, `peegeeq-service-manager/README.md` (OD-3), `PEEGEEQ_GETTING_STARTED.md`, `PEEGEEQ_CONTRIBUTOR_GUIDE.md`, `README.md` (index and the section 8 rules, plus rule 9 on defects); `PEEGEEQ_CONFIGURATION_GUIDE.md` corrected row by row. Deleted (OD-1): the 17 source files of section 4. `docs/` now holds 11 Markdown files, 310,816 bytes (estimate was 185 KB; the REST guide carries endpoint detail under OD-2, and the Database, Messaging and Event Store guides carry drift and failure-mode detail the code check found). Inbound links repointed in the fan-out and partitioned-consumption designs, the Jenkins setup, the server-side filtering guide, the bitemporal testing guide, the REST gap analysis and the benchmarking plan (BENCH-006). Code defects found: D38 to D44. Checks 7.8 on the final set (`docs/*.md` and `peegeeq-service-manager/README.md`): (1) every relative link and image resolves; (2) zero banned-pattern, blocking or callback hits; (3) zero UNSUPPORTED keys outside the Configuration Guide; (4) no link outside the archives points at a removed file; plain-text mentions remain in historical plan text (`peegeeq-examples/docs/STREAMING_EXAMPLES_IMPLEMENTATION_PLAN.md`, `peegeeq-rest/docs/PEEGEEQ_REST_CLIENT_SERVER_GAP_ANALYSIS.md:397`) and in the archives. Not done: OD-5 (link check in the build) awaits the owner. Nothing was built or run except the phase 1 `peegeeq-rest` rebuild and one review agent's PostgreSQL probe (D42 k) |
+| 2026-11-25 | Phase 2 | `docs/PEEGEEQ_REST_API_GUIDE.md` written from the router and handlers (OD-2). Route index: all 107 registered routes plus 3 WebSocket paths, compared by script with the router; no unregistered route outside "Not provided". An independent check against the handlers found about 45 discrepancies (mostly omitted failure statuses and edge behaviour); the coordinator re-checked each WRONG item in code, and all were applied. Code faults found are D38 and D39. The old reference is deleted in the final step with the other sources |
+| 2026-11-25 | Phase 1 | Done. (1) Financial catalogue deleted (OD-4); its README entry and the `ManagementApiHandler` Javadoc reference removed; `peegeeq-rest` rebuilt (`logs/task10-phase1-peegeeq-rest-build-20261125.log`, BUILD SUCCESS; comment-only change, no test run). (2) REST Gap Analysis deleted; its still-true gaps checked against the code and recorded as D37. (3) Sequence-diagram file cut to the two backfill diagrams, corrected against `SubscriptionManager` and `BackfillService` (a failed backfill fails `subscribe`; a failed batch leaves `IN_PROGRESS`, D35). The fan-out completion diagram was dropped: `CompletionTracker` is a test fixture and `ConsumerGroupFetcher` has no production caller. (4) L1, L2, L3, L4, L5, L6, L7 resolved, plus the broken anchors in the Ordering Guide, the REST reference (missing "Per-Setup Health Endpoints" heading added) and the Outbox Guide. (5) "Production ready" banners and status checklists removed from the Outbox Guide, Service Manager Guide, both tracing documents, the Architecture Guide and the Consumer Groups Guide; the Outbox Guide's undated performance figures removed (rule 3). Also, to pass check 2: E1 and E2 resolved (Outbox `future.get(...)` samples and the false JDBC section removed; tracing samples moved to the Vert.x 5 `Callable` and `Future` forms), E4 resolved for the Examples Guide (test now completes on receipt), the Examples retry sample replaced by `vertx.timer(...).compose(...)` with retry pointed at `CircuitBreakerManager`, and the Service Manager metrics section (no metrics exist) replaced. Causation-on-messages text corrected in the Getting Started and Messaging Features guides; Patroni removed from the Operations Guide. The tracing `messages`/`message_headers` schema replaced by the real `headers` JSONB storage; the tracing compatibility matrix, implementation checklist and performance table removed. The Outbox Guide carries a dated correction of its transaction claim until phase 4 rewrites it. Checks 7.8: (1) every relative link and image path in `docs/` resolves, zero broken; (2) zero banned-pattern, blocking `.get(...)` or Vert.x 4 callback hits in `docs/`; (3) zero UNSUPPORTED keys outside the Configuration Guide; (4) no file outside the archives links to a removed file or anchor |

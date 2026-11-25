@@ -19,7 +19,7 @@ confirmed to exist in the repository at the reconciliation commit. Statements ab
 runtime behaviour come from static reading of the source unless a test or Jenkins record
 is cited.
 
-User guide: [Consumer Groups Guide](../../docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md).
+User guide: [Messaging Guide](../../docs/PEEGEEQ_MESSAGING_GUIDE.md).
 
 Proposed changes to this contract are not in this document. The delivery outcome redesign
 for finding 20 is in
@@ -621,7 +621,7 @@ POST   /api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/commit
 Queue-scoped consumer-group routes (`/api/v1/queues/:setupId/:queueName/consumer-groups`
 and `/api/v1/consumer-groups/:setupId/:queueName/:groupName/subscription`) manage in-process
 groups and subscription options and are documented in
-[docs/PEEGEEQ_REST_API_REFERENCE.md](../../docs/PEEGEEQ_REST_API_REFERENCE.md).
+[docs/PEEGEEQ_REST_API_GUIDE.md](../../docs/PEEGEEQ_REST_API_GUIDE.md).
 
 ### Names From Earlier Revisions That Do Not Exist
 
@@ -778,7 +778,7 @@ Under queue semantics `FOR UPDATE SKIP LOCKED` lets different consumers process 
 from the same `message_group` concurrently, so order is not guaranteed. Applications that
 need per-key order use an `OFFSET_WATERMARK` topic and set `messageGroup` on every send.
 Patterns for choosing a key and handling ungrouped messages are in
-[docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md](../../docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md).
+[docs/PEEGEEQ_ORDERING_GUIDE.md](../../docs/PEEGEEQ_ORDERING_GUIDE.md).
 
 PeeGeeQ advantages: ACID transactions, no extra infrastructure, standard SQL for operations
 and monitoring, strong consistency. Limitations: throughput and latency are bounded by
@@ -832,8 +832,8 @@ No release gate for the fan-out feature is marked pending in this document.
 - [Partitioned consumption design and implementation record](PEEGEEQ_PARTITIONED_CONSUMPTION_DESIGN.md)
 - [Delivery outcome redesign proposal, partly implemented](PEEGEEQ_DELIVERY_OUTCOME_REDESIGN_PROPOSAL.md)
 - [Consolidated task register](../tasks/tasks.md)
-- [Consumer groups user guide](../../docs/PEEGEEQ_CONSUMER_GROUP_GETTING_STARTED.md)
-- [Ordering patterns guide](../../docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md)
+- [Messaging Guide](../../docs/PEEGEEQ_MESSAGING_GUIDE.md)
+- [Ordering Guide](../../docs/PEEGEEQ_ORDERING_GUIDE.md)
 - [Fan-out trace propagation record](../_archived/completed-records/CONSUMER_GROUP_FANOUT_TRACE_PROPAGATION.md)
 - [Management UI consumer-groups implementation record](../tasks/archive/CONSUMER-GROUPS-UI-REDESIGN-PLAN.md)
 - [Testing standards](../testing/PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md)
