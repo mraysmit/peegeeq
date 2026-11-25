@@ -200,6 +200,28 @@ class PgRejoinControlIntegrationTest {
                 })).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
     }
 
+    @Test void aRewindThatFailsAfterItChangedTheDirectoryRestoresTheConfigurationAndKeepsTheSavedCopy(
+            VertxTestContext context) {
+        // The real pg_rewind runs and copies the source's configuration files; its result is then reported as a
+        // failure, as for a pg_rewind interrupted after its file copy.
+        var node = NODES.node(WRITER);
+        var interrupted = new PgCtlProcessControl(new FailsAfterRunningCommandRunner(runner, "pg_rewind"), node.prefix(),
+            PgSupervisedContainer.PG_CTL, NODES.dataDirectory(), node.logFile(NODES.dataDirectory()), COMMAND_TIMEOUT);
+        diverge().compose(ignored -> checked(node.exec(runner, "touch", NODES.dataDirectory() + "/standby.signal")))
+            .compose(ignored -> markConfiguration(WRITER)).compose(digest ->
+                interrupted.rewind(endpoint(NEW_WRITER, WRITER), WRITER, BUDGET)
+                    .transform(rewind -> refused(rewind, "pg_rewind failed with exit 1"))
+                    .compose(ignored -> process(WRITER).inspect()).compose(observed -> {
+                    assertEquals(2, observed.orElseThrow().timeline(), "The precondition failed: pg_rewind did not run");
+                    return assertKeptConfigurationAndInhibitor(WRITER, digest);
+                }))
+            .compose(ignored -> node.exec(runner, "test", "-d", NODES.dataDirectory() + ".rejoin-saved"))
+            .onSuccess(saved -> context.verify(() -> {
+                assertEquals(0, saved.exitCode(), "A failed rewind removed the saved configuration");
+                context.completeNow();
+            })).onFailure(context::failNow);
+    }
+
     @Test void aRunningServerIsNeitherRewoundNorRebuilt(VertxTestContext context) {
         var source = endpoint(WRITER, FOLLOWER);
         process(FOLLOWER).rewind(source, FOLLOWER, BUDGET).transform(rewind -> refused(rewind, "PostgreSQL is running"))
@@ -327,6 +349,23 @@ class PgRejoinControlIntegrationTest {
             })));
     }
 
+    @Test void aSlotRowOrRecoveryValueThatIsNotAnObservationIsRejected(VertxTestContext context) {
+        // The identity is the writer's real one. Then the slot row has two fields, or the recovery value is neither t
+        // nor f.
+        var slotRow = promotion(FOLLOWER, new RewrittenOutputCommandRunner(runner, "READ_REPLICATION_SLOT",
+            output -> "physical|0/3000000"), COMMAND_TIMEOUT);
+        var recovery = promotion(FOLLOWER, new RewrittenOutputCommandRunner(runner, "pg_is_in_recovery()",
+            output -> "unknown"), COMMAND_TIMEOUT);
+        var writer = endpoint(WRITER, FOLLOWER);
+        slotRow.observeSource(FOLLOWER, writer)
+            .transform(source -> promotionRefused(source, "Malformed promotion observation: physical|0/3000000 "))
+            .compose(ignored -> recovery.observeSource(FOLLOWER, writer).transform(source -> {
+                promotionRefused(source, "Malformed promotion observation: physical|");
+                assertTrue(source.cause().getMessage().endsWith(" unknown"), source.cause().getMessage());
+                return Future.<Void>succeededFuture();
+            })).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+    }
+
     @Test void aPromotionRunnerThatReturnsNoResultFailsTheObservationAndTheConfirmation(VertxTestContext context) {
         var silent = new PgSqlPromotionControl(vertx, new NoResultCommandRunner(runner), NODES.node(FOLLOWER).prefix(),
             PgSupervisedContainer.PG_CTL, "psql", NODES.dataDirectory(), COMMAND_TIMEOUT);
@@ -371,6 +410,31 @@ class PgRejoinControlIntegrationTest {
             .compose(ignored -> hurried.confirmCaughtUp(FOLLOWER, endpoint(WRITER, FOLLOWER))
                 .transform(confirmation -> promotionRefused(confirmation, "The standby has not caught up with")))
             .compose(ignored -> checked(NODES.node(FOLLOWER).sql(runner, "select pg_wal_replay_resume()")))
+            .onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+    }
+
+    @Test void aReceiverOnAnotherTimelineThanTheWritersIsNotConfirmedWithinTheBudget(VertxTestContext context) {
+        var budget = Duration.ofSeconds(5);
+        // The follower streams from the writer and has replayed its position; only the reported receiver timeline
+        // differs from the writer's. The real confirmation afterwards shows that no other field was missing.
+        var otherTimeline = promotion(FOLLOWER, new RewrittenOutputCommandRunner(runner, "pg_last_wal_replay_lsn()",
+            output -> withField(output, 3, timeline -> String.valueOf(Long.parseLong(timeline) + 1))), budget);
+        NODES.writeWal(runner, 1)
+            .compose(ignored -> otherTimeline.confirmCaughtUp(FOLLOWER, endpoint(WRITER, FOLLOWER))
+                .transform(confirmation -> promotionRefused(confirmation, "The standby has not caught up with")))
+            .compose(ignored -> promotion(FOLLOWER).confirmCaughtUp(FOLLOWER, endpoint(WRITER, FOLLOWER)))
+            .onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+    }
+
+    @Test void aStandbyOfAnotherSystemIsNotConfirmedCaughtUp(VertxTestContext context) {
+        // The follower streams from the writer and has replayed its position; only the reported system identifier
+        // differs from the writer's. The real confirmation afterwards shows that no other field was missing.
+        var otherSystem = promotion(FOLLOWER, new RewrittenOutputCommandRunner(runner, "pg_last_wal_replay_lsn()",
+            output -> withField(output, 1, identifier -> identifier.equals("1") ? "2" : "1")), COMMAND_TIMEOUT);
+        NODES.writeWal(runner, 1)
+            .compose(ignored -> otherSystem.confirmCaughtUp(FOLLOWER, endpoint(WRITER, FOLLOWER))
+                .transform(confirmation -> promotionRefused(confirmation, "The standby's system identifier")))
+            .compose(ignored -> promotion(FOLLOWER).confirmCaughtUp(FOLLOWER, endpoint(WRITER, FOLLOWER)))
             .onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
     }
 
@@ -487,9 +551,22 @@ class PgRejoinControlIntegrationTest {
             "psql", NODES.dataDirectory(), COMMAND_TIMEOUT);
     }
 
+    private PgPromotionControl promotion(String nodeId, PgCommandRunner commands, Duration budget) {
+        return new PgSqlPromotionControl(vertx, commands, NODES.node(nodeId).prefix(), PgSupervisedContainer.PG_CTL,
+            "psql", NODES.dataDirectory(), budget);
+    }
+
     private PgDurabilityControl durability(String nodeId) {
         return new PgSqlDurabilityControl(vertx, runner, NODES.node(nodeId).prefix(), PgSupervisedContainer.PG_CTL,
             "psql", NODES.dataDirectory(), COMMAND_TIMEOUT);
+    }
+
+    /** The output with one {@code |}-separated field changed, when the output has that field and it is not empty. */
+    private static String withField(String output, int index, java.util.function.UnaryOperator<String> change) {
+        String[] fields = output.strip().split("\\|", -1);
+        if (fields.length <= index || fields[index].isEmpty()) return output;
+        fields[index] = change.apply(fields[index]);
+        return String.join("|", fields);
     }
 
     private static Future<Void> checked(Future<PgCommandResult> command) {

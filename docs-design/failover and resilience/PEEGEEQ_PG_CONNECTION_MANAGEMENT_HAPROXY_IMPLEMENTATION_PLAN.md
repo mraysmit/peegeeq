@@ -878,6 +878,10 @@ records, the touched classes, core, and the guards last.
 Jenkins. The design documents describe P7 (system design §1.1 and §5.10; coordinator design §1.1 and §3.3). The red,
 green, and probe logs of 2026-11-13 that the handover names (`peegeeq-pg-failover-p7*-20261113.log`, probes 34 to 50)
 are not in `logs/` on the owner's workstation; their results are as reported in the handover and were not re-checked.
+On 2026-11-25 the 17 probes were rerun on local Docker, each built from its rule name in the handover: 17 of 17
+detected, with SHA-256 of `ConsulMemberPositions.java`, `PgFailoverMonitor.java`, and `PgSqlDurabilityControl.java`
+equal before and after (`logs/review-p7-mutation-summary-run3-20261125.log`; probe 43 in
+`logs/review-p7-mutation-summary-20261125.log`).
 
 | Step | Evidence |
 |---|---|

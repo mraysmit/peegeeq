@@ -197,6 +197,11 @@ within 8 seconds; local Docker 29.9.3. Logs in `logs/`.
   Seven not detected (D29): restore and saved copy after a failed rewind, the source slot-row check, the timeline and
   system-identifier conditions of the catch-up, the monitor's catch-up step, and the second source check before the
   removal. The follow fix (P9) and the acquire refusal (K1) were detected, as recorded on 2026-11-14.
+- 2026-11-25: six tests close D29; each failed with its mutation in place, and both classes then passed whole, 27
+  of 27 and 15 of 15 (register D29). Probes 34 to 50 were rerun from the rule names above, because their 2026-11-13
+  logs are missing: 17 of 17 detected, each on an assertion of its rule; SHA-256 of the three production files equal
+  before and after (`review-p7-mutation-summary-run3-20261125.log`; probe 43, a core test, in
+  `review-p7-mutation-summary-20261125.log`). `ConsulMemberPositionsIntegrationTest` without a mutation: 19 of 19.
 
 **2026-11-17 and 2026-11-18, restart, reload, `pending_restart` (plan §9.33).** Owner's workstation, local Docker
 29.9.3; the Jenkins host did not answer either day. Logs in `logs/`. RS1 to RS3 red and green, probes 71 to 103 (no

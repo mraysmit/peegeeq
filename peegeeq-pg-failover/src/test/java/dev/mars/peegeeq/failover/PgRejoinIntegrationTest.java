@@ -163,7 +163,8 @@ class PgRejoinIntegrationTest {
         throwableType = PgPromotionException.class)
     void aRewoundNodeThatDoesNotFollowIsRebuilt(VertxTestContext context) {
         var record = serving(NEW_WRITER);
-        diverge().compose(ignored -> member(WRITER, real -> new FirstFollowFailsControl(real, new AtomicInteger())))
+        diverge().compose(ignored -> member(WRITER, real -> new FirstFollowFailsControl(real, new AtomicInteger(),
+                nodeId -> Future.<Void>succeededFuture())))
             .compose(node -> node.monitor().rejoin(record, endpoint(NEW_WRITER, WRITER), BUDGET).map(node))
             .compose(node -> receipt(node, record, PgFailoverMonitor.REWIND).compose(rewind -> {
                 assertEquals(PgActionResult.COMPLETED, rewind.orElseThrow().result(), "The rewind did not complete");
@@ -204,6 +205,68 @@ class PgRejoinIntegrationTest {
                 assertEquals(Optional.of(PgFailoverMonitor.REJOIN_QUARANTINE), quarantine.map(PgQuarantine::reason),
                     "A failed re-join did not keep its quarantine");
                 return null;
+            })).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+    }
+
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Local supervision operation failed on node pg-node-3",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgPromotionException.class)
+    void aStandbyThatIsNotConfirmedCaughtUpKeepsTheQuarantineAndFailsTheCall(VertxTestContext context) {
+        String directory = NODES.dataDirectory();
+        var record = serving(WRITER);
+        NODES.control(runner, FOLLOWER).stop(COMMAND_TIMEOUT)
+            .compose(ignored -> checked(NODES.node(FOLLOWER).exec(runner, "rm", "-rf", directory)))
+            .compose(ignored -> member(FOLLOWER, CatchUpNotConfirmedControl::new))
+            .compose(node -> node.monitor().rejoin(record, endpoint(WRITER, FOLLOWER), BUDGET).transform(rejoin -> {
+                refusal(rejoin, PgPromotionException.class);
+                assertEquals(CatchUpNotConfirmedControl.FAILURE, rejoin.cause().getMessage());
+                return node.store().quarantine().compose(quarantine -> {
+                    assertEquals(Optional.of(PgFailoverMonitor.REJOIN_QUARANTINE),
+                        quarantine.map(PgQuarantine::reason), "A standby that did not catch up left the quarantine");
+                    return receipt(node, record, PgFailoverMonitor.FOLLOW_WRITER);
+                }).map(follow -> {
+                    assertEquals(PgActionResult.COMPLETED, follow.orElseThrow().result(), "The follow did not complete");
+                    return null;
+                });
+            })).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
+    }
+
+    @Test
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Rewind did not make node pg-node-1 a standby of pg-node-2:5432; rebuilding",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgPromotionException.class)
+    @ExpectedErrorLog(
+        logger = "dev.mars.peegeeq.failover.PgFailoverMonitor",
+        message = "Local supervision operation failed on node pg-node-1",
+        throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+        throwableType = PgPromotionException.class)
+    void aSlotThatTheWriterDropsAfterTheRewindIsRefusedBeforeTheDataDirectoryIsRemoved(VertxTestContext context) {
+        // The source is usable when the re-join starts. After the rewind the writer drops this node's slot, and the
+        // follow fails. The rebuild observes the source again before it removes anything (plan §9.32, "Danger").
+        var record = serving(NEW_WRITER);
+        diverge().compose(ignored -> member(WRITER, real -> new FirstFollowFailsControl(real, new AtomicInteger(),
+                nodeId -> checked(NODES.node(NEW_WRITER).sql(runner,
+                    "select pg_drop_replication_slot('" + PgNodeConfig.slotName(nodeId) + "')")))))
+            .compose(node -> node.monitor().rejoin(record, endpoint(NEW_WRITER, WRITER), BUDGET).transform(rejoin -> {
+                refusal(rejoin, PgPromotionException.class);
+                assertTrue(rejoin.cause().getMessage().contains("missing or lost"), rejoin.cause().getMessage());
+                return node.store().quarantine().compose(quarantine -> {
+                    assertEquals(Optional.of(PgFailoverMonitor.REJOIN_QUARANTINE),
+                        quarantine.map(PgQuarantine::reason), "A refused rebuild did not keep the re-join quarantine");
+                    return NODES.control(runner, WRITER).inspect();
+                }).compose(directory -> {
+                    assertTrue(directory.isPresent(), "The data directory was removed after the source changed");
+                    assertEquals(2, directory.orElseThrow().timeline(), "The rewound data directory was replaced");
+                    return receipt(node, record, PgFailoverMonitor.REBUILD);
+                }).map(rebuild -> {
+                    assertTrue(rebuild.isEmpty(), "A rebuild started after the source changed");
+                    return null;
+                });
             })).onSuccess(ignored -> context.completeNow()).onFailure(context::failNow);
     }
 
@@ -389,8 +452,13 @@ class PgRejoinIntegrationTest {
 
     // ---------------------------------------------------------------- fault wrappers over the real controls
 
-    /** Wraps the real promotion control. The first follow fails and has no effect; later ones are real. */
-    private record FirstFollowFailsControl(PgPromotionControl real, AtomicInteger follows) implements PgPromotionControl {
+    /**
+     * Wraps the real promotion control. The first follow runs {@code beforeFailing} for the following node, then fails
+     * without following; later follows are real.
+     */
+    private record FirstFollowFailsControl(PgPromotionControl real, AtomicInteger follows,
+                                           java.util.function.Function<String, Future<Void>> beforeFailing)
+            implements PgPromotionControl {
         @Override public Future<Boolean> inRecovery() { return real.inRecovery(); }
 
         @Override public Future<Void> promote() { return real.promote(); }
@@ -399,7 +467,8 @@ class PgRejoinIntegrationTest {
 
         @Override public Future<Void> follow(String nodeId, PgWriterEndpoint writer) {
             if (follows.getAndIncrement() == 0) {
-                return Future.failedFuture(new PgPromotionException("The first follow failed (injected)"));
+                return beforeFailing.apply(nodeId).compose(ignored ->
+                    Future.<Void>failedFuture(new PgPromotionException("The first follow failed (injected)")));
             }
             return real.follow(nodeId, writer);
         }
@@ -410,6 +479,27 @@ class PgRejoinIntegrationTest {
 
         @Override public Future<Void> confirmCaughtUp(String nodeId, PgWriterEndpoint writer) {
             return real.confirmCaughtUp(nodeId, writer);
+        }
+    }
+
+    /** Wraps the real promotion control. The catch-up confirmation fails without observing; everything else is real. */
+    private record CatchUpNotConfirmedControl(PgPromotionControl real) implements PgPromotionControl {
+        static final String FAILURE = "The catch-up was not confirmed (injected)";
+
+        @Override public Future<Boolean> inRecovery() { return real.inRecovery(); }
+
+        @Override public Future<Void> promote() { return real.promote(); }
+
+        @Override public Future<Void> checkpoint() { return real.checkpoint(); }
+
+        @Override public Future<Void> follow(String nodeId, PgWriterEndpoint writer) { return real.follow(nodeId, writer); }
+
+        @Override public Future<PgReplicationSource> observeSource(String nodeId, PgWriterEndpoint source) {
+            return real.observeSource(nodeId, source);
+        }
+
+        @Override public Future<Void> confirmCaughtUp(String nodeId, PgWriterEndpoint writer) {
+            return Future.failedFuture(new PgPromotionException(FAILURE));
         }
     }
 
