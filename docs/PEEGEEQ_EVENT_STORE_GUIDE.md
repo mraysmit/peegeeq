@@ -8,23 +8,23 @@ run)" marks runtime behaviour that was read in the source and not observed.
 
 Other documents own related facts:
 
-- HTTP endpoints for the event store: [REST API Guide](PEEGEEQ_REST_API_GUIDE.md).
-- Creating event store tables and what the template creates: [Database Guide](PEEGEEQ_DATABASE_GUIDE.md).
-- Runtime properties: [Configuration Guide](PEEGEEQ_CONFIGURATION_GUIDE.md).
-- Queue messages, consumer groups and their correlation IDs: [Messaging Guide](PEEGEEQ_MESSAGING_GUIDE.md).
-- Trace context and logging: [Operations Guide](PEEGEEQ_OPERATIONS_GUIDE.md).
+- HTTP endpoints for the event store: `PEEGEEQ_REST_API_GUIDE.md`.
+- Creating event store tables and what the template creates: `PEEGEEQ_DATABASE_GUIDE.md`.
+- Runtime properties: `PEEGEEQ_CONFIGURATION_GUIDE.md`.
+- Queue messages, consumer groups and their correlation IDs: `PEEGEEQ_MESSAGING_GUIDE.md`.
+- Trace context and logging: `PEEGEEQ_OPERATIONS_GUIDE.md`.
 
 ## Contents
 
-1. [Valid time and transaction time](#1-valid-time-and-transaction-time)
-2. [Creating an event store](#2-creating-an-event-store)
-3. [Appending events](#3-appending-events)
-4. [Querying](#4-querying)
-5. [Corrections, versions and as-of reads](#5-corrections-versions-and-as-of-reads)
-6. [Correlation and causation](#6-correlation-and-causation)
-7. [Live subscriptions](#7-live-subscriptions)
-8. [Durable subscriptions](#8-durable-subscriptions)
-9. [Keyset pagination](#9-keyset-pagination)
+1. Valid time and transaction time
+2. Creating an event store
+3. Appending events
+4. Querying
+5. Corrections, versions and as-of reads
+6. Correlation and causation
+7. Live subscriptions
+8. Durable subscriptions
+9. Keyset pagination
 
 ---
 
@@ -64,7 +64,7 @@ use it as their cursor (section 8).
 
 `BiTemporalEventStoreFactory` creates stores that use a `PeeGeeQManager`'s database configuration.
 The table name is unqualified. The table must already exist in the manager's configured schema; the factory
-does not create it. The [Database Guide](PEEGEEQ_DATABASE_GUIDE.md) describes how a table is
+does not create it. `PEEGEEQ_DATABASE_GUIDE.md` describes how a table is
 created.
 
 ```java
@@ -80,7 +80,7 @@ CloudEvents Jackson module. A third constructor argument supplies your own mappe
 Each store opens its own connection pool on first use and its own LISTEN connection on the first
 subscription. `PeeGeeQManager.closeReactive()` does not close event stores. Close each store with
 `close()` before you close the manager (read in code, not run). The
-[Operations Guide](PEEGEEQ_OPERATIONS_GUIDE.md) shows a shutdown sequence.
+`PEEGEEQ_OPERATIONS_GUIDE.md` shows a shutdown sequence.
 
 A runnable example is `BiTemporalEventStoreExampleTest` in
 `peegeeq-bitemporal/src/test/java/dev/mars/peegeeq/bitemporal/`.
@@ -487,7 +487,7 @@ together with the cursor, so leave the offset at 0 on cursor queries.
 ### REST parameters
 
 `GET /api/v1/eventstores/:setupId/:eventStoreName/events` accepts the cursor. The
-[REST API Guide](PEEGEEQ_REST_API_GUIDE.md) owns the endpoint and its response.
+`PEEGEEQ_REST_API_GUIDE.md` owns the endpoint and its response.
 
 | Parameter | Rule |
 |---|---|

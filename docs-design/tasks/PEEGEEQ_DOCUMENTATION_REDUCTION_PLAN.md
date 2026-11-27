@@ -1,7 +1,7 @@
 # PeeGeeQ Documentation Reduction Plan
 
-**Status:** COMPLETE 2026-11-25 except OD-5. Proposed 2026-11-21; released by the owner on 2026-11-25 to run ahead of Task 8. Task 10 in
-[tasks.md](tasks.md).
+**Status:** COMPLETE 2026-11-26. Proposed 2026-11-21; released by the owner on 2026-11-25 to run ahead of Task 8. Task 10 in
+`tasks.md`.
 **Reader:** the agent that carries out this plan in a later session. Read this file in full before starting a phase.
 **Code check:** a full review of all 24 files against the code was made on 2026-11-25. Its findings are the
 evidence base for phases 1 to 6 (section 6.1).
@@ -14,9 +14,10 @@ evidence base for phases 1 to 6 (section 6.1).
 End state:
 
 - 11 files, about 185 KB (estimate).
-- Each fact is stated in one document. Every other document links to it.
+- Each fact is stated in one document. Every other document refers to it by name.
+- No Markdown links. A document names another document by file name and a section by number or heading (OD-5).
 - Every claim in `docs/` has been checked against the code on the day it was written.
-- Every code example follows `docs-design/dev/pgq-coding-principles.md`, or is a link to a compiled example.
+- Every code example follows `docs-design/dev/pgq-coding-principles.md`, or names a compiled example.
 - `docs/` holds no status, test counts, verification dates, or undated performance figures.
 
 ## 2. Scope
@@ -228,25 +229,28 @@ Get rulings on OD-1 to OD-4 (section 9). Record them in this file. No file chang
 
 ### 7.8 Checks after every phase
 
-1. Every relative link in `docs/` resolves: list the links and test each path, file by file. Do not sample.
+1. `docs/` holds no Markdown link (OD-5). Every file name in backticks names an existing file, and every section
+   reference names an existing heading under that section number. List and test each one, file by file. Do not
+   sample.
 2. Grep the code blocks in `docs/` for the banned patterns in `.claude/CLAUDE.md` step 5. Zero results.
 3. Grep `docs/` for every key listed as UNSUPPORTED in the Configuration Guide. Zero results outside that guide.
-4. Grep for links into `docs/` from the rest of the repository (Java comments, `docs-design`, module READMEs, UI
-   source) and fix each link that points at a deleted file.
+4. Grep for links and names of `docs/` files in the rest of the repository (Java comments, `docs-design`, module
+   READMEs, UI source) and fix each one that points at a deleted file.
 5. Report: files changed by name (`git status` of the whole tree), finding IDs resolved, and what was not checked.
 
 ## 8. Rules for documents in `docs/`
 
 These go into the new README in phase 6 and apply from phase 1 on.
 
-1. One owner per fact (section 3). Other documents link.
+1. One owner per fact (section 3). Other documents refer to it by name.
 2. No status, test counts, verification dates, or "production ready" claims. Status lives in tasks.md.
-3. Performance figures appear only as dated release evidence, by link.
+3. Performance figures appear only as dated release evidence. A guide names that evidence.
 4. Proposals live in `docs-design/` until they are implemented.
-5. Examples follow the coding principles. Prefer a link to a compiled example.
+5. Examples follow the coding principles. Prefer naming a compiled example to a pasted snippet.
 6. Every claim is checked against the code when written. A document is updated to match the code, never quoted as
    evidence of what the code does.
 7. Plain declarative sentences; no slang; purposes and reasons in plain words.
+8. No Markdown links (OD-5). A document names another by file name and a section by number or heading.
 
 ## 9. Open decisions
 
@@ -256,17 +260,17 @@ These go into the new README in phase 6 and apply from phase 1 on.
 | OD-2 | REST endpoint detail: OpenAPI as the single source | Yes, once phase 2 shows the YAML matches the routes | The YAML does not match (D33). The guide owns endpoint detail, written from the router and handlers, until D33 is fixed; then the guide's endpoint tables become a link (owner, 2026-11-25) |
 | OD-3 | Service Manager guide: fold into the Operations Guide, or keep as `peegeeq-service-manager/README.md` | Module README; it documents one optional module | Module README (owner, 2026-11-25) |
 | OD-4 | Financial Services Event Catalogue: delete, or move to `docs-design/` as a proposal | Delete; its APIs do not exist | Delete (owner, 2026-11-25) |
-| OD-5 | Add a link check to the build | Owner's call; it adds a tool | Pending |
+| OD-5 | Add a link check to the build | Owner's call; it adds a tool | No links in documents, because links break. A document refers to another document by name (owner, 2026-11-26). No link check is added. Applied to `docs/` and `peegeeq-service-manager/README.md` on 2026-11-26 |
 
 ## 10. Working constraints for the agent
 
 - Read every file a rewrite rests on in full before writing. An excerpt is not a read.
 - State nothing about runtime behaviour from static reading as fact. Label it "read in code, not run".
 - Do not commit. The owner commits. Name the changed files at the end of each phase.
-- `docs/README.md` names `PEEGEEQ_CONFIGURATION_GUIDE.md` and the REST reference as authorities; keep links to the
-  new files working in the same phase that renames them.
-- The archived register `docs-design/tasks/archive/TASKS_REGISTER_TO_2026-11-21.md` is linked from the Ordering
-  Guide; keep that link.
+- `docs/README.md` names `PEEGEEQ_CONFIGURATION_GUIDE.md` and the REST reference as authorities; keep references to
+  the new files correct in the same phase that renames them.
+- The archived register `docs-design/tasks/archive/TASKS_REGISTER_TO_2026-11-21.md` is named in the Ordering
+  Guide; keep that reference.
 
 ## 11. Not covered by this plan
 
@@ -283,5 +287,6 @@ These go into the new README in phase 6 and apply from phase 1 on.
 | 2026-11-25 | Phase 0 | Owner released Task 10 ahead of Task 8. OD-1 delete, OD-3 module README, OD-4 delete. OD-2 and OD-5 pending |
 | 2026-11-25 | Phases 2 to 6 | Owner direction: run in parallel instead of one at a time. Each phase is drafted by a separate agent that writes only its own target files and an evidence map; the coordinator checks every draft against the code, deletes the source files, repoints inbound links, rewrites README.md last, and runs the section 7.8 checks once over the combined result |
 | 2026-11-25 | Phases 3 to 6 and final step | Done. Each new or rewritten guide was checked against the code by an independent agent; the coordinator re-checked the WRONG items and each new code defect in code before the drafter applied the corrections. New and rewritten: `PEEGEEQ_DATABASE_GUIDE.md` (and the test-setup section of `docs-design/testing/PEEGEEQ_TESTING_STANDARDS_PATTERNS.md`), `PEEGEEQ_MESSAGING_GUIDE.md`, `PEEGEEQ_ARCHITECTURE.md`, `PEEGEEQ_ORDERING_GUIDE.md`, `PEEGEEQ_EVENT_STORE_GUIDE.md`, `PEEGEEQ_OPERATIONS_GUIDE.md`, `peegeeq-service-manager/README.md` (OD-3), `PEEGEEQ_GETTING_STARTED.md`, `PEEGEEQ_CONTRIBUTOR_GUIDE.md`, `README.md` (index and the section 8 rules, plus rule 9 on defects); `PEEGEEQ_CONFIGURATION_GUIDE.md` corrected row by row. Deleted (OD-1): the 17 source files of section 4. `docs/` now holds 11 Markdown files, 310,816 bytes (estimate was 185 KB; the REST guide carries endpoint detail under OD-2, and the Database, Messaging and Event Store guides carry drift and failure-mode detail the code check found). Inbound links repointed in the fan-out and partitioned-consumption designs, the Jenkins setup, the server-side filtering guide, the bitemporal testing guide, the REST gap analysis and the benchmarking plan (BENCH-006). Code defects found: D38 to D44. Checks 7.8 on the final set (`docs/*.md` and `peegeeq-service-manager/README.md`): (1) every relative link and image resolves; (2) zero banned-pattern, blocking or callback hits; (3) zero UNSUPPORTED keys outside the Configuration Guide; (4) no link outside the archives points at a removed file; plain-text mentions remain in historical plan text (`peegeeq-examples/docs/STREAMING_EXAMPLES_IMPLEMENTATION_PLAN.md`, `peegeeq-rest/docs/PEEGEEQ_REST_CLIENT_SERVER_GAP_ANALYSIS.md:397`) and in the archives. Not done: OD-5 (link check in the build) awaits the owner. Nothing was built or run except the phase 1 `peegeeq-rest` rebuild and one review agent's PostgreSQL probe (D42 k) |
+| 2026-11-26 | OD-5 | Owner ruling: no links in documents; refer to documents by name. The owner committed the phase 1 to 6 work as `75313be6`. All 317 Markdown links in `docs/*.md` and `peegeeq-service-manager/README.md` were replaced by a script, and the whole diff was then read and corrected by hand. The 154 file links became file names or repository paths in backticks, and code links became class names. The 163 anchor links became plain contents lists or "section N" and `section N, "Heading"` references, and the REST route index column holds the section number and heading. `docs/README.md` gained rule 10 and rules 1, 3 and 5 no longer mention links. Check 7.8 (1) in its new form: zero links remain; all 128 backticked `.md` names name an existing file; all 118 section references name an existing heading under that number. No code changed; checks 2 and 3 are unaffected. Not done: the 92 other tracked Markdown files in the repository still hold 1,013 file and anchor links; OD-5 was applied to the Task 10 set only |
 | 2026-11-25 | Phase 2 | `docs/PEEGEEQ_REST_API_GUIDE.md` written from the router and handlers (OD-2). Route index: all 107 registered routes plus 3 WebSocket paths, compared by script with the router; no unregistered route outside "Not provided". An independent check against the handlers found about 45 discrepancies (mostly omitted failure statuses and edge behaviour); the coordinator re-checked each WRONG item in code, and all were applied. Code faults found are D38 and D39. The old reference is deleted in the final step with the other sources |
 | 2026-11-25 | Phase 1 | Done. (1) Financial catalogue deleted (OD-4); its README entry and the `ManagementApiHandler` Javadoc reference removed; `peegeeq-rest` rebuilt (`logs/task10-phase1-peegeeq-rest-build-20261125.log`, BUILD SUCCESS; comment-only change, no test run). (2) REST Gap Analysis deleted; its still-true gaps checked against the code and recorded as D37. (3) Sequence-diagram file cut to the two backfill diagrams, corrected against `SubscriptionManager` and `BackfillService` (a failed backfill fails `subscribe`; a failed batch leaves `IN_PROGRESS`, D35). The fan-out completion diagram was dropped: `CompletionTracker` is a test fixture and `ConsumerGroupFetcher` has no production caller. (4) L1, L2, L3, L4, L5, L6, L7 resolved, plus the broken anchors in the Ordering Guide, the REST reference (missing "Per-Setup Health Endpoints" heading added) and the Outbox Guide. (5) "Production ready" banners and status checklists removed from the Outbox Guide, Service Manager Guide, both tracing documents, the Architecture Guide and the Consumer Groups Guide; the Outbox Guide's undated performance figures removed (rule 3). Also, to pass check 2: E1 and E2 resolved (Outbox `future.get(...)` samples and the false JDBC section removed; tracing samples moved to the Vert.x 5 `Callable` and `Future` forms), E4 resolved for the Examples Guide (test now completes on receipt), the Examples retry sample replaced by `vertx.timer(...).compose(...)` with retry pointed at `CircuitBreakerManager`, and the Service Manager metrics section (no metrics exist) replaced. Causation-on-messages text corrected in the Getting Started and Messaging Features guides; Patroni removed from the Operations Guide. The tracing `messages`/`message_headers` schema replaced by the real `headers` JSONB storage; the tracing compatibility matrix, implementation checklist and performance table removed. The Outbox Guide carries a dated correction of its transaction claim until phase 4 rewrites it. Checks 7.8: (1) every relative link and image path in `docs/` resolves, zero broken; (2) zero banned-pattern, blocking `.get(...)` or Vert.x 4 callback hits in `docs/`; (3) zero UNSUPPORTED keys outside the Configuration Guide; (4) no file outside the archives links to a removed file or anchor |

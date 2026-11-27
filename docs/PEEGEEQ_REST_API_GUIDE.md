@@ -6,20 +6,20 @@ This guide describes the HTTP, Server-Sent Events (SSE) and WebSocket interface 
 
 ## Contents
 
-1. [Overview](#1-overview)
-2. [Setup lifecycle](#2-setup-lifecycle)
-3. [Queues and messages](#3-queues-and-messages)
-4. [Consumer groups and subscription options](#4-consumer-groups-and-subscription-options)
-5. [Subscription lifecycle, backfill and partitioned consumption](#5-subscription-lifecycle-backfill-and-partitioned-consumption)
-6. [Webhook subscriptions](#6-webhook-subscriptions)
-7. [Dead letter queue](#7-dead-letter-queue)
-8. [Event store](#8-event-store)
-9. [Health, consumer alerts, database telemetry and metrics](#9-health-consumer-alerts-database-telemetry-and-metrics)
-10. [Management API](#10-management-api)
-11. [Streaming](#11-streaming)
-12. [Error responses](#12-error-responses)
-13. [Route index](#13-route-index)
-14. [Not provided](#14-not-provided)
+1. Overview
+2. Setup lifecycle
+3. Queues and messages
+4. Consumer groups and subscription options
+5. Subscription lifecycle, backfill and partitioned consumption
+6. Webhook subscriptions
+7. Dead letter queue
+8. Event store
+9. Health, consumer alerts, database telemetry and metrics
+10. Management API
+11. Streaming
+12. Error responses
+13. Route index
+14. Not provided
 
 ---
 
@@ -72,7 +72,7 @@ The router installs one `CorsHandler`:
 | `tracestate` | Send and batch | Copied into the message headers. |
 | `baggage` | Send and batch | Copied into the message headers. |
 | `Idempotency-Key` | Send and batch | Stored in the message headers as `idempotencyKey`. |
-| `Last-Event-ID` | Event store SSE stream | Resume point. See [11](#event-store-event-stream). |
+| `Last-Event-ID` | Event store SSE stream | Resume point. See section 11, "Event store event stream". |
 
 ### Authentication
 
@@ -86,10 +86,10 @@ Send, batch, queue stats, the stats stream and the queue WebSocket check the que
 
 Two kinds of object exist only in the memory of one server process and are lost when it stops:
 
-- Consumer groups created through [section 4](#4-consumer-groups-and-subscription-options).
-- Webhook subscriptions ([section 6](#6-webhook-subscriptions)).
+- Consumer groups created through section 4.
+- Webhook subscriptions (section 6).
 
-Subscriptions ([section 5](#5-subscription-lifecycle-backfill-and-partitioned-consumption)) are stored in the database.
+Subscriptions (section 5) are stored in the database.
 
 ### Request metrics
 
@@ -101,7 +101,7 @@ Every request is recorded in the Micrometer timer `peegeeq.http.requests.duratio
 
 A setup is one PostgreSQL database and schema with its queues and event stores. Create, connect, delete and detach never drop a database. Only the guarded drop does.
 
-Errors from this family have the body `{"error", "statusCode", "timestamp"}`. See [12](#12-error-responses).
+Errors from this family have the body `{"error", "statusCode", "timestamp"}`. See section 12.
 
 ### Create setup
 
@@ -350,7 +350,7 @@ Failures:
 | 404 | Setup not found; queue not found |
 | 503 | The send failed |
 
-A successful send publishes a `MESSAGE_SENT` event on the [queue-updates stream](#queue-updates-stream).
+A successful send publishes a `MESSAGE_SENT` event on the queue-updates stream (section 11, "Queue-updates stream").
 
 ### Send a batch
 
@@ -395,7 +395,7 @@ Success: 200 with:
 
 Failures: 400 (invalid name), 404 (setup not `ACTIVE`, setup not found, queue not found), 503.
 
-The [stats stream](#queue-stats-stream) emits the same object.
+The stats stream (section 11, "Queue stats stream") emits the same object.
 
 ### Queue details
 
@@ -466,11 +466,11 @@ Resumes every subscription in `PAUSED`. Other states are left as they are. Succe
 
 `DELETE /api/v1/queues/:setupId/:queueName`
 
-Purges all messages, calls `close()` on the queue factory, and removes the queue from the setup held in memory. The Future returned by `close()` is discarded. The handler answers 503 only when `close()` throws at once, and it answers 200 before the close completes (register D38). Success: 200 with `message`, `queueName`, `setupId`, `deletedMessages`, `timestamp`. Publishes the management event `queue.deletion.completed` ([section 11](#monitoring-websocket)). Failures: 404, 503.
+Purges all messages, calls `close()` on the queue factory, and removes the queue from the setup held in memory. The Future returned by `close()` is discarded. The handler answers 503 only when `close()` throws at once, and it answers 200 before the close completes (register D38). Success: 200 with `message`, `queueName`, `setupId`, `deletedMessages`, `timestamp`. Publishes the management event `queue.deletion.completed` (section 11, "Monitoring WebSocket"). Failures: 404, 503.
 
 The route does not drop the queue table and does not delete the queue's row in `peegeeq_object_registry`. Only the in-memory factory is removed, so a later connect of the setup rebuilds the queue.
 
-`DELETE /api/v1/management/queues/:setupId/:queueName` ([section 10](#10-management-api)) closes the queue without purging messages. It also leaves the table and the registry row in place.
+`DELETE /api/v1/management/queues/:setupId/:queueName` (section 10) closes the queue without purging messages. It also leaves the table and the registry row in place.
 
 ---
 
@@ -617,7 +617,7 @@ Cancels the subscription. Every state can be cancelled. When dead-group cleanup 
 
 ## 5. Subscription lifecycle, backfill and partitioned consumption
 
-Path parameters: `setupId`, `topic` (a queue name of the setup), `groupName`. Errors have the body `{"code", "error", "timestamp"}` ([12](#12-error-responses)). Every route returns 404 `PGQERR0100` when the setup has no subscription service. Create validates the body and `groupName`, and start backfill validates `backfillScope`, before the service lookup; for an unknown setup these validation failures return 400, not 404.
+Path parameters: `setupId`, `topic` (a queue name of the setup), `groupName`. Errors have the body `{"code", "error", "timestamp"}` (section 12). Every route returns 404 `PGQERR0100` when the setup has no subscription service. Create validates the body and `groupName`, and start backfill validates `backfillScope`, before the service lookup; for an unknown setup these validation failures return 400, not 404.
 
 On create, start backfill, partition join, fetch and commit, a body that is not valid JSON is not caught by the handler, and the router's failure handler answers 500 (read in code, not run).
 
@@ -905,7 +905,7 @@ Success: 201 with `message`, `eventStoreName`, `setupId`, `eventId`, `eventType`
 | `afterTransactionTime` | | keyset cursor; ISO-8601 or epoch-seconds decimal |
 | `afterEventId` | | keyset cursor |
 
-`afterTransactionTime` and `afterEventId` must be sent together (400 otherwise). The epoch-seconds form lets a client copy `transactionTime` from a previous event object without conversion. The `EventQueryParams` comment states that the cursor requires `TRANSACTION_TIME_ASC` or `TRANSACTION_TIME_DESC`. A rule violation that the store reports as an illegal argument returns 400. See [PEEGEEQ_EVENT_STORE_GUIDE.md](PEEGEEQ_EVENT_STORE_GUIDE.md).
+`afterTransactionTime` and `afterEventId` must be sent together (400 otherwise). The epoch-seconds form lets a client copy `transactionTime` from a previous event object without conversion. The `EventQueryParams` comment states that the cursor requires `TRANSACTION_TIME_ASC` or `TRANSACTION_TIME_DESC`. A rule violation that the store reports as an illegal argument returns 400. See `PEEGEEQ_EVENT_STORE_GUIDE.md`.
 
 Success: 200 with:
 
@@ -995,7 +995,7 @@ Success: 200 with `message`, `storeId` (`<setupId>-<storeName>`), `setupId`, `st
 
 ### Event stream
 
-`GET /api/v1/eventstores/:setupId/:eventStoreName/events/stream` is an SSE stream of new events. See [11](#event-store-event-stream).
+`GET /api/v1/eventstores/:setupId/:eventStoreName/events/stream` is an SSE stream of new events. See section 11, "Event store event stream".
 
 ---
 
@@ -1063,7 +1063,7 @@ Failures: 404 `PGQERR0100` (setup not found), 503 `PGQERR0501`.
 
 ### Prometheus metrics
 
-`GET /metrics` returns the Prometheus scrape text of the server's meter registry, content type `text/plain; version=0.0.4; charset=utf-8`. The registry holds the JVM and system binders (class loader, memory, GC, processor, threads, file descriptors, uptime), the gauge `peegeeq.server.status` (1), the HTTP request timer and counter from [section 1](#request-metrics), the monitoring connection gauges `peegeeq.monitoring.connections` (tag `type` `ws` or `sse`) and `peegeeq.monitoring.connections.total`, the timer `peegeeq.monitoring.collection.duration` and the counter `peegeeq.monitoring.errors`. The timer is registered at the first monitoring collection and the counter at the first collection failure, so neither appears in the scrape before then.
+`GET /metrics` returns the Prometheus scrape text of the server's meter registry, content type `text/plain; version=0.0.4; charset=utf-8`. The registry holds the JVM and system binders (class loader, memory, GC, processor, threads, file descriptors, uptime), the gauge `peegeeq.server.status` (1), the HTTP request timer and counter from section 1, "Request metrics", the monitoring connection gauges `peegeeq.monitoring.connections` (tag `type` `ws` or `sse`) and `peegeeq.monitoring.connections.total`, the timer `peegeeq.monitoring.collection.duration` and the counter `peegeeq.monitoring.errors`. The timer is registered at the first monitoring collection and the counter at the first collection failure, so neither appears in the scrape before then.
 
 ---
 
@@ -1097,7 +1097,7 @@ Failure: 503.
 
 `POST /api/v1/management/queues`
 
-Body: the queue object from [section 2](#create-setup) plus the setup ID in `setup` or `setupId`, required. When both are present, `setup` takes precedence. Success: 201 with `message`, `queueName`, `setupId`, `queueId` and `id` (both `<setupId>-<queueName>`), `maxRetries`, `visibilityTimeoutSeconds`, `deadLetterEnabled`, `batchSize`, `pollingIntervalSeconds`, `fifoEnabled`, `deadLetterQueueName`, `timestamp`, and `implementationType` when known. Publishes `QUEUE_CREATED` and the management event `queue.creation.completed`.
+Body: the queue object from section 2, "Create setup" plus the setup ID in `setup` or `setupId`, required. When both are present, `setup` takes precedence. Success: 201 with `message`, `queueName`, `setupId`, `queueId` and `id` (both `<setupId>-<queueName>`), `maxRetries`, `visibilityTimeoutSeconds`, `deadLetterEnabled`, `batchSize`, `pollingIntervalSeconds`, `fifoEnabled`, `deadLetterQueueName`, `timestamp`, and `implementationType` when known. Publishes `QUEUE_CREATED` and the management event `queue.creation.completed`.
 
 Failures: 400 (invalid body or configuration), 404 (setup not found), 409 (implementation type change refused), 503.
 
@@ -1111,7 +1111,7 @@ Closes the queue factory and, when the close succeeds, removes the queue from th
 
 ### Consumer groups
 
-These routes work on database subscriptions, not on the in-memory groups of [section 4](#4-consumer-groups-and-subscription-options).
+These routes work on database subscriptions, not on the in-memory groups of section 4.
 
 `GET /api/v1/management/consumer-groups`
 
@@ -1125,7 +1125,7 @@ Response (200): `message`, `groupCount`, `consumerGroups`, `timestamp`. Group it
 | `setup` | string | yes |
 | `queueName` | string | yes |
 
-Creates a subscription with default options. An existing subscription that is not `ACTIVE` is reactivated as described in [section 4](#create-a-consumer-group); a `CANCELLED` one returns 409. Success: 201 with `message`, `groupName`, `setupId`, `queueName`, `timestamp`. Publishes `consumer-group.creation.completed`. Failures: 400 (missing field; body not JSON), 404 (setup not `ACTIVE`; queue not found), 409 (an `ACTIVE` subscription exists; the subscription refuses the call), 501 (no subscription store), 503 (including an unknown setup).
+Creates a subscription with default options. An existing subscription that is not `ACTIVE` is reactivated as described in section 4, "Create a consumer group"; a `CANCELLED` one returns 409. Success: 201 with `message`, `groupName`, `setupId`, `queueName`, `timestamp`. Publishes `consumer-group.creation.completed`. Failures: 400 (missing field; body not JSON), 404 (setup not `ACTIVE`; queue not found), 409 (an `ACTIVE` subscription exists; the subscription refuses the call), 501 (no subscription store), 503 (including an unknown setup).
 
 `DELETE /api/v1/management/consumer-groups/:setupId/:queueName/:groupName`
 
@@ -1147,17 +1147,17 @@ Response (200): `message`, `eventStoreCount`, `eventStores`, `timestamp`. Store 
 
 `POST /api/v1/management/event-stores`
 
-Body: the event store object from [section 2](#create-setup) plus the setup ID in `setup` or `setupId`, required. When both are present, `setup` takes precedence. Success: 201 with `message`, `eventStoreName`, `setupId`, `eventStoreId`, `storeId` and `id` (all `<setupId>-<eventStoreName>`), `tableName`, `biTemporalEnabled`, `notificationPrefix`, `queryLimit`, `metricsEnabled`, `partitionStrategy`, `timestamp`. Publishes `event-store.creation.completed`. Failures: 400, 404, 503 (any other failure, including a table name that is not a valid PostgreSQL identifier).
+Body: the event store object from section 2, "Create setup" plus the setup ID in `setup` or `setupId`, required. When both are present, `setup` takes precedence. Success: 201 with `message`, `eventStoreName`, `setupId`, `eventStoreId`, `storeId` and `id` (all `<setupId>-<eventStoreName>`), `tableName`, `biTemporalEnabled`, `notificationPrefix`, `queryLimit`, `metricsEnabled`, `partitionStrategy`, `timestamp`. Publishes `event-store.creation.completed`. Failures: 400, 404, 503 (any other failure, including a table name that is not a valid PostgreSQL identifier).
 
 `DELETE /api/v1/management/event-stores/:storeId`
 
-`storeId` is `<setupId>-<storeName>`, split at the last hyphen. A store name that contains a hyphen cannot be addressed by this route; use `DELETE /api/v1/eventstores/:setupId/:eventStoreName`. Behaviour and responses are those of [Delete an event store](#delete-an-event-store-destructive). A `storeId` without a hyphen returns 400.
+`storeId` is `<setupId>-<storeName>`, split at the last hyphen. A store name that contains a hyphen cannot be addressed by this route; use `DELETE /api/v1/eventstores/:setupId/:eventStoreName`. Behaviour and responses are those of section 8, "Delete an event store (destructive)". A `storeId` without a hyphen returns 400.
 
 ### Messages
 
 `GET /api/v1/management/messages?setup=<id>&queue=<name>&limit=50&offset=0`
 
-Browses messages without consuming them, with the same browser query as [Browse messages](#browse-messages): every status, newest first, `offset` counted from the newest message. Response (200): `message`, `messageCount`, `messages` (`id`, `payload` as a string, `createdAt`, `headers`), `timestamp`. A request without `setup` or `queue`, for a setup not `ACTIVE`, or for an unknown queue returns 200 with an empty list. Failures: 400 (`limit` or `offset` not an integer), 503 (including an unknown setup ID).
+Browses messages without consuming them, with the same browser query as section 3, "Browse messages": every status, newest first, `offset` counted from the newest message. Response (200): `message`, `messageCount`, `messages` (`id`, `payload` as a string, `createdAt`, `headers`), `timestamp`. A request without `setup` or `queue`, for a setup not `ACTIVE`, or for an unknown queue returns 200 with an empty list. Failures: 400 (`limit` or `offset` not an integer), 503 (including an unknown setup ID).
 
 ### JVM metrics
 
@@ -1237,7 +1237,7 @@ The collected object is cached for `cacheTtlMs` (5000 in `rest-server.json`). Wh
 | Event | Data |
 |---|---|
 | `connected` | `{"connectionId", "setupId", "queueName", "intervalMs", "timestamp"}` |
-| `stats` | the [queue statistics](#queue-statistics) object |
+| `stats` | the queue statistics object (section 3, "Queue statistics") |
 | `error` | `{"error": "Stats read failed: ...", "timestamp"}`; the stream then ends |
 
 The first `stats` frame is sent at once. A tick is skipped while the previous read is still running. This stream has no heartbeat event.
@@ -1264,7 +1264,7 @@ The setup is not checked.
 | `QUEUE_DELETED` | `DELETE /api/v1/management/queues/:setupId/:queueName` |
 | `QUEUE_PURGED` | `POST /api/v1/queues/:setupId/:queueName/purge` |
 
-The add-queue routes of [section 2](#2-setup-lifecycle) and `DELETE /api/v1/queues/:setupId/:queueName` publish no `queue-changed` event.
+The add-queue routes of section 2 and `DELETE /api/v1/queues/:setupId/:queueName` publish no `queue-changed` event.
 
 ### Event store event stream
 
@@ -1364,7 +1364,7 @@ The handler families write different error bodies.
 | Body | Written by |
 |---|---|
 | `{"code", "error", "timestamp", "details"?}` (`ErrorResponse`) | subscription lifecycle, dead letter queue, webhook, consumer alert and database telemetry handlers |
-| `{"error", "statusCode", "timestamp"}` | setup handler ([section 2](#2-setup-lifecycle)) |
+| `{"error", "statusCode", "timestamp"}` | setup handler (section 2) |
 | `{"error", "timestamp"}` | queue, consumer group, event store and management handlers; the router failure handler |
 | `{"error"}` | setup health handler; invalid queue name; stats stream rejections |
 | plain text | metrics SSE rejections (503, 429, 400) |
@@ -1387,7 +1387,7 @@ Examples, one per JSON form:
 
 ### Router failure handler
 
-An exception that a handler does not catch reaches the router's failure handler. It answers with the status set on the request context, or 500, and the body `{"error": <exception message>, "timestamp"}`. When the response was already ended it writes nothing. An exception that carries an HTTP status, such as the 404 thrown when a setup has no subscription service in the [subscription options](#get-subscription-options) routes, keeps that status (read in code, not run).
+An exception that a handler does not catch reaches the router's failure handler. It answers with the status set on the request context, or 500, and the body `{"error": <exception message>, "timestamp"}`. When the response was already ended it writes nothing. An exception that carries an HTTP status, such as the 404 thrown when a setup has no subscription service in the subscription options routes (section 4), keeps that status (read in code, not run).
 
 A path that matches no route is answered by Vert.x Web itself; this guide does not describe that response (read in code, not run).
 
@@ -1434,116 +1434,116 @@ The router registers 107 HTTP routes. The WebSocket handler routes 3 paths. Inli
 
 | Method | Path | Handler | Section |
 |---|---|---|---|
-| GET | `/api/v1/health` | inline | [9](#server-health) |
-| GET | `/api/v1/sse/health` | inline | [11](#sse-health) |
-| GET | `/api/v1/sse/metrics` | `SystemMonitoringHandler.handleSSEMetrics` | [11](#metrics-stream) |
-| GET | `/sse/metrics` | `SystemMonitoringHandler.handleSSEMetrics` | [11](#metrics-stream) |
-| POST | `/api/v1/database-setup/create` | `DatabaseSetupHandler.createSetup` | [2](#create-setup) |
-| POST | `/api/v1/database-setup/connect` | `DatabaseSetupHandler.connectToExistingSetup` | [2](#connect-to-an-existing-setup) |
-| DELETE | `/api/v1/database-setup/:setupId` | `DatabaseSetupHandler.destroySetup` | [2](#delete-setup-non-destructive) |
-| GET | `/api/v1/database-setup/:setupId/status` | `DatabaseSetupHandler.getSetupStatus` | [2](#setup-status) |
-| POST | `/api/v1/database-setup/:setupId/queues` | `DatabaseSetupHandler.addQueue` | [2](#add-a-queue) |
-| GET | `/api/v1/setups` | `DatabaseSetupHandler.listSetups` | [2](#list-setups) |
-| POST | `/api/v1/setups` | `DatabaseSetupHandler.createSetup` | [2](#create-setup) |
-| GET | `/api/v1/setups/:setupId` | `DatabaseSetupHandler.getSetupDetails` | [2](#setup-details) |
-| GET | `/api/v1/setups/:setupId/status` | `DatabaseSetupHandler.getSetupStatus` | [2](#setup-status) |
-| DELETE | `/api/v1/setups/:setupId` | `DatabaseSetupHandler.deleteSetup` | [2](#delete-setup-non-destructive) |
-| POST | `/api/v1/setups/:setupId/detach` | `DatabaseSetupHandler.detachSetup` | [2](#detach-setup-non-destructive) |
-| POST | `/api/v1/setups/:setupId/database/drop` | `DatabaseSetupHandler.dropSetupDatabase` | [2](#drop-setup-database-destructive-guarded) |
-| GET | `/api/v1/setups/:setupId/queues` | `DatabaseSetupHandler.listQueues` | [2](#list-queues-of-a-setup) |
-| POST | `/api/v1/setups/:setupId/queues` | `DatabaseSetupHandler.addQueue` | [2](#add-a-queue) |
-| GET | `/api/v1/setups/:setupId/eventstores` | `DatabaseSetupHandler.listEventStores` | [2](#list-event-stores-of-a-setup) |
-| POST | `/api/v1/setups/:setupId/eventstores` | `DatabaseSetupHandler.addEventStore` | [2](#add-an-event-store) |
-| POST | `/api/v1/queues/:setupId/:queueName/messages` | `QueueHandler.sendMessage` | [3](#send-a-message) |
-| POST | `/api/v1/queues/:setupId/:queueName/messages/batch` | `QueueHandler.sendMessages` | [3](#send-a-batch) |
-| GET | `/api/v1/queues/:setupId/:queueName/stats` | `QueueHandler.getQueueStats` | [3](#queue-statistics) |
-| POST | `/api/v1/setups/:setupId/queues/:queueName/webhook-subscriptions` | `WebhookSubscriptionHandler.createSubscription` | [6](#create-a-webhook-subscription) |
-| GET | `/api/v1/webhook-subscriptions/:subscriptionId` | `WebhookSubscriptionHandler.getSubscription` | [6](#get-a-webhook-subscription) |
-| DELETE | `/api/v1/webhook-subscriptions/:subscriptionId` | `WebhookSubscriptionHandler.deleteSubscription` | [6](#delete-a-webhook-subscription) |
-| GET | `/api/v1/queues/:setupId/:queueName/messages/stream` | `ServerSentEventsHandler.handleQueueMessageStream` | [11](#queue-message-stream) |
-| GET | `/api/v1/sse/queues/:setupId` | `ServerSentEventsHandler.handleQueueUpdates` | [11](#queue-updates-stream) |
-| GET | `/api/v1/queues/:setupId/:queueName/stats/stream` | `ServerSentEventsHandler.handleQueueStatsStream` | [11](#queue-stats-stream) |
-| POST | `/api/v1/queues/:setupId/:queueName/consumer-groups` | `ConsumerGroupHandler.createConsumerGroup` | [4](#create-a-consumer-group) |
-| GET | `/api/v1/queues/:setupId/:queueName/consumer-groups` | `ConsumerGroupHandler.listConsumerGroups` | [4](#list-consumer-groups) |
-| GET | `/api/v1/queues/:setupId/:queueName/consumer-groups/:groupName` | `ConsumerGroupHandler.getConsumerGroup` | [4](#get-a-consumer-group) |
-| DELETE | `/api/v1/queues/:setupId/:queueName/consumer-groups/:groupName` | `ConsumerGroupHandler.deleteConsumerGroup` | [4](#delete-a-consumer-group) |
-| POST | `/api/v1/queues/:setupId/:queueName/consumer-groups/:groupName/members` | `ConsumerGroupHandler.joinConsumerGroup` | [4](#join-a-group) |
-| DELETE | `/api/v1/queues/:setupId/:queueName/consumer-groups/:groupName/members/:memberId` | `ConsumerGroupHandler.leaveConsumerGroup` | [4](#leave-a-group) |
-| POST | `/api/v1/consumer-groups/:setupId/:queueName/:groupName/subscription` | `ConsumerGroupHandler.updateSubscriptionOptions` | [4](#set-subscription-options) |
-| GET | `/api/v1/consumer-groups/:setupId/:queueName/:groupName/subscription` | `ConsumerGroupHandler.getSubscriptionOptions` | [4](#get-subscription-options) |
-| DELETE | `/api/v1/consumer-groups/:setupId/:queueName/:groupName/subscription` | `ConsumerGroupHandler.deleteSubscriptionOptions` | [4](#delete-subscription-options) |
-| GET | `/api/v1/management/overview` | `ManagementApiHandler.getSystemOverview` | [10](#overview) |
-| GET | `/api/v1/management/queues` | `ManagementApiHandler.getQueues` | [10](#queues) |
-| POST | `/api/v1/management/queues` | `ManagementApiHandler.createQueue` | [10](#queues) |
-| PUT | `/api/v1/management/queues/:setupId/:queueName` | `ManagementApiHandler.updateQueue` | [10](#queues) |
-| DELETE | `/api/v1/management/queues/:setupId/:queueName` | `ManagementApiHandler.deleteQueue` | [10](#queues) |
-| GET | `/api/v1/management/consumer-groups` | `ManagementApiHandler.getConsumerGroups` | [10](#consumer-groups) |
-| POST | `/api/v1/management/consumer-groups` | `ManagementApiHandler.createConsumerGroup` | [10](#consumer-groups) |
-| DELETE | `/api/v1/management/consumer-groups/:setupId/:queueName/:groupName` | `ManagementApiHandler.deleteConsumerGroup` | [10](#consumer-groups) |
-| POST | `/api/v1/management/consumer-groups/:setupId/:queueName/:groupName/pause` | `ManagementApiHandler.pauseConsumerGroup` | [10](#consumer-groups) |
-| POST | `/api/v1/management/consumer-groups/:setupId/:queueName/:groupName/resume` | `ManagementApiHandler.resumeConsumerGroup` | [10](#consumer-groups) |
-| POST | `/api/v1/management/consumer-groups/:setupId/:queueName/:groupName/backfill` | `ManagementApiHandler.backfillConsumerGroup` | [10](#consumer-groups) |
-| GET | `/api/v1/management/event-stores` | `ManagementApiHandler.getEventStores` | [10](#event-stores) |
-| POST | `/api/v1/management/event-stores` | `ManagementApiHandler.createEventStore` | [10](#event-stores) |
-| DELETE | `/api/v1/management/event-stores/:storeId` | `ManagementApiHandler.deleteEventStore` | [10](#event-stores) |
-| GET | `/api/v1/management/messages` | `ManagementApiHandler.getMessages` | [10](#messages) |
-| GET | `/api/v1/management/metrics` | `ManagementApiHandler.getMetrics` | [10](#jvm-metrics) |
-| GET | `/api/v1/queues/:setupId/:queueName` | `ManagementApiHandler.getQueueDetails` | [3](#queue-details) |
-| GET | `/api/v1/queues/:setupId/:queueName/consumers` | `ManagementApiHandler.getQueueConsumers` | [3](#queue-consumers) |
-| GET | `/api/v1/queues/:setupId/:queueName/bindings` | `ManagementApiHandler.getQueueBindings` | [3](#queue-bindings) |
-| GET | `/api/v1/queues/:setupId/:queueName/messages` | `ManagementApiHandler.getQueueMessages` | [3](#browse-messages) |
-| POST | `/api/v1/queues/:setupId/:queueName/publish` | `QueueHandler.sendMessage` | [3](#send-a-message) |
-| POST | `/api/v1/queues/:setupId/:queueName/purge` | `ManagementApiHandler.purgeQueue` | [3](#purge-a-queue-destructive) |
-| POST | `/api/v1/queues/:setupId/:queueName/pause` | `ManagementApiHandler.pauseQueue` | [3](#pause-a-queue) |
-| POST | `/api/v1/queues/:setupId/:queueName/resume` | `ManagementApiHandler.resumeQueue` | [3](#resume-a-queue) |
-| DELETE | `/api/v1/queues/:setupId/:queueName` | `ManagementApiHandler.deleteQueueByName` | [3](#delete-a-queue-destructive) |
-| GET | `/api/v1/eventstores/:setupId/:eventStoreName/events/stream` | `EventStoreHandler.handleEventStream` | [11](#event-store-event-stream) |
-| POST | `/api/v1/eventstores/:setupId/:eventStoreName/events` | `EventStoreHandler.storeEvent` | [8](#append-an-event) |
-| GET | `/api/v1/eventstores/:setupId/:eventStoreName/events` | `EventStoreHandler.queryEvents` | [8](#query-events) |
-| GET | `/api/v1/eventstores/:setupId/:eventStoreName/events/:eventId` | `EventStoreHandler.getEvent` | [8](#get-an-event) |
-| GET | `/api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/versions` | `EventStoreHandler.getAllVersions` | [8](#event-versions) |
-| GET | `/api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/at` | `EventStoreHandler.getAsOfTransactionTime` | [8](#event-as-of-a-transaction-time) |
-| POST | `/api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/corrections` | `EventStoreHandler.appendCorrection` | [8](#append-a-correction) |
-| GET | `/api/v1/eventstores/:setupId/:eventStoreName/aggregates` | `EventStoreHandler.getUniqueAggregates` | [8](#aggregates) |
-| POST | `/api/v1/eventstores/:setupId/:eventStoreName/aggregate-summary/reconcile` | `EventStoreHandler.reconcileAggregateSummary` | [8](#reconcile-the-aggregate-summary) |
-| GET | `/api/v1/eventstores/:setupId/:eventStoreName/stats` | `EventStoreHandler.getStats` | [8](#statistics) |
-| DELETE | `/api/v1/eventstores/:setupId/:eventStoreName` | `ManagementApiHandler.deleteEventStoreByName` | [8](#delete-an-event-store-destructive) |
-| GET | `/api/v1/setups/:setupId/deadletter/messages` | `DeadLetterHandler.listMessages` | [7](#7-dead-letter-queue) |
-| GET | `/api/v1/setups/:setupId/deadletter/messages/:messageId` | `DeadLetterHandler.getMessage` | [7](#7-dead-letter-queue) |
-| POST | `/api/v1/setups/:setupId/deadletter/messages/:messageId/reprocess` | `DeadLetterHandler.reprocessMessage` | [7](#7-dead-letter-queue) |
-| DELETE | `/api/v1/setups/:setupId/deadletter/messages/:messageId` | `DeadLetterHandler.deleteMessage` | [7](#7-dead-letter-queue) |
-| GET | `/api/v1/setups/:setupId/deadletter/stats` | `DeadLetterHandler.getStats` | [7](#7-dead-letter-queue) |
-| POST | `/api/v1/setups/:setupId/deadletter/cleanup` | `DeadLetterHandler.cleanup` | [7](#7-dead-letter-queue) |
-| GET | `/api/v1/setups/:setupId/subscriptions/:topic` | `SubscriptionHandler.listSubscriptions` | [5](#list-subscriptions) |
-| POST | `/api/v1/setups/:setupId/subscriptions/:topic` | `SubscriptionHandler.createSubscription` | [5](#create-a-subscription) |
-| GET | `/api/v1/setups/:setupId/subscriptions/:topic/:groupName` | `SubscriptionHandler.getSubscription` | [5](#get-a-subscription) |
-| POST | `/api/v1/setups/:setupId/subscriptions/:topic/:groupName/pause` | `SubscriptionHandler.pauseSubscription` | [5](#pause-resume-heartbeat-cancel) |
-| POST | `/api/v1/setups/:setupId/subscriptions/:topic/:groupName/resume` | `SubscriptionHandler.resumeSubscription` | [5](#pause-resume-heartbeat-cancel) |
-| POST | `/api/v1/setups/:setupId/subscriptions/:topic/:groupName/heartbeat` | `SubscriptionHandler.updateHeartbeat` | [5](#pause-resume-heartbeat-cancel) |
-| DELETE | `/api/v1/setups/:setupId/subscriptions/:topic/:groupName` | `SubscriptionHandler.cancelSubscription` | [5](#pause-resume-heartbeat-cancel) |
-| DELETE | `/api/v1/setups/:setupId/subscriptions/:topic/:groupName/force-remove` | `SubscriptionHandler.forceRemoveConsumerGroup` | [5](#force-remove-a-consumer-group) |
-| POST | `/api/v1/setups/:setupId/subscriptions/:topic/:groupName/backfill` | `SubscriptionHandler.startBackfill` | [5](#start-a-backfill) |
-| GET | `/api/v1/setups/:setupId/subscriptions/:topic/:groupName/backfill` | `SubscriptionHandler.getBackfillProgress` | [5](#backfill-progress) |
-| DELETE | `/api/v1/setups/:setupId/subscriptions/:topic/:groupName/backfill` | `SubscriptionHandler.cancelBackfill` | [5](#cancel-a-backfill) |
-| POST | `/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/join` | `SubscriptionHandler.joinPartitionedGroup` | [5](#partitioned-consumption) |
-| DELETE | `/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/leave` | `SubscriptionHandler.leavePartitionedGroup` | [5](#partitioned-consumption) |
-| GET | `/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions` | `SubscriptionHandler.getPartitionAssignments` | [5](#partitioned-consumption) |
-| POST | `/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/fetch` | `SubscriptionHandler.fetchPartitioned` | [5](#partitioned-consumption) |
-| POST | `/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/commit` | `SubscriptionHandler.commitPartitionedOffset` | [5](#partitioned-consumption) |
-| GET | `/api/v1/setups/:setupId/db-telemetry` | `DatabaseTelemetryHandler.getDatabaseTelemetry` | [9](#database-telemetry) |
-| GET | `/api/v1/setups/:setupId/consumer-alerts/dead` | `ConsumerAlertHandler.listDeadSubscriptions` | [9](#consumer-alerts) |
-| GET | `/api/v1/setups/:setupId/consumer-alerts/summary` | `ConsumerAlertHandler.getHealthSummary` | [9](#consumer-alerts) |
-| GET | `/api/v1/setups/:setupId/consumer-alerts/blocked` | `ConsumerAlertHandler.getBlockedStats` | [9](#consumer-alerts) |
-| GET | `/api/v1/setups/:setupId/health` | `HealthHandler.getOverallHealth` | [9](#setup-health) |
-| GET | `/api/v1/setups/:setupId/health/components` | `HealthHandler.listComponentHealth` | [9](#setup-health) |
-| GET | `/api/v1/setups/:setupId/health/components/:name` | `HealthHandler.getComponentHealth` | [9](#setup-health) |
-| any | `/ui/*` | `StaticHandler` (`webroot`, index `index.html`) | [13](#static-ui) |
-| any | `/` | inline: 302 redirect to `/ui/` | [13](#static-ui) |
-| GET | `/health` | inline | [9](#server-health) |
-| GET | `/metrics` | inline | [9](#prometheus-metrics) |
-| WS | `/ws/queues/:setupId/:queueName` | `WebSocketHandler.handleQueueStream` | [11](#queue-websocket) |
-| WS | `/ws/monitoring` | `SystemMonitoringHandler.handleWebSocketMonitoring` | [11](#monitoring-websocket) |
-| WS | `/ws/health` | inline in `PeeGeeQRestServer.routeWebSocket` | [11](#websocket-health) |
+| GET | `/api/v1/health` | inline | 9, "Server health" |
+| GET | `/api/v1/sse/health` | inline | 11, "SSE health" |
+| GET | `/api/v1/sse/metrics` | `SystemMonitoringHandler.handleSSEMetrics` | 11, "Metrics stream" |
+| GET | `/sse/metrics` | `SystemMonitoringHandler.handleSSEMetrics` | 11, "Metrics stream" |
+| POST | `/api/v1/database-setup/create` | `DatabaseSetupHandler.createSetup` | 2, "Create setup" |
+| POST | `/api/v1/database-setup/connect` | `DatabaseSetupHandler.connectToExistingSetup` | 2, "Connect to an existing setup" |
+| DELETE | `/api/v1/database-setup/:setupId` | `DatabaseSetupHandler.destroySetup` | 2, "Delete setup (non-destructive)" |
+| GET | `/api/v1/database-setup/:setupId/status` | `DatabaseSetupHandler.getSetupStatus` | 2, "Setup status" |
+| POST | `/api/v1/database-setup/:setupId/queues` | `DatabaseSetupHandler.addQueue` | 2, "Add a queue" |
+| GET | `/api/v1/setups` | `DatabaseSetupHandler.listSetups` | 2, "List setups" |
+| POST | `/api/v1/setups` | `DatabaseSetupHandler.createSetup` | 2, "Create setup" |
+| GET | `/api/v1/setups/:setupId` | `DatabaseSetupHandler.getSetupDetails` | 2, "Setup details" |
+| GET | `/api/v1/setups/:setupId/status` | `DatabaseSetupHandler.getSetupStatus` | 2, "Setup status" |
+| DELETE | `/api/v1/setups/:setupId` | `DatabaseSetupHandler.deleteSetup` | 2, "Delete setup (non-destructive)" |
+| POST | `/api/v1/setups/:setupId/detach` | `DatabaseSetupHandler.detachSetup` | 2, "Detach setup (non-destructive)" |
+| POST | `/api/v1/setups/:setupId/database/drop` | `DatabaseSetupHandler.dropSetupDatabase` | 2, "Drop setup database (destructive, guarded)" |
+| GET | `/api/v1/setups/:setupId/queues` | `DatabaseSetupHandler.listQueues` | 2, "List queues of a setup" |
+| POST | `/api/v1/setups/:setupId/queues` | `DatabaseSetupHandler.addQueue` | 2, "Add a queue" |
+| GET | `/api/v1/setups/:setupId/eventstores` | `DatabaseSetupHandler.listEventStores` | 2, "List event stores of a setup" |
+| POST | `/api/v1/setups/:setupId/eventstores` | `DatabaseSetupHandler.addEventStore` | 2, "Add an event store" |
+| POST | `/api/v1/queues/:setupId/:queueName/messages` | `QueueHandler.sendMessage` | 3, "Send a message" |
+| POST | `/api/v1/queues/:setupId/:queueName/messages/batch` | `QueueHandler.sendMessages` | 3, "Send a batch" |
+| GET | `/api/v1/queues/:setupId/:queueName/stats` | `QueueHandler.getQueueStats` | 3, "Queue statistics" |
+| POST | `/api/v1/setups/:setupId/queues/:queueName/webhook-subscriptions` | `WebhookSubscriptionHandler.createSubscription` | 6, "Create a webhook subscription" |
+| GET | `/api/v1/webhook-subscriptions/:subscriptionId` | `WebhookSubscriptionHandler.getSubscription` | 6, "Get a webhook subscription" |
+| DELETE | `/api/v1/webhook-subscriptions/:subscriptionId` | `WebhookSubscriptionHandler.deleteSubscription` | 6, "Delete a webhook subscription" |
+| GET | `/api/v1/queues/:setupId/:queueName/messages/stream` | `ServerSentEventsHandler.handleQueueMessageStream` | 11, "Queue message stream" |
+| GET | `/api/v1/sse/queues/:setupId` | `ServerSentEventsHandler.handleQueueUpdates` | 11, "Queue-updates stream" |
+| GET | `/api/v1/queues/:setupId/:queueName/stats/stream` | `ServerSentEventsHandler.handleQueueStatsStream` | 11, "Queue stats stream" |
+| POST | `/api/v1/queues/:setupId/:queueName/consumer-groups` | `ConsumerGroupHandler.createConsumerGroup` | 4, "Create a consumer group" |
+| GET | `/api/v1/queues/:setupId/:queueName/consumer-groups` | `ConsumerGroupHandler.listConsumerGroups` | 4, "List consumer groups" |
+| GET | `/api/v1/queues/:setupId/:queueName/consumer-groups/:groupName` | `ConsumerGroupHandler.getConsumerGroup` | 4, "Get a consumer group" |
+| DELETE | `/api/v1/queues/:setupId/:queueName/consumer-groups/:groupName` | `ConsumerGroupHandler.deleteConsumerGroup` | 4, "Delete a consumer group" |
+| POST | `/api/v1/queues/:setupId/:queueName/consumer-groups/:groupName/members` | `ConsumerGroupHandler.joinConsumerGroup` | 4, "Join a group" |
+| DELETE | `/api/v1/queues/:setupId/:queueName/consumer-groups/:groupName/members/:memberId` | `ConsumerGroupHandler.leaveConsumerGroup` | 4, "Leave a group" |
+| POST | `/api/v1/consumer-groups/:setupId/:queueName/:groupName/subscription` | `ConsumerGroupHandler.updateSubscriptionOptions` | 4, "Set subscription options" |
+| GET | `/api/v1/consumer-groups/:setupId/:queueName/:groupName/subscription` | `ConsumerGroupHandler.getSubscriptionOptions` | 4, "Get subscription options" |
+| DELETE | `/api/v1/consumer-groups/:setupId/:queueName/:groupName/subscription` | `ConsumerGroupHandler.deleteSubscriptionOptions` | 4, "Delete subscription options" |
+| GET | `/api/v1/management/overview` | `ManagementApiHandler.getSystemOverview` | 10, "Overview" |
+| GET | `/api/v1/management/queues` | `ManagementApiHandler.getQueues` | 10, "Queues" |
+| POST | `/api/v1/management/queues` | `ManagementApiHandler.createQueue` | 10, "Queues" |
+| PUT | `/api/v1/management/queues/:setupId/:queueName` | `ManagementApiHandler.updateQueue` | 10, "Queues" |
+| DELETE | `/api/v1/management/queues/:setupId/:queueName` | `ManagementApiHandler.deleteQueue` | 10, "Queues" |
+| GET | `/api/v1/management/consumer-groups` | `ManagementApiHandler.getConsumerGroups` | 10, "Consumer groups" |
+| POST | `/api/v1/management/consumer-groups` | `ManagementApiHandler.createConsumerGroup` | 10, "Consumer groups" |
+| DELETE | `/api/v1/management/consumer-groups/:setupId/:queueName/:groupName` | `ManagementApiHandler.deleteConsumerGroup` | 10, "Consumer groups" |
+| POST | `/api/v1/management/consumer-groups/:setupId/:queueName/:groupName/pause` | `ManagementApiHandler.pauseConsumerGroup` | 10, "Consumer groups" |
+| POST | `/api/v1/management/consumer-groups/:setupId/:queueName/:groupName/resume` | `ManagementApiHandler.resumeConsumerGroup` | 10, "Consumer groups" |
+| POST | `/api/v1/management/consumer-groups/:setupId/:queueName/:groupName/backfill` | `ManagementApiHandler.backfillConsumerGroup` | 10, "Consumer groups" |
+| GET | `/api/v1/management/event-stores` | `ManagementApiHandler.getEventStores` | 10, "Event stores" |
+| POST | `/api/v1/management/event-stores` | `ManagementApiHandler.createEventStore` | 10, "Event stores" |
+| DELETE | `/api/v1/management/event-stores/:storeId` | `ManagementApiHandler.deleteEventStore` | 10, "Event stores" |
+| GET | `/api/v1/management/messages` | `ManagementApiHandler.getMessages` | 10, "Messages" |
+| GET | `/api/v1/management/metrics` | `ManagementApiHandler.getMetrics` | 10, "JVM metrics" |
+| GET | `/api/v1/queues/:setupId/:queueName` | `ManagementApiHandler.getQueueDetails` | 3, "Queue details" |
+| GET | `/api/v1/queues/:setupId/:queueName/consumers` | `ManagementApiHandler.getQueueConsumers` | 3, "Queue consumers" |
+| GET | `/api/v1/queues/:setupId/:queueName/bindings` | `ManagementApiHandler.getQueueBindings` | 3, "Queue bindings" |
+| GET | `/api/v1/queues/:setupId/:queueName/messages` | `ManagementApiHandler.getQueueMessages` | 3, "Browse messages" |
+| POST | `/api/v1/queues/:setupId/:queueName/publish` | `QueueHandler.sendMessage` | 3, "Send a message" |
+| POST | `/api/v1/queues/:setupId/:queueName/purge` | `ManagementApiHandler.purgeQueue` | 3, "Purge a queue (destructive)" |
+| POST | `/api/v1/queues/:setupId/:queueName/pause` | `ManagementApiHandler.pauseQueue` | 3, "Pause a queue" |
+| POST | `/api/v1/queues/:setupId/:queueName/resume` | `ManagementApiHandler.resumeQueue` | 3, "Resume a queue" |
+| DELETE | `/api/v1/queues/:setupId/:queueName` | `ManagementApiHandler.deleteQueueByName` | 3, "Delete a queue (destructive)" |
+| GET | `/api/v1/eventstores/:setupId/:eventStoreName/events/stream` | `EventStoreHandler.handleEventStream` | 11, "Event store event stream" |
+| POST | `/api/v1/eventstores/:setupId/:eventStoreName/events` | `EventStoreHandler.storeEvent` | 8, "Append an event" |
+| GET | `/api/v1/eventstores/:setupId/:eventStoreName/events` | `EventStoreHandler.queryEvents` | 8, "Query events" |
+| GET | `/api/v1/eventstores/:setupId/:eventStoreName/events/:eventId` | `EventStoreHandler.getEvent` | 8, "Get an event" |
+| GET | `/api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/versions` | `EventStoreHandler.getAllVersions` | 8, "Event versions" |
+| GET | `/api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/at` | `EventStoreHandler.getAsOfTransactionTime` | 8, "Event as of a transaction time" |
+| POST | `/api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/corrections` | `EventStoreHandler.appendCorrection` | 8, "Append a correction" |
+| GET | `/api/v1/eventstores/:setupId/:eventStoreName/aggregates` | `EventStoreHandler.getUniqueAggregates` | 8, "Aggregates" |
+| POST | `/api/v1/eventstores/:setupId/:eventStoreName/aggregate-summary/reconcile` | `EventStoreHandler.reconcileAggregateSummary` | 8, "Reconcile the aggregate summary" |
+| GET | `/api/v1/eventstores/:setupId/:eventStoreName/stats` | `EventStoreHandler.getStats` | 8, "Statistics" |
+| DELETE | `/api/v1/eventstores/:setupId/:eventStoreName` | `ManagementApiHandler.deleteEventStoreByName` | 8, "Delete an event store (destructive)" |
+| GET | `/api/v1/setups/:setupId/deadletter/messages` | `DeadLetterHandler.listMessages` | 7 |
+| GET | `/api/v1/setups/:setupId/deadletter/messages/:messageId` | `DeadLetterHandler.getMessage` | 7 |
+| POST | `/api/v1/setups/:setupId/deadletter/messages/:messageId/reprocess` | `DeadLetterHandler.reprocessMessage` | 7 |
+| DELETE | `/api/v1/setups/:setupId/deadletter/messages/:messageId` | `DeadLetterHandler.deleteMessage` | 7 |
+| GET | `/api/v1/setups/:setupId/deadletter/stats` | `DeadLetterHandler.getStats` | 7 |
+| POST | `/api/v1/setups/:setupId/deadletter/cleanup` | `DeadLetterHandler.cleanup` | 7 |
+| GET | `/api/v1/setups/:setupId/subscriptions/:topic` | `SubscriptionHandler.listSubscriptions` | 5, "List subscriptions" |
+| POST | `/api/v1/setups/:setupId/subscriptions/:topic` | `SubscriptionHandler.createSubscription` | 5, "Create a subscription" |
+| GET | `/api/v1/setups/:setupId/subscriptions/:topic/:groupName` | `SubscriptionHandler.getSubscription` | 5, "Get a subscription" |
+| POST | `/api/v1/setups/:setupId/subscriptions/:topic/:groupName/pause` | `SubscriptionHandler.pauseSubscription` | 5, "Pause, resume, heartbeat, cancel" |
+| POST | `/api/v1/setups/:setupId/subscriptions/:topic/:groupName/resume` | `SubscriptionHandler.resumeSubscription` | 5, "Pause, resume, heartbeat, cancel" |
+| POST | `/api/v1/setups/:setupId/subscriptions/:topic/:groupName/heartbeat` | `SubscriptionHandler.updateHeartbeat` | 5, "Pause, resume, heartbeat, cancel" |
+| DELETE | `/api/v1/setups/:setupId/subscriptions/:topic/:groupName` | `SubscriptionHandler.cancelSubscription` | 5, "Pause, resume, heartbeat, cancel" |
+| DELETE | `/api/v1/setups/:setupId/subscriptions/:topic/:groupName/force-remove` | `SubscriptionHandler.forceRemoveConsumerGroup` | 5, "Force-remove a consumer group" |
+| POST | `/api/v1/setups/:setupId/subscriptions/:topic/:groupName/backfill` | `SubscriptionHandler.startBackfill` | 5, "Start a backfill" |
+| GET | `/api/v1/setups/:setupId/subscriptions/:topic/:groupName/backfill` | `SubscriptionHandler.getBackfillProgress` | 5, "Backfill progress" |
+| DELETE | `/api/v1/setups/:setupId/subscriptions/:topic/:groupName/backfill` | `SubscriptionHandler.cancelBackfill` | 5, "Cancel a backfill" |
+| POST | `/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/join` | `SubscriptionHandler.joinPartitionedGroup` | 5, "Partitioned consumption" |
+| DELETE | `/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/leave` | `SubscriptionHandler.leavePartitionedGroup` | 5, "Partitioned consumption" |
+| GET | `/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions` | `SubscriptionHandler.getPartitionAssignments` | 5, "Partitioned consumption" |
+| POST | `/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/fetch` | `SubscriptionHandler.fetchPartitioned` | 5, "Partitioned consumption" |
+| POST | `/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/commit` | `SubscriptionHandler.commitPartitionedOffset` | 5, "Partitioned consumption" |
+| GET | `/api/v1/setups/:setupId/db-telemetry` | `DatabaseTelemetryHandler.getDatabaseTelemetry` | 9, "Database telemetry" |
+| GET | `/api/v1/setups/:setupId/consumer-alerts/dead` | `ConsumerAlertHandler.listDeadSubscriptions` | 9, "Consumer alerts" |
+| GET | `/api/v1/setups/:setupId/consumer-alerts/summary` | `ConsumerAlertHandler.getHealthSummary` | 9, "Consumer alerts" |
+| GET | `/api/v1/setups/:setupId/consumer-alerts/blocked` | `ConsumerAlertHandler.getBlockedStats` | 9, "Consumer alerts" |
+| GET | `/api/v1/setups/:setupId/health` | `HealthHandler.getOverallHealth` | 9, "Setup health" |
+| GET | `/api/v1/setups/:setupId/health/components` | `HealthHandler.listComponentHealth` | 9, "Setup health" |
+| GET | `/api/v1/setups/:setupId/health/components/:name` | `HealthHandler.getComponentHealth` | 9, "Setup health" |
+| any | `/ui/*` | `StaticHandler` (`webroot`, index `index.html`) | 13, "Static UI" |
+| any | `/` | inline: 302 redirect to `/ui/` | 13, "Static UI" |
+| GET | `/health` | inline | 9, "Server health" |
+| GET | `/metrics` | inline | 9, "Prometheus metrics" |
+| WS | `/ws/queues/:setupId/:queueName` | `WebSocketHandler.handleQueueStream` | 11, "Queue WebSocket" |
+| WS | `/ws/monitoring` | `SystemMonitoringHandler.handleWebSocketMonitoring` | 11, "Monitoring WebSocket" |
+| WS | `/ws/health` | inline in `PeeGeeQRestServer.routeWebSocket` | 11, "WebSocket health" |
 
 ### Static UI
 
@@ -1554,7 +1554,7 @@ The router registers 107 HTTP routes. The WebSocket handler routes 3 paths. Inli
 ## 14. Not provided
 
 - No polling, next-message, acknowledge or negative-acknowledge endpoint. Messages are consumed by queue consumers, webhook subscriptions, consumer group members and the partitioned fetch routes.
-- No route `GET /api/v1/queues/:setupId/:queueName/stream` exists. The non-destructive [message stream](#queue-message-stream) is `GET /api/v1/queues/:setupId/:queueName/messages/stream`.
+- No route `GET /api/v1/queues/:setupId/:queueName/stream` exists. The non-destructive message stream (section 11, "Queue message stream") is `GET /api/v1/queues/:setupId/:queueName/messages/stream`.
 - No route `POST /api/v1/database-setup/:setupId/eventstores` exists. Use `POST /api/v1/setups/:setupId/eventstores`.
 - No authentication or authorization.
 - No route lists or updates webhook subscriptions.

@@ -4,7 +4,7 @@ Version 2.0
 
 This guide is the entry point for a developer who adopts PeeGeeQ. It states what PeeGeeQ provides, how to
 choose a delivery model, how to start the local stack, the rules for asynchronous code and transactions, and
-where the runnable examples are. Each section links to the guide that owns the detail.
+where the runnable examples are. Each section names the guide that owns the detail.
 
 ## 1. What PeeGeeQ provides
 
@@ -17,10 +17,10 @@ PeeGeeQ uses PostgreSQL as the message and event store. It is built on Vert.x 5;
 - consumer groups, server-side filtering, per-key ordered consumption, retry and a dead-letter queue;
 - database setup through `DatabaseSetupService`, which creates the schema from the SQL scripts under
   `peegeeq-db/src/main/resources/db/templates`; the Flyway migrations in `peegeeq-migrations` are a
-  separate path, and the [Database Guide](PEEGEEQ_DATABASE_GUIDE.md) states the difference;
+  separate path, and `PEEGEEQ_DATABASE_GUIDE.md` states the difference;
 - a REST server (`peegeeq-rest`) and a React management UI (`peegeeq-management-ui`).
 
-The module list and the layers are in the [Architecture Guide](PEEGEEQ_ARCHITECTURE.md).
+The module list and the layers are in `PEEGEEQ_ARCHITECTURE.md`.
 
 ## 2. Choose a delivery model
 
@@ -38,18 +38,18 @@ These rules apply to every model:
 - A queue message carries a correlation ID (`MessageProducer.send(payload, headers, correlationId)`). It
   carries no causation ID. Causation IDs belong to bi-temporal events only.
 - A simple consumer does not preserve order between messages (read in code, not run). Per-key order requires the `OFFSET_WATERMARK`
-  completion mode and a message group. The [Ordering Guide](PEEGEEQ_ORDERING_GUIDE.md) owns that contract.
+  completion mode and a message group. `PEEGEEQ_ORDERING_GUIDE.md` owns that contract.
 
 Producer send modes, consumer groups, filtering, retry and the dead-letter queue are in the
-[Messaging Guide](PEEGEEQ_MESSAGING_GUIDE.md). The event store is in the
-[Event Store Guide](PEEGEEQ_EVENT_STORE_GUIDE.md).
+`PEEGEEQ_MESSAGING_GUIDE.md`. The event store is in the
+`PEEGEEQ_EVENT_STORE_GUIDE.md`.
 
 ## 3. Prerequisites
 
 - JDK 27 registered in `~/.m2/toolchains.xml`. The root `pom.xml` sets `maven.compiler.release` to 27, and
   `maven-toolchains-plugin` compiles and runs tests on that JDK. Maven itself may run on another JDK. The
   required `toolchains.xml` entry is in section 6 of
-  [PeeGeeQ Test Commands](../docs-design/testing/PEEGEEQ-TEST-COMMANDS.md).
+  PeeGeeQ Test Commands (`docs-design/testing/PEEGEEQ-TEST-COMMANDS.md`).
 - Maven 3.8.0 or later. The enforcer rule in the root `pom.xml` rejects older versions.
 - Docker. Every database test and the management UI end-to-end tests start PostgreSQL through
   Testcontainers.
@@ -57,7 +57,7 @@ Producer send modes, consumer groups, filtering, retry and the dead-letter queue
   `frontend-maven-plugin` installs them into `peegeeq-management-ui/node` during a Maven build.
 - Windows and PowerShell. The command forms below are PowerShell.
 
-Contributor setup and CI are in the [Contributor Guide](PEEGEEQ_CONTRIBUTOR_GUIDE.md).
+Contributor setup and CI are in `PEEGEEQ_CONTRIBUTOR_GUIDE.md`.
 
 ## 4. Start the local stack
 
@@ -99,7 +99,7 @@ The statements in this list were read in code, not run.
   with "allowedOrigins must be provided and non-empty" and the server does not start.
 - `StartRestServer.main` does not read its arguments. `-Dexec.args` has no effect.
 - The startup banner prints `http://localhost:8080/health` and `http://localhost:8080/api/v1`. Both
-  lines are wrong (defect D31 in [tasks.md](../docs-design/tasks/tasks.md)). The server listens on 8088.
+  lines are wrong (defect D31 in `docs-design/tasks/tasks.md`). The server listens on 8088.
 - The server opens no database at startup. It reaches a database only through a setup (section 4.4).
 
 Check the server:
@@ -127,8 +127,8 @@ The Vite development server listens on port 3000 and forwards `/api` and `/ws` t
 
 A setup names a database, a schema, and the queues and event stores in it. Create one from the management
 UI with the coordinates of the database in section 4.1, or through the REST API. The request body and the
-create and connect behaviour are in the [REST API Guide](PEEGEEQ_REST_API_GUIDE.md) and the
-[Database Guide](PEEGEEQ_DATABASE_GUIDE.md).
+create and connect behaviour are in `PEEGEEQ_REST_API_GUIDE.md` and the
+`PEEGEEQ_DATABASE_GUIDE.md`.
 
 ### 4.5 Management UI end-to-end tests
 
@@ -139,7 +139,7 @@ PostgreSQL container and starts the REST server with `mvn process-resources exec
 It stops a server on 8088 when it holds no record of that server's database port, when the recorded port
 differs from the new container's port, or when the server's CORS settings are stale, and then starts its
 own. A server started by hand in section 4.2 has no such record, so it is stopped and replaced.
-It also stops any process on port 3000. Section 7 of [PeeGeeQ Test Commands](../docs-design/testing/PEEGEEQ-TEST-COMMANDS.md)
+It also stops any process on port 3000. Section 7 of PeeGeeQ Test Commands (`docs-design/testing/PEEGEEQ-TEST-COMMANDS.md`)
 describes the procedure.
 
 ## 5. The Future contract
@@ -153,7 +153,7 @@ with each returned Future:
 
 A Future that is neither returned, composed nor observed loses its failure. The banned patterns, such as
 converting a failure into a success, blocking bridges to JDK futures, fixed sleeps and callback style, are
-listed in section 4 of the [coding principles](../docs-design/dev/pgq-coding-principles.md).
+listed in section 4 of the coding principles (`docs-design/dev/pgq-coding-principles.md`).
 
 Return the operation:
 
@@ -245,7 +245,7 @@ These rules hold:
 
 The event store joins a caller's transaction through `appendBuilder()...inTransaction(connection).execute()`.
 A correction built with `.correction(...)` ignores the connection and does not join the transaction (read
-in code, not run; D41). The [Event Store Guide](PEEGEEQ_EVENT_STORE_GUIDE.md) owns its rules.
+in code, not run; D41). `PEEGEEQ_EVENT_STORE_GUIDE.md` owns its rules.
 
 ## 7. First producer and consumer
 
@@ -287,7 +287,7 @@ Further examples, run with the same command and a different `-Dtest=` value:
 For `OutboxProducerTransactionTest`, use `-pl ":peegeeq-outbox"`.
 
 The `exec` executions in `peegeeq-examples/pom.xml` are not a supported entry point: most of them name main
-classes that do not exist (defect D30 in [tasks.md](../docs-design/tasks/tasks.md)).
+classes that do not exist (defect D30 in `docs-design/tasks/tasks.md`).
 
 `peegeeq-examples-spring` is a separate Maven project, not a module of the root reactor. It holds Spring Boot
 applications such as `SpringBootOutboxApplication` and `SpringBootConsumerApplication`, and consumes PeeGeeQ
@@ -297,12 +297,12 @@ as artifacts installed into the local Maven repository by the root build.
 
 | Subject | Guide |
 |---|---|
-| Modules, layers, delivery semantics | [Architecture](PEEGEEQ_ARCHITECTURE.md) |
-| Producers, consumers, consumer groups, filtering, retry, dead letters | [Messaging](PEEGEEQ_MESSAGING_GUIDE.md) |
-| Ordered consumption | [Ordering](PEEGEEQ_ORDERING_GUIDE.md) |
-| Bi-temporal events, corrections, subscriptions, pagination | [Event Store](PEEGEEQ_EVENT_STORE_GUIDE.md) |
-| Runtime properties and profiles | [Configuration](PEEGEEQ_CONFIGURATION_GUIDE.md) |
-| Setups, migrations, templates, schemas | [Database](PEEGEEQ_DATABASE_GUIDE.md) |
-| HTTP, SSE and WebSocket interfaces | [REST API](PEEGEEQ_REST_API_GUIDE.md) |
-| Lifecycle, recovery, metrics, tracing | [Operations](PEEGEEQ_OPERATIONS_GUIDE.md) |
-| Build, tests and CI for contributors | [Contributor Guide](PEEGEEQ_CONTRIBUTOR_GUIDE.md) |
+| Modules, layers, delivery semantics | `PEEGEEQ_ARCHITECTURE.md` |
+| Producers, consumers, consumer groups, filtering, retry, dead letters | `PEEGEEQ_MESSAGING_GUIDE.md` |
+| Ordered consumption | `PEEGEEQ_ORDERING_GUIDE.md` |
+| Bi-temporal events, corrections, subscriptions, pagination | `PEEGEEQ_EVENT_STORE_GUIDE.md` |
+| Runtime properties and profiles | `PEEGEEQ_CONFIGURATION_GUIDE.md` |
+| Setups, migrations, templates, schemas | `PEEGEEQ_DATABASE_GUIDE.md` |
+| HTTP, SSE and WebSocket interfaces | `PEEGEEQ_REST_API_GUIDE.md` |
+| Lifecycle, recovery, metrics, tracing | `PEEGEEQ_OPERATIONS_GUIDE.md` |
+| Build, tests and CI for contributors | `PEEGEEQ_CONTRIBUTOR_GUIDE.md` |

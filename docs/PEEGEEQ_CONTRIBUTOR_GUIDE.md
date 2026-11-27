@@ -2,21 +2,21 @@
 © Mark Andrew Ray-Smith Cityline Ltd 2025  
 Version 2.0
 
-This guide states the working sequence for a change to PeeGeeQ and links the documents that own the rules.
-It does not restate those rules. Where this guide and a linked standard differ, the standard is correct and
+This guide states the working sequence for a change to PeeGeeQ and names the documents that own the rules.
+It does not restate those rules. Where this guide and a named standard differ, the standard is correct and
 this guide is a defect.
 
 ## 1. Normative sources
 
 | Subject | Document |
 |---|---|
-| Coding rules, Vert.x 5 Future patterns, banned patterns, transactions, schema isolation | [Coding principles](../docs-design/dev/pgq-coding-principles.md) |
-| Test rules and antipatterns | [Testing standards and antipatterns](../docs-design/testing/PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md) |
-| Approved test structure | [Testing patterns](../docs-design/testing/PEEGEEQ_TESTING_STANDARDS_PATTERNS.md) |
-| Guard tests and their baselines | [Test guard](../docs-design/testing/PEEGEEQ_TEST_GUARD.md) |
-| Maven commands, profiles, JDK toolchain, UI end-to-end tests, Jenkins suites | [Test commands](../docs-design/testing/PEEGEEQ-TEST-COMMANDS.md) |
-| Working rules for coding agents | [`.claude/CLAUDE.md`](../.claude/CLAUDE.md) |
-| Task status and the defect register | [tasks.md](../docs-design/tasks/tasks.md) |
+| Coding rules, Vert.x 5 Future patterns, banned patterns, transactions, schema isolation | Coding principles (`docs-design/dev/pgq-coding-principles.md`) |
+| Test rules and antipatterns | Testing standards and antipatterns (`docs-design/testing/PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md`) |
+| Approved test structure | Testing patterns (`docs-design/testing/PEEGEEQ_TESTING_STANDARDS_PATTERNS.md`) |
+| Guard tests and their baselines | Test guard (`docs-design/testing/PEEGEEQ_TEST_GUARD.md`) |
+| Maven commands, profiles, JDK toolchain, UI end-to-end tests, Jenkins suites | Test commands (`docs-design/testing/PEEGEEQ-TEST-COMMANDS.md`) |
+| Working rules for coding agents | `.claude/CLAUDE.md` |
+| Task status and the defect register | `docs-design/tasks/tasks.md` |
 
 Copy Maven commands from the test-commands document. Do not compose them from memory.
 
@@ -101,7 +101,7 @@ on every `mvn test`. Fix the code that a guard rejects. Do not relax the guard.
 
 Management UI tests: plain `mvn test` runs the Vitest suites of both UI modules. The Playwright suite runs
 with `npm run test:e2e` in `peegeeq-management-ui`; it starts its own PostgreSQL container and REST server.
-The [Getting Started guide](PEEGEEQ_GETTING_STARTED.md) and section 7 of the test-commands document describe
+`PEEGEEQ_GETTING_STARTED.md` and section 7 of the test-commands document describe
 it.
 
 ## 5. Continuous integration
@@ -117,14 +117,14 @@ document maps each suite to its Maven command.
 
 Host setup and operation:
 
-- [Jenkins CI on VMware ESXi](../docs-design/dev/PEEGEEQ_JENKINS_ESXI_CI_SETUP.md)
-- [Password-free SSH from WSL to the Linux VM](../docs-design/dev/PEEGEEQ_WSL_PASSWORDLESS_SSH_SETUP.md)
+- Jenkins CI on VMware ESXi (`docs-design/dev/PEEGEEQ_JENKINS_ESXI_CI_SETUP.md`)
+- Password-free SSH from WSL to the Linux VM (`docs-design/dev/PEEGEEQ_WSL_PASSWORDLESS_SSH_SETUP.md`)
 
 These documents describe one environment. They do not require a PeeGeeQ deployment to use Jenkins or ESXi.
 
 ## 6. Documentation
 
-The rules for documents in `docs/` are in [README.md](README.md). One document owns each fact, and other
-documents link to it. Status lives in the [task register](../docs-design/tasks/tasks.md). A code defect
+The rules for documents in `docs/` are in `README.md`. One document owns each fact, and other
+documents refer to it by name. Status lives in the task register (`docs-design/tasks/tasks.md`). A code defect
 found while writing a document goes into the defect table of the task register; the document states what
 the code does and names the defect.

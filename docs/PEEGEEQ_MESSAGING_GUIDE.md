@@ -8,14 +8,14 @@ idempotent handlers.
 
 Related documents:
 
-- [Getting Started](PEEGEEQ_GETTING_STARTED.md) owns the `Future` contract, local startup, and the first
+- `PEEGEEQ_GETTING_STARTED.md` owns the `Future` contract, local startup, and the first
   producer and consumer.
-- [Architecture](PEEGEEQ_ARCHITECTURE.md) explains the native, outbox and bi-temporal models and the
+- `PEEGEEQ_ARCHITECTURE.md` explains the native, outbox and bi-temporal models and the
   at-least-once guarantee.
-- [Ordering Guide](PEEGEEQ_ORDERING_GUIDE.md) owns per-key ordering and `OFFSET_WATERMARK` topics.
-- [Configuration Guide](PEEGEEQ_CONFIGURATION_GUIDE.md) owns every runtime property named indirectly here
+- `PEEGEEQ_ORDERING_GUIDE.md` owns per-key ordering and `OFFSET_WATERMARK` topics.
+- `PEEGEEQ_CONFIGURATION_GUIDE.md` owns every runtime property named indirectly here
   (retry limit, visibility timeout, polling interval, background jobs).
-- [REST API Guide](PEEGEEQ_REST_API_GUIDE.md) owns the HTTP form of these operations.
+- `PEEGEEQ_REST_API_GUIDE.md` owns the HTTP form of these operations.
 
 Statements marked "(read in code, not run)" come from reading the source. They have not been confirmed by a
 test run for this guide.
@@ -23,7 +23,7 @@ test run for this guide.
 ## 1. Delivery contract
 
 Delivery is at-least-once. A handler can receive the same message more than once, and the queue does not
-make the handler's side effects exactly-once. The [Architecture](PEEGEEQ_ARCHITECTURE.md) guide lists the
+make the handler's side effects exactly-once. `PEEGEEQ_ARCHITECTURE.md` lists the
 paths that cause a redelivery. Every handler must be idempotent (section 7).
 
 Each message has three identifying values:
@@ -39,7 +39,7 @@ priority or correlation accessor on the interface. `SimpleMessage<T>` adds `getT
 `getCorrelationId()` and `getMessageGroup()`.
 
 Queue messages carry a correlation ID only. A causation ID belongs to the bi-temporal event store; see the
-[Event Store Guide](PEEGEEQ_EVENT_STORE_GUIDE.md).
+`PEEGEEQ_EVENT_STORE_GUIDE.md`.
 
 ## 2. Producers
 
@@ -53,7 +53,7 @@ completes when the row is committed.
 | `send(payload)` | Payload only |
 | `send(payload, headers)` | Adds string headers |
 | `send(payload, headers, correlationId)` | Adds a correlation ID |
-| `send(payload, headers, correlationId, messageGroup)` | Adds a message group, the partition key of the [Ordering Guide](PEEGEEQ_ORDERING_GUIDE.md) |
+| `send(payload, headers, correlationId, messageGroup)` | Adds a message group, the partition key of `PEEGEEQ_ORDERING_GUIDE.md` |
 
 A factory creates a producer with `createProducer(topic, payloadType)`. The factory type decides the table:
 `native` writes `queue_messages`, `outbox` writes `outbox`.
@@ -103,9 +103,9 @@ Future<String> createOrder(Pool pool, OutboxProducer<JsonObject> producer, JsonO
 
 Compiled examples of this pattern:
 
-- [`VertxTransactionParticipationExample`](../peegeeq-examples/src/main/java/dev/mars/peegeeq/examples/outbox/VertxTransactionParticipationExample.java)
+- `VertxTransactionParticipationExample`
   uses `Pool.withTransaction`.
-- [`springboot/service/OrderService`](../peegeeq-examples-spring/src/main/java/dev/mars/peegeeq/examples/springboot/service/OrderService.java)
+- `springboot/service/OrderService`
   uses `DatabaseService.getConnectionProvider().withTransaction(clientId, ...)` and sends three events in one
   transaction.
 
@@ -152,7 +152,7 @@ Future<Void> publishOrderPaid(OutboxProducer<OrderPaid> producer, OrderPaid even
   run).
 
 The REST API maps the `Idempotency-Key` HTTP header to this header; see the
-[REST API Guide](PEEGEEQ_REST_API_GUIDE.md).
+`PEEGEEQ_REST_API_GUIDE.md`.
 
 ## 3. Consumers
 
@@ -213,7 +213,7 @@ The native consumer claims in `priority DESC, created_at ASC` order. It sets the
 | `OutboxConsumerConfig` (`peegeeq-outbox`) | outbox | polling interval, batch size, consumer threads, retry limit, server-side filter |
 
 A factory rejects a configuration object of the other type. Without a configuration object the consumer
-uses the queue settings of the [Configuration Guide](PEEGEEQ_CONFIGURATION_GUIDE.md).
+uses the queue settings of `PEEGEEQ_CONFIGURATION_GUIDE.md`.
 
 ### 3.4 Reading without consuming
 
@@ -238,7 +238,7 @@ member.
 Two groups on the same topic, in the default `REFERENCE_COUNTING` mode, compete for its messages: each message
 goes to one group. This holds for `QUEUE` and `PUB_SUB` topics alike, because the group claims through the
 row status that all groups share (read in code, not run; register D44). The test
-[`AdvancedProducerConsumerGroupTest`](../peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/outbox/AdvancedProducerConsumerGroupTest.java)
+`AdvancedProducerConsumerGroupTest`
 `testConcurrentConsumerGroups` asserts this for outbox groups on a `QUEUE` topic only. The per-group completion
 path for `PUB_SUB` (`ConsumerGroupFetcher`, and the `CompletionTracker` test fixture) has no production caller.
 
@@ -254,7 +254,7 @@ run):
 
 That mode requires the outbox producer and a schema built by the Flyway migrations: the partition tables exist
 only in `V017` and `V018`, and the setup templates do not create them (register D42; see the
-[Database Guide](PEEGEEQ_DATABASE_GUIDE.md)). The [Ordering Guide](PEEGEEQ_ORDERING_GUIDE.md) describes the
+`PEEGEEQ_DATABASE_GUIDE.md`). `PEEGEEQ_ORDERING_GUIDE.md` describes the
 mode.
 
 ### 4.2 Topic configuration
@@ -266,7 +266,7 @@ inserts or replaces the row; `updateTopic(config)` fails when the row does not e
 |---|---|
 | `semantics` | `QUEUE` (default) or `PUB_SUB`. Changes the zero-subscription check, the deletion rule of `CleanupService`, and (on a schema built by the Flyway migrations) the `required_consumer_groups` count that a trigger sets on insert. It does not change which group receives a message (section 4.1) |
 | `completionTrackingMode` | `REFERENCE_COUNTING` (default) or `OFFSET_WATERMARK` |
-| `messageRetentionHours`, `zeroSubscriptionRetentionHours` | Retention inputs of `CleanupService`. No production code schedules that service (see [Architecture](PEEGEEQ_ARCHITECTURE.md)) |
+| `messageRetentionHours`, `zeroSubscriptionRetentionHours` | Retention inputs of `CleanupService`. No production code schedules that service (see `PEEGEEQ_ARCHITECTURE.md`) |
 | `blockWritesOnZeroSubscriptions` | Input of `ZeroSubscriptionValidator` (section 4.7) |
 
 A topic with no row behaves as `QUEUE` with `REFERENCE_COUNTING`.
@@ -288,7 +288,7 @@ implementation. In the outbox implementation it fails with `IllegalStateExceptio
 The outbox group routes to the `OFFSET_WATERMARK` engine only from `start(SubscriptionOptions)`. The native
 group checks the topic mode in both start methods. If the outbox group cannot read the topic mode, it logs a
 warning and starts in `REFERENCE_COUNTING` mode (read in code, not run; register D44). The engine needs the
-Flyway-built schema of register D42; see the [Database Guide](PEEGEEQ_DATABASE_GUIDE.md).
+Flyway-built schema of register D42; see `PEEGEEQ_DATABASE_GUIDE.md`.
 
 ```java
 Future<Void> startBilling(QueueFactory factory, MessageHandler<OrderEvent> handler) {
@@ -340,7 +340,7 @@ When `subscribe` is called with `FROM_BEGINNING` and the stored bound is the beg
 The backfill raises `required_consumer_groups` and writes `outbox_consumer_groups` tracking rows. It reads the
 `outbox` table whatever the subscription store (register D44). The production consumer-group path does not read the tracking
 rows, so the backfill changes bookkeeping, not what the group receives (read in code, not run). The
-[Architecture](PEEGEEQ_ARCHITECTURE.md) guide has the two backfill sequence diagrams.
+`PEEGEEQ_ARCHITECTURE.md` has the two backfill sequence diagrams.
 
 ### 4.6 Subscription lifecycle
 
@@ -377,7 +377,7 @@ long startHeartbeats(Vertx vertx, SubscriptionService subscriptions, Subscriptio
 ```
 
 The dead-consumer detection job runs on a timer unless it is disabled (see the
-[Configuration Guide](PEEGEEQ_CONFIGURATION_GUIDE.md)). On each run it counts a miss for every `ACTIVE` or
+`PEEGEEQ_CONFIGURATION_GUIDE.md`). On each run it counts a miss for every `ACTIVE` or
 `PAUSED` subscription whose last heartbeat is older than `heartbeatTimeoutSeconds`. It marks the subscription
 `DEAD` when the count reaches `deadAfterMisses` (default 3). A heartbeat on an `ACTIVE` subscription clears the
 count.
@@ -462,7 +462,7 @@ MessageConsumer<OrderEvent> consumer = nativeFactory.createConsumer("orders", Or
 
 A failed attempt is a failed handler Future, a thrown exception, a `null` return, or (native only) a handler
 that does not settle within the visibility timeout. The retry limit is a queue setting in the
-[Configuration Guide](PEEGEEQ_CONFIGURATION_GUIDE.md); `OutboxConsumerConfig` can override it for one outbox
+`PEEGEEQ_CONFIGURATION_GUIDE.md`; `OutboxConsumerConfig` can override it for one outbox
 consumer. The table is read in code, not run.
 
 | | Native consumer | Outbox consumer |
@@ -495,10 +495,10 @@ Dead-letter records:
   table, so the message gets a new id.
 - `PeeGeeQManager` purges dead-letter records older than 30 days once every 24 hours. Both values are fixed in
   code (read in code, not run).
-- The REST form is in the [REST API Guide](PEEGEEQ_REST_API_GUIDE.md).
+- The REST form is in `PEEGEEQ_REST_API_GUIDE.md`.
 
 A topic in `OFFSET_WATERMARK` mode has no retry count and no dead letter; see the
-[Ordering Guide](PEEGEEQ_ORDERING_GUIDE.md).
+`PEEGEEQ_ORDERING_GUIDE.md`.
 
 ## 7. Idempotent handlers
 
@@ -531,19 +531,19 @@ Choosing the key:
 
 | Class | Shows |
 |---|---|
-| [`VertxTransactionParticipationExample`](../peegeeq-examples/src/main/java/dev/mars/peegeeq/examples/outbox/VertxTransactionParticipationExample.java) | Caller-owned transaction with `sendInExistingTransaction` |
-| [`springboot/service/OrderService`](../peegeeq-examples-spring/src/main/java/dev/mars/peegeeq/examples/springboot/service/OrderService.java) | The same pattern from a Spring service; `peegeeq-examples-spring` is built outside the main reactor |
-| [`OutboxProducerTransactionTest`](../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxProducerTransactionTest.java) | Send modes, the off-context `IllegalStateException`, idempotency keys |
-| [`ConsumerGroupLoadBalancingDemoTest`](../peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/nativequeue/ConsumerGroupLoadBalancingDemoTest.java) | Members of one native group sharing a topic |
-| [`AdvancedProducerConsumerGroupTest`](../peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/outbox/AdvancedProducerConsumerGroupTest.java) | Member filters; competing groups on one topic |
-| [`DeadConsumerDetectionDemoTest`](../peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/outbox/DeadConsumerDetectionDemoTest.java) | Heartbeat timeout and `DEAD` detection |
-| [`ZeroSubscriptionProtectionDemoTest`](../peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/outbox/ZeroSubscriptionProtectionDemoTest.java) | `ZeroSubscriptionValidator` |
-| [`ConsumerGroupResilienceTest`](../peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/outbox/ConsumerGroupResilienceTest.java) | Handler failures in a group |
-| [`ServerSideFilteringTest`](../peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/nativequeue/ServerSideFilteringTest.java), [`OutboxServerSideFilteringTest`](../peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/outbox/OutboxServerSideFilteringTest.java) | Server-side filters |
+| `VertxTransactionParticipationExample` | Caller-owned transaction with `sendInExistingTransaction` |
+| `springboot/service/OrderService` | The same pattern from a Spring service; `peegeeq-examples-spring` is built outside the main reactor |
+| `OutboxProducerTransactionTest` | Send modes, the off-context `IllegalStateException`, idempotency keys |
+| `ConsumerGroupLoadBalancingDemoTest` | Members of one native group sharing a topic |
+| `AdvancedProducerConsumerGroupTest` | Member filters; competing groups on one topic |
+| `DeadConsumerDetectionDemoTest` | Heartbeat timeout and `DEAD` detection |
+| `ZeroSubscriptionProtectionDemoTest` | `ZeroSubscriptionValidator` |
+| `ConsumerGroupResilienceTest` | Handler failures in a group |
+| `ServerSideFilteringTest`, `OutboxServerSideFilteringTest` | Server-side filters |
 
 `LateJoiningConsumerDemoTest` is not listed: it reads through `ConsumerGroupFetcher`, which has no production
 caller, so its Javadoc statement that every `PUB_SUB` group receives every message does not describe
 production consumer groups.
 
 Every test class in the table is tagged `@Tag(TestCategories.INTEGRATION)`. The command forms and profiles are in
-`docs-design/testing/PEEGEEQ-TEST-COMMANDS.md`; see the [Contributor Guide](PEEGEEQ_CONTRIBUTOR_GUIDE.md).
+`docs-design/testing/PEEGEEQ-TEST-COMMANDS.md`; see `PEEGEEQ_CONTRIBUTOR_GUIDE.md`.

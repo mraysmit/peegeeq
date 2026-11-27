@@ -5,7 +5,7 @@ Version 1.0
 `peegeeq-service-manager` is an optional Vert.x HTTP service. It keeps a registry of PeeGeeQ REST
 server instances in HashiCorp Consul, and it combines the management API responses of those
 instances into one response. It is federation and discovery. It does not take part in database
-failover; the [Operations Guide](../docs/PEEGEEQ_OPERATIONS_GUIDE.md) describes the PostgreSQL
+failover; `docs/PEEGEEQ_OPERATIONS_GUIDE.md` describes the PostgreSQL
 failover boundary.
 
 "(read in code, not run)" marks runtime behaviour that was read in the source and not observed.
@@ -22,7 +22,7 @@ failover boundary.
 | Who registers instances | Nothing in PeeGeeQ registers itself. An operator or a deployment script calls `POST /api/v1/instances/register` for each instance. |
 
 The PeeGeeQ REST server's `/health` returns a fixed `UP` body without reading its database
-([REST API Guide](../docs/PEEGEEQ_REST_API_GUIDE.md)). A passing Consul check therefore means the
+(`docs/PEEGEEQ_REST_API_GUIDE.md`). A passing Consul check therefore means the
 instance's HTTP server answers, not that its database is reachable (read in code, not run).
 
 The service also registers itself in Consul as `peegeeq-service-manager`, with the ID
@@ -240,7 +240,7 @@ Each item in `queues`, `consumerGroups` and `eventStores` is the instance's own 
 fields added: `sourceInstanceId`, `sourceHost`, `sourcePort`, `sourceEnvironment` and
 `sourceRegion`. In `metrics.instances`, an instance whose call failed at the transport level appears as
 `{ "instanceId": ..., "error": true, "message": ... }`. The shapes of the instance objects are
-owned by the [REST API Guide](../docs/PEEGEEQ_REST_API_GUIDE.md).
+owned by `docs/PEEGEEQ_REST_API_GUIDE.md`.
 
 ### Instance-specific endpoints
 
@@ -286,8 +286,8 @@ Core tests: `ServiceManagerConfigTest`, `HealthCheckResultTest`, `HealthStatusTe
 Testcontainer: `PeeGeeQServiceManagerIntegrationTest`, `RealServiceDiscoveryIntegrationTest`,
 `ConsulServiceDiscoveryIntegrationTest`. The integration tests run under `-Pintegration-tests`
 and under `-Pall-tests`; the default build excludes them. The command forms are in
-[PEEGEEQ-TEST-COMMANDS.md](../docs-design/testing/PEEGEEQ-TEST-COMMANDS.md).
+`docs-design/testing/PEEGEEQ-TEST-COMMANDS.md`.
 
 ## License
 
-Apache License 2.0. See [LICENSE](../LICENSE).
+Apache License 2.0. See `LICENSE`.

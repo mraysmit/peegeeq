@@ -35,6 +35,9 @@ change.
 
 2026-11-25: the owner released Task 10 to run ahead of Task 8. Task 9 still waits for Task 8.
 
+2026-11-26: no links in documents, because links break. A document refers to another document by name (Task 10,
+OD-5).
+
 ## Status
 
 | Task | Status | Detail lives in | Next step |
@@ -48,7 +51,7 @@ change.
 | 7. Jenkins UI test-result publishing | COMPLETE, Jenkins build #48, 2026-09-05 | Archived register, Task 7 | None |
 | 8. Connection management and PostgreSQL failover | ACTIVE | `docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY_IMPLEMENTATION_PLAN.md` | PP2 (below) |
 | 9. Delivery-outcome redesign (finding 20) | ACTIVE, waits for Task 8 | `docs-design/consumer-groups/PEEGEEQ_DELIVERY_OUTCOME_REDESIGN_PROPOSAL.md` and its appendix | Owner review of increment 1b corrections (below) |
-| 10. Reduce `docs/` from 24 files to 11 and correct it against the code | COMPLETE 2026-11-25 except OD-5; released ahead of Task 8 | `docs-design/tasks/PEEGEEQ_DOCUMENTATION_REDUCTION_PLAN.md` (section 12) | Owner ruling OD-5 (link check in the build); owner review and commit of the working tree |
+| 10. Reduce `docs/` from 24 files to 11 and correct it against the code | COMPLETE 2026-11-26; released ahead of Task 8. Phases 1 to 6 committed as `75313be6`. OD-5 (owner, 2026-11-26): no links in documents; documents refer to each other by name | `docs-design/tasks/PEEGEEQ_DOCUMENTATION_REDUCTION_PLAN.md` (section 12) | Owner review and commit of the OD-5 change. Owner decision whether OD-5 also applies to the 92 other tracked Markdown files that hold links |
 
 ## Task 8. Connection management and PostgreSQL failover
 

@@ -9,11 +9,11 @@ broker process.
 This document describes the modules and their layers, the three storage and delivery models, the delivery
 guarantee, when PostgreSQL is the right queue, and the subscription backfill flow.
 
-Related documents: [Getting Started](PEEGEEQ_GETTING_STARTED.md),
-[Messaging Guide](PEEGEEQ_MESSAGING_GUIDE.md), [Ordering Guide](PEEGEEQ_ORDERING_GUIDE.md),
-[Event Store Guide](PEEGEEQ_EVENT_STORE_GUIDE.md), [Database Guide](PEEGEEQ_DATABASE_GUIDE.md),
-[Configuration Guide](PEEGEEQ_CONFIGURATION_GUIDE.md), [REST API Guide](PEEGEEQ_REST_API_GUIDE.md),
-[Operations Guide](PEEGEEQ_OPERATIONS_GUIDE.md).
+Related documents: `PEEGEEQ_GETTING_STARTED.md`,
+`PEEGEEQ_MESSAGING_GUIDE.md`, `PEEGEEQ_ORDERING_GUIDE.md`,
+`PEEGEEQ_EVENT_STORE_GUIDE.md`, `PEEGEEQ_DATABASE_GUIDE.md`,
+`PEEGEEQ_CONFIGURATION_GUIDE.md`, `PEEGEEQ_REST_API_GUIDE.md`,
+`PEEGEEQ_OPERATIONS_GUIDE.md`.
 
 Statements marked "(read in code, not run)" come from reading the source. They have not been confirmed by a
 test run for this document.
@@ -94,11 +94,11 @@ no type is registered. The factory creates producers, consumers, consumer groups
 `PeeGeeQManager.start` starts the health checks, the metrics timers and the background jobs: the dead-letter
 purge, and, when configuration enables them, stuck-message recovery, dead-consumer detection and consumer-group
 retry. The stuck-message timer always runs and does nothing when recovery is disabled. The consumer-group retry job acts only on `FAILED` rows in `outbox_consumer_groups`, and no
-production code writes those rows. The settings are in the [Configuration Guide](PEEGEEQ_CONFIGURATION_GUIDE.md)
-and the operation of the jobs is in the [Operations Guide](PEEGEEQ_OPERATIONS_GUIDE.md).
+production code writes those rows. The settings are in `PEEGEEQ_CONFIGURATION_GUIDE.md`
+and the operation of the jobs is in `PEEGEEQ_OPERATIONS_GUIDE.md`.
 
 Every table of a setup lives in one configured schema. There is no default schema. The
-[Database Guide](PEEGEEQ_DATABASE_GUIDE.md) describes setup, migrations and templates.
+`PEEGEEQ_DATABASE_GUIDE.md` describes setup, migrations and templates.
 
 ## 2. Storage and delivery models
 
@@ -117,12 +117,12 @@ The table is read in code, not run.
 
 Choose the native queue when the producer does not need to share a transaction with business data. Choose the
 outbox when the message must commit or roll back with business rows; the
-[Messaging Guide](PEEGEEQ_MESSAGING_GUIDE.md) explains the send modes. Choose the event store when the history
-itself is the record; see the [Event Store Guide](PEEGEEQ_EVENT_STORE_GUIDE.md).
+`PEEGEEQ_MESSAGING_GUIDE.md` explains the send modes. Choose the event store when the history
+itself is the record; see `PEEGEEQ_EVENT_STORE_GUIDE.md`.
 
 Partitioned, per-key ordered consumption (`OFFSET_WATERMARK`) reads the `outbox` table only. It needs the outbox
 producer and a schema built by the Flyway migrations (register D42). See the
-[Ordering Guide](PEEGEEQ_ORDERING_GUIDE.md).
+`PEEGEEQ_ORDERING_GUIDE.md`.
 
 No production code schedules `CleanupService`, the class that deletes completed outbox rows after their
 retention period (register D44). `COMPLETED` outbox rows stay in the table until a caller deletes them, for
@@ -144,14 +144,14 @@ than once on these paths (read in code, not run):
   the commit. The `idempotencyKey` header prevents the second row.
 
 The queue does not make handler side effects exactly-once. Handlers must be idempotent; the
-[Messaging Guide](PEEGEEQ_MESSAGING_GUIDE.md) shows the pattern.
+`PEEGEEQ_MESSAGING_GUIDE.md` shows the pattern.
 
 `NOTIFY` is a wake-up signal, not the queue. The row is the durable state. A lost notification delays a
 message; it does not lose it, provided the consumer also polls (`HYBRID` or `POLLING_ONLY`) or receives a later
 notification (read in code, not run).
 
 At-least-once describes redelivery. It does not mean every message reaches every consumer: the
-[Messaging Guide](PEEGEEQ_MESSAGING_GUIDE.md) and the [Ordering Guide](PEEGEEQ_ORDERING_GUIDE.md) list the code
+`PEEGEEQ_MESSAGING_GUIDE.md` and `PEEGEEQ_ORDERING_GUIDE.md` list the code
 paths that can complete or skip a message without delivering it (registers D1 and D44).
 
 ## 4. When PostgreSQL is the right queue
@@ -189,13 +189,13 @@ Judge the fit by the shape of the workload, not by its size:
 
 Watch the database, not only message throughput: dead tuples on the queue tables, autovacuum activity, lock and
 write-ahead-log wait events, and the age of the oldest pending message. The
-[Operations Guide](PEEGEEQ_OPERATIONS_GUIDE.md) covers metrics.
+`PEEGEEQ_OPERATIONS_GUIDE.md` covers metrics.
 
 ## 5. Subscription backfill
 
 A consumer-group subscription with `StartPosition.FROM_BEGINNING` can backfill fan-out bookkeeping for messages
 that already exist. The production consumer-group path does not read the tracking rows that the backfill
-writes; the [Messaging Guide](PEEGEEQ_MESSAGING_GUIDE.md) explains what the backfill changes for delivery.
+writes; `PEEGEEQ_MESSAGING_GUIDE.md` explains what the backfill changes for delivery.
 
 Key classes:
 
@@ -350,7 +350,7 @@ sequenceDiagram
 
 Tests that exercise these flows:
 
-- Backfill integration: [`BackfillServiceIntegrationTest`](../peegeeq-db/src/test/java/dev/mars/peegeeq/db/fanout/BackfillServiceIntegrationTest.java)
-- Concurrency and race safety: [`BackfillServiceConcurrencyTest`](../peegeeq-benchmarking/src/test/java/dev/mars/peegeeq/db/fanout/BackfillServiceConcurrencyTest.java)
-- Backfill scope workload: [`BackfillScopePerformanceTest`](../peegeeq-benchmarking/src/test/java/dev/mars/peegeeq/db/fanout/BackfillScopePerformanceTest.java)
-- Backfill against OLTP load: [`P4_BackfillVsOLTPTest`](../peegeeq-benchmarking/src/test/java/dev/mars/peegeeq/db/fanout/P4_BackfillVsOLTPTest.java)
+- Backfill integration: `BackfillServiceIntegrationTest`
+- Concurrency and race safety: `BackfillServiceConcurrencyTest`
+- Backfill scope workload: `BackfillScopePerformanceTest`
+- Backfill against OLTP load: `P4_BackfillVsOLTPTest`

@@ -4,9 +4,9 @@ Version 1.0
 
 This guide explains how a PeeGeeQ schema comes into existence, what it contains, and how a setup is
 provisioned, connected, detached and dropped. Property names are in
-[PEEGEEQ_CONFIGURATION_GUIDE.md](PEEGEEQ_CONFIGURATION_GUIDE.md). Endpoint detail is in
-[PEEGEEQ_REST_API_GUIDE.md](PEEGEEQ_REST_API_GUIDE.md). Test setup is in
-[PEEGEEQ_TESTING_STANDARDS_PATTERNS.md](../docs-design/testing/PEEGEEQ_TESTING_STANDARDS_PATTERNS.md).
+`PEEGEEQ_CONFIGURATION_GUIDE.md`. Endpoint detail is in
+`PEEGEEQ_REST_API_GUIDE.md`. Test setup is in
+`docs-design/testing/PEEGEEQ_TESTING_STANDARDS_PATTERNS.md`.
 
 How the statements in this guide were checked:
 
@@ -15,7 +15,7 @@ How the statements in this guide were checked:
 - A statement that rests on Flyway or PostgreSQL behaviour says so.
 - A statement marked "search of the main sources" comes from a text search of the `src/main` trees.
 - Defects that explain a behaviour cite their register entry in
-  [tasks.md](../docs-design/tasks/tasks.md).
+  `docs-design/tasks/tasks.md`.
 
 ## 1. Two ways to create a schema
 
@@ -24,8 +24,8 @@ D7).
 
 | Path | Source | Used by | Creates the database |
 |---|---|---|---|
-| Flyway migrations | [`peegeeq-migrations/src/main/resources/db/migration/`](../peegeeq-migrations/src/main/resources/db/migration/) | A deployment that creates the schema before the application starts | No. The database must exist |
-| Setup templates | [`peegeeq-db/src/main/resources/db/templates/`](../peegeeq-db/src/main/resources/db/templates/) | `DatabaseSetupService`: `PeeGeeQRuntime`, the REST server | Yes |
+| Flyway migrations | `peegeeq-migrations/src/main/resources/db/migration/` | A deployment that creates the schema before the application starts | No. The database must exist |
+| Setup templates | `peegeeq-db/src/main/resources/db/templates/` | `DatabaseSetupService`: `PeeGeeQRuntime`, the REST server | Yes |
 
 No runtime module runs Flyway. Outside the templates, the only DDL that runtime classes issue is
 `CREATE DATABASE` and `DROP DATABASE ... WITH (FORCE)` in `DatabaseTemplateManager`, and
@@ -89,7 +89,7 @@ registry tables and the `peegeeq_setup_metadata` row (D42 (a)). See section 5.
 Every PeeGeeQ object of a setup lives in one schema. PeeGeeQ has no default schema.
 
 - An application configuration sets `peegeeq.database.schema`. `PeeGeeQConfiguration` rejects an empty
-  value. The [Configuration Guide](PEEGEEQ_CONFIGURATION_GUIDE.md) owns the property.
+  value. `PEEGEEQ_CONFIGURATION_GUIDE.md` owns the property.
 - A setup request sets `DatabaseConfig.schema`. `createCompleteSetup` and `connectToExistingSetup`
   fail when it is null or blank. The REST parser returns 400 "schema is required".
 - `RunMigrations` fails when `DB_SCHEMA` is unset.
@@ -165,8 +165,8 @@ Tables in a fully migrated schema:
 
 Flyway also creates `flyway_schema_history` in the target schema (Flyway behaviour, covered by
 `CustomSchemaIntegrationTest` in `peegeeq-migrations`). The
-[messaging guide](PEEGEEQ_MESSAGING_GUIDE.md), [ordering guide](PEEGEEQ_ORDERING_GUIDE.md) and
-[event store guide](PEEGEEQ_EVENT_STORE_GUIDE.md) explain how these tables are used.
+`PEEGEEQ_MESSAGING_GUIDE.md`, `PEEGEEQ_ORDERING_GUIDE.md` and
+`PEEGEEQ_EVENT_STORE_GUIDE.md` explain how these tables are used.
 
 ### Running `RunMigrations`
 
@@ -270,9 +270,9 @@ Future<DatabaseSetupResult> provisionOrders(DatabaseSetupService setupService, S
 ```
 
 The caller composes on the returned `Future` or observes both outcomes. Between them, the tests
-[`RuntimeDatabaseSetupServiceIntegrationTest`](../peegeeq-runtime/src/test/java/dev/mars/peegeeq/runtime/RuntimeDatabaseSetupServiceIntegrationTest.java)
+`RuntimeDatabaseSetupServiceIntegrationTest`
 and
-[`DatabaseSetupServiceIntegrationTest`](../peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/integration/DatabaseSetupServiceIntegrationTest.java)
+`DatabaseSetupServiceIntegrationTest`
 call `createCompleteSetup`, `addQueue`, `addEventStore`, `connectToExistingSetup`, `destroySetup` and
 `dropSetupDatabase`.
 
@@ -374,7 +374,7 @@ must equal the setup's database name; otherwise it fails with `IllegalArgumentEx
 `pg_stat_activity`, repeating every 100 ms for at most 21 attempts until none remain. It then runs
 `DROP DATABASE IF EXISTS ... WITH (FORCE)`, which requires PostgreSQL 13 or later (PostgreSQL behaviour).
 After the drop it starts `detachSetup`; the returned `Future` does not wait for the detach. The REST
-endpoints are listed in [PEEGEEQ_REST_API_GUIDE.md](PEEGEEQ_REST_API_GUIDE.md).
+endpoints are listed in `PEEGEEQ_REST_API_GUIDE.md`.
 
 ### Persisted setup bindings
 
@@ -393,7 +393,7 @@ password.
 - `PeeGeeQRuntime` and the REST server configure no registry, and the REST request parser does not read
   `persistBinding` or `credentialRef`. No class calls `reloadPersistedSetups` (D42 (m)).
 
-[`SetupBindingPersistenceIntegrationTest`](../peegeeq-db/src/test/java/dev/mars/peegeeq/db/setup/SetupBindingPersistenceIntegrationTest.java)
+`SetupBindingPersistenceIntegrationTest`
 exercises these paths.
 
 ## 6. What the templates create

@@ -9,22 +9,22 @@ was read in the source and not observed.
 
 Other documents own related facts:
 
-- Every runtime property, its default and its validation: [Configuration Guide](PEEGEEQ_CONFIGURATION_GUIDE.md).
+- Every runtime property, its default and its validation: `PEEGEEQ_CONFIGURATION_GUIDE.md`.
   This guide names a setting by its subject and does not repeat keys.
-- Health, metrics and streaming endpoints of the REST server: [REST API Guide](PEEGEEQ_REST_API_GUIDE.md).
-- Schemas, migrations and setups: [Database Guide](PEEGEEQ_DATABASE_GUIDE.md).
-- Consumer groups, retry and dead letters from the application side: [Messaging Guide](PEEGEEQ_MESSAGING_GUIDE.md).
-- Federation and discovery across PeeGeeQ instances: [peegeeq-service-manager README](../peegeeq-service-manager/README.md).
+- Health, metrics and streaming endpoints of the REST server: `PEEGEEQ_REST_API_GUIDE.md`.
+- Schemas, migrations and setups: `PEEGEEQ_DATABASE_GUIDE.md`.
+- Consumer groups, retry and dead letters from the application side: `PEEGEEQ_MESSAGING_GUIDE.md`.
+- Federation and discovery across PeeGeeQ instances: `peegeeq-service-manager/README.md`.
 
 ## Contents
 
-1. [Manager lifecycle and shutdown](#1-manager-lifecycle-and-shutdown)
-2. [Background jobs and recovery](#2-background-jobs-and-recovery)
-3. [Health checks](#3-health-checks)
-4. [PostgreSQL connectivity and failover](#4-postgresql-connectivity-and-failover)
-5. [Metrics](#5-metrics)
-6. [Tracing and logging](#6-tracing-and-logging)
-7. [Performance evidence](#7-performance-evidence)
+1. Manager lifecycle and shutdown
+2. Background jobs and recovery
+3. Health checks
+4. PostgreSQL connectivity and failover
+5. Metrics
+6. Tracing and logging
+7. Performance evidence
 
 ---
 
@@ -100,7 +100,7 @@ After the returned Future settles, the manager closes its Vert.x if it created i
 run).
 
 Event stores are not closed by the manager. Each event store has its own pool and LISTEN
-connection ([Event Store Guide](PEEGEEQ_EVENT_STORE_GUIDE.md)). Close them first. `CloseSteps`
+connection (`PEEGEEQ_EVENT_STORE_GUIDE.md`). Close them first. `CloseSteps`
 (`peegeeq-api`, package `dev.mars.peegeeq.api.lifecycle`) runs every step and reports the first
 failure:
 
@@ -198,7 +198,7 @@ result set before the first check has run. `PeeGeeQManager.isHealthy()` returns 
 boolean (read in code, not run).
 
 The REST server's `/health` and `/api/v1/health` return a fixed `UP` body; they do not read the
-database. The [REST API Guide](PEEGEEQ_REST_API_GUIDE.md) describes these and the per-setup health
+database. `PEEGEEQ_REST_API_GUIDE.md` describes these and the per-setup health
 endpoints.
 
 ## 4. PostgreSQL connectivity and failover
@@ -213,10 +213,10 @@ write primary, 503 on a replica, and 503 when the query fails. Every other path 
 
 PeeGeeQ does not use the Patroni product. `peegeeq-pg-failover` holds writer-ownership components,
 but no module depends on it, so PeeGeeQ performs no automatic failover. The work is Task 8 in the
-[task register](../docs-design/tasks/tasks.md).
+task register (`docs-design/tasks/tasks.md`).
 
 The service manager is not part of database failover. It discovers and federates PeeGeeQ REST
-instances through Consul ([module README](../peegeeq-service-manager/README.md)).
+instances through Consul (`peegeeq-service-manager/README.md`).
 
 Design records:
 
@@ -443,12 +443,12 @@ mvn test "-Psmoke-tests" -pl :peegeeq-integration-tests "-Dtest=TraceIdSpanIdDem
 
 Without `-Psmoke-tests` the default tag filter excludes the test, and Maven selects zero tests (read
 in the root `pom.xml`, not run). The command forms are defined in
-[PEEGEEQ-TEST-COMMANDS.md](../docs-design/testing/PEEGEEQ-TEST-COMMANDS.md).
+`docs-design/testing/PEEGEEQ-TEST-COMMANDS.md`.
 
 ## 7. Performance evidence
 
 Benchmark scenarios live in the `peegeeq-benchmarking` module. A performance figure is valid only
 for the workload, hardware, database, pool size, concurrency and revision it was recorded with.
 Dated results are release evidence, recorded against their task in the
-[task register](../docs-design/tasks/tasks.md) with the saved logs they came from. This guide states
+task register (`docs-design/tasks/tasks.md`) with the saved logs they came from. This guide states
 none.

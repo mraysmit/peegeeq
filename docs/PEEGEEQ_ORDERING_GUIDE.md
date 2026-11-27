@@ -5,9 +5,9 @@ Version 1.0
 This guide explains how to choose and apply an ordering model: simple consumption with idempotent handlers, or
 partitioned consumption with per-key order (`OFFSET_WATERMARK`).
 
-Related documents: [Messaging Guide](PEEGEEQ_MESSAGING_GUIDE.md) (producers, consumers, consumer groups,
-consumer modes), [Architecture](PEEGEEQ_ARCHITECTURE.md) (storage models and the at-least-once guarantee),
-[Partitioned Consumption Design](../docs-design/consumer-groups/PEEGEEQ_PARTITIONED_CONSUMPTION_DESIGN.md)
+Related documents: `PEEGEEQ_MESSAGING_GUIDE.md` (producers, consumers, consumer groups,
+consumer modes), `PEEGEEQ_ARCHITECTURE.md` (storage models and the at-least-once guarantee),
+Partitioned Consumption Design (`docs-design/consumer-groups/PEEGEEQ_PARTITIONED_CONSUMPTION_DESIGN.md`)
 (internals and design invariants).
 
 Statements marked "(read in code, not run)" come from reading the source. They have not been confirmed by a
@@ -79,7 +79,7 @@ The correct fix is to deliver the messages of one entity in order at the infrast
 | Fits | Metrics, logs, notifications, cache invalidation | Event sourcing, state machines, per-account operations |
 
 The native consumer modes (`LISTEN_NOTIFY_ONLY`, `POLLING_ONLY`, `HYBRID`) decide how a consumer wakes up. They
-do not change ordering. The [Messaging Guide](PEEGEEQ_MESSAGING_GUIDE.md) describes them.
+do not change ordering. `PEEGEEQ_MESSAGING_GUIDE.md` describes them.
 
 ### The partition key
 
@@ -115,7 +115,7 @@ Future<Void> startMetrics(QueueFactory queueFactory) {
 
 `metricsStore.recordOnce` is application code that returns `Future<Void>` and ignores an event ID it has already
 recorded. At-least-once delivery applies in every mode, so every handler needs this guard. Persist the guard in
-the database, in the same transaction as the effect; the [Messaging Guide](PEEGEEQ_MESSAGING_GUIDE.md) shows the
+the database, in the same transaction as the effect; `PEEGEEQ_MESSAGING_GUIDE.md` shows the
 pattern. An in-memory set of seen IDs is lost on restart and is suitable for tests only.
 
 The outbox consumer runs the messages of one message group one after another within one consumer instance. This
@@ -136,7 +136,7 @@ All read in code, not run:
   group from either factory routes to the engine on an `OFFSET_WATERMARK` topic; a native-factory group then
   reads the `outbox` table too.
 - The schema must be built by the Flyway migrations. The partition tables exist only in `V017` and `V018`; the
-  setup templates do not create them (register D42; see the [Database Guide](PEEGEEQ_DATABASE_GUIDE.md)).
+  setup templates do not create them (register D42; see `PEEGEEQ_DATABASE_GUIDE.md`).
 - Start the group with `start(SubscriptionOptions)`. Joining a partitioned group needs the subscription row; the
   outbox group routes to the engine only from this method.
 - The start position of the options is ignored. Each partition offset starts at 0, so the group reads every
@@ -322,9 +322,9 @@ rejection or a rebalance. Handlers must stay idempotent.
    step 3).
 4. Add idempotency to the handler if it is not there (section 3).
 5. Validate ordering and assert the per-key sequence.
-   [`PartitionedOrderingDemoTest`](../peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/outbox/PartitionedOrderingDemoTest.java)
+   `PartitionedOrderingDemoTest`
    is the reference for one instance at a time. For two instances of one group,
-   [`PartitionedNativeConsumerIntegrationTest`](../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PartitionedNativeConsumerIntegrationTest.java)
+   `PartitionedNativeConsumerIntegrationTest`
    `testMultipleInstances_parallelPartitions` is the reference.
 
 ### Partition key selection
@@ -346,15 +346,15 @@ The demo tests show each check:
 | Two keys are processed with overlapping time windows | `PartitionedOrderingDemoTest.testPartitionedOrdering_differentAggregatesProcessedConcurrently` |
 | Messages without a key form one `__default__` partition and arrive in send order | `PartitionedOrderingDemoTest.testPartitionedOrdering_defaultPartition_noMessageGroup` |
 | After a graceful stop and restart, the committed offset prevents redelivery of the first batch | `PartitionedOrderingDemoTest.testPartitionedOrdering_idempotentRedelivery` |
-| Each read model reaches the correct final state with several aggregates in parallel | [`EventSourcingCQRSDemoTest`](../peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/outbox/EventSourcingCQRSDemoTest.java)`.testCQRS_multipleAccounts_perAccountOrdering` |
+| Each read model reaches the correct final state with several aggregates in parallel | `EventSourcingCQRSDemoTest.testCQRS_multipleAccounts_perAccountOrdering` |
 
 Other tests of this mode: `PartitionedConsumerSafetyIntegrationTest` (discovery and failed-batch redelivery),
 `PartitionAssignmentIntegrationTest` (assignment, rebalance, generation, heartbeat),
 `PartitionedFetcherIntegrationTest` and `PartitionedOffsetManagerIntegrationTest` (fetch and offsets), and
 `PartitionedNativeConsumerIntegrationTest` (lifecycle and failure paths).
 
-The release evidence for this mode, including the one-hour release gate, is recorded in the
-[archived task register, section 6](../docs-design/tasks/archive/TASKS_REGISTER_TO_2026-11-21.md#6-partitioned-consumption-pre-ga-gates).
+The release evidence for this mode, including the one-hour release gate, is recorded in
+section 6 of the archived task register, `docs-design/tasks/archive/TASKS_REGISTER_TO_2026-11-21.md`.
 
 ## 6. Decisions and boundaries
 
