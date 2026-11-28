@@ -304,8 +304,12 @@ The following is read in code, not run.
 - A completed backfill returns `ALREADY_COMPLETED` and keeps the recorded processed count.
 - Each batch and its checkpoint commit in one transaction. A cancelled backfill resumes from the last committed
   checkpoint on its next start.
-- A batch failure other than a retried deadlock fails the backfill and leaves `backfill_status` at
-  `IN_PROGRESS`; a later start then returns `SKIPPED`.
+- A failure after the lock, other than a retried deadlock, fails the backfill, sets `backfill_status` to
+  `FAILED`, and logs an ERROR. A later start resumes from the last committed checkpoint. This was run on
+  2026-11-28 on the Jenkins host (`BackfillServiceIntegrationTest`, register D35).
+- A process that stops during a backfill, or a failure to record `FAILED`, leaves `backfill_status` at
+  `IN_PROGRESS`. Nothing releases it, so later starts return `SKIPPED` until the status is changed by hand
+  (register D35).
 
 ```mermaid
 sequenceDiagram
