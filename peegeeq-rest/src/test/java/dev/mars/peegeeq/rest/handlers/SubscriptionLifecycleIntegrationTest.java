@@ -153,6 +153,11 @@ public class SubscriptionLifecycleIntegrationTest {
      * to create the subscription record that the lifecycle tests operate on.
      */
     private Future<Void> createSubscription(Vertx vertx) {
+        return subscribeGroup(GROUP_NAME);
+    }
+
+    /** Creates a subscription of the group on the test topic, with default options. */
+    private Future<Void> subscribeGroup(String groupName) {
         // Get the SubscriptionService for this setup
         SubscriptionService subscriptionService = setupService.getSubscriptionServiceForSetup(setupId);
         if (subscriptionService == null) {
@@ -165,9 +170,9 @@ public class SubscriptionLifecycleIntegrationTest {
 
         // The topic is a queue of the setup. Its queue factory declares the subscription store.
         return setupService.getSetupResult(setupId)
-            .compose(setupResult -> subscriptionService.subscribe(TOPIC_NAME, GROUP_NAME,
+            .compose(setupResult -> subscriptionService.subscribe(TOPIC_NAME, groupName,
                 setupResult.getQueueFactories().get(TOPIC_NAME).getSubscriptionStore(), options))
-            .onSuccess(v -> logger.info("Subscription created: topic={}, group={}", TOPIC_NAME, GROUP_NAME))
+            .onSuccess(v -> logger.info("Subscription created: topic={}, group={}", TOPIC_NAME, groupName))
             .onFailure(e -> logger.error("Failed to create subscription: {}", e.getMessage(), e));
     }
 
@@ -334,6 +339,57 @@ public class SubscriptionLifecycleIntegrationTest {
                 });
                 testContext.completeNow();
             })
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(8)
+    @DisplayName("Force-remove cancels an active subscription, reports only its previous status, and a second call is 409")
+    void testForceRemoveSubscription(VertxTestContext testContext) {
+        String groupName = "force-remove-group";
+        String path = String.format("/api/v1/setups/%s/subscriptions/%s/%s/force-remove", setupId, TOPIC_NAME, groupName);
+
+        subscribeGroup(groupName)
+            .compose(v -> webClient.delete(TEST_PORT, "localhost", path).send())
+            .compose(first -> {
+                testContext.verify(() -> {
+                    assertEquals(200, first.statusCode(),
+                        "Expected 200, got: " + first.statusCode() + " - " + first.bodyAsString());
+                    JsonObject result = first.bodyAsJsonObject();
+                    // Force-remove changes no message, so the response carries no message counts.
+                    assertEquals(java.util.Set.of("success", "topic", "groupName", "action", "previousStatus"),
+                        result.fieldNames());
+                    assertTrue(result.getBoolean("success"));
+                    assertEquals(TOPIC_NAME, result.getString("topic"));
+                    assertEquals(groupName, result.getString("groupName"));
+                    assertEquals("force-removed", result.getString("action"));
+                    assertEquals("ACTIVE", result.getString("previousStatus"));
+                });
+                return webClient.delete(TEST_PORT, "localhost", path).send();
+            })
+            .onSuccess(second -> testContext.verify(() -> {
+                assertEquals(409, second.statusCode(),
+                    "A second force-remove of the CANCELLED subscription must be refused, got: "
+                        + second.statusCode() + " - " + second.bodyAsString());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(9)
+    @DisplayName("Force-remove of a group with no subscription returns 404")
+    void testForceRemoveNonExistentSubscription(VertxTestContext testContext) {
+        String path = String.format("/api/v1/setups/%s/subscriptions/%s/%s/force-remove",
+            setupId, TOPIC_NAME, "no-such-group");
+
+        webClient.delete(TEST_PORT, "localhost", path)
+            .send()
+            .onSuccess(response -> testContext.verify(() -> {
+                assertEquals(404, response.statusCode(),
+                    "Expected 404, got: " + response.statusCode() + " - " + response.bodyAsString());
+                testContext.completeNow();
+            }))
             .onFailure(testContext::failNow);
     }
 }
