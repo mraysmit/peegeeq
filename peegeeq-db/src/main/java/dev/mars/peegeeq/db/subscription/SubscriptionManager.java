@@ -17,7 +17,6 @@ import dev.mars.peegeeq.db.consumer.PartitionAssignment;
 import dev.mars.peegeeq.api.tracing.TraceCtx;
 import dev.mars.peegeeq.api.tracing.TraceContextUtil;
 import dev.mars.peegeeq.db.cleanup.DeadConsumerDetector;
-import dev.mars.peegeeq.db.cleanup.DeadConsumerGroupCleanup;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonArray;
@@ -68,7 +67,7 @@ public class SubscriptionManager implements SubscriptionService {
         Set.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.STOPPED, SubscriptionStatus.PAUSED);
     private static final Set<SubscriptionStatus> RESUME_FROM =
         Set.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.PAUSED, SubscriptionStatus.DEAD);
-    private static final Set<SubscriptionStatus> MARK_DEAD_FROM =
+    private static final Set<SubscriptionStatus> FORCE_REMOVE_FROM =
         Set.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.STOPPED, SubscriptionStatus.PAUSED,
                SubscriptionStatus.DEAD);
     private static final Set<SubscriptionStatus> CANCEL_FROM = Set.of(SubscriptionStatus.values());
@@ -76,7 +75,6 @@ public class SubscriptionManager implements SubscriptionService {
     private final PgConnectionManager connectionManager;
     private final String serviceId;
     private BackfillService backfillService; // optional enables auto-backfill on FROM_BEGINNING subscribe
-    private DeadConsumerGroupCleanup deadConsumerGroupCleanup; // optional required for forceRemove
 
     // Partitioned consumption services (optional enables OFFSET_WATERMARK mode)
     private dev.mars.peegeeq.db.consumer.PartitionAssignmentService partitionAssignmentService;
@@ -118,19 +116,6 @@ public class SubscriptionManager implements SubscriptionService {
         this.backfillService = backfillService;
         logger.info("BackfillService {} for SubscriptionManager",
                    backfillService != null ? "configured" : "cleared");
-    }
-
-    /**
-     * Sets the DeadConsumerGroupCleanup for force-remove operations.
-     *
-     * <p>When set, {@link #forceRemoveConsumerGroup(String, String)} can mark a consumer group
-     * as dead, run cleanup to unblock stuck messages, and then cancel the subscription.</p>
-     *
-     * @param cleanup The cleanup service (must not be null)
-     */
-    public void setDeadConsumerGroupCleanup(DeadConsumerGroupCleanup cleanup) {
-        this.deadConsumerGroupCleanup = Objects.requireNonNull(cleanup, "cleanup cannot be null");
-        logger.info("DeadConsumerGroupCleanup configured for SubscriptionManager");
     }
 
     /**
@@ -756,10 +741,9 @@ public class SubscriptionManager implements SubscriptionService {
      * <p>Cancelled subscriptions cannot be reactivated. This is a terminal state.
      * The consumer group will not receive any messages from this topic.</p>
      *
-     * <p>If a {@link DeadConsumerGroupCleanup} is configured, cancel also runs
-     * cleanup to decrement {@code required_consumer_groups}, remove orphaned
-     * tracking rows, and auto-complete unblocked messages. Cleanup failure
-     * does not fail the cancel operation.</p>
+     * <p>Cancel changes the subscription only. It changes no message: a message the group has
+     * not processed is not marked processed, and the messages that other groups read are
+     * unchanged.</p>
      *
      * @param topic The topic name
      * @param groupName The consumer group name
@@ -775,71 +759,31 @@ public class SubscriptionManager implements SubscriptionService {
             logger.info("Cancelling subscription for consumer group '{}' on topic '{}'", groupName, topic);
         }
 
-        return updateStatus(trace, topic, groupName, SubscriptionStatus.CANCELLED, CANCEL_FROM, "cancel")
-                .compose(v -> {
-                    if (deadConsumerGroupCleanup == null) {
-                        try (var scope = TraceContextUtil.mdcScope(trace)) {
-                            logger.debug("No DeadConsumerGroupCleanup configured skipping cancel cleanup " +
-                                    "for group='{}' on topic='{}'", groupName, topic);
-                        }
-                        return Future.succeededFuture();
-                    }
-
-                    return deadConsumerGroupCleanup.cleanupDeadGroup(topic, groupName)
-                            .map(result -> {
-                                try (var scope = TraceContextUtil.mdcScope(trace)) {
-                                    logger.info("Cancel cleanup for group='{}' on topic='{}': " +
-                                                    "{} messages decremented, {} orphan rows removed, " +
-                                                    "{} messages auto-completed",
-                                            groupName, topic,
-                                            result.messagesDecremented(),
-                                            result.orphanRowsRemoved(),
-                                            result.messagesAutoCompleted());
-                                }
-                                return (Void) null;
-                            })
-                            .onFailure(err -> {
-                                try (var scope = TraceContextUtil.mdcScope(trace)) {
-                                    logger.warn("Cancel cleanup failed for group='{}' on topic='{}': {}",
-                                            groupName, topic, err.getMessage());
-                                }
-                            });
-                });
+        return updateStatus(trace, topic, groupName, SubscriptionStatus.CANCELLED, CANCEL_FROM, "cancel");
     }
 
     /**
      * Force-removes a consumer group from a topic.
      *
-     * <p>This administrative operation:</p>
-     * <ol>
-     *   <li>Reads the current subscription status (must not be CANCELLED)</li>
-     *   <li>Marks the subscription as DEAD</li>
-     *   <li>Runs dead-group cleanup (decrement required_consumer_groups,
-     *       remove orphaned tracking rows, auto-complete unblocked messages)</li>
-     *   <li>Marks the subscription as CANCELLED (terminal state)</li>
-     * </ol>
+     * <p>This administrative operation ends a subscription from any status except CANCELLED. It
+     * reads the current status, fails when the group has no subscription or the subscription is
+     * already CANCELLED, and otherwise sets the subscription CANCELLED in one guarded update.
+     * Like {@link #cancel(String, String)} it changes no message.</p>
      *
      * @param topic The topic name
      * @param groupName The consumer group name to force-remove
-     * @return Future containing the cleanup result details
+     * @return Future containing the status the subscription had before the removal
      */
     @Override
     public Future<ForceRemoveResult> forceRemoveConsumerGroup(String topic, String groupName) {
         Objects.requireNonNull(topic, "topic cannot be null");
         Objects.requireNonNull(groupName, "groupName cannot be null");
 
-        if (deadConsumerGroupCleanup == null) {
-            return Future.failedFuture(new IllegalStateException(
-                    "DeadConsumerGroupCleanup is not configured. " +
-                    "Call setDeadConsumerGroupCleanup() before using forceRemoveConsumerGroup()."));
-        }
-
         TraceCtx trace = TraceCtx.createNew();
         try (var scope = TraceContextUtil.mdcScope(trace)) {
             logger.info("Force-removing consumer group '{}' on topic '{}'", groupName, topic);
         }
 
-        // Step 1: Get current subscription status
         return getSubscription(topic, groupName)
                 .compose(info -> {
                     if (info == null) {
@@ -853,35 +797,11 @@ public class SubscriptionManager implements SubscriptionService {
                                 "' is already CANCELLED and cannot be force-removed"));
                     }
 
-                    // Step 2: Mark DEAD (if not already)
-                    Future<Void> markDeadFuture;
-                    if (info.state() == SubscriptionState.DEAD) {
-                        markDeadFuture = Future.succeededFuture();
-                    } else {
-                        markDeadFuture = updateStatus(trace, topic, groupName, SubscriptionStatus.DEAD,
-                                MARK_DEAD_FROM, "mark dead");
-                    }
-
-                    // Step 3: Run cleanup, then Step 4: Mark CANCELLED
-                    return markDeadFuture
-                            .compose(v -> deadConsumerGroupCleanup.cleanupDeadGroup(topic, groupName))
-                            .compose(cleanupResult -> {
-                                try (var scope = TraceContextUtil.mdcScope(trace)) {
-                                    logger.info("Force-remove cleanup for group '{}' on topic '{}': " +
-                                                    "decremented={}, orphans={}, autoCompleted={}",
-                                            groupName, topic,
-                                            cleanupResult.messagesDecremented(),
-                                            cleanupResult.orphanRowsRemoved(),
-                                            cleanupResult.messagesAutoCompleted());
-                                }
-                                return updateStatus(trace, topic, groupName, SubscriptionStatus.CANCELLED,
-                                                CANCEL_FROM, "cancel")
-                                        .map(v -> new ForceRemoveResult(
-                                                topic, groupName, previousStatus,
-                                                cleanupResult.messagesDecremented(),
-                                                cleanupResult.orphanRowsRemoved(),
-                                                cleanupResult.messagesAutoCompleted()));
-                            });
+                    // The update is guarded by FORCE_REMOVE_FROM, so a concurrent cancel that
+                    // commits first makes this call fail instead of reporting a removal.
+                    return updateStatus(trace, topic, groupName, SubscriptionStatus.CANCELLED,
+                                    FORCE_REMOVE_FROM, "force-remove")
+                            .map(v -> new ForceRemoveResult(topic, groupName, previousStatus));
                 });
     }
 
