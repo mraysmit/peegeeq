@@ -2,11 +2,11 @@ package dev.mars.peegeeq.db.consumer;
 
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.BaseIntegrationTest;
-import dev.mars.peegeeq.db.cleanup.DeadConsumerGroupCleanup;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxTestContext;
@@ -31,7 +31,6 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
-import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests for {@link WatermarkCalculator}.
@@ -94,9 +93,7 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) {
         if (connectionManager != null) {
-            new DeadConsumerGroupCleanup(connectionManager, "peegeeq-main")
-                    .cleanupAllDeadGroups()
-                    .transform(TestCleanup.cleanup(() -> connectionManager.close()))
+            connectionManager.close()
                     .onSuccess(v -> testContext.completeNow())
                     .onFailure(testContext::failNow);
         } else {
@@ -444,7 +441,7 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
 
     // ========================================================================
     // Test 4.11: WatermarkJob Runs Periodic Sweep
-    // Start job  after interval, watermark advances and messages swept.
+    // Start job: it runs at start and again on its timer, and sweeps the 10 messages.
     // ========================================================================
 
     @Test
@@ -454,6 +451,7 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
         String topic = "test-wm-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group-A";
         int generation = 1;
+        WatermarkJob wm = new WatermarkJob(manager.getVertx(), calculator, topic, 200L);
 
         createTopic(topic)
                 .compose(v -> createSubscription(topic, groupName, "ACTIVE"))
@@ -465,36 +463,25 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
                             .map(ids);
                 })
                 .compose(ids -> {
-                    // Start job with short interval (200ms)
-                    WatermarkJob wm = new WatermarkJob(manager.getVertx(), calculator, topic, 200L);
                     wm.start();
                     assertTrue(wm.isRunning(), "Job should be running");
-
-                    // Wait for at least 2 runs (initial + 1 periodic)
-                    io.vertx.core.Promise<Void> promise = io.vertx.core.Promise.promise();
-                    manager.getVertx().setTimer(600L, timerId -> {
-                        try {
-                            assertTrue(wm.getTotalRunCount() >= 2,
-                                    "Job should have run at least 2 times, ran: " + wm.getTotalRunCount());
-                            assertEquals(10L, wm.getTotalSwept(),
-                                    "Should have swept 10 messages total");
-                            wm.stop();
-                            assertFalse(wm.isRunning(), "Job should be stopped");
-                            promise.complete();
-                        } catch (Throwable t) {
-                            wm.stop();
-                            promise.fail(t);
-                        }
-                    });
-                    return promise.future();
+                    // Two runs prove the periodic timer fired: the first run happens in start().
+                    return pollUntilRuns(wm, 2, 10L, System.currentTimeMillis() + 10_000);
                 })
+                .compose(v -> wm.stopAsync())
+                .compose(v -> {
+                    assertFalse(wm.isRunning(), "Job should be stopped");
+                    assertEquals(10L, wm.getTotalSwept(), "Should have swept 10 messages total");
+                    return Future.<Void>succeededFuture();
+                })
+                .transform(TestCleanup.cleanup(wm::stopAsync))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }
 
     // ========================================================================
     // Test 4.12: WatermarkJob Stop Cancels Timer
-    // Start then stop  no more sweeps fire after stop.
+    // Start, observe periodic runs, stop: no run happens after stop.
     // ========================================================================
 
     @Test
@@ -502,41 +489,55 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
         logger.info("=== TEST 4.12: testWatermarkJob_stopCancelsTimer STARTED ===");
 
         String topic = "test-wm-" + UUID.randomUUID().toString().substring(0, 8);
+        long intervalMs = 100L;
+        WatermarkJob wm = new WatermarkJob(manager.getVertx(), calculator, topic, intervalMs);
+        AtomicReference<Long> runsAtStop = new AtomicReference<>();
 
         createTopic(topic)
                 .compose(v -> {
-                    WatermarkJob wm = new WatermarkJob(manager.getVertx(), calculator, topic, 5000L);
                     wm.start();
-                    assertTrue(wm.isRunning());
-
-                    // Wait for initial run to complete (interval is 5s so no periodic fires yet), then stop
-                    io.vertx.core.Promise<Void> promise = io.vertx.core.Promise.promise();
-                    manager.getVertx().setTimer(300L, id1 -> {
-                        try {
-                            wm.stop();
-                            assertFalse(wm.isRunning(), "Job should be stopped");
-                            long runsAtStop = wm.getTotalRunCount();
-                            assertTrue(runsAtStop >= 1,
-                                    "Should have completed at least the initial run, got: " + runsAtStop);
-
-                            // Wait and verify no more runs happened
-                            manager.getVertx().setTimer(400L, id2 -> {
-                                try {
-                                    assertEquals(runsAtStop, wm.getTotalRunCount(),
-                                            "No additional runs should occur after stop");
-                                    promise.complete();
-                                } catch (Throwable t) {
-                                    promise.fail(t);
-                                }
-                            });
-                        } catch (Throwable t) {
-                            promise.fail(t);
-                        }
-                    });
-                    return promise.future();
+                    assertTrue(wm.isRunning(), "Job should be running");
+                    // Three runs prove the periodic timer fires before the stop is tested.
+                    return pollUntilRuns(wm, 3, 0L, System.currentTimeMillis() + 10_000);
                 })
+                // stopAsync completes after the run in flight settles, so the count is final here.
+                .compose(v -> wm.stopAsync())
+                .compose(v -> {
+                    assertFalse(wm.isRunning(), "Job should be stopped");
+                    runsAtStop.set(wm.getTotalRunCount());
+                    // The absence of a run can only be observed over time. Ten intervals give a
+                    // timer that still fires about ten chances to raise the count.
+                    return manager.getVertx().timer(intervalMs * 10).<Void>mapEmpty();
+                })
+                .compose(v -> {
+                    assertEquals(runsAtStop.get(), wm.getTotalRunCount(),
+                            "No additional runs should occur after stop");
+                    return Future.<Void>succeededFuture();
+                })
+                .transform(TestCleanup.cleanup(wm::stopAsync))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
+    }
+
+    // ========================================================================
+    // Helper: Poll the job's counters until it has run often enough
+    // ========================================================================
+
+    /**
+     * Re-checks the job every 50 ms until it has completed {@code minRuns} runs and swept
+     * {@code expectedSwept} messages, and fails at the deadline with the counts it saw.
+     */
+    private Future<Void> pollUntilRuns(WatermarkJob wm, long minRuns, long expectedSwept, long deadline) {
+        if (wm.getTotalRunCount() >= minRuns && wm.getTotalSwept() == expectedSwept) {
+            return Future.succeededFuture();
+        }
+        if (System.currentTimeMillis() >= deadline) {
+            return Future.failedFuture(new AssertionError("WatermarkJob did not reach " + minRuns
+                    + " runs and " + expectedSwept + " swept messages before the deadline: runs="
+                    + wm.getTotalRunCount() + ", swept=" + wm.getTotalSwept()
+                    + ", failures=" + wm.getTotalFailures()));
+        }
+        return manager.getVertx().timer(50L).compose(t -> pollUntilRuns(wm, minRuns, expectedSwept, deadline));
     }
 
     // ========================================================================
@@ -638,22 +639,6 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
                 connection.preparedQuery(sql)
                         .execute(Tuple.of(topic, payload, status, messageGroup, now))
                         .map(rows -> rows.iterator().next().getLong("id"))
-        );
-    }
-
-    // ========================================================================
-    // Helper: Get watermark from the watermarks table
-    // ========================================================================
-
-    private Future<Long> getStoredWatermark(String topic) {
-        String sql = "SELECT watermark_id FROM outbox_topic_watermarks WHERE topic = $1";
-        return connectionManager.withConnection("peegeeq-main", connection ->
-                connection.preparedQuery(sql)
-                        .execute(Tuple.of(topic))
-                        .map(rows -> {
-                            if (rows.size() == 0) return 0L;
-                            return rows.iterator().next().getLong("watermark_id");
-                        })
         );
     }
 
