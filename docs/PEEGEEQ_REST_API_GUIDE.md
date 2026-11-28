@@ -611,7 +611,7 @@ Failures: 503. For a setup without a subscription service the lookup throws an H
 
 `DELETE /api/v1/consumer-groups/:setupId/:queueName/:groupName/subscription`
 
-Cancels the subscription. Every state can be cancelled. When dead-group cleanup is configured, the cancel also runs it for the group. A cancelled subscription is terminal and cannot be reactivated. The response is 204 also when the cancel fails; the failure is logged. The unknown-setup case and the service cache behave as for get.
+Cancels the subscription. Every state can be cancelled. The cancel changes no message. A cancelled subscription is terminal and cannot be reactivated. The response is 204 also when the cancel fails; the failure is logged. The unknown-setup case and the service cache behave as for get.
 
 ---
 
@@ -684,17 +684,17 @@ Success: 200, the subscription object. Failures: 404 `PGQERR0050`, 503 `PGQERR00
 
 No body is read. Success: 200. Failures: 404 `PGQERR0050` (subscription not found), 409 `PGQERR0052` (the current state refuses the call; pause, resume and heartbeat only), 503.
 
-No state refuses a cancel. When dead-group cleanup is configured, cancel also runs it for the group.
+No state refuses a cancel. Cancel changes the subscription only: no message is marked processed.
 
 ### Force-remove a consumer group
 
 `DELETE /api/v1/setups/:setupId/subscriptions/:topic/:groupName/force-remove`
 
-Marks the subscription `DEAD`, runs cleanup that releases messages held for the group, then marks it `CANCELLED`.
+Ends the subscription of a group that is gone for good: an `ACTIVE`, `STOPPED`, `PAUSED` or `DEAD` subscription becomes `CANCELLED`. No message is changed.
 
-Success: 200 with `success`, `topic`, `groupName`, `action` (`force-removed`), `previousStatus`, `messagesDecremented`, `orphanRowsRemoved`, `messagesAutoCompleted`, `totalActions` (sum of the three counts).
+Success: 200 with `success`, `topic`, `groupName`, `action` (`force-removed`), `previousStatus`.
 
-Failures: 404 `PGQERR0050`, 409 `PGQERR0052` (illegal state, including cleanup not configured), 503 `PGQERR0062`.
+Failures: 404 `PGQERR0050` (no subscription), 409 `PGQERR0052` (the subscription is already `CANCELLED`), 503 `PGQERR0062`.
 
 ### Start a backfill
 
@@ -704,9 +704,9 @@ Failures: 404 `PGQERR0050`, 409 `PGQERR0052` (illegal state, including cleanup n
 |---|---|---|---|
 | `backfillScope` | `PENDING_ONLY`, `ALL_RETAINED` | no | `PENDING_ONLY` |
 
-Success: 200 `{"status", "processedMessages", "scope", "message"}`. The response is sent after the backfill run ends. `status` is one of `COMPLETED`, `CANCELLED`, `ALREADY_COMPLETED`, `SKIPPED` (another worker holds the lock), `FAILED`.
+Success: 200 `{"status", "processedMessages", "scope", "message"}`. The response is sent after the backfill run ends. `status` is one of `COMPLETED`, `CANCELLED`, `ALREADY_COMPLETED`, `SKIPPED` (the stored `backfillStatus` is `IN_PROGRESS`, so another worker holds the backfill).
 
-Failures: 400 `PGQERR0002` (invalid scope), 404 `PGQERR0050`, 409 `PGQERR0061` (illegal state), 501 `PGQERR0058` (backfill not configured), 503 `PGQERR0058`.
+Failures: 400 `PGQERR0002` (invalid scope), 404 `PGQERR0050`, 409 `PGQERR0061` (illegal state), 501 `PGQERR0058` (backfill not configured), 503 `PGQERR0058`. A backfill that fails after it started returns 503; the stored `backfillStatus` is then `FAILED`, and a later POST resumes it from the last checkpoint.
 
 ### Backfill progress
 
