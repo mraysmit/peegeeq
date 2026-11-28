@@ -16,7 +16,6 @@ package dev.mars.peegeeq.db.subscription;
  * limitations under the License.
  */
 
-import dev.mars.peegeeq.db.cleanup.DeadConsumerGroupCleanup;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
@@ -30,13 +29,13 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * Unit tests for {@link SubscriptionManager#forceRemoveConsumerGroup(String, String)}.
  *
- * <p>Validates parameter validation and configuration checks. Integration tests
- * with real database are in ForceRemoveIntegrationTest.</p>
+ * <p>Validates the argument checks, which run before any database access. Integration tests
+ * with a real database are in ForceRemoveIntegrationTest.</p>
  *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2026-04-04
@@ -46,37 +45,26 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 class ForceRemoveUnitTest {
 
-    private Vertx vertx;
     private PgConnectionManager connectionManager;
     private SubscriptionManager subscriptionManager;
 
     @BeforeEach
-    void setUp() {
-        vertx = Vertx.vertx();
+    void setUp(Vertx vertx) {
         connectionManager = new PgConnectionManager(vertx);
         subscriptionManager = new SubscriptionManager(connectionManager, "test-svc");
     }
 
     @AfterEach
     void tearDown(VertxTestContext testContext) {
-        Future<Void> closeFuture = connectionManager != null
-                ? connectionManager.close()
-                : Future.succeededFuture();
-        closeFuture
-                .compose(v -> vertx != null ? vertx.close() : Future.<Void>succeededFuture())
+        // VertxExtension owns the Vert.x instance and closes it.
+        (connectionManager != null ? connectionManager.close() : Future.<Void>succeededFuture())
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }
 
-    // =========================================================================
-    // Parameter validation
-    // =========================================================================
-
     @Test
     @DisplayName("forceRemove with null topic throws NullPointerException")
     void forceRemove_nullTopic_throws() {
-        subscriptionManager.setDeadConsumerGroupCleanup(
-                new DeadConsumerGroupCleanup(connectionManager, "test-svc"));
         assertThrows(NullPointerException.class,
                 () -> subscriptionManager.forceRemoveConsumerGroup(null, "group"));
     }
@@ -84,45 +72,7 @@ class ForceRemoveUnitTest {
     @Test
     @DisplayName("forceRemove with null groupName throws NullPointerException")
     void forceRemove_nullGroupName_throws() {
-        subscriptionManager.setDeadConsumerGroupCleanup(
-                new DeadConsumerGroupCleanup(connectionManager, "test-svc"));
         assertThrows(NullPointerException.class,
                 () -> subscriptionManager.forceRemoveConsumerGroup("topic", null));
-    }
-
-    // =========================================================================
-    // Configuration checks
-    // =========================================================================
-
-    @Test
-    @DisplayName("forceRemove without cleanup service returns failed future")
-    void forceRemove_withoutCleanupService_failsFuture() {
-        // No setDeadConsumerGroupCleanup called
-        var future = subscriptionManager.forceRemoveConsumerGroup("topic", "group");
-        assertTrue(future.failed(), "Should fail when cleanup service not configured");
-        assertInstanceOf(IllegalStateException.class, future.cause());
-        assertTrue(future.cause().getMessage().contains("DeadConsumerGroupCleanup"),
-                "Error should mention the missing dependency");
-    }
-
-    @Test
-    @DisplayName("forceRemove with cleanup service configured does not fail on config check")
-    void forceRemove_withCleanupService_passesConfigCheck() {
-        subscriptionManager.setDeadConsumerGroupCleanup(
-                new DeadConsumerGroupCleanup(connectionManager, "test-svc"));
-        var future = subscriptionManager.forceRemoveConsumerGroup("topic", "group");
-        // Will fail at DB level (no pool), but must NOT fail on config check
-        if (future.failed()) {
-            assertFalse(future.cause() instanceof IllegalStateException
-                    && future.cause().getMessage().contains("DeadConsumerGroupCleanup"),
-                    "Should not fail on config check when cleanup is configured");
-        }
-    }
-
-    @Test
-    @DisplayName("setDeadConsumerGroupCleanup with null throws NullPointerException")
-    void setCleanup_null_throws() {
-        assertThrows(NullPointerException.class,
-                () -> subscriptionManager.setDeadConsumerGroupCleanup(null));
     }
 }
