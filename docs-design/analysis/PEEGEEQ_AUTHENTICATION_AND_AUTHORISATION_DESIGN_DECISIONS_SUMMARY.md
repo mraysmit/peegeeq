@@ -1,6 +1,6 @@
 # PeeGeeQ Authentication and Authorization Decision Summary
 
-**Corrected:** 2026-11-21 against `0ffaafb6`: replaced the dead baseline hash, added the
+**Corrected:** 2026-11-21 against `18c27376`: replaced the dead baseline hash, added the
 credential model that the code implements, recorded the archive of the long design.
 
 **Status:** DESIGN DIRECTION RECORDED — NOT APPROVED OR IMPLEMENTED
@@ -9,7 +9,7 @@ credential model that the code implements, recorded the archive of the long desi
 
 **Last reconciled:** 2026-09-06
 
-**Repository baseline:** checked 2026-11-21 against `0ffaafb6`; the earlier baseline `7db748b8` no
+**Repository baseline:** checked 2026-11-21 against `18c27376`; the earlier baseline `7db748b8` no
 longer resolves after a history rewrite.
 
 ## Purpose

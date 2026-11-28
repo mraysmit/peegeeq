@@ -4,8 +4,8 @@
 **Document type**: Target design
 **Design revision**: 2026-10-08, Patroni-style local supervision, coordinator port, optional watchdog
 **Module**: `peegeeq-pg-failover`
-**Corrected:** 2026-11-21 against `0ffaafb6`: supervisor count, `PgNodeConfig` contents, `PgFailoverMonitor` role, commit enforcement status, build status line.
-**Build status (2026-11-21)**: The supervisor exists as tested components in `peegeeq-pg-failover`. No production entry point runs it: no other module depends on `peegeeq-pg-failover`, and the module has no `main`. The cluster-wide PostgreSQL parameters design is in [implementation plan §9.35](PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY_IMPLEMENTATION_PLAN.md); its parameter list class `PgClusterParameters` was built on 2026-11-21 and is not yet committed.
+**Corrected:** 2026-11-21 against `18c27376`: supervisor count, `PgNodeConfig` contents, `PgFailoverMonitor` role, commit enforcement status, build status line.
+**Build status (2026-11-21)**: The supervisor exists as tested components in `peegeeq-pg-failover`. No production entry point runs it: no other module depends on `peegeeq-pg-failover`, and the module has no `main`. The cluster-wide PostgreSQL parameters design is in [implementation plan §9.35](PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY_IMPLEMENTATION_PLAN.md); its parameter list class `PgClusterParameters` was built on 2026-11-21 and committed in `1c9697d9`. Checked again on 2026-11-28: no other pom names `peegeeq-pg-failover`, and its `src/main` has no `main` method.
 
 ## 1. Purpose and Scope
 

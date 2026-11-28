@@ -4,7 +4,7 @@
 **Created**: 2026-07-18
 **Status**: PROPOSED — NOT IMPLEMENTED; reconciled 2026-08-26
 **Version**: 0.1
-**Corrected:** 2026-11-21 against `0ffaafb6`: required a Flyway migration for the new table,
+**Corrected:** 2026-11-21 against `18c27376`: required a Flyway migration for the new table,
 changed the compatibility check to POST, recorded that the UI placeholder page is not routed,
 moved the version line into the header.
 

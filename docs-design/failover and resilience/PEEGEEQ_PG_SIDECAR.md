@@ -3,7 +3,7 @@
 **Author**: Mark A Ray-Smith Cityline Ltd.  
 **Design revision**: 2026-10-08, Patroni-style local supervision, coordinator port, optional watchdog
 **Module**: `peegeeq-pg-sidecar`
-**Corrected:** 2026-11-21 against `0ffaafb6`: added current state, replaced the central-controller wording, marked configuration keys as built or target.
+**Corrected:** 2026-11-21 against `18c27376`: added current state, replaced the central-controller wording, marked configuration keys as built or target.
 
 ## Current State (2026-11-21)
 
@@ -16,7 +16,7 @@ Only a role check is built. The rest of this guide is target, not built.
   `http.port` from JVM system properties. This conflicts with the project rule that
   configuration is explicit and instance-scoped. It is open defect D8 in
   [the task register](../tasks/tasks.md).
-- Stop fails when the pool close fails (commit `8b96af9a`).
+- Stop fails when the pool close fails (commit `f718becb`).
 - Tests: `PgPrimaryCheckIntegrationTest` (standalone primary 200, unreachable database 503,
   unknown paths 404, concurrent requests), `PgPrimaryCheckReplicaIntegrationTest` (standby 503),
   and `PgPrimaryCheckLifecycleTest` (undeploy and redeploy on the same port).

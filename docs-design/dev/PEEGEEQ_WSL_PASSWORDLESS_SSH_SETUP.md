@@ -1,6 +1,6 @@
 # Password-Free SSH from WSL to the PeeGeeQ Linux VM
 
-**Corrected:** 2026-11-21 against `0ffaafb6`: note that the current Jenkins host is `zorin-nuc`.
+**Corrected:** 2026-11-21 against `18c27376`: note that the current Jenkins host is `zorin-nuc`.
 
 **Host values are examples.** Every host value in this guide is for the older host
 `ubu24-cicd` at `192.168.137.11`. The current Jenkins host is `zorin-nuc` at

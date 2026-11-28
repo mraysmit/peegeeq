@@ -64,7 +64,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * <p>{@code peegeeq.database.pool.max-wait-queue-size} is set to {@code -1} (unlimited)
  * in {@link #setUp}. This is intentional: 2000 requests against a pool of size 20 means
  * up to 1980 requests must queue. The production default cap of 128 (introduced in
- * PgPoolConfig commit fd91794d) would reject 1852 of them. Setting {@code -1} restores
+ * PgPoolConfig commit 34a1c565) would reject 1852 of them. Setting {@code -1} restores
  * the unbounded-queue behaviour these tests require.
  *
  * <p>Do <strong>not</strong> remove the {@code max-wait-queue-size = -1} override.

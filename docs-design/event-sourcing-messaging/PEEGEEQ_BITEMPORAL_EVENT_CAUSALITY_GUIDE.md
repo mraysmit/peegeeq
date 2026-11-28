@@ -3,7 +3,7 @@
 **Version**: 1.1.0  
 **Last Updated**: 2026-01-08  
 **Author**: Mark Andrew Ray-Smith Cityline Ltd  
-**Corrected:** 2026-11-21 against `0ffaafb6`: SQL examples use the real table names; `appendBuilder()` added as the preferred API; corrections do not carry a causation ID.
+**Corrected:** 2026-11-21 against `18c27376`: SQL examples use the real table names; `appendBuilder()` added as the preferred API; corrections do not carry a causation ID.
 
 ---
 

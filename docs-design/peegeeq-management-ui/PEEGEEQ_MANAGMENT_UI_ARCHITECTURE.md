@@ -1,12 +1,12 @@
 # PeeGeeQ Management UI - Architecture and Design
 
 **Status:** CURRENT ARCHITECTURE REFERENCE
-**Last reconciled:** 2026-10-06 against commit `f1c5d25d`
-**Corrected:** 2026-11-21 against `0ffaafb6`: Playwright global setup is `src/tests/global-setup-testcontainers.ts`; backend Java and root `pom.xml` line numbers replaced with method and element names.
+**Last reconciled:** 2026-10-06 against commit `6a602b2a`
+**Corrected:** 2026-11-21 against `18c27376`: Playwright global setup is `src/tests/global-setup-testcontainers.ts`; backend Java and root `pom.xml` line numbers replaced with method and element names.
 
 Every file, route, class, and script named below was confirmed to exist at that commit. Backend
 references name the class and method, not a line. The line references into frontend files point at
-those files as they were at `f1c5d25d` and were not re-checked on 2026-11-21; re-check them after
+those files as they were at `6a602b2a` and were not re-checked on 2026-11-21; re-check them after
 later edits.
 
 ## Contents
@@ -301,7 +301,7 @@ dead-letter, subscriptions, health, webhooks, consumer groups, ack/nack) are def
 by any page. It resolves the backend base URL from `configService.ts` at call time and takes its
 paths from `src/api/endpoints.ts`.
 
-`endpoints.ts` also declares constants with no registered backend route at commit `f1c5d25d`:
+`endpoints.ts` also declares constants with no registered backend route at commit `6a602b2a`:
 `QUEUE_ENDPOINTS.ACK`, `QUEUE_ENDPOINTS.NACK`, `EVENT_STORE_ENDPOINTS.LIST` (`/eventstores/:setupId`),
 `CONSUMER_GROUP_ENDPOINTS.STATS`, `MANAGEMENT_ENDPOINTS.QUEUE_DETAILS` (GET),
 `MANAGEMENT_ENDPOINTS.INFO`, `SSE_ENDPOINTS.QUEUE_UPDATES` (`/sse/queues/:setupId/:queueName`),
@@ -489,7 +489,7 @@ in `endpoints.ts` cover the dead-letter, health, and webhook routes.
 
 ## Security
 
-Current state at `f1c5d25d`:
+Current state at `6a602b2a`:
 
 - No authentication or authorization exists in `peegeeq-rest` or the UI. The header's user menu
   shows a static label and a no-op logout.

@@ -1,4 +1,57 @@
-## PeeGeeQ Mandatory Pre-Work (apply before every implementation task)
+## Rules for every task (read first; no task is outside them)
+
+These rules apply to every task and every reply: code, tests, build files, documents, reviews, checks, reports, and
+answers to questions. They are not limited to implementation. If it is unclear whether a rule applies, it applies.
+The assistant memory files hold the history of each rule. This section is the rule.
+
+1. **Read in full before acting.** Before editing any file, read the whole file. Before a recommendation, decision,
+   design, review verdict, or status claim, read in full every file it rests on. A line range, a search hit, an
+   extract, a summary, or a filtered print is not a full read. When the owner names a category of files, build the
+   list by a name search and a content search before reading, and show the search. A file that can be read is never
+   reported as "not read" or "read in part": read it, then report. Owner, 2026-10-12: "how can you make decisions
+   without understanding the details". The same failure recurred on 2026-11-28 on a document edit.
+2. **Open the memory file before acting on its subject.** A line in `MEMORY.md` is a pointer, not the rule.
+3. **Check, do not list.** A "Not checked" list holds only items that are blocked. Anything that can be checked by
+   reading, searching, or running is checked before the report. Docker not running on the workstation is not a
+   block: use the Jenkins host.
+4. **Verify by the right means.** A static fact (wiring, presence of logic, callers) is settled by tracing the source
+   across all layers. A "no production caller" claim needs a `\bName\b` search of every `src/main` tree. A runtime
+   fact is settled by running a probe or a test. JavaDoc, documents, and sub-agent reports are leads, not evidence.
+5. **Reports are literal.** Changed files come from `git status --short` of the whole working tree, each named. Name
+   the kinds of execution that were not run (build, test, PostgreSQL, Jenkins). A finding from reading is "static,
+   not reproduced".
+6. **Ask only for real design decisions.** A new table, a schema change, an edit to a shared code path, new scope, or
+   a product choice with no safe default needs an owner ruling before code. Confirmed defects, test fixes, probes,
+   runs, and agreed work proceed without asking, finding to finding, with one report at the end (owner, 2026-11-07
+   and 2026-11-14). Mentioning something in a report is not approval.
+7. **Verify a blocker before citing it, and give the change that removes it.** A rule from the assistant's own notes
+   is an owner instruction only when the note quotes the owner. For an environment or tooling symptom, search for the
+   documented cause before building a workaround.
+8. **Git.** The owner commits. Do not commit, offer to commit, or plan commits unless the owner raises it. When asked
+   to commit, commit on the checked-out `master`; never create a branch; do not push unless asked. While any test
+   fails, do not mention committing.
+9. **Test runs.** Commands come from `docs-design/testing/PEEGEEQ-TEST-COMMANDS.md`. Workstation runs are in the
+   foreground, through `Tee-Object`, with nothing after it. Never `run_in_background`, never loops or runner scripts.
+   Scope each run to the changed test or module; never use `-Pall-tests` as a verification loop. A run that needs
+   Docker when the workstation has none, and any long run, goes to the Jenkins host or a Jenkins job build. Verdicts
+   come from the saved log's per-class `Tests run:` lines, never the exit code. The guard run is the last step, after
+   the final test-file edit.
+10. **Severity by condition.** A failure that costs ownership, safety, durability, or availability is ERROR, whatever
+    level the code uses. Read every log entry before describing it.
+11. **Flag danger.** For a destructive or silent behaviour, state what is lost, the trigger, the blast radius,
+    detectability, the safety net, and the severity.
+12. **Purpose first.** A design, a section, a class comment, or an error message states what the feature is for
+    before its parts, with each reason in plain words. A plan reference may follow a reason, never replace it.
+13. **Documents.** New content goes into the document already in scope, unless the owner asks for a new file.
+    Replace stale text with the current fact.
+14. **Criticism.** Engage it as the substance of the reply. Fix first; no defence, no blame.
+15. **Before the final message of every turn, check three things.** Every file edited or relied on was read in full
+    in this session. Nothing in a "Not checked" list could have been checked. Every status sentence comes from
+    command output in this turn. If any check fails, do the work before sending the message.
+
+---
+
+## PeeGeeQ Mandatory Pre-Work (apply before any change to code, tests, or build files; rule 1 above covers every other file)
 
 ### STOP — read these documents before writing a single line of code
 
@@ -37,7 +90,9 @@
 
 ### Additional mandatory rules
 
-- **One phase at a time.** Make the change, rebuild and verify that phase, then stop and report.
+- **One phase at a time.** Make the change, rebuild and verify that phase, then stop and report. For
+  confirmed-defect remediation and agreed work, rule 6 of "Rules for every task" applies: continue finding to
+  finding and report once at the end.
 - **Rebuild before verification.** After every Java or Maven implementation change, run
   `mvn clean install -DskipTests -pl :<changed-module> -am` through `Tee-Object` before
   downstream testing. This rebuilds the affected reactor slice and installs upstream
@@ -69,4 +124,5 @@ Write short declarative sentences. No idioms, no metaphors, no hedging words ("c
 4. **Docs are not state.** Status lives in code, tests, and logs. Before reporting the state of anything, verify against the artifact; documents get updated to match reality, not quoted as it.
 5. **Fix first, never litigate blame.** When a defect is reported or suspected, sweep the whole class, fix everything found regardless of origin, report the fix. Attribution only if asked.
 6. **Report errors as wrong judgments, not oversights.** A post-mortem names what was decided wrongly and why. If an explanation sounds like a process story, it is probably self-serving — check it against the record.
-7. **Say what was NOT checked.** Every phase report ends with known gaps and unverified paths, stated plainly.
+7. **Say what was NOT checked.** Every phase report ends with known gaps and unverified paths, stated plainly. Only
+   blocked items belong there (rule 3 of "Rules for every task").

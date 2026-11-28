@@ -6,6 +6,13 @@ to 8 and of the backlog. Current status is in `../tasks.md`. Task 9's Finding 20
 moved to the appendix of `../../consumer-groups/PEEGEEQ_DELIVERY_OUTCOME_REDESIGN_PROPOSAL.md`. The commit hashes
 listed as unresolvable in the original header below still do not resolve.
 
+**Corrected 2026-11-28: commit hashes.** On 2026-11-21 at 17:55, after this text was written, the history was
+rewritten to remove co-author trailers. Each commit kept its tree and dates and got a new hash, and the old hashes
+resolve in no branch. Every such hash below is replaced by the `master` commit with the same tree; for example
+`0ffaafb6` is now `18c27376`. Nothing else in the text is changed, so status words such as "uncommitted" describe
+2026-11-21 (PP1 was committed in `1c9697d9` that evening). Jenkins consoles from before the rewrite show the old
+hashes.
+
 ---
 
 # PeeGeeQ Consolidated Task Register
@@ -16,10 +23,10 @@ listed as unresolvable in the original header below still do not resolve.
 **Recorded from-beginning release baseline:** Jenkins build #36 at `e8d07e53`
 **Latest successful release gate:** Jenkins build #11 at `263309d8` plus the checksummed
 Task 6 release-gate overlay (`485c930dd264864cd9157fe3378e25e661c51b97afa2120d1cc5bde6c0b54f27`)
-**Git reconciliation:** 2026-10-21 at `092cf23f` — commit history since 2026-10-08 and the
+**Git reconciliation:** 2026-10-21 at `866a6683` — commit history since 2026-10-08 and the
 `peegeeq-pg-failover` sources were checked. No test was run and no Jenkins result was
 re-verified.
-**Partial reconciliation:** 2026-10-06 at `9e14170e` — structure, references, numbering, and the
+**Partial reconciliation:** 2026-10-06 at `e3b49fbe` — structure, references, numbering, and the
 backlog were checked against the repository. Jenkins results and recorded test counts were not
 re-verified
 **Task 8 reconciliation:** 2026-10-08 — implementation source and saved final build/test
@@ -34,8 +41,8 @@ tested. A Consul fixture readiness defect and the module's failure log levels co
 
 **Commit references predate a history rewrite.** The abbreviated hashes cited in this register
 (`263309d8`, `e8d07e53`, `b19b708b`, `fe676bda`, `c62af5c3`, `7db748b8`, `32ab0371`, `322b7f06`,
-`1dd6741b`, `19e3cbdb`) do not resolve in the repository as of `9e14170e`. The commit carrying
-the subject recorded for `263309d8` is now `227d12d7`. The other nine have no recorded subject
+`1dd6741b`, `19e3cbdb`) do not resolve in the repository as of `e3b49fbe`. The commit carrying
+the subject recorded for `263309d8` is now `7e316993`. The other nine have no recorded subject
 and are not mapped. They remain as identifiers for the Jenkins builds that ran them.
 
 This is the **only live task register** under `docs-design`. Do not derive current work from
@@ -114,9 +121,9 @@ work on any other task starts, Task 9 included.
 
 Task 8 is in phase 7b.3. Phases 7a and 7b.1 are complete. Phase 7b.2 is complete except the real-device watchdog run
 on a Linux host; the watchdog is tested only where no device exists. Bootstrap scope B increment B2 step 3 (OD-12) is
-committed in `240be0a7`. Phase 7b.3 has P1 to P7, takeover after real lease expiry, planned stop with release, member
+committed in `6419b66b`. Phase 7b.3 has P1 to P7, takeover after real lease expiry, planned stop with release, member
 tags, automatic rewind and rebuild, restart and reload, and coordinator configuration CC1 to CC3 implemented and tested
-in `peegeeq-pg-failover`. Jenkins builds #41 and #42 on `0ffaafb6` (2026-11-20 and 2026-11-21) together passed every
+in `peegeeq-pg-failover`. Jenkins builds #41 and #42 on `18c27376` (2026-11-20 and 2026-11-21) together passed every
 module from `peegeeq-pg-failover` on: `peegeeq-pg-failover` 863 tests, 0 failures, and the UI suites. Build #41 was
 aborted by the pipeline's 150-minute limit in its UI stage, and build #42 ran that stage (plan §9.33). Increment PP1
 of the PostgreSQL parameters in the coordinator, the `PgClusterParameters` value, is done (2026-11-21, uncommitted;
@@ -126,7 +133,7 @@ Production qualification remains open. Machine-reset testing and additional host
 the next scope.
 
 Task 9 (delivery-outcome redesign, Finding 20) waits for Task 8. Phase 1 increments 1a and 1b are committed in
-`092cf23f`, 1b is not approved, and 1c to 1e are not started.
+`866a6683`, 1b is not approved, and 1c to 1e are not started.
 Tasks 1, 2, 3, 4, 6, and 7 are COMPLETE.
 Task 5 is REJECTED. The document status ACTIVE means this register is the live register.
 
@@ -410,7 +417,7 @@ The proposal to expose domain-specific transactional REST endpoints was rejected
 PeeGeeQ product scope. Both design documents under `docs-design/transactional-rest-api/`
 (`PEEGEEQ_TRANSACTIONAL_REST_API_DESIGN.md` and
 `PEEGEEQ_PLUGIN_MODEL_TRANSACTIONAL_PATTERNS_DESIGN.md`) carry the status
-`REJECTED — OUT OF PEEGEEQ PRODUCT SCOPE`. Commit `227d12d7` removed this section from the
+`REJECTED — OUT OF PEEGEEQ PRODUCT SCOPE`. Commit `7e316993` removed this section from the
 register without recording the outcome. The number is retained so that Tasks 6 and 7 keep
 their identifiers.
 
@@ -586,7 +593,7 @@ has the successful remote Jenkins publication evidence recorded above.
 ### 8. Connection management and HAProxy failover
 
 **Priority:** Not assigned
-**Status:** ACTIVE — phase 5 open (repair `f391a7f0` not yet run by a Jenkins build from `beginning`); phase 7b.1 complete; phase 7b.2 partial (renewal loop, watchdog modes, and bootstrap scope A done 2026-10-21; scope B increment B1 done 2026-10-22; scope B increment B2 done 2026-10-25; the real-device watchdog run remains); phase 7b.3 partial (P1 to P7, takeover after real lease expiry, planned stop with release, and member tags done by 2026-11-14; automatic rewind and rebuild done 2026-11-16; restart, reload, and `pending_restart` done 2026-11-18, its integration tier not yet green in one run; coordinator configuration in progress: CC1 to CC3 done 2026-11-18, PostgreSQL parameters designed 2026-11-18 (plan §9.35), PP1 to PP5 not built; remaining items in plan §8.1, row "7b.3 remaining")
+**Status:** ACTIVE — phase 5 open (repair `9e7f12b0` not yet run by a Jenkins build from `beginning`); phase 7b.1 complete; phase 7b.2 partial (renewal loop, watchdog modes, and bootstrap scope A done 2026-10-21; scope B increment B1 done 2026-10-22; scope B increment B2 done 2026-10-25; the real-device watchdog run remains); phase 7b.3 partial (P1 to P7, takeover after real lease expiry, planned stop with release, and member tags done by 2026-11-14; automatic rewind and rebuild done 2026-11-16; restart, reload, and `pending_restart` done 2026-11-18, its integration tier not yet green in one run; coordinator configuration in progress: CC1 to CC3 done 2026-11-18, PostgreSQL parameters designed 2026-11-18 (plan §9.35), PP1 to PP5 not built; remaining items in plan §8.1, row "7b.3 remaining")
 **Objective:** implement the design in
 `docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md` (design
 revision 2026-10-08). HAProxy routes by sidecar writer eligibility, which combines current
@@ -622,7 +629,7 @@ the plan section of their increment.
 Status and execution order are controlled
 here. Design contracts do not establish runtime coverage.
 
-Historical assessment on 2026-10-07 at `ff5c17da`: no requirement was fully met. R-6, R-8, and
+Historical assessment on 2026-10-07 at `41fe8f56`: no requirement was fully met. R-6, R-8, and
 R-14 were partly met. The source assessment found no Consul failover monitor or sidecar-based
 HAProxy configuration. Three of the earlier 17 scenarios had partial tests, none against
 the designed topology. This assessment concerns the earlier design. No runtime tests were
@@ -632,12 +639,12 @@ Phases:
 
 1. **COMPLETE — 2026-10-07.** Two text corrections to the earlier document. Superseded by the
    design rewrite.
-2. **COMPLETE — 2026-10-07.** Source read and findings at `ff5c17da`. The plan lists each file
+2. **COMPLETE — 2026-10-07.** Source read and findings at `41fe8f56`. The plan lists each file
    and whether it was read in full. No test was run in this phase.
 3. **COMPLETE — 2026-10-07.** Corrections to the earlier document. Superseded by the design
    rewrite.
 4. **COMPLETE — 2026-10-07.** Baseline run of the seven existing classes on the development
-   machine at `ff5c17da`, after a clean seven-module rebuild, under `-Pintegration-tests`.
+   machine at `41fe8f56`, after a clean seven-module rebuild, under `-Pintegration-tests`.
    `peegeeq-db`: `HaProxyConnectionFailoverTest` 6/6, `HaProxyStreamingReplicationFailoverTest`
    1/1, `PgBouncerTransactionModeTest` 1/1, `PgPoolCircuitBreakerIntegrationTest` 1/1.
    `peegeeq-bitemporal`: `HaProxyNotificationFailoverIntegrationTest` 1/1. `peegeeq-pg-sidecar`:
@@ -653,7 +660,7 @@ Phases:
    with 1 failure, the same assertion in `testFailbackAfterPrimaryRecovery`. The test is still
    red. Output: `logs/all-tests-20261009.log`. The whole-repository gate cannot pass until this
    phase is finished.
-   **Repaired and committed in `f391a7f0` (2026-10-11), not yet run on Jenkins.** Under P-14 the pooled
+   **Repaired and committed in `9e7f12b0` (2026-10-11), not yet run on Jenkins.** Under P-14 the pooled
    convergence step was removed from `testFailbackAfterPrimaryRecovery`; the red evidence is
    kept in plan §4.2 and the repair in §4.3. Targeted run: `HaProxyConnectionFailoverTest`
    6 tests, 0 failures (`logs/peegeeq-db-haproxy-failover-phase5-repair-20261011.log`). The
@@ -661,11 +668,11 @@ Phases:
    stays owed to the role-and-authority tests. This item closes when a Jenkins build from
    `beginning` passes `peegeeq-db`.
    **Checked 2026-11-15:** no Jenkins build has run `peegeeq-db` with the repair. Build 30 (from
-   `beginning`) checked out `f318b68d` (17:20 on 2026-10-11), before `f391a7f0` (22:53 the same
+   `beginning`) checked out `ef72132f` (17:20 on 2026-10-11), before `9e7f12b0` (22:53 the same
    day), and failed on the old assertion. Build 32 (`core` from `beginning`, 2026-10-25) failed
    cloning the repository and ran no test. Builds 33 to 40 started at `peegeeq-pg-failover`
-   (build 40, `b3f7ddc9`, 2026-11-15: SUCCESS, `peegeeq-pg-failover` 728 tests).
-   **Jenkins host run, 2026-11-15:** a fresh clone at `b3f7ddc9` on the host,
+   (build 40, `e3112c33`, 2026-11-15: SUCCESS, `peegeeq-pg-failover` 728 tests).
+   **Jenkins host run, 2026-11-15:** a fresh clone at `e3112c33` on the host,
    `mvn clean install -DskipTests -pl :peegeeq-db -am` (BUILD SUCCESS), then
    `mvn test -Pintegration-tests -pl :peegeeq-db -Dtest=HaProxyConnectionFailoverTest`:
    6 tests, 0 failures, 0 errors, 0 skipped. All six methods are in the surefire report,
@@ -747,14 +754,14 @@ Phases:
    now writes replication rules into every node's admission files. Nothing was run: the session had no
    Maven, Docker, or PowerShell. Red run by the owner: 10 run, 7 failures, 3 errors, all on the stub.
    The implementation (`PgTakeover.cutover`, `PgPolicyCutover`) is written.
-   **7b.3 update, 2026-11-03, verification of `5ead8746`:** P3 is implemented and tested (plan §9.23).
+   **7b.3 update, 2026-11-03, verification of `cd6ee42c`:** P3 is implemented and tested (plan §9.23).
    `PgTakeoverIntegrationTest` 9/9 in two runs; six mutation probes, each failed its target test, and
    `PgTakeover.java` SHA-256 is unchanged after them; regression `PgBootstrapServingIntegrationTest` 14/14,
    `PgPromotionIntegrationTest` 15/15, `PgFollowIntegrationTest` 10/10; module core 395/395; guards
    (`peegeeq-test-support` core) 61/61. Not run: the Jenkins build and the whole-repository gate.
    **7b.3 update, 2026-11-03:** increment P4, member replication slots on the writer, is designed (plan
    §9.24). Not implemented. OD-27 (an unbounded `max_slot_wal_keep_size` is refused) needs owner review.
-   **7b.3 update, 2026-11-12, re-verification of `993bf2c2`:** the module's whole integration tier
+   **7b.3 update, 2026-11-12, re-verification of `2108534b`:** the module's whole integration tier
    passes on Vert.x 5.1.10, after the `TestCleanup` migration and the `VertxTeardownAfterFailureExtension`
    change of 2026-11-08. No production or test code changed for this entry. Rebuild
    (`-pl :peegeeq-pg-failover,:peegeeq-test-support -am`) succeeded. Fifteen `-Pintegration-tests`
@@ -826,8 +833,8 @@ Phases:
    answers 5 to 8: `PgMemberPositionException` and `PgMemberPositionsContract` (Consul binding); member records
    held by each member's own Consul session (`?acquire`, `Behavior=delete`, TTL = lease TTL), so a departed
    member's record disappears at session expiry; `PgFailoverMonitor.builder()` with `publishPosition` and
-   `advanceMemberSlots` (`PgMemberSlots` deleted); `candidatePosition` and `takeoverCandidacy`. Commits `c038a4ba`
-   and `4b1e2a87`. Jenkins build #36 (`4b1e2a87`, `all` from `peegeeq-pg-failover`): SUCCESS, 101 minutes;
+   `advanceMemberSlots` (`PgMemberSlots` deleted); `candidatePosition` and `takeoverCandidacy`. Commits `2c93a803`
+   and `569564c7`. Jenkins build #36 (`569564c7`, `all` from `peegeeq-pg-failover`): SUCCESS, 101 minutes;
    `peegeeq-pg-failover` 30 classes, 704 tests, 0 failures; downstream modules and both UI suites green. System
    design §1.1 and §5.10 and coordinator design §1.1 and §3.3 now describe session-bound records and candidate
    ordering. The red, green, and probe logs named in the 2026-11-13 handover are not in `logs/` on this machine.
@@ -842,31 +849,31 @@ Phases:
    of 77 after the last test edit; core tier 11 classes, 410 tests, 0 failures. Acquire-refusal mutation probe
    detected, SHA-256 restored. Details in plan §9.28. Not yet run on this code: the downstream modules (a Jenkins job
    build after a push).
-   **7b.3 update, 2026-11-14, takeover after real lease expiry (plan §9.29, `bafe52b2`, `6ac4b5b3`):**
+   **7b.3 update, 2026-11-14, takeover after real lease expiry (plan §9.29, `51e0af37`, `1ccd8f91`):**
    `PgTakeover.acquire(observed, mode)`
    builds the withdrawn takeover intent from an unowned record and acquires it; refused before any coordinator write
    for a record still owned, a record naming this node as writer, a node outside the confirmed policy, quarantine, and
    in automatic mode a non-preferred candidacy. New `PgTakeoverAfterExpiryIntegrationTest` (10-second lease TTL): a
    lost former host, and a former writer cut off from the coordinator whose own supervisor stops PostgreSQL before the
    successor acquires (order asserted). Red 7 of 7 on the stub; green 7 of 7; 5 probes detected (the writer check
-   after its test was rebuilt); takeover class 11, core 410, guards 77. Jenkins build #38 (`ec62d499`, before this
+   after its test was rebuilt); takeover class 11, core 410, guards 77. Jenkins build #38 (`ad56970b`, before this
    increment) SUCCESS: `peegeeq-pg-failover` 706 and all downstream modules and UI suites green.
-   **7b.3 update, 2026-11-14, planned stop with release (plan §9.30, OD-15, `ed29d191`):**
+   **7b.3 update, 2026-11-14, planned stop with release (plan §9.30, OD-15, `6afee3e5`):**
    `PgFailoverMonitor.stopAndRelease(held, reason)` stops local PostgreSQL as a demotion does and releases the lease
    only after every local step succeeded; an unconfirmed stop quarantines and keeps the lease to expire. New
    `PgPlannedStopIntegrationTest`: the release hook observes PostgreSQL stopped when the release is sent, and the
    successor acquires before the lease could expire. Red 4 of 4 on the stub; green 4 of 4; 4 probes detected; monitor
    23, renewal loop 13, bootstrap 7, promotion 17, takeover 11, takeover after expiry 7, core 410, guards 77.
-   **7b.3 update, 2026-11-14, member tags (plan §9.31, owner answer 11, `f2b03bb1`):** owner ruled tags are
+   **7b.3 update, 2026-11-14, member tags (plan §9.31, owner answer 11, `bb9502c9`):** owner ruled tags are
    deployment configuration and all four are accepted now. `PgNodeConfig.memberTags` (`PgMemberTags`): a node
    tagged `nofailover` or `nosync` is refused by `PgTakeover.acquire` and `promoteStandby`; the elector refuses any
    new policy that requires a `nosync` member; the cutover leaves `nosync` members out; candidacy ignores tagged
    rivals. `noloadbalance` and `clonefrom` are validated and have no effect yet. Red on the stubs; green; 7 probes
-   detected; touched classes 62 + 12 + 10 + 6 + 17 + 4; core 416; guards 77. Jenkins build #39 (`ed29d191`):
+   detected; touched classes 62 + 12 + 10 + 6 + 17 + 4; core 416; guards 77. Jenkins build #39 (`6afee3e5`):
    SUCCESS: `peegeeq-pg-failover` 717, examples 178, benchmarking 153, migrations 56, integration tests 109;
    Management UI 128 and 419, Utilities UI 836 and 246; no flaky test.
-   **7b.3 update, 2026-11-16, automatic rewind and rebuild (plan §9.32, owner answer 9, `4aa9dc8e`, test additions
-   `7489cd41`; the regression ran on files equal to `7489cd41`):** `PgFailoverMonitor.rejoin(observed, writer, budget)` makes a member a validated
+   **7b.3 update, 2026-11-16, automatic rewind and rebuild (plan §9.32, owner answer 9, `f588dfe7`, test additions
+   `56ef23c5`; the regression ran on files equal to `56ef23c5`):** `PgFailoverMonitor.rejoin(observed, writer, budget)` makes a member a validated
    standby without an operator: rewind, then a rebuild when the rewind does not produce a caught-up standby, under
    the re-join quarantine. Adapters: `PgProcessControl.inspect`, `rewind`, `rebuild`;
    `PgPromotionControl.observeSource`, `confirmCaughtUp`. Reverses P-6. Defects found and fixed before the records:
@@ -877,7 +884,7 @@ Phases:
    12; probes 51 to 70 and 53b detected (53 needed the inhibitor in the test), SHA-256 equal; module integration tier
    23 classes, 348 tests; core 416; guards 77; all 0 failures. Not run: a Jenkins job build of this code.
    **7b.3 update, 2026-11-18, restart, reload, and `pending_restart` (plan §9.33, owner answer 10, OD-54 to OD-62,
-   code `a74652b9` to `e2f7a3ad`, tests `64e5d525` to `eda4ef45`, records `1375dd61` to `4c1567d7`):** `PgConfigurationControl` and `PgSqlConfigurationControl`
+   code `d09ed730` to `c8903e58`, tests `37425fa8` to `a5daf7b4`, records `f07f5764` to `6a0b7c5e`):** `PgConfigurationControl` and `PgSqlConfigurationControl`
    observe the settings and reload with confirmation; a file PostgreSQL rejects is refused before the reload, and an
    invalid value is reported after it. Policy installation, follow, and the admission gate refuse a rejected file; the
    gate's close installs the closed rules and ends the sessions before it fails (OD-62). `PgFailoverMonitor` gains `reload`, `restart(observed, request)`,
@@ -885,10 +892,10 @@ Phases:
    configuration dependency. RS0 fixed two test-standard violations. Owner's workstation with local Docker (the
    Jenkins host did not answer): RS1 to RS3 red, then green; mutation probes 71 to 103 as listed in plan §9.33 (no
    probe 89 was run; 74 was detected only after a test was added, as 74c); module integration tier on 2026-11-17, on files equal to those commits: 26 classes, 396 tests, 12
-   not passed, each on a `docker exec` over its limit; on 2026-11-18 at `4c1567d7`: those 12 alone 12 of 12, core 424,
+   not passed, each on a `docker exec` over its limit; on 2026-11-18 at `6a0b7c5e`: those 12 alone 12 of 12, core 424,
    guards 77, all 0 failures. Not run: the integration tier green in one run, and a Jenkins job build of this code.
    Four cases the contracts do not state are recorded as built in plan §9.33. Second tier run, 2026-11-18, at
-   `4c1567d7`: 396 tests, 2 errors in `PgFailoverMonitorIntegrationTest`, each on slow `docker exec` calls; the two
+   `6a0b7c5e`: 396 tests, 2 errors in `PgFailoverMonitorIntegrationTest`, each on slow `docker exec` calls; the two
    alone 2 of 2. The tier has not passed in one run.
    **7b.3 in progress, 2026-11-18, coordinator configuration (plan §9.34, owner answer 12, OD-63 to OD-68):** the four
    lease timing values move to one coordinator record per incarnation, edited by a revision check; a lease keeps the
@@ -1037,12 +1044,12 @@ Phase 7b.2 supervision and admission verification, 2026-10-09:
   and recovery timing are unverified. The guard for a command runner that returns no result
   has no test, because the real runner never returns none. Plan §9.11 lists the other gaps.
 
-Task 8 status review, 2026-10-21 at `092cf23f`:
+Task 8 status review, 2026-10-21 at `866a6683`:
 
-- Source: `peegeeq-pg-failover` has no change since `23869e0f` (2026-10-09). `renew()` exists in
+- Source: `peegeeq-pg-failover` has no change since `431055dd` (2026-10-09). `renew()` exists in
   `PgFailoverMonitor`; no source file schedules it (search for `setPeriodic` and `setTimer`
   in `src/main`: no match). `PgWatchdogMode` and the timing rules exist; no watchdog device code
-  exists. `peegeeq-pg-sidecar/src` has no commit since `ff5c17da`.
+  exists. `peegeeq-pg-sidecar/src` has no commit since `41fe8f56`.
 - Rebuild: `mvn clean install -DskipTests -pl :peegeeq-pg-failover -am` passed.
   Output: `logs/rebuild-peegeeq-pg-failover-review-20261021.log`.
 - `peegeeq-pg-failover` default/core: `LocalCommandRunnerTest` **6**, `PgLocalStateStoreTest`
@@ -1066,7 +1073,7 @@ Task 8 status review, 2026-10-21 at `092cf23f`:
 - Not checked: the five guard classes, other modules, Jenkins, and every item under "Known
   gaps" above.
 
-Phase 7b.2 renewal loop verification, 2026-10-21 (committed in `7054ca04`):
+Phase 7b.2 renewal loop verification, 2026-10-21 (committed in `64029d7a`):
 
 - Red: `PgPrimaryElectorQueueingIntegrationTest` failed **3** of **4** against the refusing
   elector (`logs/peegeeq-pg-failover-elector-queue-red-20261021.log`).
@@ -1092,7 +1099,7 @@ Phase 7b.2 renewal loop verification, 2026-10-21 (committed in `7054ca04`):
   null-result check is unreachable on the renew, update, and release paths. No other module
   and no Jenkins build was run.
 
-Phase 7b.2 watchdog mode verification, 2026-10-21 (committed in `7054ca04`):
+Phase 7b.2 watchdog mode verification, 2026-10-21 (committed in `64029d7a`):
 
 - Red: the module's tests failed compilation before the port and adapter existed
   (`logs/peegeeq-pg-failover-watchdog-red-20261021.log`). With `required` handled like
@@ -1116,7 +1123,7 @@ Phase 7b.2 watchdog mode verification, 2026-10-21 (committed in `7054ca04`):
   primary start only; `nowayout` kernels are not detected; no configuration loader reads the
   watchdog keys.
 
-Phase 7b.2 bootstrap scope A verification, 2026-10-21 (committed in `d5c69cb2`):
+Phase 7b.2 bootstrap scope A verification, 2026-10-21 (committed in `2244859e`):
 
 - Red: the module's tests failed compilation before the classes existed
   (`logs/peegeeq-pg-failover-bootstrap-red-20261021.log`). With the local-history check removed,
@@ -1140,7 +1147,7 @@ Phase 7b.2 bootstrap scope A verification, 2026-10-21 (committed in `d5c69cb2`):
   receipts and the data directory not inspected for prior history; an interrupted bootstrap is
   refused, not resumed; scope B not implemented; no production entry point.
 
-Phase 7b.2 bootstrap scope B increment B1 verification, 2026-10-22 (committed in `5118e997`):
+Phase 7b.2 bootstrap scope B increment B1 verification, 2026-10-22 (committed in `01e0c0f0`):
 
 - Red: the module's tests failed compilation before the classes existed
   (`logs/peegeeq-pg-failover-bootstrap-b1-red-20261022.log`). With the setting comparison and the
@@ -1169,7 +1176,7 @@ Phase 7b.2 bootstrap scope B increment B1 verification, 2026-10-22 (committed in
   supervisor role for `pg_stat_replication` is not defined; no test for a runner that returns no
   result; a failed fixture test can cascade through the class (§9.11).
 
-Phase 7b.2 bootstrap scope B increment B2 step 1 verification, 2026-10-24 (committed in `bb3eff7f`):
+Phase 7b.2 bootstrap scope B increment B2 step 1 verification, 2026-10-24 (committed in `e04a6346`):
 
 - Red: the module's tests failed compilation before the members existed
   (`logs/peegeeq-pg-failover-policy-install-red-20261024.log`). Five temporary changes were each
@@ -1193,7 +1200,7 @@ Phase 7b.2 bootstrap scope B increment B2 step 1 verification, 2026-10-24 (commi
   test; a coverage failure that cannot resolve is retried until the budget ends; the control record
   is not changed; no other module and no Jenkins build was run. Plan §9.16 lists the rest.
 
-Phase 7b.2 bootstrap scope B increment B2 step 2 verification, 2026-10-24 (committed in `64a84289`):
+Phase 7b.2 bootstrap scope B increment B2 step 2 verification, 2026-10-24 (committed in `96d82ab3`):
 
 - Red: the module's tests failed compilation before `serve` existed. Two temporary changes to
   `PgBootstrap` were each caught by the test named for them; the source was restored to the same
@@ -1219,7 +1226,7 @@ Phase 7b.2 bootstrap scope B increment B2 step 2 verification, 2026-10-24 (commi
   installed policy is a `psql` statement, not the production-manager write; no other module and no
   Jenkins build was run. Plan §9.17 lists the rest.
 
-Phase 7b.2 check of every gap listed for B2 steps 1 and 2, 2026-10-24 (committed in `76208e9c`,
+Phase 7b.2 check of every gap listed for B2 steps 1 and 2, 2026-10-24 (committed in `26e6a126`,
 except the last edits of `PgPolicyInstallationIntegrationTest` and
 `PgSqlDurabilityControlIntegrationTest` and of the two documents, which are in the working tree):
 
@@ -1243,7 +1250,7 @@ except the last edits of `PgPolicyInstallationIntegrationTest` and
   was bounded by a 120-second limit, not asserted. Superseded on 2026-10-25 (below), except the
   Jenkins build.
 
-Phase 7b.2 closing of the open items of the 2026-10-24 check, 2026-10-25 (committed in `240be0a7`):
+Phase 7b.2 closing of the open items of the 2026-10-24 check, 2026-10-25 (committed in `6419b66b`):
 
 - Plan §9.19 has each result. Closed by a change and a test: fixtures stop a cluster that an earlier
   failed test left running (`PgFixtureLeftoverServerContractIntegrationTest`, 4); the guards against a
@@ -1266,7 +1273,7 @@ Phase 7b.2 closing of the open items of the 2026-10-24 check, 2026-10-25 (commit
 - Guards in `peegeeq-test-support` (61 tests, five guard classes 14): zero failures. `node --test
   scripts/ci`: 21 pass.
 - Not closed: the Jenkins build; the race has no deterministic red; no production entry point calls
-  `PgBootstrap`. The Jenkins builds were attempted on 2026-10-25 at `240be0a7` (pushed; `HEAD` equals
+  `PgBootstrap`. The Jenkins builds were attempted on 2026-10-25 at `6419b66b` (pushed; `HEAD` equals
   `origin/master`) on `http://192.168.137.32:8080`: builds 32 (`core`), 33 and 34 (`all`, resumed at
   `peegeeq-pg-failover`; the job accepts that choice since build 32). Each failed in the Checkout stage and
   ran no test: the workspace was empty, so each was a full clone, and each clone was reset ("RPC failed; curl 56
@@ -1281,7 +1288,7 @@ Phase 7b.2 closing of the open items of the 2026-10-24 check, 2026-10-25 (commit
   states the exception (use `andThen` where a test declares the ERROR), and `pgq-coding-principles.md`
   section 9 points to it.
 
-Phase 7b.3 increment P1 verification, 2026-10-26 (committed in `2232a3cd`):
+Phase 7b.3 increment P1 verification, 2026-10-26 (committed in `3e84538e`):
 
 - Plan §9.21 has the contract, the red and green evidence, and the mutation probes. New:
   `PgPromotionControl`, `PgSqlPromotionControl`, `PgPromotionException`, `PgFailoverMonitor.promoteStandby`.
@@ -1299,7 +1306,7 @@ Phase 7b.3 increment P1 verification, 2026-10-26 (committed in `2232a3cd`):
   build, and the whole-repository gate. Seven `.eventually(` teardown calls remain in four older test
   classes; `Future.eventually` discards a cleanup failure.
 
-Phase 7b.3 increment P2 verification, 2026-10-26 (committed in `2232a3cd` and `e9189df1`):
+Phase 7b.3 increment P2 verification, 2026-10-26 (committed in `3e84538e` and `8699e610`):
 
 - Plan §9.22 has the contract, the red and green evidence, and the mutation probes. New: `PgWriterEndpoint`,
   `PgPromotionControl.follow` and its adapter, `PgFailoverMonitor.followWriter`.
@@ -1333,7 +1340,7 @@ runbook has saved output for every scenario.
 ### 9. Delivery-outcome redesign (Finding 20)
 
 **Priority:** High
-**Status:** ACTIVE — design approved 2026-10-12; phase 1 partial (increments 1a and 1b committed in `092cf23f`; 1b not approved)
+**Status:** ACTIVE — design approved 2026-10-12; phase 1 partial (increments 1a and 1b committed in `866a6683`; 1b not approved)
 **Objective:** replace the incomplete `REFERENCE_COUNTING` fan-out and the module-private
 rejection semantics with one delivery-outcome contract across outbox, native, and database
 modules. A rejection, a transient failure, and a processing failure each have a defined,
@@ -1382,15 +1389,15 @@ were static until phase 1 reproduced R-8.
 | Benchmarking enhancement | **PROPOSED — NOT IMPLEMENTED**; `docs-design/performance/PEEGEEQ_BENCHMARKING_ENHANCEMENT_IMPLEMENTATION_PLAN.md` (last updated 2026-09-18) holds 103 unchecked `BENCH-*` items and 0 checked | Approve scope, then add the approved phases to this register before implementation |
 | Authentication and Authorization | Proposed; no auth module, JWT middleware, or tenant-management implementation exists | Define threat model and product boundary |
 | TypeScript REST client coverage | Shared client is used by two Management UI pages (`AggregateStreamPage`, `CausationTreePage`). `PeeGeeQClient.test.ts` has nine cases: eight send requests over a real socket to the local `HttpTestServer` fixture, and one drives `streamEvents` through a hand-written `EventSource` replacement. No test runs the client against the PeeGeeQ REST backend | Add integration tests against the real REST backend; decide whether the `EventSource` replacement complies with the no-mocking rule |
-| Failures logged at WARN outside `peegeeq-pg-failover` | Classified on 2026-10-09 at `ea045d7f`. The production sources of 12 modules hold 318 `warn` calls. 196 report a failed, refused, or lost operation that the code does not resolve. 26 report a condition the code resolves. 95 are notices. 1 relays a PostgreSQL warning and is a notice outside a commit and a failure during one. Of the 196, 134 are swallowed, 51 are returned to the caller, and 11 repeat with no bound and no escalation. All 318 have two reads. A text search of `debug`, `info`, and `trace` calls found 44 more failure sites below WARN: 34 swallowed, 10 returned. No level was changed. The unexpected-ERROR gate does not see WARN or lower, so no test declares these failures. The sites are listed in "Failure log level classification" below. Count on 2026-11-15 at `b3f7ddc9`, text search for `log.warn(`, `logger.warn(`, `LOG.warn(` and `LOGGER.warn(` in `src/main/java`: 311 outside `peegeeq-pg-failover` in 12 modules (db 104, rest 49, native 43, examples-spring 34, outbox 22, benchmarking 19, bitemporal 16, service-manager 14, examples 6, test-support 2, pg-sidecar 1, rest-client 1). The 2026-11-07 remediation changed some of the classified sites; the classification was not repeated | Decide per module whether to raise the 196 to ERROR and add `@ExpectedErrorLog` to each test that causes one. A change in `peegeeq-db` needs the tests of every module that depends on it |
-| Queue and stream defects confirmed by probe runs | **State on 2026-11-15:** findings 1 to 3 and 5 to 19 are fixed and committed (the remediation of 2026-11-07 and 2026-11-08 below; its classes arrived in `09501400`, `8b96af9a`, and `2a333f22`). Findings 4 and 20 remain open; both belong to Task 9 (finding 4: Task 9 phases 3 and 7). The test step of builds 33 to 40 runs only the seven reactor modules from `peegeeq-pg-failover` on (read in the build 39 console). The tests of the eleven modules before it, `peegeeq-test-support` to `peegeeq-pg-sidecar`, last ran on Jenkins in builds 30 and 31 (2026-10-11), before this remediation, so for those modules it has run only on the development machine. The rest of this cell is the record of 2026-10-09 and 2026-10-10. Found 2026-10-09 at `ea045d7f`. Four defects were confirmed by runs against real PostgreSQL and are recorded as findings 3, 4, 5, and 9 under "Failure log level classification". A native consumer group member filter that throws deletes the message. A handler that always fails blocks an `OFFSET_WATERMARK` partition with no bound, no retry count, and no dead-letter row. A handler that exceeds the visibility timeout is redelivered with no bound, and `max-retries` does not apply. A WebSocket queue stream that is idle for 300 s drops every later message and stays open. The same day's runs added: a started consumer group with no member, or with a filter that returns false, also deletes the message (finding 3); the outbox consumer group blocks the same way (finding 4); a hanging handler starves every later message on the topic (finding 5); a stream that is quiet for its first 300 s never delivers (finding 9); an event posted with an unparseable `validTime` is stored with the current time and answered 201 (finding 18). Three more were confirmed by runs: a service manager with no Consul logs that it registered and reports `connected` (finding 11); a stopped database produced its first ERROR line after 10.9 s, from the depth cache and not from the health checks, which logged the refused connections at DEBUG (finding 15); and seven test log configurations hide production loggers from the unexpected-ERROR gate, confirmed in all seven modules (finding 17). Finding 16 did not reproduce under real connection loss. A scan found 17 catch blocks and 2 Future conversions that drop a failure with no log (finding 19). A run on 2026-10-10 at `e07142b2` confirmed that an outbox consumer group stops delivering an acceptable message while a rejected row with an earlier `created_at` and a higher id stays PENDING; this failed `OutboxConsumerGroupIntegrationTest.testGroupFiltering` in Jenkins build 17 (finding 20). No production code was changed | Decide the intended behaviour for each, then fix test-first. Finding 3 loses messages and finding 18 stores a wrong valid time; they come first. Finding 20 withholds a message with no log line and makes the release gate fail at random; it comes next |
-| Jenkins: another job's Docker network changes blank Management UI pages | Seen 2026-10-10 on `http://192.168.137.32:8080`, build 18 of `PeeGeeQ` at `e07142b2`. The build passed. In the Management UI Playwright run 4 of 419 tests failed their first attempt and passed on retry: `visualization-scope-selector.spec.ts:25`, `consumer-groups-validation.spec.ts:91`, `message-browser.spec.ts:217`, and `message-browser-advanced-filters.spec.ts:97`. Each waited 10 s for the first element of the page. The four failure screenshots are the same blank white image, and the browser logged `net::ERR_NETWORK_CHANGED` three times before the fourth failure. The other 415 Management UI tests and all 246 Utilities UI tests passed at the first attempt. Build 6 of the `Qraft` job ran on the same node from 13:57:51 to 14:06:19 and created or removed a Docker network 27 times between 14:00:44 and 14:06:14. The Playwright report places the four failed attempts at 14:01:09, 14:02:14, 14:03:26, and 14:06:13; `Qraft` network events are at 14:01:15, 14:02:12, 14:03:25, and 14:06:14. The node has 4 executors and no lock spans jobs; the Lockable Resources and Throttle Concurrent Builds plugins are not installed. Seen again the same day in build 19 at `75160f41`, which also passed. The Playwright report gives the start time of every attempt. 425 attempts passed and 3 failed, all three with the same blank image: `event-stores-scope-filter.spec.ts:122` at 16:57:46 and again at 16:58:10, and `message-browser.spec.ts:145` at 16:59:28. Build 11 of `Qraft` created or removed a Docker network 27 times from 16:57:44 to 17:03:32, with events at 16:57:44, 16:58:15, and 16:59:30. No attempt failed in the 18 minutes of the run before the first event. No attempt failed during the 24 later events. Each of the 7 failed attempts in the two builds overlaps a network event or starts at most 2 s after one. The link is that match in time plus the browser error in the first build; it was not reproduced on purpose | Approved 2026-10-10: keep the 4 executors, because running jobs side by side is the purpose of the server, and make only the two conflicting stages wait for each other. Phase 1 is done in `75160f41`: the `Jenkinsfile` runs the `all` suite as `Full regression: Java modules` and `Full regression: UI modules`, and `scripts/ci/regression-stages.mjs` derives the Maven arguments of each stage (12 contracts in `scripts/ci/regression-stages.test.mjs`). Build 19, resumed at `peegeeq-integration-tests`, ran both stages and published 1,738 passing tests. Build 20, resumed at `peegeeq-utilities-ui`, ran no test in the Java stage, ran that one module in the UI stage, and published 1,082 passing tests. Phase 2 is done on the server, 2026-10-10 17:58: Lockable Resources `1560.va_b_cd589f23eb_` is installed and active, 93 plugins against 92 before, no plugin upgraded, no restart required, and the server's list of pipeline steps now contains `lock`. Phase 3: the `PeeGeeQ` UI stage holds the lock `host-network-interfaces` since `f3ab553e`. The same lock around the `Qraft` `Docker cluster tests` stage (`https://github.com/mraysmit/qraft.git`, branch `main`) is in that repository's working tree and was not on `origin/main` at 19:03 on 2026-10-10, so a normal `Qraft` build holds no lock until it is. Both directions were shown that day with a replay of the `Qraft` build that used the locked Jenkinsfile. `PeeGeeQ` build 21 held the lock and `Qraft` build 12 waited from 18:33:29 to 18:39:09; its first Docker network event, at 18:39:19, came after the last browser attempt had started at 18:39:05. `Qraft` build 13 held the lock from 18:48:25 to 18:53:40 and `PeeGeeQ` build 22 waited; its first browser attempt started at 18:54:28. Both `PeeGeeQ` builds published 1,082 passing tests and no browser attempt failed. Jenkins created the lock by itself; it needs no configuration. Open: put the `Qraft` Jenkinsfile change on `origin/main`. Research on 2026-10-10, after the lock was built, shows the lock treats a symptom. The cause is documented Chromium behaviour on Linux, not job concurrency: Chromium cancels every request in flight when any address changes on any interface of the host, it has no switch for this, and its bug 974711 is closed as WontFix. Docker gives each new host interface an IPv6 link-local address about 1 to 2 s after creating it, which matches the 2 s seen here. The published fix is the host setting `net.ipv6.conf.default.disable_ipv6=1`, which stops new interfaces from getting an IPv6 address; one project measured 0 events with it against 24 before. Those reports cover containers that start and stop. A new Docker network also puts an IPv4 address on a new bridge, and no source read covers that, so the effect on the `Qraft` stage is not known. Open: measure the address events on the Jenkins host with and without the setting; if they stop, delete the lock from both pipelines. Owner direction on 2026-10-10: use a different browser. Research the same day: Firefox reacts to the same event (Mozilla bug 1720833, open) and, unlike Chromium, has a switch for it, the preference `network.notify.changed`. In the working tree, not yet on Jenkins: both gate configs (`peegeeq-management-ui/playwright.config.ts`, `peegeeq-utilities-ui/playwright.config.ts`) run Firefox with that preference off, and the `Jenkinsfile` installs Firefox in place of Chromium. Local evidence is small: 10 Management UI tests passed on Firefox, and both configs still list 419 and 246 tests. Not known: how many of the 665 browser tests pass on Firefox, whether the Jenkins host has the operating-system packages Firefox needs, and whether Firefox with the preference off survives `Qraft`'s network changes; one utilities test grants Chromium-only clipboard permissions (`generator-output-degraded.spec.ts:151`). The gate then no longer tests in Chrome. Open: a Jenkins build of the UI stage with a `Qraft` build beside it; if no page load is lost, delete the lock from both pipelines. Known limits: a `Qraft` build can wait about 38 minutes at its Docker stage, and that wait counts against its 60-minute timeout; the `PeeGeeQ-Cache` job does not hold the lock; a Jenkins server without the plugin has no `lock` step, which the `all` suite now uses. **Container result, 2026-10-10 evening.** The Playwright CI guide runs browser tests in the image `mcr.microsoft.com/playwright`; a container has its own network interfaces. The Docker Pipeline plugin was installed on the server (`docker-workflow` 653, with `docker-commons` and `authentication-tokens`; 96 plugins, no restart). In the working-tree `Jenkinsfile` the UI stage runs in `mcr.microsoft.com/playwright:v1.60.0-noble` and holds no lock; it was run on Jenkins by replay. Build 28 (replay, checkout `b73da6b9`, Playwright configs of `f3ab553e`, so Chromium) passed: 1,738 published, Management UI 419 of 419 browser attempts passed at the first attempt, Utilities UI 246 of 246, no `ERR_NETWORK_CHANGED` line. `Qraft` build 17 ran beside it and made its 27 Docker network changes from 22:08:58 to 22:13:56, inside the Management UI run (22:06:02 to 22:23:57). Builds 18 and 19 lost 4 and 3 attempts in the same overlap on the host. Build 25 (replay, `f3ab553e`) passed the Utilities UI in the container. Build 27 (replay, `b73da6b9`, Firefox, in the container) failed: 12 Management UI tests, each waiting for the WebSocket or SSE status `Connected`, with the browser error `Firefox can't establish a connection to the server at ws://localhost:3000/ws/monitoring`; 255 tests did not run. Firefox on the host was not run. The container `Jenkinsfile` is on the branch since `c20f7a40`; the Firefox configs of `b73da6b9` are still there, so a normal build of that commit is expected to fail as build 27 did. In the working trees on 2026-10-11, not committed: both Playwright configs restored to their Chromium content of `f3ab553e`; the host browser install removed from the Rebuild stage; the lock and Firefox text removed from the CI guide; the lock removed from the `Qraft` `Jenkinsfile` (equal to its content at `f2119d3`) and from its two documents. Build 29 (replay of the working-tree `Jenkinsfile`, checkout `c20f7a40`, Chromium configs) passed with no browser installed on the host by the pipeline: Utilities UI 836 unit and 246 browser tests. Those changes are on the branches since `f318b68d` (PeeGeeQ) and `3579736` (`Qraft`). **Normal builds, 2026-10-11, at `f318b68d`.** Build 30 from `beginning` stopped in the Java stage at `peegeeq-db` on `HaProxyConnectionFailoverTest.testFailbackAfterPrimaryRecovery` (Task 8 phase 5); test-support 87 and api 228 passed, db ran 1,124 with that 1 failure, and no later module or UI stage ran. Build 31, resumed at `peegeeq-outbox`, passed in 71.9 minutes with 4,505 tests published and 0 failed: 14 Java modules with 0 failures, then the UI stage in the container, Management UI 128 unit and 419 browser tests, Utilities UI 836 and 246. All 665 browser attempts passed at the first attempt. `Qraft` build 20, with no lock, made its 27 Docker network changes from 18:16:14 to 18:21:13, inside the Management UI run (18:13:17 to 18:31:15). Closed. Left: a build from `beginning` cannot reach the UI stage while the `peegeeq-db` test is red (repaired in `f391a7f0` after build 30's checkout; no build from `beginning` has run it, checked 2026-11-15); the Lockable Resources plugin is still installed and no pipeline uses it, and uninstalling it needs a Jenkins restart. Retries hide these failures in the build result |
+| Failures logged at WARN outside `peegeeq-pg-failover` | Classified on 2026-10-09 at `eb42d42e`. The production sources of 12 modules hold 318 `warn` calls. 196 report a failed, refused, or lost operation that the code does not resolve. 26 report a condition the code resolves. 95 are notices. 1 relays a PostgreSQL warning and is a notice outside a commit and a failure during one. Of the 196, 134 are swallowed, 51 are returned to the caller, and 11 repeat with no bound and no escalation. All 318 have two reads. A text search of `debug`, `info`, and `trace` calls found 44 more failure sites below WARN: 34 swallowed, 10 returned. No level was changed. The unexpected-ERROR gate does not see WARN or lower, so no test declares these failures. The sites are listed in "Failure log level classification" below. Count on 2026-11-15 at `e3112c33`, text search for `log.warn(`, `logger.warn(`, `LOG.warn(` and `LOGGER.warn(` in `src/main/java`: 311 outside `peegeeq-pg-failover` in 12 modules (db 104, rest 49, native 43, examples-spring 34, outbox 22, benchmarking 19, bitemporal 16, service-manager 14, examples 6, test-support 2, pg-sidecar 1, rest-client 1). The 2026-11-07 remediation changed some of the classified sites; the classification was not repeated | Decide per module whether to raise the 196 to ERROR and add `@ExpectedErrorLog` to each test that causes one. A change in `peegeeq-db` needs the tests of every module that depends on it |
+| Queue and stream defects confirmed by probe runs | **State on 2026-11-15:** findings 1 to 3 and 5 to 19 are fixed and committed (the remediation of 2026-11-07 and 2026-11-08 below; its classes arrived in `b52d93fa`, `f718becb`, and `d6d6ecc4`). Findings 4 and 20 remain open; both belong to Task 9 (finding 4: Task 9 phases 3 and 7). The test step of builds 33 to 40 runs only the seven reactor modules from `peegeeq-pg-failover` on (read in the build 39 console). The tests of the eleven modules before it, `peegeeq-test-support` to `peegeeq-pg-sidecar`, last ran on Jenkins in builds 30 and 31 (2026-10-11), before this remediation, so for those modules it has run only on the development machine. The rest of this cell is the record of 2026-10-09 and 2026-10-10. Found 2026-10-09 at `eb42d42e`. Four defects were confirmed by runs against real PostgreSQL and are recorded as findings 3, 4, 5, and 9 under "Failure log level classification". A native consumer group member filter that throws deletes the message. A handler that always fails blocks an `OFFSET_WATERMARK` partition with no bound, no retry count, and no dead-letter row. A handler that exceeds the visibility timeout is redelivered with no bound, and `max-retries` does not apply. A WebSocket queue stream that is idle for 300 s drops every later message and stays open. The same day's runs added: a started consumer group with no member, or with a filter that returns false, also deletes the message (finding 3); the outbox consumer group blocks the same way (finding 4); a hanging handler starves every later message on the topic (finding 5); a stream that is quiet for its first 300 s never delivers (finding 9); an event posted with an unparseable `validTime` is stored with the current time and answered 201 (finding 18). Three more were confirmed by runs: a service manager with no Consul logs that it registered and reports `connected` (finding 11); a stopped database produced its first ERROR line after 10.9 s, from the depth cache and not from the health checks, which logged the refused connections at DEBUG (finding 15); and seven test log configurations hide production loggers from the unexpected-ERROR gate, confirmed in all seven modules (finding 17). Finding 16 did not reproduce under real connection loss. A scan found 17 catch blocks and 2 Future conversions that drop a failure with no log (finding 19). A run on 2026-10-10 at `aa45d1a3` confirmed that an outbox consumer group stops delivering an acceptable message while a rejected row with an earlier `created_at` and a higher id stays PENDING; this failed `OutboxConsumerGroupIntegrationTest.testGroupFiltering` in Jenkins build 17 (finding 20). No production code was changed | Decide the intended behaviour for each, then fix test-first. Finding 3 loses messages and finding 18 stores a wrong valid time; they come first. Finding 20 withholds a message with no log line and makes the release gate fail at random; it comes next |
+| Jenkins: another job's Docker network changes blank Management UI pages | Seen 2026-10-10 on `http://192.168.137.32:8080`, build 18 of `PeeGeeQ` at `aa45d1a3`. The build passed. In the Management UI Playwright run 4 of 419 tests failed their first attempt and passed on retry: `visualization-scope-selector.spec.ts:25`, `consumer-groups-validation.spec.ts:91`, `message-browser.spec.ts:217`, and `message-browser-advanced-filters.spec.ts:97`. Each waited 10 s for the first element of the page. The four failure screenshots are the same blank white image, and the browser logged `net::ERR_NETWORK_CHANGED` three times before the fourth failure. The other 415 Management UI tests and all 246 Utilities UI tests passed at the first attempt. Build 6 of the `Qraft` job ran on the same node from 13:57:51 to 14:06:19 and created or removed a Docker network 27 times between 14:00:44 and 14:06:14. The Playwright report places the four failed attempts at 14:01:09, 14:02:14, 14:03:26, and 14:06:13; `Qraft` network events are at 14:01:15, 14:02:12, 14:03:25, and 14:06:14. The node has 4 executors and no lock spans jobs; the Lockable Resources and Throttle Concurrent Builds plugins are not installed. Seen again the same day in build 19 at `8bd0cc6f`, which also passed. The Playwright report gives the start time of every attempt. 425 attempts passed and 3 failed, all three with the same blank image: `event-stores-scope-filter.spec.ts:122` at 16:57:46 and again at 16:58:10, and `message-browser.spec.ts:145` at 16:59:28. Build 11 of `Qraft` created or removed a Docker network 27 times from 16:57:44 to 17:03:32, with events at 16:57:44, 16:58:15, and 16:59:30. No attempt failed in the 18 minutes of the run before the first event. No attempt failed during the 24 later events. Each of the 7 failed attempts in the two builds overlaps a network event or starts at most 2 s after one. The link is that match in time plus the browser error in the first build; it was not reproduced on purpose | Approved 2026-10-10: keep the 4 executors, because running jobs side by side is the purpose of the server, and make only the two conflicting stages wait for each other. Phase 1 is done in `8bd0cc6f`: the `Jenkinsfile` runs the `all` suite as `Full regression: Java modules` and `Full regression: UI modules`, and `scripts/ci/regression-stages.mjs` derives the Maven arguments of each stage (12 contracts in `scripts/ci/regression-stages.test.mjs`). Build 19, resumed at `peegeeq-integration-tests`, ran both stages and published 1,738 passing tests. Build 20, resumed at `peegeeq-utilities-ui`, ran no test in the Java stage, ran that one module in the UI stage, and published 1,082 passing tests. Phase 2 is done on the server, 2026-10-10 17:58: Lockable Resources `1560.va_b_cd589f23eb_` is installed and active, 93 plugins against 92 before, no plugin upgraded, no restart required, and the server's list of pipeline steps now contains `lock`. Phase 3: the `PeeGeeQ` UI stage holds the lock `host-network-interfaces` since `9e51f947`. The same lock around the `Qraft` `Docker cluster tests` stage (`https://github.com/mraysmit/qraft.git`, branch `main`) is in that repository's working tree and was not on `origin/main` at 19:03 on 2026-10-10, so a normal `Qraft` build holds no lock until it is. Both directions were shown that day with a replay of the `Qraft` build that used the locked Jenkinsfile. `PeeGeeQ` build 21 held the lock and `Qraft` build 12 waited from 18:33:29 to 18:39:09; its first Docker network event, at 18:39:19, came after the last browser attempt had started at 18:39:05. `Qraft` build 13 held the lock from 18:48:25 to 18:53:40 and `PeeGeeQ` build 22 waited; its first browser attempt started at 18:54:28. Both `PeeGeeQ` builds published 1,082 passing tests and no browser attempt failed. Jenkins created the lock by itself; it needs no configuration. Open: put the `Qraft` Jenkinsfile change on `origin/main`. Research on 2026-10-10, after the lock was built, shows the lock treats a symptom. The cause is documented Chromium behaviour on Linux, not job concurrency: Chromium cancels every request in flight when any address changes on any interface of the host, it has no switch for this, and its bug 974711 is closed as WontFix. Docker gives each new host interface an IPv6 link-local address about 1 to 2 s after creating it, which matches the 2 s seen here. The published fix is the host setting `net.ipv6.conf.default.disable_ipv6=1`, which stops new interfaces from getting an IPv6 address; one project measured 0 events with it against 24 before. Those reports cover containers that start and stop. A new Docker network also puts an IPv4 address on a new bridge, and no source read covers that, so the effect on the `Qraft` stage is not known. Open: measure the address events on the Jenkins host with and without the setting; if they stop, delete the lock from both pipelines. Owner direction on 2026-10-10: use a different browser. Research the same day: Firefox reacts to the same event (Mozilla bug 1720833, open) and, unlike Chromium, has a switch for it, the preference `network.notify.changed`. In the working tree, not yet on Jenkins: both gate configs (`peegeeq-management-ui/playwright.config.ts`, `peegeeq-utilities-ui/playwright.config.ts`) run Firefox with that preference off, and the `Jenkinsfile` installs Firefox in place of Chromium. Local evidence is small: 10 Management UI tests passed on Firefox, and both configs still list 419 and 246 tests. Not known: how many of the 665 browser tests pass on Firefox, whether the Jenkins host has the operating-system packages Firefox needs, and whether Firefox with the preference off survives `Qraft`'s network changes; one utilities test grants Chromium-only clipboard permissions (`generator-output-degraded.spec.ts:151`). The gate then no longer tests in Chrome. Open: a Jenkins build of the UI stage with a `Qraft` build beside it; if no page load is lost, delete the lock from both pipelines. Known limits: a `Qraft` build can wait about 38 minutes at its Docker stage, and that wait counts against its 60-minute timeout; the `PeeGeeQ-Cache` job does not hold the lock; a Jenkins server without the plugin has no `lock` step, which the `all` suite now uses. **Container result, 2026-10-10 evening.** The Playwright CI guide runs browser tests in the image `mcr.microsoft.com/playwright`; a container has its own network interfaces. The Docker Pipeline plugin was installed on the server (`docker-workflow` 653, with `docker-commons` and `authentication-tokens`; 96 plugins, no restart). In the working-tree `Jenkinsfile` the UI stage runs in `mcr.microsoft.com/playwright:v1.60.0-noble` and holds no lock; it was run on Jenkins by replay. Build 28 (replay, checkout `8a079142`, Playwright configs of `9e51f947`, so Chromium) passed: 1,738 published, Management UI 419 of 419 browser attempts passed at the first attempt, Utilities UI 246 of 246, no `ERR_NETWORK_CHANGED` line. `Qraft` build 17 ran beside it and made its 27 Docker network changes from 22:08:58 to 22:13:56, inside the Management UI run (22:06:02 to 22:23:57). Builds 18 and 19 lost 4 and 3 attempts in the same overlap on the host. Build 25 (replay, `9e51f947`) passed the Utilities UI in the container. Build 27 (replay, `8a079142`, Firefox, in the container) failed: 12 Management UI tests, each waiting for the WebSocket or SSE status `Connected`, with the browser error `Firefox can't establish a connection to the server at ws://localhost:3000/ws/monitoring`; 255 tests did not run. Firefox on the host was not run. The container `Jenkinsfile` is on the branch since `0577d916`; the Firefox configs of `8a079142` are still there, so a normal build of that commit is expected to fail as build 27 did. In the working trees on 2026-10-11, not committed: both Playwright configs restored to their Chromium content of `9e51f947`; the host browser install removed from the Rebuild stage; the lock and Firefox text removed from the CI guide; the lock removed from the `Qraft` `Jenkinsfile` (equal to its content at `f2119d3`) and from its two documents. Build 29 (replay of the working-tree `Jenkinsfile`, checkout `0577d916`, Chromium configs) passed with no browser installed on the host by the pipeline: Utilities UI 836 unit and 246 browser tests. Those changes are on the branches since `ef72132f` (PeeGeeQ) and `3579736` (`Qraft`). **Normal builds, 2026-10-11, at `ef72132f`.** Build 30 from `beginning` stopped in the Java stage at `peegeeq-db` on `HaProxyConnectionFailoverTest.testFailbackAfterPrimaryRecovery` (Task 8 phase 5); test-support 87 and api 228 passed, db ran 1,124 with that 1 failure, and no later module or UI stage ran. Build 31, resumed at `peegeeq-outbox`, passed in 71.9 minutes with 4,505 tests published and 0 failed: 14 Java modules with 0 failures, then the UI stage in the container, Management UI 128 unit and 419 browser tests, Utilities UI 836 and 246. All 665 browser attempts passed at the first attempt. `Qraft` build 20, with no lock, made its 27 Docker network changes from 18:16:14 to 18:21:13, inside the Management UI run (18:13:17 to 18:31:15). Closed. Left: a build from `beginning` cannot reach the UI stage while the `peegeeq-db` test is red (repaired in `9e7f12b0` after build 30's checkout; no build from `beginning` has run it, checked 2026-11-15); the Lockable Resources plugin is still installed and no pipeline uses it, and uninstalling it needs a Jenkins restart. Retries hide these failures in the build result |
 | ERROR logs written with `onFailure` on a returned future, where a test declares the line | Sized 2026-10-25 by search. A production site that logs with `future.onFailure(log)` on a future it also returns can log after the caller's handler. A test that declares that line with `@ExpectedErrorLog` then fails intermittently ("Expected ERROR occurrence mismatch ... observed=0" plus a class-level "Unexpected ERROR"). Found in `peegeeq-pg-failover` (one failure in six saved full core runs, plan §9.19). The module is fixed with `andThen`. In the other modules the search finds 341 `onFailure` sites that log, in 89 files of 12 modules, and 340 `@ExpectedErrorLog` declarations in 65 test files; the exposed sites are those whose logger a test declares (`peegeeq-bitemporal`, `-db`, `-native`, `-outbox`, `-rest`, `-integration-tests`, `-test-support`). None of the 576 saved logs contains the signature outside `peegeeq-pg-failover`: four contain the mismatch text, and each is a development red run with another cause (a wrong throwable type, a missing expectation, or a schema error). The full gates of 2026-10-09 and Jenkins build 31 passed. The saved logs are not a complete record of every run. The standards documents state the rule | Fix a site in the commit that shows the signature (use `andThen`, see `PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md`). A sweep of all exposed sites is the owner's decision; it changes delivery code of five modules and needs the full gate |
 
 ### Failure log level classification, 2026-10-09
 
 Four read-only review passes read the enclosing method of every `warn` call under
-`src/main/java` at commit `ea045d7f`. A second read then covered all 196 failure sites: the
+`src/main/java` at commit `eb42d42e`. A second read then covered all 196 failure sites: the
 source around each site was read again and compared with the first reader's statement of the
 trigger and of what the code does next. All 196 agree. Where the first read cited a line outside
 that range, the cited line was read as well: the rethrow at `PgClientFactory.java:174`, the
@@ -1835,7 +1842,7 @@ and the run logs are in `logs/`; neither is in the repository. No probe remains 
     `onComplete` only. A Future that is created and never observed is not in it;
     `queueFactory.close()` at `ManagementApiHandler.java:1259` is one that was seen.
 20. `outbox/OutboxConsumer.java` 373 to 378, 388, 416, and 851, found 2026-10-10 at
-    `e07142b2`: an outbox consumer group stops delivering an acceptable message for as long as
+    `aa45d1a3`: an outbox consumer group stops delivering an acceptable message for as long as
     a rejected row with an earlier `created_at` and a higher id stays PENDING. The claim
     statement scans in `created_at, id` order (388). After a filter rejection the consumer
     keeps the rejected row's id as its scan position (851), and the next claim adds
@@ -2228,7 +2235,7 @@ is the single record of that work's verification evidence.
 | UI semantic Playwright and inventory remediation | Commit `322b7f06` closed the reviewed semantic coverage gaps: Management UI Vitest 128/128 across 14 files and Playwright 419/419; Utilities UI Vitest 836/836 across 55 files and Playwright 246/246. Inventory guards found 491 unique Management UI tests (419 functional + 72 screenshots) and 817 unique Utilities UI tests (246 functional + 571 screenshots), with type checks, builds, and lint green. The 2026-09-02 remediation wires both inventory guards into `test:all`, the command invoked by the Maven `all-tests` profiles and Jenkins full gate |
 | Outbox capacity and retry-metrics CI remediation | Capacity/filter fairness (`1dd6741b`): failing starvation and capacity contracts preceded the fix; the focused integration scope passed 74 tests and the async guard passed 8. Retry metrics (`fe676bda`): three focused contracts failed before deterministic fail-once/succeed fixtures replaced permanently failing handlers; the two regression classes passed 10 and 14 tests; async guard 8/8. Full-module verification then passed 673 outbox tests in #44 |
 | WebSocket subscription test ordering | `c62af5c3`: the test distinguishes automatic queue-tail readiness from the explicit subscription acknowledgement. `WebSocketHandlerTest` 6/6, `WebSocketMessageStreamIntegrationTest` 2/2, async guard 8/8; REST module passed 518 tests in #45. The original failure was observed in CI; the local pre-change run did not reproduce it deterministically |
-| Concurrent consumer-group example test stabilisation | `a86bc056` (2026-09-24): `AdvancedProducerConsumerGroupTest` awaits every group's start Future before publishing, replaces periodic timer polling with message-driven completion, and composes group cleanup into the test lifecycle. This work was not entered here before implementation, and no test counts are recorded for it |
+| Concurrent consumer-group example test stabilisation | `12f962df` (2026-09-24): `AdvancedProducerConsumerGroupTest` awaits every group's start Future before publishing, replaces periodic timer polling with message-driven completion, and composes group cleanup into the test lifecycle. This work was not entered here before implementation, and no test counts are recorded for it |
 | Management queue-name search | `b19b708b`: #45's SSE browser test failed before publishing because the management endpoint ignored the search query, leaving the target queue off the first page. A real HTTP/PostgreSQL regression failed 4 of 7 cases before the production fix. Afterwards `ManagementQueueSearchIntegrationTest` 7/7, `ManagementApiIntegrationTest` 28/28, async guard 8/8, and focused filter/SSE Playwright 45/45 with retries disabled; both UI modules passed in resumed build #46. Required reactor rebuilds passed; the browser test was not weakened to hide the endpoint defect |
 
 ## Archived Supporting Records

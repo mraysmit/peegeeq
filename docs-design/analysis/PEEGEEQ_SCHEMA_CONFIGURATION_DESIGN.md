@@ -1,7 +1,7 @@
 # PeeGeeQ Schema Configuration Design
 
 **Status:** IMPLEMENTED BASELINE — historical plans and contradictory checklists removed
-**Corrected:** 2026-11-21 against `0ffaafb6` (the earlier hash `7db748b8` no longer resolves):
+**Corrected:** 2026-11-21 against `18c27376` (the earlier hash `7db748b8` no longer resolves):
 corrected the provisioning sequence and its two transactions, recorded the missing Flyway
 migration for the setup registry tables as defect D7, recorded the two different schema-name rules.
 **Task authority:** [PeeGeeQ Consolidated Task Register](../tasks/tasks.md)

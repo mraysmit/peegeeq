@@ -1,6 +1,6 @@
 # CloudEvents Support and Integration in PeeGeeQ
 
-**Corrected:** 2026-11-21 against `0ffaafb6`: CloudEvents is a compile-scope dependency, not optional; the factories register the Jackson module directly, with no reflection and no fallback.
+**Corrected:** 2026-11-21 against `18c27376`: CloudEvents is a compile-scope dependency, not optional; the factories register the Jackson module directly, with no reflection and no fallback.
 
 ## What is CloudEvents?
 

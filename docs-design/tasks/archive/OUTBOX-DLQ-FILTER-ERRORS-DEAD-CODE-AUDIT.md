@@ -276,7 +276,7 @@ The production code attempted to suppress these with the `isIntentionalTest` str
 
 ## Root Cause
 
-All of these issues trace to a single agent session in September 2025 (commits `3beb10b8`, `9c5966ba`, `2347d4b3`) that introduced a complete filter-error handling abstraction without:
+All of these issues trace to a single agent session in September 2025 (commits `3a2f6fad`, `b71d862b`, `c290a057`) that introduced a complete filter-error handling abstraction without:
 
 1. Reading `docs-design/dev/pgq-coding-principles.md`, which states DLQ routing is a framework responsibility — not inline application logic.
 2. Understanding that `OutboxConsumer` already had a working retry + DLQ mechanism (`handleMessageFailureWithRetry()`), and that the correct fix was to route filter exceptions through it.

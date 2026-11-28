@@ -2,7 +2,7 @@
 
 **Author**: Mark A Ray-Smith Cityline Ltd.  
 **Document type**: Design. This document describes the target system.  
-**Corrected:** 2026-11-21 against `0ffaafb6`: pool ownership and pooled access (§6.1, §6.3) as phase 11 target with current state; breaker R-10/§6.5 (D6); LISTEN R-6/§6.6 (D2) and backoff reset; §7 health current state; §5.4 keys proposed, `request-timeout-ms`, no safety-margin key; §5.8 enforcement built; unread keys marked proposed; S16, S23, R-18 reworded to per-node supervisors; §9.1 status, §9.2 pointer, §9.4 D8; §11.2 and §11.3 not built (phase 14); Appendix A order.  
+**Corrected:** 2026-11-21 against `18c27376`: pool ownership and pooled access (§6.1, §6.3) as phase 11 target with current state; breaker R-10/§6.5 (D6); LISTEN R-6/§6.6 (D2) and backoff reset; §7 health current state; §5.4 keys proposed, `request-timeout-ms`, no safety-margin key; §5.8 enforcement built; unread keys marked proposed; S16, S23, R-18 reworded to per-node supervisors; §9.1 status, §9.2 pointer, §9.4 D8; §11.2 and §11.3 not built (phase 14); Appendix A order.  
 **Design revision**: 2026-10-08, Patroni-style local supervision, coordinator port, optional watchdog
 
 ## Table of Contents

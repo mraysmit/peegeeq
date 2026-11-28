@@ -1,6 +1,6 @@
 # PeeGeeQ Call Propagation Guide
 
-**Corrected:** 2026-11-21 against `0ffaafb6`: replaced the dead baseline hash, corrected where
+**Corrected:** 2026-11-21 against `18c27376`: replaced the dead baseline hash, corrected where
 HTTP errors are mapped, moved the idempotency key from the body to the `Idempotency-Key` header,
 added the binding-row difference between delete and detach.
 
@@ -8,7 +8,7 @@ added the binding-row difference between delete and detach.
 
 **Last reconciled:** 2026-09-06
 
-**Repository baseline:** checked 2026-11-21 against `0ffaafb6`; the earlier baseline `7db748b8` no
+**Repository baseline:** checked 2026-11-21 against `18c27376`; the earlier baseline `7db748b8` no
 longer resolves after a history rewrite.
 
 ## Purpose

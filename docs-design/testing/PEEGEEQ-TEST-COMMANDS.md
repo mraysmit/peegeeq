@@ -2,9 +2,9 @@
 
 **Status:** CURRENT COMMAND REFERENCE
 
-**Last reconciled:** 2026-11-21 against commit 0ffaafb6
+**Last reconciled:** 2026-11-21 against commit 18c27376
 
-**Corrected:** 2026-11-21 against `0ffaafb6`: removed drifted `pom.xml` and `Jenkinsfile` line numbers; added the `coverage` profile, the Jenkins suites, and a `peegeeq-pg-failover` module note.
+**Corrected:** 2026-11-21 against `18c27376`: removed drifted `pom.xml` and `Jenkinsfile` line numbers; added the `coverage` profile, the Jenkins suites, and a `peegeeq-pg-failover` module note.
 
 ---
 

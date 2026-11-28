@@ -1,8 +1,8 @@
 # PeeGeeQ Outbox Consumer Crash Recovery
 
 **Status:** IMPLEMENTED — `StuckMessageRecoveryManager`
-**Last reconciled:** 2026-10-06 against commit `f1c5d25d`
-**Corrected:** 2026-11-21 against `0ffaafb6`: replaced source line numbers with class and method
+**Last reconciled:** 2026-10-06 against commit `6a602b2a`
+**Corrected:** 2026-11-21 against `18c27376`: replaced source line numbers with class and method
 names, added the `peegeeq-db` recovery manager integration test.
 
 **Problem:** If the outbox consumer crashes after polling but before completing message

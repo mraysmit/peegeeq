@@ -1,7 +1,7 @@
 # PeeGeeQ Durable Subscriptions Option Plan (Outbox + Bi-Temporal)
 
 **Status:** Task 4 bitemporal runtime implemented, committed, and focused-verification complete; broader outbox/operations proposals are not implemented
-**Corrected:** 2026-11-21 against `0ffaafb6` (the earlier hash `7db748b8` no longer resolves): definitions are not reloaded automatically; `SubscriptionKey` is a package-private top-level class; §3.1 adds outbox `STOPPED` (V021) and the V017/V018 objects; the composite replay index exists only for the Flyway `bitemporal_event_log`; §3.6 path; list of parts not built.
+**Corrected:** 2026-11-21 against `18c27376` (the earlier hash `7db748b8` no longer resolves): definitions are not reloaded automatically; `SubscriptionKey` is a package-private top-level class; §3.1 adds outbox `STOPPED` (V021) and the V017/V018 objects; the composite replay index exists only for the Flyway `bitemporal_event_log`; §3.6 path; list of parts not built.
 
 **Not built:** the outbox durable coordinator (`DurableOutboxSubscriptionCoordinator`), the `bitemporal_subscription_delivery_log` table, REST endpoints for durable bitemporal subscriptions, the §14 metrics, handler retry/backoff, and any automatic transition to `DEAD`. No production code calls `loadActiveSubscriptionDefinitions()`. Sections that describe these parts are design proposals.
 

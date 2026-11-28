@@ -1,8 +1,8 @@
 # PeeGeeQ Test Guards
 
 **Status:** CURRENT
-**Last reconciled:** 2026-11-21 against commit 0ffaafb6
-**Corrected:** 2026-11-21 against `0ffaafb6`: six guards in `quality/`, not five; the `.eventually(` and deprecated `VertxTestContext` rules; two module guards; run commands.
+**Last reconciled:** 2026-11-21 against commit 18c27376
+**Corrected:** 2026-11-21 against `18c27376`: six guards in `quality/`, not five; the `.eventually(` and deprecated `VertxTestContext` rules; two module guards; run commands.
 
 PeeGeeQ enforces its async-test and test-hygiene rules with six guard tests in
 `peegeeq-test-support/src/test/java/dev/mars/peegeeq/test/quality/`. Each guard

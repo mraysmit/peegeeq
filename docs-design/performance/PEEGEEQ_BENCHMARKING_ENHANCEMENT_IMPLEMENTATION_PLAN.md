@@ -1,6 +1,6 @@
 # PeeGeeQ Benchmarking Enhancement Implementation Plan
 
-**Corrected:** 2026-11-21 against `0ffaafb6`: commit `52d349d7` no longer resolves after a history rewrite.
+**Corrected:** 2026-11-21 against `18c27376`: commit `52d349d7` no longer resolves after a history rewrite.
 
 | Field | Value |
 |---|---|

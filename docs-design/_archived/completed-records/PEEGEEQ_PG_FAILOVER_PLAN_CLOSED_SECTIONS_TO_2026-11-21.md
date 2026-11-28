@@ -7,6 +7,12 @@ reference such as "plan §9.32" in code or another document is found here. Relat
 were written for the plan's folder. The contracts in §9.21 to §9.34 describe code that exists; the code and its
 tests are the current reference for that behaviour.
 
+**Corrected since the move.** 2026-11-24: dated corrections to §9.26 and §9.32 checks 4 and 10 (register D27, D28).
+2026-11-28: commit hashes. On 2026-11-21 at 17:55 the history was rewritten to remove co-author trailers; each commit
+kept its tree and dates and got a new hash, and the old hashes resolve in no branch. Every such hash below is replaced
+by the `master` commit with the same tree; for example `0ffaafb6` is now `18c27376`. Jenkins consoles and logs from
+before the rewrite show the old hashes.
+
 ---
 
 ## 2. Gap between the design and the implementation
@@ -16,7 +22,7 @@ assessment. It is retained for traceability. It is not a current implementation 
 not prove coverage of the revised contracts. Names and mechanisms superseded by §5 must not
 be copied into new work.
 
-Assessed 2026-10-07 at commit `ff5c17da` from a read of the source (§9.1) and from the runs in
+Assessed 2026-10-07 at commit `41fe8f56` from a read of the source (§9.1) and from the runs in
 §4. "Met" means a test proves it. "Not met" means the code or configuration does not do it.
 "Unknown" means it has not been run.
 
@@ -60,7 +66,7 @@ revision do not close production or test defects. Reassess each finding against 
 new logs in its implementation phase. In particular, the old service-manager placement and
 SQL-session fencing are superseded design choices.
 
-Line numbers are at commit `ff5c17da`.
+Line numbers are at commit `41fe8f56`.
 
 ### 3.1 Implementation findings
 
@@ -91,10 +97,10 @@ Line numbers are at commit `ff5c17da`.
 
 | ID | Finding | Evidence | State |
 |---|---|---|---|
-| TST-01 | `HaProxyConnectionFailoverTest` waited a fixed 4,000 ms and 8,000 ms with `vertx.setTimer`. | L516–L518, L539–L541, L607–L609 at `ff5c17da` | Repaired in the working tree (§4.2) |
-| TST-02 | The same test stopped and started containers on the event loop. | L512, L531, L603 at `ff5c17da`; confirmed by the baseline log (§4.1) | Repaired in the working tree |
-| TST-03 | The same test closed the injected `Vertx` in `@AfterEach`. | L297–L298 at `ff5c17da` | Repaired in the working tree |
-| TST-04 | Phase 5 was named "failback" and asserted only that `SELECT 1` returned 1. | L490–L555 at `ff5c17da` | Repaired in the working tree. The repaired test is red (§4.2) |
+| TST-01 | `HaProxyConnectionFailoverTest` waited a fixed 4,000 ms and 8,000 ms with `vertx.setTimer`. | L516–L518, L539–L541, L607–L609 at `41fe8f56` | Repaired in the working tree (§4.2) |
+| TST-02 | The same test stopped and started containers on the event loop. | L512, L531, L603 at `41fe8f56`; confirmed by the baseline log (§4.1) | Repaired in the working tree |
+| TST-03 | The same test closed the injected `Vertx` in `@AfterEach`. | L297–L298 at `41fe8f56` | Repaired in the working tree |
+| TST-04 | Phase 5 was named "failback" and asserted only that `SELECT 1` returned 1. | L490–L555 at `41fe8f56` | Repaired in the working tree. The repaired test is red (§4.2) |
 | TST-05 | `HaProxyStreamingReplicationFailoverTest` checks streaming readiness by the exit code of a `psql` query, which is 0 when no row is returned. | L110–L112 | Open |
 | TST-06 | The sidecar tests bind fixed HTTP ports 18008 to 18011. | `PgPrimaryCheckIntegrationTest` L52, L129; `PgPrimaryCheckLifecycleTest` L67, L80 | Open |
 | TST-07 | Phases 1 to 4 of `HaProxyConnectionFailoverTest` declare a `Vertx` parameter they do not use. | Working tree | Open |
@@ -128,7 +134,7 @@ Statements about the working tree in these records describe the tree at the reco
 
 ### 4.1 Baseline of the existing tests
 
-Run 2026-10-07 on the development machine at commit `ff5c17da`. No Java file differed from
+Run 2026-10-07 on the development machine at commit `41fe8f56`. No Java file differed from
 that commit.
 
 Rebuild: `mvn clean install -DskipTests -pl ":peegeeq-db,:peegeeq-bitemporal,:peegeeq-pg-sidecar" -am`.
@@ -197,7 +203,7 @@ The test is red in the working tree. See position `P-14` in §5.
 ### 4.3 Phase 5 repair of the profile D test, 2026-10-11
 
 The red result of §4.2 stands as dated evidence. It was seen again on 2026-10-09 (§9.11) and on
-2026-10-11 in Jenkins build 30 at `f318b68d`: `peegeeq-db` ran 1,124 tests with that 1 failure.
+2026-10-11 in Jenkins build 30 at `ef72132f`: `peegeeq-db` ran 1,124 tests with that 1 failure.
 
 Under `P-14` the last step of `testFailbackAfterPrimaryRecovery` was removed: the wait for the
 pool that served queries during the outage to reach the replacement primary. The test still
@@ -328,7 +334,7 @@ additional infrastructure a prerequisite for the next implementation scope.
 
 ### 9.1 What was read
 
-Read on 2026-10-07 at commit `ff5c17da`. "Full" means every line.
+Read on 2026-10-07 at commit `41fe8f56`. "Full" means every line.
 
 | File | Lines | Read |
 |---|---:|---|
@@ -369,8 +375,8 @@ says so in its "Confirmed by" column.
 
 ### 9.2 Document history
 
-- Until 2026-10-07 the design document was a description of the code at `f1c5d25d`, with status
-  "CURRENT OPERATING REFERENCE". That version is in git at `ff5c17da`.
+- Until 2026-10-07 the design document was a description of the code at `6a602b2a`, with status
+  "CURRENT OPERATING REFERENCE". That version is in git at `41fe8f56`.
 - Phases 1 and 3 corrected that description against the source, and a later edit added a
   section of status and gaps to it. Those edits were made in the working tree and never
   committed.
@@ -607,7 +613,7 @@ vocabulary of their dates.
 
 ### 9.11 Local Supervision, Admission, and Verification, 2026-10-08 and 2026-10-09
 
-**2026-10-08.** Commit `ea045d7f` implemented §8.2 items 1 to 4 and recorded their runs in §8.1.
+**2026-10-08.** Commit `eb42d42e` implemented §8.2 items 1 to 4 and recorded their runs in §8.1.
 It also contained the item 5 code: `PgAdmissionGate`, `PgHbaAdmissionGate`, the admission
 methods of `PgFailoverMonitor`, `PgPrimaryElector.holds`, and nine admission tests. That code had
 not been compiled. `PgFailoverMonitor` had been rewritten after its 9-test run. The commit
@@ -1314,7 +1320,7 @@ wrong. One item cannot be run from the workstation: the Jenkins build.
 |---|---|---|
 | A failed test leaves servers running and fails the next test (§9.11) | `PgReplicationFixture.provision` and `PgSupervisedContainer.newDataDirectory` stop the cluster an earlier test left running before they provision. Contract class `PgFixtureLeftoverServerContractIntegrationTest` (4 tests). The mechanism is unchanged: vertx-junit5 does not await an asynchronous teardown after a failed test (register finding 13). The fixtures no longer depend on it. | Red: `peegeeq-pg-failover-fixture-contract-red-20261025.log` ("Starting the writer for provisioning failed ... could not start server"). Green: `-green-` |
 | A runner that returns no result | The earlier statement that this needs a stub the no-mocking rule excludes was wrong. `NoResultCommandRunner` runs the real command and drops its result, the same shape as `ObservedLeaseCoordinator`. One test each for the process control, the admission gate, and the durability adapter. | Green first run: `peegeeq-pg-failover-no-result-run1-20261025.log`. With the three guards removed all three tests failed: `-no-result-mutation-red-` |
-| The red state of the coverage batch was not saved | Rebuilt in an isolated git worktree: the tests of `76208e9c` against the production files of `64a84289`. Compilation fails with `cannot find symbol: class PgStandbyNotCoveredException`. The worktree was removed. | `peegeeq-pg-failover-coverage-batch-red-20261025.log` |
+| The red state of the coverage batch was not saved | Rebuilt in an isolated git worktree: the tests of `26e6a126` against the production files of `96d82ab3`. Compilation fails with `cannot find symbol: class PgStandbyNotCoveredException`. The worktree was removed. | `peegeeq-pg-failover-coverage-batch-red-20261025.log` |
 | Production-manager write (OD-12) | `peegeeq-db` is a test-scope dependency of this module; the reactor of this module now builds `peegeeq-api` and `peegeeq-db` upstream. `PgSupervisedContainer` publishes the writer's port. Three tests in `PgBootstrapServingIntegrationTest`: a write before serving is rejected by the closed gate (no row); a write after serving is acknowledged, and both standbys report a flush position at or after the write's WAL position with `quorum` state; a caller that sets `synchronous_commit = off` with one standby stopped still waits in `SyncRep`, and after the backend is cancelled fails with `PgCommitOutcomeUnknownException`, the row being locally committed. The manager connects to the writer directly, not through HAProxy, because the sidecar is role-only. | Red: `rebuild-peegeeq-pg-failover-production-write-red-20261025.log`. Green: `peegeeq-pg-failover-production-write-run1-20261025.log`. With the manager's restore of `synchronous_commit = on` removed the third test failed "The write completed before the missing standby returned": `-production-write-mutation-red-`. `peegeeq-db` has no change. |
 | Provisioning time had no assertion | Both fixtures record the duration of their last provisioning. Contract tests assert 90 seconds for three nodes and 30 seconds for a data directory. Measured: 14.1 seconds and 4.2 seconds. The `@BeforeEach` limit stays 120 seconds. | `peegeeq-pg-failover-fixture-contract-final-20261025.log`. With a one-second budget the test failed "Provisioning took 12 s; the budget is 1 s": `peegeeq-pg-failover-budget-mutation-red-20261025.log` |
 | The `Jenkinsfile` could not resume at this module | `peegeeq-pg-failover` is in the `ALL_TESTS_START_MODULE` choices. A contract test in `scripts/ci/regression-stages.test.mjs` asserts that every module of the root pom is a choice. `node scripts/ci/regression-stages.mjs java peegeeq-pg-failover` prints `-Pall-tests -pl !:peegeeq-management-ui,!:peegeeq-utilities-ui -rf :peegeeq-pg-failover`. The Environment stage already fails the build when the Docker CLI or the socket group is missing, so `docker exec` is available to the Java stage. The 21 CI contract tests pass. | Red: `ci-regression-stages-red-20261025.log`. Green: `ci-regression-stages-green-20261025.log` |
@@ -1352,7 +1358,7 @@ a line, and `pgq-coding-principles.md` section 9 points to it.
 
 **Not closed.**
 
-- The Jenkins build. The changes of this section are pushed (`240be0a7`). On 2026-10-25 three builds
+- The Jenkins build. The changes of this section are pushed (`6419b66b`). On 2026-10-25 three builds
   (32, 33, 34) were started on `http://192.168.137.32:8080`. Each failed in the Checkout stage, with the
   workspace empty and the full clone reset by the peer at 44%, 61%, and 45%. No test ran. See the register
   (`docs-design/tasks/tasks.md`) for the figures and the console logs. The cause is on the host or its
@@ -1780,8 +1786,8 @@ during the installation.
 red run, the implementation, the green run, mutation probes with SHA-256 records, the module's
 integration classes one at a time, the core tests, and the guards last.
 
-**Status, 2026-11-03.** Implemented (commit `5ead8746`), green, mutation-probed, regression, core, and
-guards green. Evidence below; every count is from a run made on 2026-11-03 against `5ead8746` with a clean
+**Status, 2026-11-03.** Implemented (commit `cd6ee42c`), green, mutation-probed, regression, core, and
+guards green. Evidence below; every count is from a run made on 2026-11-03 against `cd6ee42c` with a clean
 working tree.
 
 | Step | Evidence under `logs/` |
@@ -1790,7 +1796,7 @@ working tree.
 | Red, behaviour, against the stub | `peegeeq-pg-failover-cutover-red-20261103.log`: `Tests run: 10, Failures: 7, Errors: 3`. Nine methods fail on `UnsupportedOperationException` or a wrong exception type. The tenth failure is the class-level ERROR log contract: the declared `PgTakeover` lines were never logged, and each failed test's unawaited teardown leaked an "Interrupted ... pg_ctl stop" ERROR line (register finding 13). The same teardown prints `RejectedExecutionException: event executor terminated` from the worker thread whose result arrives after Vert.x closed |
 | SHA-256 before the implementation | `peegeeq-pg-failover-cutover-sha-before-implementation-20261103.log` (`PgBootstrap`, the stub `PgTakeover`, `PgFailoverMonitor`) |
 | Implementation | `PgTakeover.cutover`; new package-private `PgPolicyCutover.serve`; `PgBootstrap.serve` delegates to it and keeps its log line |
-| Rebuild of `5ead8746` | `rebuild-peegeeq-pg-failover-cutover-impl-20261103.log`: `BUILD SUCCESS`, 45 main sources |
+| Rebuild of `cd6ee42c` | `rebuild-peegeeq-pg-failover-cutover-impl-20261103.log`: `BUILD SUCCESS`, 45 main sources |
 | Green, `PgTakeoverIntegrationTest` | `peegeeq-pg-failover-cutover-impl-20261103.log` and `...-impl-run2-20261103.log`: `Tests run: 9, Failures: 0, Errors: 0, Skipped: 0` in both runs. The same 9 methods as the red run; the red run's tenth entry was the class-level log contract. No WARN line; every ERROR line matched a declaration |
 | SHA-256 around the probes | `peegeeq-pg-failover-cutover-mutation-sha-before-20261103.log` and `...-sha-after-20261103.log`: `PgTakeover.java` `387ECAD8...257D3E` in both. Rebuilt from the restored source afterwards (`rebuild-peegeeq-pg-failover-cutover-restored-20261103.log`) |
 | Regression, `PgBootstrapServingIntegrationTest` | `peegeeq-pg-failover-cutover-regression-bootstrap-serving-20261103.log`: `Tests run: 14, Failures: 0, Errors: 0, Skipped: 0` (14 `@Test` methods) |
@@ -2015,7 +2021,7 @@ has not reviewed the bound's trade-off. The items below refine the contracts abo
 
 ### 9.25 Phase 7b.3, Increment P4: Implementation and Verification, 2026-11-12
 
-**Status, 2026-11-12.** Implemented on `993bf2c2` plus the uncommitted P4 change. Green, mutation-probed, and the
+**Status, 2026-11-12.** Implemented on `2108534b` plus the uncommitted P4 change. Green, mutation-probed, and the
 module's whole integration tier, core tests, and guards green. Every count below is from a run made on 2026-11-12
 on this working tree, on Vert.x 5.1.10.
 
@@ -2420,8 +2426,8 @@ its lease TTL is 10 seconds, the Consul minimum, so expiry happens inside a test
 **Order of work.** Tests and a stub that fails with "not implemented"; red; implementation; green; mutation probes
 with SHA-256 records; the touched classes; core; guards last.
 
-**Status, 2026-11-14.** Implemented (stub and tests `bafe52b2`, implementation `6ac4b5b3`, rebuilt writer-check test
-`c5c44640`), green, mutation-probed, and the touched classes, core, and guards green. Runs on the Jenkins host, logs in `/var/lib/jenkins/peegeeq-work/logs`.
+**Status, 2026-11-14.** Implemented (stub and tests `51e0af37`, implementation `1ccd8f91`, rebuilt writer-check test
+`45232321`), green, mutation-probed, and the touched classes, core, and guards green. Runs on the Jenkins host, logs in `/var/lib/jenkins/peegeeq-work/logs`.
 
 | Step | Evidence |
 |---|---|
@@ -2498,7 +2504,7 @@ lease TTL).
 **Order of work.** Tests and a stub that fails with "not implemented"; red; implementation; green; mutation probes
 with SHA-256 records; the touched classes; core; guards last.
 
-**Status, 2026-11-14.** Implemented (`ed29d191`), green, mutation-probed, and the touched classes, core, and guards
+**Status, 2026-11-14.** Implemented (`6afee3e5`), green, mutation-probed, and the touched classes, core, and guards
 green. Runs on the Jenkins host, logs in `/var/lib/jenkins/peegeeq-work/logs`.
 
 | Step | Evidence |
@@ -2514,7 +2520,7 @@ Coordinator design §3.1 names `stopAndRelease` as the one release path besides 
 
 **Not checked.** A planned stop with an armed watchdog (the disarm after the confirmed stop is the existing demotion
 code). The supervisor process that calls `stopAndRelease` on a shutdown signal: there is no production entry point yet.
-Downstream modules on `ed29d191`.
+Downstream modules on `6afee3e5`.
 
 ### 9.31 Phase 7b.3: Member Tags (Owner Answer 11), 2026-11-14 (design)
 
@@ -2566,7 +2572,7 @@ bootstrap, cutover, and any later policy change.
 **Order of work.** Tests and stubs; red; implementation; green; mutation probes with SHA-256 records; the touched
 classes; core; guards last.
 
-**Status, 2026-11-14.** Implemented (`f2b03bb1`), green, mutation-probed, and the touched classes, core, and guards
+**Status, 2026-11-14.** Implemented (`bb9502c9`), green, mutation-probed, and the touched classes, core, and guards
 green. Runs on the Jenkins host, logs in `/var/lib/jenkins/peegeeq-work/logs`.
 
 | Step | Evidence |
@@ -2783,9 +2789,9 @@ R2 lands.
   (probe 58), `aStorageRefusalAfterTheRewindFailsWithoutARebuild` (probe 69), and the running-server assertion in
   `aSourceInRecoveryIsRefusedWithTheDataDirectoryIntact` (probe 70).
 
-**Status, 2026-11-16.** Implemented (`4aa9dc8e`; test additions `7489cd41`), green, mutation-probed, and the module's
+**Status, 2026-11-16.** Implemented (`f588dfe7`; test additions `56ef23c5`), green, mutation-probed, and the module's
 integration tier, core, and guards green. Runs on the Jenkins host clone `/var/lib/jenkins/peegeeq-phase5`; the
-regression ran on files that equal `7489cd41` in `peegeeq-pg-failover` and `peegeeq-test-support` (`git diff
+regression ran on files that equal `56ef23c5` in `peegeeq-pg-failover` and `peegeeq-test-support` (`git diff
 origin/master`, 0 lines, checked 2026-11-16). Logs in `/var/lib/jenkins/peegeeq-work/logs`.
 
 | Step | Evidence |
@@ -3106,10 +3112,10 @@ assertion and no fixture limit was changed for them, except the 10-second budget
 
 **Regression, 2026-11-17 and 2026-11-18.** The module's integration tier ran once on 2026-11-17, from 18:20 to 20:13,
 after the rebuild `rebuild-peegeeq-pg-failover-rs-final-20261117.log` (log
-`peegeeq-pg-failover-rs-regress-integration-20261117.log`). It ran the code of the 20:08 commits (`a74652b9` to
-`e2f7a3ad`, tests `64e5d525` to `eda4ef45`), checked 2026-11-18: no file under `peegeeq-pg-failover/src` was written
-after 18:01:14, the module has no difference from `4c1567d7`, and the SHA-256 of `PgLocalStateStore.java`,
-`PgScheduledRestart.java`, and `PgFailoverMonitor.java` at `4c1567d7` equal `-rs3-mutation-sha-after-20261117.log`.
+`peegeeq-pg-failover-rs-regress-integration-20261117.log`). It ran the code of the 20:08 commits (`d09ed730` to
+`c8903e58`, tests `37425fa8` to `a5daf7b4`), checked 2026-11-18: no file under `peegeeq-pg-failover/src` was written
+after 18:01:14, the module has no difference from `6a0b7c5e`, and the SHA-256 of `PgLocalStateStore.java`,
+`PgScheduledRestart.java`, and `PgFailoverMonitor.java` at `6a0b7c5e` equal `-rs3-mutation-sha-after-20261117.log`.
 Result: 26 classes, 396 tests, 1 failure, 11 errors, BUILD FAILURE. 16 classes passed whole, among them
 `PgRestartIntegrationTest` 30, `PgFailoverMonitorIntegrationTest` 23, `PgRejoinIntegrationTest` 13,
 `PgHbaAdmissionGateIntegrationTest` 9, and `PgConfigurationFilesIntegrationTest` 2. The 12 tests that did not pass are
@@ -3125,7 +3131,7 @@ budget (8 seconds in both classes), and to every open, inside the gate's command
 these two was not established. The log `peegeeq-pg-failover-rs-regress-rerun-20261117.log` (written 2026-11-18 05:28)
 holds only Maven's project header and no result; it is not evidence.
 
-On 2026-11-18, at `4c1567d7` with a clean working tree, on the owner's workstation with local Docker (the Jenkins host
+On 2026-11-18, at `6a0b7c5e` with a clean working tree, on the owner's workstation with local Docker (the Jenkins host
 did not answer within 8 seconds). Logs under `logs/`:
 
 | Scope | Evidence |
@@ -3135,7 +3141,7 @@ did not answer within 8 seconds). Logs under `logs/`:
 | Core | `peegeeq-pg-failover-rs-core-20261118.log`: 11 classes, 424, 0 failures (416 after RS1, plus 7 store tests of RS3 and 1 builder test of RS2) |
 | Guards | `peegeeq-test-support-guards-rs-20261118.log`: 14 classes, 77, 0 failures |
 
-Second tier run, 2026-11-18, 13:12:50 to 15:12:01, on the classes of the 10:59 rebuild at `4c1567d7` (Maven reported
+Second tier run, 2026-11-18, 13:12:50 to 15:12:01, on the classes of the 10:59 rebuild at `6a0b7c5e` (Maven reported
 "Nothing to compile"; the CC1 files below were created after it started), log `peegeeq-pg-failover-rs-regress-integration-20261118.log`: 26 classes, 396 tests, 0
 failures, 2 errors, BUILD FAILURE. 25 classes passed whole. Both errors are in `PgFailoverMonitorIntegrationTest`:
 `primaryStartWithoutOwnershipIsRefusedAndStartsNothing`, a set-up `initdb` over 30 seconds; and
@@ -3149,8 +3155,8 @@ The banned-pattern grep of `.claude/CLAUDE.md` step 5 over the 35 source files c
 `restart.get()` in `PgRestartIntegrationTest.unchangedAfter`, a `Supplier.get()`, not a blocking call. The module's
 integration tier did not pass in one run on the workstation. It passed in Jenkins build #41 (below).
 
-**Jenkins builds #41 and #42, 2026-11-20 and 2026-11-21, on `0ffaafb6`.** `0ffaafb6` holds this section's code,
-§9.32's re-join, and §9.34's CC1 to CC3; its parent commits after `4c1567d7` change only CC1 to CC3 and documents.
+**Jenkins builds #41 and #42, 2026-11-20 and 2026-11-21, on `18c27376`.** `18c27376` holds this section's code,
+§9.32's re-join, and §9.34's CC1 to CC3; its parent commits after `6a0b7c5e` change only CC1 to CC3 and documents.
 Consoles: `logs/jenkins-build41-console-20261120.log` and `logs/jenkins-build42-console-20261121.log`.
 - Build #41 (`TEST_SUITE=all`, start `peegeeq-pg-failover`). Java stage `-Pall-tests -rf :peegeeq-pg-failover`,
   BUILD SUCCESS in 2 h 21 min. `peegeeq-pg-failover`: 39 classes, 27 of them integration classes, 863 tests,
@@ -3164,7 +3170,7 @@ Together the two builds pass every module from `peegeeq-pg-failover` on. Finding
 from `peegeeq-pg-failover`, one build of that scope, or a build from `beginning`, cannot finish inside the 150-minute
 limit.
 
-**As built, recorded 2026-11-18 from a reading of `PgFailoverMonitor` at `4c1567d7`.** The contracts above do not state
+**As built, recorded 2026-11-18 from a reading of `PgFailoverMonitor` at `6a0b7c5e`.** The contracts above do not state
 these cases. No code was changed for them.
 
 1. `runScheduledRestart`: a failed read of the schedule, or of the settings (for example while PostgreSQL is stopped),

@@ -1,9 +1,9 @@
 # PeeGeeQ Task Register
 
 **Status:** ACTIVE. This is the only live task register under `docs-design`.
-**Last reconciled:** 2026-11-21, against `0ffaafb6` plus the uncommitted working tree (PP1 of Task 8). Every
-status below was checked against the code or a saved log on that day; the method is in "How this register was
-checked" at the end.
+**Last reconciled:** 2026-11-21, against `18c27376` plus the working tree of that day (PP1 of Task 8, committed
+afterwards in `1c9697d9`). Every status below was checked against the code or a saved log on that day; the method is
+in "How this register was checked" at the end. Rows and defects added later carry their own dates.
 
 **What this file is.** One row per task: its status, where its detail lives, and its next step. It holds no run
 records. A task's plan holds its design, its decisions, and its dated run records. The full text of this register
@@ -51,7 +51,7 @@ OD-5).
 | 7. Jenkins UI test-result publishing | COMPLETE, Jenkins build #48, 2026-09-05 | Archived register, Task 7 | None |
 | 8. Connection management and PostgreSQL failover | ACTIVE | `docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY_IMPLEMENTATION_PLAN.md` | PP2 (below) |
 | 9. Delivery-outcome redesign (finding 20) | ACTIVE, waits for Task 8 | `docs-design/consumer-groups/PEEGEEQ_DELIVERY_OUTCOME_REDESIGN_PROPOSAL.md` and its appendix | Owner review of increment 1b corrections (below) |
-| 10. Reduce `docs/` from 24 files to 11 and correct it against the code | COMPLETE 2026-11-26; released ahead of Task 8. Phases 1 to 6 committed as `75313be6`. OD-5 (owner, 2026-11-26): no links in documents; documents refer to each other by name | `docs-design/tasks/PEEGEEQ_DOCUMENTATION_REDUCTION_PLAN.md` (section 12) | Owner review and commit of the OD-5 change. Owner decision whether OD-5 also applies to the 92 other tracked Markdown files that hold links |
+| 10. Reduce `docs/` from 24 files to 11 and correct it against the code | COMPLETE 2026-11-26; released ahead of Task 8. Phases 1 to 6 committed as `75313be6`. OD-5 (owner, 2026-11-26): no links in documents; documents refer to each other by name | `docs-design/tasks/PEEGEEQ_DOCUMENTATION_REDUCTION_PLAN.md` (section 12) | The OD-5 change is committed as `282a1726` (2026-11-27). Owner decision whether OD-5 also applies to the 92 other tracked Markdown files that hold links |
 
 ## Task 8. Connection management and PostgreSQL failover
 
@@ -68,8 +68,9 @@ directed on 2026-11-13.
 - Phase 7b.3 components: promotion with checkpoint, follow, policy cutover, member slots and positions (P1 to P7),
   takeover after lease expiry, planned stop with release, member tags, automatic rewind and rebuild, restart and
   reload with `pending_restart`, cluster settings in the coordinator (CC1 to CC3), and PP1 (`PgClusterParameters`,
-  uncommitted on 2026-11-21).
-- Jenkins builds #41 and #42 on `0ffaafb6` (2026-11-20 and 2026-11-21) together passed every module from
+  commit `1c9697d9`).
+- Jenkins builds #41 and #42 on `18c27376` (checked out as `0ffaafb6`, its hash before the rewrite described in "How
+  this register was checked"; 2026-11-20 and 2026-11-21) together passed every module from
   `peegeeq-pg-failover` on; `peegeeq-pg-failover` ran 863 tests with 0 failures. Build #41 was stopped by the
   150-minute limit in its UI stage; build #42 ran that stage.
 
@@ -92,7 +93,7 @@ a standby watches the lease and starts a takeover.
    operator entry point; repeated failover; controlled re-join; production-manager assertions routed through
    HAProxy.
 6. 7b.2: the real-device watchdog run on a Linux host.
-7. Phase 5: a Jenkins build from `beginning` that passes `peegeeq-db` with the repair `f391a7f0`. Blocked by the
+7. Phase 5: a Jenkins build from `beginning` that passes `peegeeq-db` with the repair `9e7f12b0`. Blocked by the
    150-minute pipeline limit; raising `timeout(time: 150, unit: 'MINUTES')` in `Jenkinsfile` needs an owner
    commit.
 8. Phases 8 to 15 (plan §8): autonomous initiation, operation deadlines, LISTEN and writer-status recovery in the
@@ -109,9 +110,9 @@ the cause of an HTTP 403 seen on 2026-10-08; recovery timing.
 across outbox, native, and database consumers, so that no message is deleted, completed unread, blocked without
 bound, or withheld without a log line.
 
-**Done, verified 2026-11-21:** increment 1a (`STOPPED` status, `stopGroup`; commit `092cf23f`); increment 1b built
-but not approved (lifecycle transitions, settings update, `SubscriptionStore`; `092cf23f`); the native-queue part of
-phase 6 (`DeliveryOutcome`, `queue_message_group_exclusions`, claim delay through `visible_at`; commit `09501400`,
+**Done, verified 2026-11-21:** increment 1a (`STOPPED` status, `stopGroup`; commit `866a6683`); increment 1b built
+but not approved (lifecycle transitions, settings update, `SubscriptionStore`; `866a6683`); the native-queue part of
+phase 6 (`DeliveryOutcome`, `queue_message_group_exclusions`, claim delay through `visible_at`; commit `b52d93fa`,
 2026-11-08).
 
 **Pending, in order:** owner review of correction 1 (subscription store); corrections 2, 3, 4, 6, 7, 8, and 9 of
@@ -197,8 +198,16 @@ named above, which come from the saved consoles `logs/jenkins-build41-console-20
 `logs/jenkins-build42-console-20261121.log`. The register entries for Tasks 1 to 7 rest on the run records in the
 archived register; their artifacts were confirmed to exist, their runs were not repeated.
 
-Commit hashes written before a history rewrite do not resolve, for example `7db748b8`, `263309d8`, and `09157c82`.
-They remain only in archived text, as labels of the Jenkins builds that ran them.
+Commit hashes from an earlier history rewrite do not resolve at all, for example `7db748b8`, `263309d8`, and
+`09157c82`. They remain in archived text, as labels of the Jenkins builds that ran them, and in the correction notes
+of documents that replaced them. A sweep on 2026-11-28 of every backticked hash that follows the word "commit" in the
+tracked files found 18 that name no object in this clone. They cannot be mapped, so they were left as written.
+
+On 2026-11-21 at 17:55 the history was rewritten again, to remove co-author trailers from commit messages (reflog:
+"Remove 'Co-authored-by: Copilot' trailers"). Each commit kept its tree and its dates and got a new hash. The old
+commits are still in this workstation's object store, but no branch contains them, so a fresh clone cannot resolve
+them. On 2026-11-28 every such hash in the tracked files was replaced by the `master` commit with the same tree; for
+example `0ffaafb6` is now `18c27376`. Jenkins consoles and logs from before the rewrite show the old hashes.
 
 ## Archived records
 

@@ -2,7 +2,7 @@
 
 **Version:** 1.0
 **Last Updated:** 2025-12-23
-**Corrected:** 2026-11-21 against `0ffaafb6`: NOT_EQUALS includes messages without the header (open defect D3); header key regex; consumer groups have no filter support; tenant-schema `outbox` and `queue_messages` have no headers index; filter parameter numbering; "Production Ready" label and unbacked benchmark numbers removed; no REST exposure.
+**Corrected:** 2026-11-21 against `18c27376`: NOT_EQUALS includes messages without the header (open defect D3); header key regex; consumer groups have no filter support; tenant-schema `outbox` and `queue_messages` have no headers index; filter parameter numbering; "Production Ready" label and unbacked benchmark numbers removed; no REST exposure.
 
 ## Executive Summary
 
@@ -1280,5 +1280,5 @@ The first character must be a letter.
 
 ---
 
-**Last Reviewed:** 2026-11-21 (corrected against `0ffaafb6`)
+**Last Reviewed:** 2026-11-21 (corrected against `18c27376`)
 **Next Review:** As needed for feature enhancements

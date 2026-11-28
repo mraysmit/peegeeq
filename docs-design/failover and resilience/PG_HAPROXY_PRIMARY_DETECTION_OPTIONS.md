@@ -3,7 +3,7 @@
 **Author**: Mark A Ray-Smith Cityline Ltd.  
 **Document type**: Design rationale  
 **Design revision**: 2026-10-08, Patroni-style local supervision, coordinator port, optional watchdog
-**Corrected:** 2026-11-21 against `0ffaafb6`: implementation order (automatic ranking built first, manual entry point not built), commit enforcement status, central-controller wording.
+**Corrected:** 2026-11-21 against `18c27376`: implementation order (automatic ranking built first, manual entry point not built), commit enforcement status, central-controller wording.
 
 ## 1. Purpose and Scope
 

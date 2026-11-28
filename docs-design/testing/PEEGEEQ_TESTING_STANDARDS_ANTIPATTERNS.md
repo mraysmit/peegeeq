@@ -2,9 +2,9 @@
 
 **Status:** CURRENT MANDATORY STANDARD
 
-**Last reconciled:** 2026-11-21 against commit 0ffaafb6
+**Last reconciled:** 2026-11-21 against commit 18c27376
 
-**Corrected:** 2026-11-21 against `0ffaafb6`: six guard tests in `quality/`, not five; the `.eventually(` and deprecated `VertxTestContext` checks of `VertxAsyncForbiddenPatternsGuardTest`; two module guards.
+**Corrected:** 2026-11-21 against `18c27376`: six guard tests in `quality/`, not five; the `.eventually(` and deprecated `VertxTestContext` checks of `VertxAsyncForbiddenPatternsGuardTest`; two module guards.
 
 > **This is a mandatory standards document.**
 > Every pattern listed here must be absent from all test code. There are no exceptions.

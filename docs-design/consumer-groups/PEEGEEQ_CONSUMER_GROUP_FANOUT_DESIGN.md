@@ -2,9 +2,9 @@
 
 **Status:** IMPLEMENTED CONTRACT WITH RETAINED DESIGN RATIONALE
 
-**Last reconciled:** 2026-10-06 against commit `f1c5d25d`
+**Last reconciled:** 2026-10-06 against commit `6a602b2a`
 
-**Corrected:** 2026-11-21 against `0ffaafb6`: redesign status pointer; `STOPPED` in the status set
+**Corrected:** 2026-11-21 against `18c27376`: redesign status pointer; `STOPPED` in the status set
 (V021); heartbeat no longer revives `DEAD`; lifecycle table with `STOPPED` and `PAUSED -> DEAD`;
 `SubscriptionService` and `ConsumerGroup` listings; `subscribe` on an existing row; Gaps 5 and 7.
 
@@ -24,10 +24,10 @@ User guide: [Messaging Guide](../../docs/PEEGEEQ_MESSAGING_GUIDE.md).
 Proposed changes to this contract are not in this document. The delivery outcome redesign
 for finding 20 is in
 [PEEGEEQ_DELIVERY_OUTCOME_REDESIGN_PROPOSAL.md](PEEGEEQ_DELIVERY_OUTCOME_REDESIGN_PROPOSAL.md).
-Parts of it are in code: phase 1 increments 1a and 1b (commit `092cf23f`) and the native-queue
-part of phase 6 (commit `09501400`). The rest is not started. The proposal's "Status on
+Parts of it are in code: phase 1 increments 1a and 1b (commit `866a6683`) and the native-queue
+part of phase 6 (commit `b52d93fa`). The rest is not started. The proposal's "Status on
 2026-11-21" block states what is in code per phase. This document describes the code at
-`0ffaafb6`, including those parts.
+`18c27376`, including those parts.
 
 ---
 
@@ -103,7 +103,7 @@ The implementation status of each mode is stated in
 evidence are maintained in
 [PEEGEEQ_PARTITIONED_CONSUMPTION_DESIGN.md](PEEGEEQ_PARTITIONED_CONSUMPTION_DESIGN.md).
 
-`REFERENCE_COUNTING` has no production completion writer. Commit `b81be29b` (2026-08-10)
+`REFERENCE_COUNTING` has no production completion writer. Commit `41b5caa5` (2026-08-10)
 moved `CompletionTracker` to `peegeeq-db/src/test/java/dev/mars/peegeeq/db/consumer/` with
 the commit message "production has no REFERENCE_COUNTING completion writer, so
 peegeeq.completions.total could never fire". No class under any `src/main` tree
@@ -638,7 +638,7 @@ older copies can map them to the implemented names above.
 | `ConsumerGroup.pause()`, `resume()`, `cancel()` | `SubscriptionService.pause/resume/cancel` |
 | Zero-member check in `start()`; last-member guard in `removeConsumer()` | none |
 | `OutboxConsumer.processPubSubSemantics()`, `processQueueSemantics()`, `getTopicSemantics()` | none; the claim query is queue semantics with subscription bounds |
-| `ConsumerGroupMetrics` | deleted in commit `b81be29b`; never constructed in production |
+| `ConsumerGroupMetrics` | deleted in commit `41b5caa5`; never constructed in production |
 | `OutboxMessageCleanupJob`, `SubscriptionCleanupJob`, `CleanupJobMetrics`, `CleanupConfiguration`, `OutboxCleanupJob` | `cleanup_completed_outbox_messages()` SQL function; `DeadConsumerDetectionJob` |
 | `ResumableBackfillJob`, `BackfillConfiguration` with adaptive p95 throttling | `BackfillService` with fixed `batchDelayMs` |
 | `WatermarkCleanupJob`, partition `DROP` cleanup, `outbox_subscription_offsets`, `outbox_topic_watermarks.oldest_partition` | `WatermarkCalculator.sweep` sets `status = 'COMPLETED'` at or below the watermark; `outbox_partition_offsets` |
@@ -705,7 +705,7 @@ Decision: `CANCELLED` is terminal; `DEAD` is recoverable by `resume` or a new `s
 `PAUSED` is recoverable by `resume`; `STOPPED` is recoverable by a new `subscribe`. Reason: a
 cancelled group must not silently resume and pin retention; a dead group is usually a
 crashed process that will restart. The original decision made `DEAD` recoverable by
-heartbeat. Commit `092cf23f` removed that: a heartbeat changes no status, so a group that
+heartbeat. Commit `866a6683` removed that: a heartbeat changes no status, so a group that
 detection marked `DEAD` stays `DEAD` until an explicit call (proposal OD-16).
 
 **Gap 6: backfill limits.**
@@ -719,7 +719,7 @@ on database latency was designed and not implemented; `P4_BackfillVsOLTPTest` in
 Decision: heartbeat rows with a configurable timeout, a scheduled detector that requires
 `dead_after_misses` consecutive expired cycles before marking `DEAD` (flapping
 protection), and a cleanup that decrements `required_consumer_groups`. Heartbeat-driven
-resurrection was part of the original decision and was removed in commit `092cf23f`: a
+resurrection was part of the original decision and was removed in commit `866a6683`: a
 heartbeat on a `DEAD` row now fails, and `resume` or a new `subscribe` reactivates it. All
 timestamps use database `NOW()` to avoid clock skew. Reason: without
 automatic detection a crashed group blocks cleanup indefinitely; a single-miss rule marks

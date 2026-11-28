@@ -4,7 +4,7 @@
 
 **Last reconciled:** 2026-10-06
 
-**Corrected:** 2026-11-21 against `0ffaafb6`: the container example uses the raw `org.testcontainers.postgresql.PostgreSQLContainer` type of Testcontainers 2.x.
+**Corrected:** 2026-11-21 against `18c27376`: the container example uses the raw `org.testcontainers.postgresql.PostgreSQLContainer` type of Testcontainers 2.x.
 
 **Corrected:** 2026-11-25: added "Schema setup for integration tests", checked against `PeeGeeQTestSchemaInitializer`, `PeeGeeQDatabaseSetupService` and the setup templates. It replaces the test-setup material formerly in `docs/PEEGEEQ_DATABASE_SETUP_GUIDE.md`.
 

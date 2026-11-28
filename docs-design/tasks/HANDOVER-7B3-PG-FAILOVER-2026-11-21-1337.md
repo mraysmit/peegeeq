@@ -1,6 +1,6 @@
 # Handover: phase 7b.3, PostgreSQL failover supervisor
 
-**Written:** 2026-10-26, at the end of the P2 session. **Last updated:** 2026-11-21 13:37 (UTC+8).
+**Written:** 2026-10-26, at the end of the P2 session. **Last updated:** 2026-11-28 (UTC+8).
 **Updated:**
 - 2026-11-03: P3, P4 design.
 - 2026-11-12: P4 to P6.
@@ -9,17 +9,26 @@
 - 2026-11-15 and 2026-11-16: automatic rewind and rebuild (plan §9.32).
 - 2026-11-17: check against `git log` and the plan.
 - 2026-11-18: restart and reload regression (plan §9.33), coordinator configuration CC1 to CC3 (plan §9.34), design of
-  PostgreSQL parameters in the coordinator (plan §9.35). Committed by the owner on 2026-11-19 in `0ffaafb6`.
+  PostgreSQL parameters in the coordinator (plan §9.35). Committed by the owner on 2026-11-19 in `18c27376`.
 - 2026-11-20: review against git, the code, the plan, and `logs/`; two review findings on plan §9.35.
-- 2026-11-21: Jenkins builds #41 and #42 on `0ffaafb6`; PP1 (plan §9.35, OD-76).
+- 2026-11-21: Jenkins builds #41 and #42 on `18c27376`; PP1 (plan §9.35, OD-76).
 - 2026-11-21 13:37 (this file, `HANDOVER-7B3-PG-FAILOVER-2026-11-21-1337.md`, replaces `HANDOVER-7B3-PG-FAILOVER.md`):
   PP1 built; a review of every live document under `docs-design`; the task register rebuilt as an index; the plan's
   closed sections archived; 25 documents corrected; defects D1 to D13 recorded in the register.
+- 2026-11-24 and 2026-11-25: local rerun of the 2026-11-14 and 2026-11-15 Jenkins-host evidence (§3); defects D27 to
+  D29 found and closed (register).
+- 2026-11-28: commit hashes, PP1, git state, and log locations corrected (§1, §3, §4, §7).
+
+**Commit hashes.** On 2026-11-21 at 17:55 the history was rewritten to remove co-author trailers from commit messages
+(reflog: "Remove 'Co-authored-by: Copilot' trailers"). Each commit kept its tree and its dates and got a new hash.
+The old hashes resolve in no branch, so a fresh clone cannot find them. This file cites the new hashes, matched to the
+old ones by tree. Jenkins consoles and logs written before the rewrite show the old hashes; for example builds #41
+and #42 checked out `0ffaafb6`, which is now `18c27376`.
 
 **For:** the next session that continues Task 8, phase 7b.3, in `peegeeq-pg-failover`.
 **Status of this document:** a briefing, not state. Status lives in code, tests, and logs. Check each claim against the
 artifact before relying on it. The authoritative records are:
-- the task register `docs-design/tasks/tasks.md`: status, the ordered pending list, and defects D1 to D13;
+- the task register `docs-design/tasks/tasks.md`: status, the ordered pending list, and defects D1 to D44;
 - the plan `docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY_IMPLEMENTATION_PLAN.md`:
   contracts (§5), the evidence table (§8.1), the owner decisions of 2026-11-13 (§9.28), and the open design of the
   PostgreSQL parameters (§9.35);
@@ -68,19 +77,19 @@ artifact before relying on it. The authoritative records are:
   classes declare `io.vertx.junit5.Timeout` equal to their JUnit class limit. P7 records written (plan §8.1, §9.28;
   system design §1.1, §5.10; coordinator design §1.1, §3.3; `tasks.md`).
 - **Done 2026-11-17 and 2026-11-18: restart, reload, `pending_restart` (answer 10, plan §9.33).** RS0 to RS3 are
-  built (code `a74652b9` to `e2f7a3ad`, tests `64e5d525` to `eda4ef45`). The integration tier did not pass in one
+  built (code `d09ed730` to `c8903e58`, tests `37425fa8` to `a5daf7b4`). The integration tier did not pass in one
   run on the workstation; it passed in one run in Jenkins build #41 on 2026-11-20 (§3).
-- **Verified 2026-11-20 and 2026-11-21: Jenkins builds #41 and #42 on `0ffaafb6`.** Every module from
+- **Verified 2026-11-20 and 2026-11-21: Jenkins builds #41 and #42 on `18c27376`.** Every module from
   `peegeeq-pg-failover` on passed, the UI modules included. Re-join, restart and reload, and CC1 to CC3 are in this
   commit. Details in §3.
 - **Done 2026-11-18: coordinator configuration CC1 to CC3 (answer 12, plan §9.34).** The four lease timing values are
   one coordinator record per incarnation, edited by a revision check; bootstrap writes the first record. Code and tests
-  `2b32dd40` to `169c05e3`; design documents `7bb6eeaf`, `2fb6c8e8`.
-- **Designed 2026-11-18: PostgreSQL parameters in the coordinator (answer 12, plan §9.35).** Plan `e57e31c2`. The
+  `8fd82032` to `bbfcd7c1`; design documents `ee0b9d62`, `f001d027`.
+- **Designed 2026-11-18: PostgreSQL parameters in the coordinator (answer 12, plan §9.35).** Plan `f793b564`. The
   feature: an operator sets PostgreSQL settings once for the whole cluster; each node's supervisor writes them into
   `peegeeq-cluster.conf`, reloads, and checks that they took effect, so that no node runs different settings after a
   failover. PP2 to PP5 are not built.
-- **Done 2026-11-21, uncommitted: PP1, `PgClusterParameters` (plan §9.35, contract 1, OD-76).** The list of
+- **Done 2026-11-21: PP1, `PgClusterParameters` (plan §9.35, contract 1, OD-76), commit `1c9697d9` (18:03).** The list of
   cluster-wide settings. It refuses a denied name, a name that is not lower case, and a value with a line break or NUL;
   converts to and from the JSON the coordinator will hold; and renders the file text with quotes and backslashes
   doubled. OD-76 decided review finding 2: `recovery_min_apply_delay`, the eight recovery target parameters, and
@@ -94,12 +103,16 @@ artifact before relying on it. The authoritative records are:
   task register is now a short index; its earlier text is in `docs-design/tasks/archive/TASKS_REGISTER_TO_2026-11-21.md`.
   Six documents were archived. The review confirmed in code that nothing runs failover in production: no module
   depends on `peegeeq-pg-failover`, and it has no `main`.
-- **Git on 2026-11-21 13:37.** `master` is still `0ffaafb6`. The working tree holds the uncommitted PP1 files, the
-  document review edits (41 files modified or deleted), and 8 new paths. The archived files were moved with `mv`, so
-  git shows a deletion and a new file for each; `git add -A` records them as renames.
-- **Git, earlier.** On 2026-11-20 local `master`, `origin/master`, and the remote `refs/heads/master` were `0ffaafb6` (checked
-  with `git log`, `git rev-parse`, and `git ls-remote`), and the working tree was clean before that day's edits. `0ffaafb6` (owner,
-  2026-11-19) changes only this handover, `tasks.md`, and the plan. The 18 commits `2b32dd40` to `00a933fe` were made
+- **Git on 2026-11-28.** Local `master`, `origin/master`, and the remote `refs/heads/master` are `282a1726` (checked
+  with `git rev-parse` and `git ls-remote`). The PP1 files and the document review edits were committed together in
+  `1c9697d9` (2026-11-21 18:03, 61 paths; the archived files are recorded as additions and renames). Later commits:
+  `7e93c567` (2026-11-21), the 2026-11-22 commits `0fa37c4d` to `d0560b9c` (D14 to D23 and D25 fixed, D24 and D26
+  recorded), the D27 to D29 work
+  of 2026-11-24 and 2026-11-25 (`606e0e87`, `2630f36e`, `e36c4d56`), and Task 10 (`75313be6`, `282a1726`). The
+  2026-11-24 to 2026-11-27 commits reached this workstation by `git pull`.
+- **Git, earlier.** On 2026-11-20 local `master`, `origin/master`, and the remote `refs/heads/master` were `18c27376` (checked
+  with `git log`, `git rev-parse`, and `git ls-remote`), and the working tree was clean before that day's edits. `18c27376` (owner,
+  2026-11-19) changes only this handover, `tasks.md`, and the plan. The 18 commits `8fd82032` to `4bacb13d` were made
   by Claude at the owner's request on 2026-11-18, one file each (checked 2026-11-20). The owner makes all commits
   unless they ask Claude to commit; do not reset or push without the owner's instruction.
 
@@ -126,7 +139,7 @@ artifact before relying on it. The authoritative records are:
 | `PgClusterSettings`, `PgNodeConfig.clusterSettings()` / `withClusterSettings(settings)` | Added 2026-11-18 (plan §9.34, CC1). The four lease timing values with the lease and local-stop rule, the one copy of that rule; stored form `leaseTtlMillis`, `loopIntervalMillis`, `requestTimeoutMillis`, `stopTimeoutMillis`, exact fields, never adjusted |
 | `PgClusterConfiguration` / `ConsulClusterConfiguration` | Added 2026-11-18 (plan §9.34, CC2). `read()` (consistent; no known leader, ACL filtering, or a refused status fails), `create(settings)` (`?cas=0`), `update(expected, settings)` (`?cas=<revision>`); a reply other than `true` fails; the record is read back. Key `peegeeq/pg/<cluster>/<incarnation>/config`. `PgClusterSettingsRecord(revision, settings)`. Failures are `PgClusterConfigurationException`. `PgBootstrap` calls `read` and `create`; nothing calls `update`, and nothing outside tests constructs `PgBootstrap` |
 | `PgBootstrap(vertx, config, elector, settings, store, monitor, loop)` | Changed 2026-11-18 (plan §9.34, CC3). After the control-record check and before the initial intent, `start` writes the deployment timing as the first settings record, accepts an equal record, and refuses other values (`PgBootstrapException`); a failed read or write fails before the initial intent |
-| `PgClusterParameters` | Added 2026-11-21 (plan §9.35, PP1), uncommitted. The cluster-wide PostgreSQL settings: a sorted, unmodifiable map of name to value. The constructor refuses a denied name (the supervisor's own settings, per-node endpoints, file locations and directives, and the replay and promotion settings of OD-76), a name that is not lower case, and a value with a carriage return, line feed, or NUL. `toJson`/`fromJson`: exactly the field `parameters` with string values. `render()`: a header line, then `name = 'value'` lines in name order with each quote and backslash doubled. Stores nothing, writes no file; no caller yet |
+| `PgClusterParameters` | Added 2026-11-21 (plan §9.35, PP1), commit `1c9697d9`. The cluster-wide PostgreSQL settings: a sorted, unmodifiable map of name to value. The constructor refuses a denied name (the supervisor's own settings, per-node endpoints, file locations and directives, and the replay and promotion settings of OD-76), a name that is not lower case, and a value with a carriage return, line feed, or NUL. `toJson`/`fromJson`: exactly the field `parameters` with string values. `render()`: a header line, then `name = 'value'` lines in name order with each quote and backslash doubled. Stores nothing, writes no file; no caller yet |
 | Everything listed in the 2026-11-12 handover | Unchanged except bootstrap (row above): promotion, follow, slots, lost-slot replacement, policy cutover, renewal loop, watchdog modes, admission gate, local store |
 
 ## 3. Evidence
@@ -138,6 +151,12 @@ not tracked by git. A search of `C:\Users\mraysmit` to depth 6 for `*cc3-core-20
 repository has one worktree. Where these logs are now is not known. Until they are found, the counts below for 2026-11-13 and
 for 2026-11-17 and 2026-11-18 rest on the plan's records only. The Jenkins host logs in
 `/var/lib/jenkins/peegeeq-work/logs` were not checked on 2026-11-20.
+
+Checked again on 2026-11-28. This workstation's `logs/` still lacks the same files, and it has no log dated 2026-11-24
+or 2026-11-25 either: the runs of those days were made on the checkout whose commits reached this workstation by
+`git pull`. The Jenkins host's `/var/lib/jenkins/peegeeq-work/logs` has no file dated 2026-11-13, 2026-11-17,
+2026-11-18, 2026-11-24, or 2026-11-25; its newest files are the `rejoin-regress-*-20261115.log` set. So a log named
+below for one of those dates is on the machine that ran it, if it still exists, and nowhere this workstation can read.
 
 **2026-11-13, as reported at that handover.** On 2026-11-18 each count below was checked against its log's
 `Tests run:` lines, and the `-p7ab-mutation-sha-` before and after records were compared; they matched. (A check on
@@ -167,18 +186,18 @@ for 2026-11-17 and 2026-11-18 rest on the plan's records only. The Jenkins host 
   the final P7d code: candidacy 6, member-slot adapter 13 plus the added test, positions binding 18. The takeover run
   (`-p7-regress-takeover-`) was stopped by the owner while running; its log has no result.
 
-**2026-11-14.** Jenkins build #36 (`4b1e2a87`): `peegeeq-pg-failover` 704 tests, downstream modules and UI suites
-green. Jenkins build #38 (`ec62d499`): `peegeeq-pg-failover` 706 tests, 0 failures; for the downstream modules read
+**2026-11-14.** Jenkins build #36 (`569564c7`): `peegeeq-pg-failover` 704 tests, downstream modules and UI suites
+green. Jenkins build #38 (`ad56970b`): `peegeeq-pg-failover` 706 tests, 0 failures; for the downstream modules read
 the build. Runs on the Jenkins host, logs in `/var/lib/jenkins/peegeeq-work/logs`: red runs of the follow test on the
 pre-fix code (`red2-` to `red4-`), promotion class 20 of 20, integration tier 296 tests, core 410, guards 77,
-acquire-refusal mutation probe with SHA-256 restored. Details in plan §9.28. Jenkins build #39 (`ed29d191`):
-SUCCESS, `peegeeq-pg-failover` 717 tests and every module after it green. Jenkins build #40 (`b3f7ddc9`, member tags,
+acquire-refusal mutation probe with SHA-256 restored. Details in plan §9.28. Jenkins build #39 (`6afee3e5`):
+SUCCESS, `peegeeq-pg-failover` 717 tests and every module after it green. Jenkins build #40 (`e3112c33`, member tags,
 2026-11-15): SUCCESS. Test step: `peegeeq-pg-failover` 728, examples 178, benchmarking 153, migrations 56,
 integration-tests 109, OpenAPI none ("No tests to run."). UI stage: management UI 128 unit and 419 e2e, utilities UI
 836 unit and 246 e2e. The test step of these builds runs only the seven reactor modules from `peegeeq-pg-failover` on.
 
 **2026-11-15 and 2026-11-16, automatic rewind and rebuild (plan §9.32).** Runs on the Jenkins host clone
-`/var/lib/jenkins/peegeeq-phase5` (files equal to `7489cd41` for the regression), logs in
+`/var/lib/jenkins/peegeeq-phase5` (files equal to `56ef23c5` for the regression), logs in
 `/var/lib/jenkins/peegeeq-work/logs`: PostgreSQL probes `rewind-probe*-20261115.log`; R1 red 21 on the stub, green 22;
 R2 red 12 on the stub, green 12; probes 51 to 70 and 53b, all detected after the 53 test fix, SHA-256 equal;
 regression `rejoin-regress-*-20261115.log`: integration tier 23 classes, 348 tests, core 416, guards 77, all 0
@@ -207,10 +226,10 @@ within 8 seconds; local Docker 29.9.3. Logs in `logs/`.
 29.9.3; the Jenkins host did not answer either day. Logs in `logs/`. RS1 to RS3 red and green, probes 71 to 103 (no
 89), SHA-256 equal: plan §9.33. Integration tier, 2026-11-17, 18:20 to 20:13, on files equal to the 20:08 commits
 (checked 2026-11-18, plan §9.33) (`peegeeq-pg-failover-rs-regress-integration-20261117.log`): 26 classes, 396 tests,
-1 failure, 11 errors, each of the 12 on a `docker exec` over its limit. 2026-11-18 at `4c1567d7`: rebuild BUILD SUCCESS; those 12 alone 12 of 12
+1 failure, 11 errors, each of the 12 on a `docker exec` over its limit. 2026-11-18 at `6a0b7c5e`: rebuild BUILD SUCCESS; those 12 alone 12 of 12
 (`-rs-rerun-failed-20261118.log`); core 424 in 11 classes (`-rs-core-20261118.log`); guards 77 in 14 classes
 (`peegeeq-test-support-guards-rs-20261118.log`). Second tier run, 2026-11-18, 13:12:50 to 15:12:01, on the classes
-at `4c1567d7` (`peegeeq-pg-failover-rs-regress-integration-20261118.log`): 396 tests, 2 errors, both in
+at `6a0b7c5e` (`peegeeq-pg-failover-rs-regress-integration-20261118.log`): 396 tests, 2 errors, both in
 `PgFailoverMonitorIntegrationTest` (a set-up `initdb` over 30 s; a primary start that outlasted the class's 12-second
 ownership budget while `docker exec` calls stalled); 25 classes whole; the two alone 2 of 2
 (`-rs-rerun-monitor-20261118.log`). The tier has not passed in one run. No Jenkins job build has run this code.
@@ -232,7 +251,7 @@ named in plan §9.35. Checks 1 to 12.
 `logs/parameters-probe-filesettings-20261120.log`: `pg_file_settings.applied` is true for a value written but not yet
 reloaded. Plan §9.35, "Review findings, 2026-11-20", finding 1.
 
-**2026-11-20 and 2026-11-21, Jenkins builds #41 and #42 on `0ffaafb6`.** Both checked out `0ffaafb6`. The consoles are
+**2026-11-20 and 2026-11-21, Jenkins builds #41 and #42 on `18c27376`.** Both checked out `18c27376`. The consoles are
 saved as `logs/jenkins-build41-console-20261120.log` and `logs/jenkins-build42-console-20261121.log`.
 - Build #41 used `TEST_SUITE=all` and `ALL_TESTS_START_MODULE=peegeeq-pg-failover`. Java stage:
   `-Pall-tests -rf :peegeeq-pg-failover`, BUILD SUCCESS in 2 h 21 min. `peegeeq-pg-failover` ran 863 tests in 39
@@ -264,14 +283,16 @@ found no broken relative link.
 ## 4. Next steps
 
 The ordered list of pending Task 8 work is in the task register, `docs-design/tasks/tasks.md`, section "Task 8"; it
-is not repeated here, so that the two cannot disagree. As of 2026-11-21 the next step is PP2: the parameters
+is not repeated here, so that the two cannot disagree. As of 2026-11-28 the next step is still PP2: the parameters
 operations on the cluster configuration port, their contract cases, and the Consul binding (plan §9.35, contract 2).
+Checked on 2026-11-28: `PgClusterConfiguration` and `ConsulClusterConfiguration` have no parameters operation, and no
+`src/main` file other than its own names `PgClusterParameters`.
 
 Completed items and their commits, for orientation (the run records are in the plan and its archived sections):
-P7 regression and records, the build #37 defect fixes, takeover after real lease expiry (`bafe52b2`, `6ac4b5b3`,
-`c5c44640`), planned stop with release (`ed29d191`), member tags (`f2b03bb1`), automatic rewind and rebuild
-(`4aa9dc8e`, `7489cd41`, `4aa72780`), restart and reload (code `a74652b9` to `e2f7a3ad`, tests `64e5d525` to
-`eda4ef45`), coordinator configuration CC1 to CC3 (`2b32dd40` to `00a933fe`), and PP1 (uncommitted on 2026-11-21).
+P7 regression and records, the build #37 defect fixes, takeover after real lease expiry (`51e0af37`, `1ccd8f91`,
+`45232321`), planned stop with release (`6afee3e5`), member tags (`bb9502c9`), automatic rewind and rebuild
+(`f588dfe7`, `56ef23c5`, `24fea508`), restart and reload (code `d09ed730` to `c8903e58`, tests `37425fa8` to
+`a5daf7b4`), coordinator configuration CC1 to CC3 (`8fd82032` to `4bacb13d`), and PP1 (`1c9697d9`).
 
 Each item is designed in its own plan section, with its data model and contracts, before its tests.
 
@@ -437,12 +458,14 @@ New on 2026-11-18 (plan §9.35 checks):
   `max_replication_slots` or `max_wal_senders`; the base64 file write through Java's process runner on Windows (the
   checks used Git Bash); whether `recovery_min_apply_delay` or a recovery target stops or delays a PostgreSQL 15
   standby's replay (review finding 2 is static reading, not reproduced).
-- The 2026-11-13, 2026-11-17, and 2026-11-18 logs named in §3 are not in this checkout's `logs/` (checked 2026-11-20).
+- The 2026-11-13, 2026-11-17, 2026-11-18, 2026-11-24, and 2026-11-25 logs named in §3 are not in this checkout's
+  `logs/` or on the Jenkins host (checked 2026-11-28, §3 "Where the logs are"). They can be read only on the machine
+  that ran them.
 - PP1 (2026-11-21): PostgreSQL has not read a file rendered by `PgClusterParameters`; the escaping rests on the
   check 7 probe of 2026-11-18. No limit on name length (none is designed).
 - The document review of 2026-11-21 read code and did not run it. Defects D4 and D10 to D12 in the register come from
   reading by review agents and need a probe. Java comments still name documents by paths archived before 2026-11-21
   (D13).
-- Task 8 phase 5: the repaired `HaProxyConnectionFailoverTest` (`f391a7f0`) has never run in a Jenkins job build
-  (checked 2026-11-15). On 2026-11-15 it ran on the Jenkins host at `b3f7ddc9`: 6 tests, 0 failures
+- Task 8 phase 5: the repaired `HaProxyConnectionFailoverTest` (`9e7f12b0`) has never run in a Jenkins job build
+  (checked 2026-11-15). On 2026-11-15 it ran on the Jenkins host at `e3112c33`: 6 tests, 0 failures
   (archived register, Task 8 phase 5). The phase closes on a Jenkins build from `beginning`.

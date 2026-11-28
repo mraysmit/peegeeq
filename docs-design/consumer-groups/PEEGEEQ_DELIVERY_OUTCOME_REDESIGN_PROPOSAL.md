@@ -5,20 +5,20 @@ the design with the corrections of this revision and ruled that no further desig
 is required. Implementation proceeds one verified phase at a time. The
 [task register](../tasks/tasks.md) holds the state of each phase.
 
-**Corrected:** 2026-11-21 against `0ffaafb6`: status block added; implementation-state
+**Corrected:** 2026-11-21 against `18c27376`: status block added; implementation-state
 statements; native exclusion and native claim delay recorded as built; N-1, N-2, N-4 marked
 fixed.
 
-**Status on 2026-11-21.** Checked by reading the code at `0ffaafb6`. No build or test was run
+**Status on 2026-11-21.** Checked by reading the code at `18c27376`. No build or test was run
 for this check.
 
 | Phase | In code | Commit |
 |---|---|---|
-| 1, increment 1a | `STOPPED` in the status check (`V021__Add_Stopped_Subscription_Status.sql`, template `08b`) and in both status enums. `SubscriptionService.stopGroup`. `stopGracefully()` of both groups stores `STOPPED` and runs no cleanup. | `092cf23f`, 2026-10-12 |
-| 1, increment 1b | Built and not approved by the owner. `SubscriptionManager` enforces the lifecycle table through `PAUSE_FROM`, `RESUME_FROM`, `MARK_DEAD_FROM`, and `CANCEL_FROM`. A heartbeat updates only `ACTIVE` and `PAUSED` rows and changes no status. The stored start bound is kept. `updateSubscriptionSettings`. `SubscriptionStore` is a mandatory argument of `subscribe`. Of the nine corrections of the owner's review, correction 1 is made and awaits review, correction 5 is in code (`TestCleanup`), and corrections 2, 3, 4, 6, 7, 8, and 9 are not made. | `092cf23f` |
+| 1, increment 1a | `STOPPED` in the status check (`V021__Add_Stopped_Subscription_Status.sql`, template `08b`) and in both status enums. `SubscriptionService.stopGroup`. `stopGracefully()` of both groups stores `STOPPED` and runs no cleanup. | `866a6683`, 2026-10-12 |
+| 1, increment 1b | Built and not approved by the owner. `SubscriptionManager` enforces the lifecycle table through `PAUSE_FROM`, `RESUME_FROM`, `MARK_DEAD_FROM`, and `CANCEL_FROM`. A heartbeat updates only `ACTIVE` and `PAUSED` rows and changes no status. The stored start bound is kept. `updateSubscriptionSettings`. `SubscriptionStore` is a mandatory argument of `subscribe`. Of the nine corrections of the owner's review, correction 1 is made and awaits review, correction 5 is in code (`TestCleanup`), and corrections 2, 3, 4, 6, 7, 8, and 9 are not made. | `866a6683` |
 | 1, increments 1c, 1d, 1e | Not started. No in-process group sends the subscription heartbeat. Dead detection still reads `ACTIVE` and `PAUSED`. The watermark and `ZeroSubscriptionValidator` still count `ACTIVE` only. `DeadConsumerGroupCleanup` still exists. | None |
 | 2 to 5 | Not started. `DeliveryOutcome` exists, but only the native path uses it (phase 6 row). | None |
-| 6, native queue | `DeliveryOutcome` (`peegeeq-api`: `COMPLETED`, `REJECTED`, `UNAVAILABLE`; a failed `Future` is `FAILED`). `queue_message_group_exclusions` (`V022__Create_Queue_Message_Group_Exclusions.sql`, template `04d`). `PgNativeConsumerGroup` dispatch returns an outcome. `REJECTED` inserts an exclusion row and releases the row `AVAILABLE`; the group's claim skips excluded rows. `UNAVAILABLE` releases the row with `visible_at` one polling interval later and the retry count unchanged. The claim delay chosen is `visible_at`, not a scan position. This fixes N-1, N-2, and N-4. | `09501400`, 2026-11-08 |
+| 6, native queue | `DeliveryOutcome` (`peegeeq-api`: `COMPLETED`, `REJECTED`, `UNAVAILABLE`; a failed `Future` is `FAILED`). `queue_message_group_exclusions` (`V022__Create_Queue_Message_Group_Exclusions.sql`, template `04d`). `PgNativeConsumerGroup` dispatch returns an outcome. `REJECTED` inserts an exclusion row and releases the row `AVAILABLE`; the group's claim skips excluded rows. `UNAVAILABLE` releases the row with `visible_at` one polling interval later and the retry count unchanged. The claim delay chosen is `visible_at`, not a scan position. This fixes N-1, N-2, and N-4. | `b52d93fa`, 2026-11-08 |
 | 6, outbox queue | Not started. `outbox_group_exclusions`, the queue replay, and the operator dead-letter of one message do not exist. | None |
 | 7, 8 | Not started. | None |
 
@@ -71,7 +71,7 @@ The task list, the phase order, and the decisions are in the
 *Read* means the statement comes from reading the source at the cited lines. *Test read*
 means an existing test asserts the statement and the test was read. Read and Test read are
 static findings. None was reproduced at run time. Line numbers refer to the working tree on
-2026-10-11, `origin/master` at `f391a7f0`. No build, test, PostgreSQL, or Jenkins
+2026-10-11, `origin/master` at `9e7f12b0`. No build, test, PostgreSQL, or Jenkins
 execution was run for any 2026-10-12 revision.
 
 A test file was read as a filtered print, not as the whole file
@@ -250,7 +250,7 @@ and not stored. The phase numbers are those of the
 | Topic watermark | `outbox_topic_watermarks.watermark_id` | Stored maximum of a topic-wide minimum. It never moves back (`WatermarkCalculator` 66 to 84), and the sweep uses it. | Remove in phase 8, after the per-partition release passes (OD-6, OD-9). Until then phases 1 and 3 correct how it is computed, and the log replay lowers it. |
 | Dead letter record | `dead_letter_queue` row | Source of truth | Keep. Add nullable `group_name`, the consumer group, in phase 7. The existing column `message_group` is the partition key and not a group. |
 | Native message state | `queue_messages.status`, `lock_until`, `retry_count` | Source of truth | Keep. |
-| Native exclusion | `queue_message_group_exclusions` | Source of truth | Planned for phase 6. Built on 2026-11-08 in commit `09501400`: `V022`, template `04d`. |
+| Native exclusion | `queue_message_group_exclusions` | Source of truth | Planned for phase 6. Built on 2026-11-08 in commit `b52d93fa`: `V022`, template `04d`. |
 | Not classified | `outbox.max_retries`, `next_retry_at`, `processing_started_at`, `version`; `outbox_topic_subscriptions.durable_enabled` | `max_retries` is read by the retired retry service, and by `OutboxConsumer` 877 to 896 only when the consumer has neither a consumer config nor a configuration; `OutboxFactory` always supplies one. No production reader or writer was found for `next_retry_at` and `processing_started_at`. The producer writes `max_retries` from configuration at insert (test read: `RetryDebugTest`), so it is a stored copy of a setting. `durable_enabled` comes from `V012` and template `08b`; no production Java file names it. | Outside finding 20 unless the owner adds them. |
 
 ### New and changed objects
@@ -654,7 +654,7 @@ data model returns for approval before that phase continues.
 | 4 | `outbox_topics.completion_tracking_mode` | Drop | No row is in a stopped pairing. Every start path reads `semantics`. | Discarded. It is derivable. |
 | 4 | Six `backfill_*` columns of `outbox_topic_subscriptions` | Drop | The log replay is implemented, and RP-L1 to RP-L8 are green. `BackfillService` and its API are deleted (OD-4, amended). | Discarded. |
 | 4 | `outbox_consumer_groups`; `trigger_create_consumer_group_entries` and its function; `register_consumer_group_for_existing_messages`; its indexes | Drop | Every reader, writer, trigger, and test dependency below is gone (OD-3). MIG-4 has counted the rows. | Discarded. Irreversible. |
-| 6 | `outbox_group_exclusions`, `queue_message_group_exclusions` | Create | None | Empty. `queue_message_group_exclusions` was created on 2026-11-08 in commit `09501400` (`V022`, template `04d`). `outbox_group_exclusions` does not exist. |
+| 6 | `outbox_group_exclusions`, `queue_message_group_exclusions` | Create | None | Empty. `queue_message_group_exclusions` was created on 2026-11-08 in commit `b52d93fa` (`V022`, template `04d`). `outbox_group_exclusions` does not exist. |
 | 7 | `dead_letter_queue.group_name` | Add, nullable | None | Existing rows get `NULL`, which means every consumer. |
 | 7 | `outbox_partition_offsets.retry_message_id`, `retry_count` | Add | None | `NULL` and 0 |
 | 8 | `outbox_topic_watermarks` | Drop | The per-partition release is implemented. T12-3 and T10-10 are green (OD-6). | Discarded. It is derivable. |
@@ -768,7 +768,7 @@ message settles (719 to 727). A row released as `AVAILABLE` would be claimed aga
 ahead of every later row. With one consumer thread that is the finding 20 defect in native
 form. The release must therefore delay the row, through `visible_at`, or the claim must
 hold a scan position. The choice was planned for phase 6. It was made on 2026-11-08, in
-commit `09501400`: `visible_at`. An `UNAVAILABLE` row is released `AVAILABLE` with
+commit `b52d93fa`: `visible_at`. An `UNAVAILABLE` row is released `AVAILABLE` with
 `visible_at` one polling interval in the future and its retry count unchanged
 (`PgNativeQueueConsumer.releaseUnavailableMessage`). The claim selects only rows whose
 `visible_at` has passed. T11-4 was planned as its red test.
@@ -1318,10 +1318,10 @@ for good, with an ERROR and no retry count. That is P-1 again and not a model fo
 
 | ID | Defect | Location | Evidence |
 |---|---|---|---|
-| N-1 | A message that no member accepts is deleted. Three cases: the member predicate throws, the member predicate returns false, the only member was removed. | `PgNativeConsumerGroup` 755 to 763; member 229 to 236; `PgNativeQueueConsumer` 928 to 931 | Run: finding 3, `logs/probe-native-filter-throws-20261009.log`, `logs/probe-native-filter-variants-20261009.log`. **Fixed** on 2026-11-08 in commit `09501400`. A message that no member accepts gives `UNAVAILABLE` and is released with `visible_at` delayed and the retry count unchanged. A member predicate that throws, with no other member accepting, is a failed delivery: retried, then dead-lettered. Test: `NativeConsumerGroupDeliveryOutcomeIntegrationTest`. |
-| N-2 | A group predicate that returns false gives a succeeded `Future`, the result the runs above delete on. | `PgNativeConsumerGroup` 739 to 747 | Read. Five tests of `PgNativeConsumerGroupLifecycleTest` assert the succeeded result as intended. **Fixed** on 2026-11-08 in commit `09501400`. A group predicate that returns false gives `REJECTED`: one row in `queue_message_group_exclusions`, the message `AVAILABLE` for every other consumer, and the group's claim skips it. |
+| N-1 | A message that no member accepts is deleted. Three cases: the member predicate throws, the member predicate returns false, the only member was removed. | `PgNativeConsumerGroup` 755 to 763; member 229 to 236; `PgNativeQueueConsumer` 928 to 931 | Run: finding 3, `logs/probe-native-filter-throws-20261009.log`, `logs/probe-native-filter-variants-20261009.log`. **Fixed** on 2026-11-08 in commit `b52d93fa`. A message that no member accepts gives `UNAVAILABLE` and is released with `visible_at` delayed and the retry count unchanged. A member predicate that throws, with no other member accepting, is a failed delivery: retried, then dead-lettered. Test: `NativeConsumerGroupDeliveryOutcomeIntegrationTest`. |
+| N-2 | A group predicate that returns false gives a succeeded `Future`, the result the runs above delete on. | `PgNativeConsumerGroup` 739 to 747 | Read. Five tests of `PgNativeConsumerGroupLifecycleTest` assert the succeeded result as intended. **Fixed** on 2026-11-08 in commit `b52d93fa`. A group predicate that returns false gives `REJECTED`: one row in `queue_message_group_exclusions`, the message `AVAILABLE` for every other consumer, and the group's claim skips it. |
 | N-3 | Not a defect. A group predicate that throws is not caught in the group. The consumer catches it as a handler failure, raises `retry_count`, and dead-letters at the limit. That matches the ruling. The first two versions said the effect was not determined. | `PgNativeConsumerGroup` 739; `PgNativeQueueConsumer` 796 to 805, 956 to 993 | Read |
-| N-4 | The member's second predicate check returns success without calling the handler. | Member 251 to 256 | Read. **Fixed** on 2026-11-08 in commit `09501400`. `PgNativeConsumerGroupMember.processMessage` no longer evaluates the filter; the group evaluates each member filter once. |
+| N-4 | The member's second predicate check returns success without calling the handler. | Member 251 to 256 | Read. **Fixed** on 2026-11-08 in commit `b52d93fa`. `PgNativeConsumerGroupMember.processMessage` no longer evaluates the filter; the group evaluates each member filter once. |
 | N-5 | A missing connection manager selects the queue path with no mode check. The start log names "REFERENCE_COUNTING mode". | `PgNativeConsumerGroup` 326 to 340, 391 to 392 | Read |
 | N-6 | `start(SubscriptionOptions)` on a group that is already active succeeds for a native group and fails with `IllegalStateException` for an outbox group. | `PgNativeConsumerGroupLifecycleTest.succeedsWhenAlreadyActive`; `OutboxConsumerGroupCoreTest.startWithOptionsFailsWhenAlreadyActive` | Test read |
 | N-7 | `setMessageHandler(null)` throws `IllegalArgumentException` for a native group and `NullPointerException` for an outbox group. | The two lifecycle test classes | Test read |
@@ -2129,7 +2129,7 @@ register states the ruling and the record of the correction.
 ## Not Checked
 
 - No build, test, PostgreSQL, or Jenkins execution was run for any revision of this
-  document. No Jenkins build has run on `f391a7f0`. Test runs made during implementation
+  document. No Jenkins build has run on `9e7f12b0`. Test runs made during implementation
   are recorded in the task register, not here.
 - No item marked Read or Test read was reproduced at run time before implementation. That
   includes X-4, X-10, X-11, P-4, P-5, P-13, and P-14. Each has a red test in the plan. Not

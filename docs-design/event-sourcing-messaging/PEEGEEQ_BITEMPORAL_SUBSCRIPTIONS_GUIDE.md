@@ -1,6 +1,6 @@
 # PeeGeeQ Bi-Temporal Event Subscriptions
 
-**Corrected:** 2026-11-21 against `0ffaafb6`: schema-qualified channel names throughout; `*` matches exactly one segment; every notified event is fetched before matching; duplicate delivery is open defect D4; one LISTEN connection per store; 50-character subscription event-type limit; unrecorded performance figures removed.
+**Corrected:** 2026-11-21 against `18c27376`: schema-qualified channel names throughout; `*` matches exactly one segment; every notified event is fetched before matching; duplicate delivery is open defect D4; one LISTEN connection per store; 50-character subscription event-type limit; unrecorded performance figures removed.
 
 ## Overview
 

@@ -1,8 +1,8 @@
 # PeeGeeQ Coding Principles and Standards
 
 **Status:** CURRENT CODING STANDARD
-**Last reconciled:** 2026-11-21 against commit 0ffaafb6
-**Corrected:** 2026-11-21 against `0ffaafb6`: six guard tests in `quality/`; two module guards; the `.eventually` probe ran on Vert.x 5.0.4 and the root pom is now 5.1.10.
+**Last reconciled:** 2026-11-21 against commit 18c27376
+**Corrected:** 2026-11-21 against `18c27376`: six guard tests in `quality/`; two module guards; the `.eventually` probe ran on Vert.x 5.0.4 and the root pom is now 5.1.10.
 
 This document is the coding standard for PeeGeeQ. `.claude/CLAUDE.md` requires every
 implementation task to read it in full before any code is written. Every rule here is

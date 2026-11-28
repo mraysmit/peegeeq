@@ -6,9 +6,9 @@
 
 **Last reconciled:** 2026-09-17
 
-**Repository baseline:** checked 2026-11-21 against `0ffaafb6`; the earlier baseline `263309d8` no longer resolves after a history rewrite.
+**Repository baseline:** checked 2026-11-21 against `18c27376`; the earlier baseline `263309d8` no longer resolves after a history rewrite.
 
-**Corrected:** 2026-11-21 against `0ffaafb6`: baseline; retry and dead-letter claim removed;
+**Corrected:** 2026-11-21 against `18c27376`: baseline; retry and dead-letter claim removed;
 known open defects added; `REFERENCE_COUNTING` use; watermark ignores `STOPPED` and `PAUSED`.
 
 **Release-gate source SHA-256:**
@@ -204,7 +204,7 @@ source checksum, and release conclusion.
 ## Known open defects
 
 The [delivery outcome proposal](PEEGEEQ_DELIVERY_OUTCOME_REDESIGN_PROPOSAL.md#offset-path-pub_sub)
-records these defects of the offset path. None is fixed at `0ffaafb6`. The release gate above
+records these defects of the offset path. None is fixed at `18c27376`. The release gate above
 could not have shown P-4, P-5, or P-14; the proposal gives the reasons.
 
 | ID | Defect | Planned in |

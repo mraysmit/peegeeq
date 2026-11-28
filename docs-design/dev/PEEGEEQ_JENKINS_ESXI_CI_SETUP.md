@@ -7,9 +7,9 @@
 [consolidated task register](../tasks/tasks.md) for dated build evidence.
 
 **Last reconciled:** 2026-11-21 against `Jenkinsfile`, `testcontainers.properties` and the
-archived task register at `0ffaafb6`
+archived task register at `18c27376`
 
-**Corrected:** 2026-11-21 against `0ffaafb6`: seven `TEST_SUITE` choices; no browser install in
+**Corrected:** 2026-11-21 against `18c27376`: seven `TEST_SUITE` choices; no browser install in
 the pipeline; named-pipe strategy still open; current host `zorin-nuc`; two commit hashes that no
 longer resolve.
 
