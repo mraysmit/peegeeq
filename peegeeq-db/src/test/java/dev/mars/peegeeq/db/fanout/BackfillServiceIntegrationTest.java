@@ -16,9 +16,12 @@ import dev.mars.peegeeq.db.subscription.TopicConfig;
 import dev.mars.peegeeq.db.subscription.TopicConfigService;
 import dev.mars.peegeeq.db.subscription.TopicSemantics;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.logging.ExpectedErrorLog;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.pgclient.PgException;
 import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -467,7 +470,101 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                 .onFailure(testContext::failNow);
     }
 
+    /**
+     * A backfill whose batch fails records FAILED, so a later start resumes it (D35).
+     *
+     * <p>Before this was fixed, the failed backfill stayed IN_PROGRESS and every later start
+     * returned SKIPPED, so the group never received the rest of the backfill. A trigger that
+     * raises only for this test's group makes the batch fail; the trigger is then dropped and
+     * the backfill is started again.</p>
+     */
+    @Test
+    @ExpectedErrorLog(
+            logger = "dev.mars.peegeeq.db.subscription.BackfillService",
+            message = "Backfill failed for topic='test-backfill-failed-",
+            messageMatch = ExpectedErrorLog.MessageMatch.PREFIX,
+            throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
+            throwableType = PgException.class)
+    void testFailedBackfillIsRecordedFailedAndALaterStartResumesIt(VertxTestContext testContext) {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        String topic = "test-backfill-failed-" + suffix;
+        String groupName = "backfill-failed-" + suffix;
+        String failingTrigger = "backfill_fail_" + suffix;
+        int messageCount = 5;
+
+        topicConfigService.createTopic(TopicConfig.builder()
+                        .topic(topic)
+                        .semantics(TopicSemantics.PUB_SUB)
+                        .messageRetentionHours(24)
+                        .build())
+                .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionStore.OUTBOX, SubscriptionOptions.defaults()))
+                .compose(v -> insertMessages(topic, messageCount))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionStore.OUTBOX, SubscriptionOptions.fromBeginning()))
+                .compose(v -> installTrackingInsertFailure(failingTrigger, groupName))
+                .compose(v -> backfillService.startBackfill(topic, groupName, 100, 0)
+                        .<Throwable>transform(first -> first.failed()
+                                ? Future.succeededFuture(first.cause())
+                                : Future.failedFuture(new AssertionError(
+                                        "the first backfill must fail on the injected trigger, but returned " + first.result()))))
+                .compose(firstFailure -> {
+                    testContext.verify(() -> assertInstanceOf(PgException.class, firstFailure,
+                            "the batch failure must reach the caller"));
+                    return removeTrackingInsertFailure(failingTrigger);
+                })
+                .compose(v -> backfillService.getBackfillProgress(topic, groupName))
+                .compose(afterFailure -> {
+                    testContext.verify(() -> assertEquals("FAILED", afterFailure.orElseThrow().status(),
+                            "a failed backfill must be recorded FAILED, not left IN_PROGRESS"));
+                    return backfillService.startBackfill(topic, groupName, 100, 0);
+                })
+                .compose(second -> {
+                    testContext.verify(() -> {
+                        assertEquals(BackfillResult.Status.COMPLETED, second.status(),
+                                "a later start must resume the failed backfill, not skip it");
+                        assertEquals(messageCount, second.processedMessages());
+                    });
+                    return backfillService.getBackfillProgress(topic, groupName);
+                })
+                .map(finalProgress -> {
+                    testContext.verify(() -> assertEquals("COMPLETED", finalProgress.orElseThrow().status()));
+                    return (Void) null;
+                })
+                .transform(TestCleanup.cleanup(() -> removeTrackingInsertFailure(failingTrigger)))
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+    }
+
     // Helper methods
+
+    /**
+     * Installs a trigger that makes every tracking-row insert for one group fail. Only that group is
+     * affected, so tests that run at the same time on the shared schema are not.
+     */
+    private Future<Void> installTrackingInsertFailure(String name, String groupName) {
+        String sql = """
+            CREATE FUNCTION %1$s() RETURNS trigger LANGUAGE plpgsql AS $body$
+            BEGIN
+                IF NEW.group_name = '%2$s' THEN
+                    RAISE EXCEPTION 'tracking insert failure injected for %%', NEW.group_name;
+                END IF;
+                RETURN NEW;
+            END
+            $body$;
+            CREATE TRIGGER %1$s BEFORE INSERT ON outbox_consumer_groups
+                FOR EACH ROW EXECUTE FUNCTION %1$s();
+            """.formatted(name, groupName);
+        return connectionManager.withTransaction("peegeeq-main", connection ->
+                connection.query(sql).execute().mapEmpty());
+    }
+
+    private Future<Void> removeTrackingInsertFailure(String name) {
+        String sql = """
+            DROP TRIGGER IF EXISTS %1$s ON outbox_consumer_groups;
+            DROP FUNCTION IF EXISTS %1$s();
+            """.formatted(name);
+        return connectionManager.withTransaction("peegeeq-main", connection ->
+                connection.query(sql).execute().mapEmpty());
+    }
 
     private Future<Void> insertMessagesBulk(String topic, int count) {
         return connectionManager.withTransaction("peegeeq-main", connection -> {
