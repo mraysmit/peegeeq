@@ -6,7 +6,6 @@ import dev.mars.peegeeq.db.cleanup.DeadConsumerDetector.BlockedMessageStats;
 import dev.mars.peegeeq.db.cleanup.DeadConsumerDetector.DeadSubscriptionInfo;
 import dev.mars.peegeeq.db.cleanup.DeadConsumerDetector.DetectionResult;
 import dev.mars.peegeeq.db.cleanup.DeadConsumerDetector.SubscriptionSummary;
-import dev.mars.peegeeq.db.cleanup.DeadConsumerGroupCleanup.CleanupResult;
 import dev.mars.peegeeq.db.health.BackgroundTaskFailureTracker;
 import dev.mars.peegeeq.db.health.HealthStatus;
 import io.vertx.core.Future;
@@ -23,45 +22,38 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 /**
- * Scheduled job that periodically runs dead consumer detection with full
- * operational logging.
+ * Scheduled job that finds consumer groups that stopped sending heartbeats and tells the
+ * operator about them.
  *
- * <p>This job wraps {@link DeadConsumerDetector} with a Vert.x periodic timer,
- * automatically detecting and marking subscriptions as DEAD when their heartbeat
- * timeout is exceeded. Each run produces detailed log output suitable for
- * production operations and incident response.</p>
+ * <p>The job exists so that an operator learns that a group has gone silent, which messages it
+ * leaves unprocessed, and for how long. It wraps {@link DeadConsumerDetector} with a Vert.x
+ * periodic timer: a subscription whose heartbeat timeout is exceeded for
+ * {@code dead_after_misses} consecutive runs is marked DEAD. The job changes no message. A
+ * DEAD group's messages stay as they are until the group is resumed or started again, or an
+ * operator cancels or force-removes it, and neither of those changes a message either.
+ * Marking a message processed that no consumer processed would lose it.</p>
  *
  * <h3>Logging Levels:</h3>
  * <ul>
  *   <li>{@code INFO}  Run summary on every cycle (healthy or not)</li>
- *   <li>{@code WARN}  Per-dead-consumer detail, blocked message counts, overdue durations</li>
- *   <li>{@code ERROR} Detection failures, query errors</li>
+ *   <li>{@code WARN}  Per-dead-consumer detail, unprocessed message counts, overdue durations</li>
+ *   <li>{@code ERROR} Detection failures, query errors, a dead group that holds more than 1,000
+ *       messages or has held them for more than 24 hours</li>
  *   <li>{@code DEBUG} Detailed per-topic breakdowns, timing, skip-if-running guard</li>
  * </ul>
  *
  * <h3>Usage:</h3>
  * <pre>{@code
  * DeadConsumerDetector detector = new DeadConsumerDetector(connectionManager, "peegeeq-main");
- * DeadConsumerGroupCleanup cleanup = new DeadConsumerGroupCleanup(connectionManager, "peegeeq-main");
- * DeadConsumerDetectionJob job = new DeadConsumerDetectionJob(vertx, detector, cleanup);
- * job.start();           // Starts periodic detection + cleanup
+ * DeadConsumerDetectionJob job = new DeadConsumerDetectionJob(vertx, detector);
+ * job.start();           // Starts periodic detection
  * // ...
  * job.stop();            // Stops the periodic timer
  * }</pre>
  *
- * <h3>When a dead consumer is detected:</h3>
- * <ol>
- *   <li>Subscription status is set to DEAD by {@link DeadConsumerDetector}</li>
- *   <li>{@link DeadConsumerGroupCleanup} decrements {@code required_consumer_groups} for
- *       PENDING/PROCESSING messages owned by the dead group</li>
- *   <li>Orphaned tracking rows are removed from {@code outbox_consumer_groups}</li>
- *   <li>Messages where all remaining consumers have completed are auto-completed</li>
- *   <li>Auto-completed messages become eligible for normal cleanup/deletion</li>
- * </ol>
- *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-12-01
- * @version 2.0
+ * @version 3.0
  */
 public class DeadConsumerDetectionJob {
 
@@ -72,7 +64,6 @@ public class DeadConsumerDetectionJob {
 
     private final Vertx vertx;
     private final DeadConsumerDetector detector;
-    private final DeadConsumerGroupCleanup cleanup;
     private final long detectionIntervalMs;
 
     private volatile long timerId = -1;
@@ -89,20 +80,15 @@ public class DeadConsumerDetectionJob {
     private final AtomicLong totalRunTimeMs = new AtomicLong(0);
     private final BackgroundTaskFailureTracker failureTracker = new BackgroundTaskFailureTracker(
             "background-dead-consumer-detection", "Dead consumer detection", logger);
-    private final AtomicLong totalMessagesDecremented = new AtomicLong(0);
-    private final AtomicLong totalOrphanRowsRemoved = new AtomicLong(0);
-    private final AtomicLong totalMessagesAutoCompleted = new AtomicLong(0);
 
     /**
      * Creates a new DeadConsumerDetectionJob with the default detection interval.
      *
      * @param vertx The Vert.x instance for timer scheduling
      * @param detector The dead consumer detector service
-     * @param cleanup The dead consumer group cleanup service
      */
-    public DeadConsumerDetectionJob(Vertx vertx, DeadConsumerDetector detector,
-                                    DeadConsumerGroupCleanup cleanup) {
-        this(vertx, detector, cleanup, DEFAULT_DETECTION_INTERVAL_MS);
+    public DeadConsumerDetectionJob(Vertx vertx, DeadConsumerDetector detector) {
+        this(vertx, detector, DEFAULT_DETECTION_INTERVAL_MS);
     }
 
     /**
@@ -110,19 +96,16 @@ public class DeadConsumerDetectionJob {
      *
      * @param vertx The Vert.x instance for timer scheduling
      * @param detector The dead consumer detector service
-     * @param cleanup The dead consumer group cleanup service
      * @param detectionIntervalMs The interval between detection runs in milliseconds
      */
-    public DeadConsumerDetectionJob(Vertx vertx, DeadConsumerDetector detector,
-                                    DeadConsumerGroupCleanup cleanup, long detectionIntervalMs) {
+    public DeadConsumerDetectionJob(Vertx vertx, DeadConsumerDetector detector, long detectionIntervalMs) {
         this.vertx = Objects.requireNonNull(vertx, "vertx cannot be null");
         this.detector = Objects.requireNonNull(detector, "detector cannot be null");
-        this.cleanup = Objects.requireNonNull(cleanup, "cleanup cannot be null");
         if (detectionIntervalMs <= 0) {
             throw new IllegalArgumentException("detectionIntervalMs must be positive");
         }
         this.detectionIntervalMs = detectionIntervalMs;
-        logger.info("DeadConsumerDetectionJob created: interval={}ms ({}s), cleanup=enabled",
+        logger.info("DeadConsumerDetectionJob created: interval={}ms ({}s)",
                 detectionIntervalMs, detectionIntervalMs / 1000);
     }
 
@@ -173,11 +156,8 @@ public class DeadConsumerDetectionJob {
         TraceCtx stopTrace = lifecycleTrace != null ? lifecycleTrace : TraceCtx.createNew();
         try (var scope = TraceContextUtil.mdcScope(stopTrace)) {
             logger.info("Stopping DeadConsumerDetectionJob: timerId={}, totalRuns={}, totalDeadDetected={}, " +
-                            "totalFailures={}, totalMessagesDecremented={}, totalOrphanRowsRemoved={}, " +
-                            "totalMessagesAutoCompleted={}, avgRunTimeMs={}",
+                            "totalFailures={}, avgRunTimeMs={}",
                     timerId, totalRunCount.get(), totalDeadDetected.get(), failureTracker.totalFailures(),
-                    totalMessagesDecremented.get(), totalOrphanRowsRemoved.get(),
-                    totalMessagesAutoCompleted.get(),
                     totalRunCount.get() > 0 ? totalRunTimeMs.get() / totalRunCount.get() : 0);
         }
 
@@ -272,20 +252,13 @@ public class DeadConsumerDetectionJob {
     }
 
     /**
-     * Triggers a single detection run manually with full detailed results.
+     * Triggers a single detection run manually with full detailed results. Like a scheduled
+     * run, it changes subscription statuses only and no message.
      *
      * @return Future containing the full {@link DetectionResult}
      */
     public Future<DetectionResult> runDetectionOnceWithDetails() {
-        return detector.detectAllDeadSubscriptionsWithDetails()
-                .compose(result -> {
-                    if (!result.hasDeadSubscriptions()) {
-                        return Future.succeededFuture(result);
-                    }
-
-                    // Manual run should match scheduled behavior: detect then cleanup.
-                    return cleanup.cleanupAllDeadGroups().map(result);
-                });
+        return detector.detectAllDeadSubscriptionsWithDetails();
     }
 
     /**
@@ -317,19 +290,11 @@ public class DeadConsumerDetectionJob {
                         totalDeadDetected.addAndGet(result.deadCount());
                         logDeadConsumersDetected(runNumber, result, detectionMs, trace);
 
-                        // Query blocked message stats for newly dead + any previously dead consumers
+                        // Report the messages that dead groups leave unprocessed, newly dead and
+                        // previously dead. The messages themselves are not changed.
                         return detector.getBlockedMessageStats()
                                 .compose(blockedStats -> {
                                     logBlockedMessageStats(blockedStats, trace);
-
-                                    // Run cleanup for all dead groups (newly detected + previously dead)
-                                    try (var innerScope = TraceContextUtil.mdcScope(trace)) {
-                                        logger.info("  Starting cleanup for dead consumer groups...");
-                                    }
-                                    return cleanup.cleanupAllDeadGroups();
-                                })
-                                .compose(cleanupResults -> {
-                                    logCleanupResults(runNumber, cleanupResults, trace);
                                     return detector.getSubscriptionSummary();
                                 })
                                 .map(summary -> {
@@ -378,61 +343,6 @@ public class DeadConsumerDetectionJob {
     }
 
     /**
-     * Logs cleanup results after dead consumer group message cleanup.
-     */
-    private void logCleanupResults(long runNumber, List<CleanupResult> cleanupResults, TraceCtx trace) {
-        try (var scope = TraceContextUtil.mdcScope(trace)) {
-        if (cleanupResults.isEmpty()) {
-            logger.debug("  Run #{}: No dead consumer groups required cleanup", runNumber);
-            return;
-        }
-
-        int totalDecremented = cleanupResults.stream().mapToInt(CleanupResult::messagesDecremented).sum();
-        int totalOrphans = cleanupResults.stream().mapToInt(CleanupResult::orphanRowsRemoved).sum();
-        int totalAutoCompleted = cleanupResults.stream().mapToInt(CleanupResult::messagesAutoCompleted).sum();
-
-        // Update cumulative stats
-        totalMessagesDecremented.addAndGet(totalDecremented);
-        totalOrphanRowsRemoved.addAndGet(totalOrphans);
-        totalMessagesAutoCompleted.addAndGet(totalAutoCompleted);
-
-        if (totalDecremented > 0 || totalOrphans > 0 || totalAutoCompleted > 0) {
-            logger.warn("  === Cleanup Run #{} Summary: {} group(s) processed ===", runNumber, cleanupResults.size());
-            logger.warn("    Messages decremented (required_consumer_groups -= 1): {}", totalDecremented);
-            logger.warn("    Orphaned tracking rows removed: {}", totalOrphans);
-            logger.warn("    Messages auto-completed (now eligible for deletion): {}", totalAutoCompleted);
-
-            // Per-group breakdown
-            for (CleanupResult cr : cleanupResults) {
-                if (cr.hadWork()) {
-                    logger.warn("    group='{}' on topic='{}': decremented={}, orphans={}, auto-completed={}",
-                            cr.groupName(), cr.topic(),
-                            cr.messagesDecremented(), cr.orphanRowsRemoved(), cr.messagesAutoCompleted());
-                }
-            }
-
-            if (totalAutoCompleted > 0) {
-                logger.info("  {} message(s) are now eligible for cleanup after dead consumer removal",
-                        totalAutoCompleted);
-            }
-        } else {
-            logger.debug("  Cleanup ran for {} group(s) but no work was needed (already cleaned)",
-                    cleanupResults.size());
-        }
-
-        // Track cleanup failures (results with zero work where we expected work)
-        long failedCleanups = cleanupResults.stream()
-                .filter(cr -> !cr.hadWork())
-                .count();
-        if (failedCleanups > 0 && cleanupResults.size() > failedCleanups) {
-            // Some succeeded, some didn't might indicate partial failure
-            logger.debug("  {} of {} cleanup(s) had no work (may already be cleaned or failed)",
-                    failedCleanups, cleanupResults.size());
-        }
-        } // end mdcScope
-    }
-
-    /**
      * Logs detailed information about dead consumers that were just detected.
      */
     private void logDeadConsumersDetected(long runNumber, DetectionResult result, long detectionMs, TraceCtx trace) {
@@ -465,12 +375,12 @@ public class DeadConsumerDetectionJob {
     }
 
     /**
-     * Logs the impact of dead consumers how many messages they are blocking.
+     * Logs the impact of dead consumers: how many messages each leaves unprocessed.
      */
     private void logBlockedMessageStats(List<BlockedMessageStats> statsList, TraceCtx trace) {
         try (var scope = TraceContextUtil.mdcScope(trace)) {
         if (statsList.isEmpty()) {
-            logger.info("  No messages currently blocked by dead consumers");
+            logger.info("  No messages currently left unprocessed by dead consumers");
             return;
         }
 
@@ -478,7 +388,7 @@ public class DeadConsumerDetectionJob {
                 .mapToLong(BlockedMessageStats::totalBlocked)
                 .sum();
 
-        logger.warn("  === Blocked Message Impact: {} total message(s) blocked by dead consumers ===",
+        logger.warn("  === Unprocessed Message Impact: {} total message(s) left unprocessed by dead consumers ===",
                 totalBlocked);
 
         for (BlockedMessageStats stats : statsList) {
@@ -504,13 +414,13 @@ public class DeadConsumerDetectionJob {
         // Highlight critical situations
         for (BlockedMessageStats stats : statsList) {
             if (stats.totalBlocked() > 1000) {
-                logger.error("  CRITICAL: Dead consumer group='{}' on topic='{}' is blocking {} messages! " +
-                                "These messages cannot be cleaned up until required_consumer_groups is decremented.",
+                logger.error("  CRITICAL: Dead consumer group='{}' on topic='{}' leaves {} messages unprocessed. " +
+                                "Resume or restart the group, or cancel it if it is gone for good.",
                         stats.groupName(), stats.topic(), stats.totalBlocked());
             }
             if (stats.oldestBlockedAge() != null && stats.oldestBlockedAge().toHours() > 24) {
-                logger.error("  CRITICAL: Dead consumer group='{}' on topic='{}' has been blocking " +
-                                "messages for {} oldest blocked message is {} old.",
+                logger.error("  CRITICAL: Dead consumer group='{}' on topic='{}' has left messages " +
+                                "unprocessed for {}: the oldest unprocessed message is {} old.",
                         stats.groupName(), stats.topic(),
                         formatDuration(stats.oldestBlockedAge()),
                         formatDuration(stats.oldestBlockedAge()));
