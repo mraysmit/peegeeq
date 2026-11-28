@@ -33,7 +33,6 @@ import java.util.UUID;
 import io.vertx.junit5.VertxTestContext;
 
 import static org.junit.jupiter.api.Assertions.*;
-import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Integration tests for DeadConsumerDetector.
@@ -100,9 +99,7 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) {
         if (connectionManager != null) {
-            new DeadConsumerGroupCleanup(connectionManager, "peegeeq-main")
-                    .cleanupAllDeadGroups()
-                    .transform(TestCleanup.cleanup(() -> connectionManager.close()))
+            connectionManager.close()
                     .onSuccess(v -> testContext.completeNow())
                     .onFailure(testContext::failNow);
         } else {
@@ -273,9 +270,8 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                 })
                 .compose(markedDead -> {
                     logger.info("Marked {} subscriptions as DEAD across all topics", markedDead);
-                    // Don't assert exact count other parallel tests may contribute or steal detections
-                    assertTrue(markedDead >= 0, "markedDead should be non-negative");
-                    // Verify our specific subscriptions ended up DEAD
+                    // The count is not asserted: a detection run of a parallel test can mark these
+                    // subscriptions first. The status of this test's two subscriptions is asserted.
                     return subscriptionManager.getSubscription(topic1, group1);
                 })
                 .compose(sub1 -> {
