@@ -3,8 +3,8 @@
 Version 1.0
 
 This guide describes how to send and consume queue messages with the Java API: producer send modes and
-transaction ownership, consumers, consumer groups and subscriptions, filtering, retry and dead letter, and
-idempotent handlers.
+transaction ownership, consumers, consumer groups and subscriptions, filtering, retry and dead letter,
+idempotent handlers, and payload serialisation with CloudEvents.
 
 Related documents:
 
@@ -445,8 +445,19 @@ configuration, so server-side filters apply to single consumers only.
 | `headerLike(key, pattern)` | key present and `LIKE` the pattern |
 | `and(filters...)`, `or(filters...)` | Combination; each needs at least two filters and fails with `IllegalArgumentException` otherwise |
 
-Header keys must match `^[a-zA-Z][a-zA-Z0-9_-]*$`; any other key fails when the filter is built. Values are
-bound as statement parameters.
+Header keys must match `^[a-zA-Z][a-zA-Z0-9_-]*$`; any other key fails when the filter is built. The key is
+written into the SQL text, so this check is what keeps it safe. Values are bound as statement parameters.
+
+`headerNotEquals` also selects messages that do not have the header (`ServerSideFilter.java:191`). Whether that
+is intended is not decided (register D3). To exclude messages without the header, combine it in an `and` with a
+`headerEquals`, `headerIn` or `headerLike` condition on the same key, or check the header in the handler.
+
+Server-side filters exist in the Java API only. No REST call accepts one: no class in `peegeeq-rest` uses
+`ServerSideFilter` (search of the main sources).
+
+The Flyway migrations create a GIN index on `headers` for `outbox` and `queue_messages` (`V001`). The setup templates create only the idempotency indexes on
+those two tables, so a filtered claim on a template schema reads without a `headers` index; see
+`PEEGEEQ_DATABASE_GUIDE.md` section 1.
 
 ```java
 ConsumerConfig config = ConsumerConfig.builder()
@@ -547,3 +558,64 @@ production consumer groups.
 
 Every test class in the table is tagged `@Tag(TestCategories.INTEGRATION)`. The command forms and profiles are in
 `docs-design/testing/PEEGEEQ-TEST-COMMANDS.md`; see `PEEGEEQ_CONTRIBUTOR_GUIDE.md`.
+
+## 9. Payload serialisation and CloudEvents
+
+A payload is stored as JSON in a JSONB column. The factory's Jackson `ObjectMapper` writes it on send and reads
+it back on delivery. A CloudEvents `CloudEvent` can be the payload type, so that a message or an event carries
+the standard CloudEvents attributes (`id`, `source`, `type`, `time` and the others) that other systems read.
+
+Dependencies and mappers (read in code, not run):
+
+- `peegeeq-db`, `peegeeq-native`, `peegeeq-outbox` and `peegeeq-bitemporal` declare
+  `io.cloudevents:cloudevents-core` and `io.cloudevents:cloudevents-json-jackson` 4.0.1 at compile scope. An
+  application that depends on one of these modules receives both artifacts. Excluding them is not supported:
+  the classes below import `JsonFormat` directly.
+- The default mappers of `OutboxFactory`, `PgNativeQueueFactory`, `BiTemporalEventStoreFactory` and
+  `PeeGeeQManager` register `JavaTimeModule` and `JsonFormat.getCloudEventJacksonModule()`. The `PeeGeeQManager`
+  mapper also disables `WRITE_DATES_AS_TIMESTAMPS`.
+- A mapper passed to a factory constructor is used as given; PeeGeeQ adds no module to it. Register the
+  CloudEvents module on that mapper before you send or store `CloudEvent` payloads. `OutboxFactory` and
+  `PgNativeQueueFactory` use their default mapper when the argument is null; `BiTemporalEventStoreFactory`
+  rejects null.
+
+Sending a CloudEvent:
+
+```java
+Future<Void> publishTradeCaptured(MessageProducer<CloudEvent> producer, byte[] tradeJson) {
+    CloudEvent event = CloudEventBuilder.v1()
+        .withId(UUID.randomUUID().toString())
+        .withType("com.example.trade.captured.v1")
+        .withSource(URI.create("https://example.com/trading"))
+        .withTime(OffsetDateTime.now())
+        .withDataContentType("application/json")
+        .withData(tradeJson)
+        .withExtension("correlationid", "TRD-001")
+        .build();
+    return producer.send(event);
+}
+```
+
+Create the producer with `createProducer(topic, CloudEvent.class)`, and an event store with
+`createEventStore(CloudEvent.class, tableName)`.
+
+With the JSON data content type, the CloudEvents Jackson format writes the attributes and the extensions as
+top-level keys of the stored JSON, and writes `data` as a nested JSON value (library behaviour, not run). The
+extensions are not under an `extensions` key. JSONB keys are case-sensitive. `CloudEventsJsonbQueryTest` queries
+stored events in this form:
+
+```sql
+SELECT event_id, payload->>'subject' AS trade_id
+FROM bitemporal_event_log
+WHERE payload->>'type' = 'backoffice.trade.new.v1'
+  AND payload->>'correlationid' = 'TRD-001'
+  AND (payload->'data'->>'notionalAmount')::numeric > 100000;
+```
+
+Examples:
+
+| Class | Module | Tag | Shows |
+|---|---|---|---|
+| `CloudEventsObjectMapperTest` | `peegeeq-examples` | `CORE` | Serialising and reading back a `CloudEvent` with the module registered |
+| `CloudEventsJsonbQueryTest` | `peegeeq-examples` | `INTEGRATION` | Storing `CloudEvent` payloads in the event store and querying their JSONB keys |
+| `FinancialCloudEventBuilder`, `CloudEventExtensions` | `peegeeq-examples-spring` | | Building CloudEvents with domain extensions and reading the extensions back |

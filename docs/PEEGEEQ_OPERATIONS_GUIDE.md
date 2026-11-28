@@ -220,8 +220,9 @@ instances through Consul (`peegeeq-service-manager/README.md`).
 
 Design records:
 
-- [PostgreSQL connection management and HAProxy](<../docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md>)
-- [peegeeq-pg-sidecar design and current state](<../docs-design/failover and resilience/PEEGEEQ_PG_SIDECAR.md>)
+- PostgreSQL connection management and HAProxy:
+  `docs-design/failover and resilience/PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md`.
+- `peegeeq-pg-sidecar` design and current state: `docs-design/failover and resilience/PEEGEEQ_PG_SIDECAR.md`.
 
 ## 5. Metrics
 

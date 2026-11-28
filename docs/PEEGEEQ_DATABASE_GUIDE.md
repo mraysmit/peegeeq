@@ -446,6 +446,7 @@ writes to the per-queue table (search of the main sources).
   causation index is created (D42 (g)).
 - A function `notify_<tableName>_events()` and an after-insert trigger. It notifies on
   `<schema>_bitemporal_events_<table>` and on a channel per event type. `notificationPrefix` is not used.
+  `PEEGEEQ_EVENT_STORE_GUIDE.md` section 7 gives the channel names.
 - With `aggregateSummaryEnabled`: a table `<tableName>_aggregate_summary`, keyed by aggregate id and event
   type, maintained by a trigger on every insert.
 

@@ -11,7 +11,7 @@ Design proposals, implementation records and task tracking are under `docs-desig
 |---|---|
 | `PEEGEEQ_GETTING_STARTED.md` | What PeeGeeQ provides, choosing a delivery model, local stack startup, the `Future` contract, caller-owned transactions, first producer and consumer |
 | `PEEGEEQ_ARCHITECTURE.md` | Modules and layers; native queue, outbox and bi-temporal event store; delivery semantics; when PostgreSQL is the right queue; subscription and backfill sequence diagrams |
-| `PEEGEEQ_MESSAGING_GUIDE.md` | Producer send modes and transaction ownership, consumers, consumer groups, subscriptions and start positions, filtering, retry and dead letter |
+| `PEEGEEQ_MESSAGING_GUIDE.md` | Producer send modes and transaction ownership, consumers, consumer groups, subscriptions and start positions, filtering, retry and dead letter, payload serialisation and CloudEvents |
 | `PEEGEEQ_ORDERING_GUIDE.md` | Simple versus partitioned consumption, `OFFSET_WATERMARK`, partition keys |
 | `PEEGEEQ_EVENT_STORE_GUIDE.md` | Valid and transaction time, append, query, corrections, causation, subscriptions, keyset pagination |
 | `PEEGEEQ_CONFIGURATION_GUIDE.md` | Every runtime property, its default, validation and precedence |

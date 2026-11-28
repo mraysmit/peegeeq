@@ -75,7 +75,8 @@ EventStore<OrderEvent> store = factory.createEventStore(OrderEvent.class, "order
 ```
 
 The two-argument factory constructor uses an `ObjectMapper` with `JavaTimeModule` and the
-CloudEvents Jackson module. A third constructor argument supplies your own mapper.
+CloudEvents Jackson module. A third constructor argument supplies your own mapper; it must not be
+null. `PEEGEEQ_MESSAGING_GUIDE.md` section 9 describes CloudEvents payloads.
 
 Each store opens its own connection pool on first use and its own LISTEN connection on the first
 subscription. `PeeGeeQManager.closeReactive()` does not close event stores. Close each store with
@@ -277,6 +278,11 @@ that ends at T and keep the highest version of each family.
 Causation belongs to the event store. A message sent through a queue does not carry or create a
 causation ID.
 
+The causation ID is the `eventId` of the parent event, not a correlation ID. The store does not check
+that the parent exists; a causation ID that names no stored event cannot be followed by the chain
+queries below. An event caused by a command or another outside action has no causation ID. Put the
+command's ID in the correlation ID or in a header.
+
 ### Recording a chain
 
 Pass the parent's event ID as the child's causation ID:
@@ -324,6 +330,22 @@ WITH RECURSIVE chain AS (
 SELECT * FROM chain ORDER BY depth;
 ```
 
+To find the root cause of an event, walk the chain upward. The root is the event with no causation
+ID:
+
+```sql
+WITH RECURSIVE causes AS (
+    SELECT event_id, event_type, causation_id
+    FROM order_events
+    WHERE event_id = $1
+    UNION ALL
+    SELECT e.event_id, e.event_type, e.causation_id
+    FROM order_events e
+    JOIN causes c ON e.event_id = c.causation_id
+)
+SELECT * FROM causes WHERE causation_id IS NULL;
+```
+
 Flyway migration `V011` indexes `causation_id` on `bitemporal_event_log`. A table created from the
 event store template has no `causation_id` index, because the template manifest does not list the
 index file (read in code, not run; D42).
@@ -361,16 +383,39 @@ name.
 
 ### Delivery
 
-An `AFTER INSERT` trigger on the store's table sends a PostgreSQL notification on two channels: one
-for the table and one for the table and event type. The handler reads the full event with
-`getById` and calls each matching subscription. The following are read in code, not run:
+An `AFTER INSERT` trigger on the store's table sends a PostgreSQL notification on two channels. Each
+store instance opens one LISTEN connection, outside its pool, and listens on the channels its
+subscriptions need:
+
+| Channel | Name | Listened on for |
+|---|---|---|
+| Table | `<schema>_bitemporal_events_<table>` | `null` and wildcard subscriptions |
+| Event type | `<schema>_bitemporal_events_<table>_<eventType>` | Exact-type subscriptions |
+
+In both names each hyphen in the table name becomes an underscore. In the event-type name each dot
+in the event type becomes an underscore. A name longer than 63 characters is cut to 54 characters
+and given `_` and the first 8 hex characters of the MD5 hash of the full name. The trigger and
+`ReactiveNotificationHandler.createSafeChannelName` apply the same rule, with one difference: the
+trigger lower-cases the `<schema>_bitemporal_events_<table>` part and the handler does not. A schema
+or table name with capital letters is therefore notified on a channel the handler does not listen on
+(read in code, not run; register D11).
+
+Event types that differ only by `.` and `_`, such as `my.channel` and `my_channel`, share one
+event-type channel. The notification carries the original event type, and the handler matches
+subscriptions against that type, so each exact subscription receives only its own type.
+
+For every notification it receives, the handler first reads the full event with `getById`, then
+matches it against the subscriptions. A `null` or wildcard subscription therefore causes one read
+for every event appended to the table, whether the event matches or not (register D4). The
+following are also read in code, not run:
 
 - Delivery is not durable. An event committed while no LISTEN connection is open is not delivered
   later.
 - A handler failure is logged. The event is not redelivered.
 - A handler can be called twice for one insert. When one store instance has both an exact-type
   subscription and a `null` or wildcard subscription, it listens on both channels. Each of the two
-  notifications is dispatched to every matching subscription, and there is no deduplication (D43).
+  notifications is dispatched to every matching subscription, and there is no deduplication (D4,
+  D43).
 - When the LISTEN connection closes, the store reconnects up to five times, waiting 1, 2, 4, 8 and
   16 seconds. After the fifth failure it logs an error and stops; notifications stop until the
   application subscribes again.
@@ -380,6 +425,9 @@ for the table and one for the table and event type. The handler reads the full e
 - A subscription with `eventType == null` and a non-null `aggregateId` is never called: the dispatch
   code has no branch for it (register D10). Subscribe with an event type, or filter by aggregate in the
   handler.
+
+`WildcardPatternComprehensiveTest` in `peegeeq-bitemporal/src/test/java/dev/mars/peegeeq/bitemporal/`
+exercises the wildcard rules against a real table.
 
 Use durable subscriptions (section 8) when an event must not be missed.
 
@@ -428,8 +476,8 @@ delivery error (read in code, not run).
 | Options | `durableEnabled(true)` and a `subscriptionName` equal to the name argument are required. |
 | Start position | The default is `FROM_NOW`, which starts at the current highest `id`. `FROM_BEGINNING` starts at cursor 0. `FROM_MESSAGE_ID` sets the cursor to the given `id`; replay reads `id >` cursor, so the event with that `id` is not delivered. A start `id` above the current highest `id` is rejected. `FROM_TIMESTAMP` is rejected. |
 | Filters | `eventType` and `aggregateId`, each checked only for a maximum of 255 characters. The wildcard matching of section 7 applies; its 50-character and segment-pattern checks do not. A re-registration with different filters fails. A re-registration with the same filters keeps the stored cursor and sets the subscription `ACTIVE`, so it resumes a `PAUSED` subscription. |
-| Order | Events are replayed in `id` order, in pages of `replayBatchSize` (default 500, at most 10000). |
-| Replay boundary | Each pass runs a short transaction with `SET LOCAL lock_timeout='5s'`, takes a `SHARE` lock on the table to wait for in-flight writers, and reads the highest `id`. Appends to the table wait behind that lock, for up to 5 seconds. Events at or below the boundary are replayed without gaps. The table's `id` sequence must be ascending, non-cycling and `CACHE 1`. A lock timeout or a sequence that fails the check stops delivery permanently (read in code, not run). |
+| Order | Events are replayed in `id` order, in pages of `replayBatchSize` (default 500, at most 10000). Each page reads `id >` cursor and `id <=` boundary. The filters are applied in Java after the page is read, and the cursor also advances past events that do not match. On `bitemporal_event_log`, migration `V012` adds an index on `(id, event_type, aggregate_id)`. A table created from the event store template has no such index; the page reads its `id` range through the primary key. |
+| Replay boundary | Each pass runs a short transaction with `SET LOCAL lock_timeout='5s'`, takes a `SHARE` lock on the table to wait for in-flight writers, and reads the highest `id`. Appends to the table wait behind that lock, for up to 5 seconds. Events at or below the boundary are replayed without gaps. The table's `id` sequence must be ascending, non-cycling and `CACHE 1`. A lock timeout or a sequence that fails the check stops delivery permanently (read in code, not run). The check covers the sequence settings only. An `id` written explicitly by an insert and a sequence reset are not detected and are not supported. A cursor above the table's highest `id`, for example after the newest rows were deleted, fails the pass. |
 | Acknowledgement | When the handler's Future succeeds, the cursor advances past that event in its own transaction. |
 | Handler failure | Delivery stops. `deliveryCompletion` fails. The cursor stays on the failed event. The failed delivery stays registered in the service, so a new `subscribe(...)` for the same identity on the same service fails with "Handler already registered". Redelivery needs a new service instance or a process restart (D43). |
 | Guarantee | At least once. A crash after the handler succeeds and before the cursor commits redelivers the event. Handlers must be idempotent. |

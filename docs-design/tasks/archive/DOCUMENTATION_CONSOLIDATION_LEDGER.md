@@ -70,6 +70,30 @@ the recomputed fingerprint. A check on 2026-11-28 found that 20 other entries al
 their file at HEAD, and 11 recorded paths no longer exist because the files were moved. Those
 entries were not changed.
 
+### Event-sourcing-messaging merge — 2026-11-28
+
+The five sources under `docs-design/event-sourcing-messaging/` repeated facts that the `docs/` guides
+own, and two of their entries named `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md` as destination, a file
+that Task 10 deleted in commit `75313be6`. On the owner's ruling of 2026-11-28, the facts that only
+these sources held were checked against the code and added to the owning guides, and four sources
+were deleted from the working tree. Their last versions are in git history at `0b644af1`.
+
+- Causality guide: deleted. Destination `docs/PEEGEEQ_EVENT_STORE_GUIDE.md` sections 5 and 6.
+- Bi-temporal subscriptions guide: deleted. Destination `docs/PEEGEEQ_EVENT_STORE_GUIDE.md`
+  section 7; the channel prefix also in `docs/PEEGEEQ_DATABASE_GUIDE.md` sections 2 and 6.
+- CloudEvents guide: deleted. Destination `docs/PEEGEEQ_MESSAGING_GUIDE.md` section 9, with a
+  reference from `docs/PEEGEEQ_EVENT_STORE_GUIDE.md` section 2.
+- Server-side filtering guide: deleted. Destination `docs/PEEGEEQ_MESSAGING_GUIDE.md` section 5.2.
+- Durable subscriptions plan: kept, rewritten as a design record of the reasoning, the decisions
+  and the parts not built. Its current contract is `docs/PEEGEEQ_EVENT_STORE_GUIDE.md` section 8.
+
+Not carried over: the CloudEvents specification overview, the filtering industry comparison, test
+counts and test inventories, the parameter numbering of the filter SQL, the notification payload
+field list, the plan's historical test inventory and phase plan, and two wrong statements (a
+causation index on template event tables, and a CloudEvents example that passed four arguments to a
+five-parameter method). The heading dispositions of the five entries below describe the baseline
+revision and were not regenerated; each entry carries a status line for this merge.
+
 ## Mapping rules
 
 - A source remains intact until all its heading entries are complete.
@@ -1702,7 +1726,8 @@ entries were not changed.
 
 ### `docs-design/event-sourcing-messaging/PEEGEEQ_BITEMPORAL_EVENT_CAUSALITY_GUIDE.md`
 
-- SHA-256: `0cf556e157e2d5eec7b7e5fbab086a3b45305458304b2b85179a9367452c0668`
+- SHA-256: `0cf556e157e2d5eec7b7e5fbab086a3b45305458304b2b85179a9367452c0668` (recorded before the merge)
+- Removed 2026-11-28 by the event-sourcing-messaging merge; destination `docs/PEEGEEQ_EVENT_STORE_GUIDE.md` sections 5 and 6; last version at `0b644af1`
 - Category: Messaging / Event Store
 - Disposition: Merge implemented behavior; retain proposal and implementation history
 - Heading disposition:
@@ -1735,7 +1760,8 @@ entries were not changed.
 
 ### `docs-design/event-sourcing-messaging/PEEGEEQ_BITEMPORAL_SUBSCRIPTIONS_GUIDE.md`
 
-- SHA-256: `87240ff20d998d1313c2a193005d7e601f567eee72c19af1f6fcbf8b74ae559d`
+- SHA-256: `87240ff20d998d1313c2a193005d7e601f567eee72c19af1f6fcbf8b74ae559d` (recorded before the merge)
+- Removed 2026-11-28 by the event-sourcing-messaging merge; destination `docs/PEEGEEQ_EVENT_STORE_GUIDE.md` section 7; last version at `0b644af1`
 - Category: Messaging / Event Store
 - Disposition: Merge implemented behavior; retain proposal and implementation history
 - Heading disposition:
@@ -1773,7 +1799,8 @@ entries were not changed.
 
 ### `docs-design/event-sourcing-messaging/PEEGEEQ_CLOUDEVENTS_SUPPORT_AND_INTEGRATION_GUIDE.md`
 
-- SHA-256: `825670baa7f433bcd38ec0d11c8622282356c80588f1f4a2c950de95822abef8`
+- SHA-256: `825670baa7f433bcd38ec0d11c8622282356c80588f1f4a2c950de95822abef8` (recorded before the merge)
+- Removed 2026-11-28 by the event-sourcing-messaging merge; destination `docs/PEEGEEQ_MESSAGING_GUIDE.md` section 9, replacing the deleted `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md` named below; last version at `0b644af1`
 - Category: Messaging / Event Store
 - Disposition: Merge implemented behavior; retain proposal and implementation history
 - Heading disposition:
@@ -1823,7 +1850,8 @@ entries were not changed.
 
 ### `docs-design/event-sourcing-messaging/PEEGEEQ_DURABLE_SUBSCRIPTIONS_OPTION_PLAN.md`
 
-- SHA-256: `e8e7c1e852c138748ce5d4dcb2a9ec91c862f8174d09b9d68fea3503da7d7e8e`
+- SHA-256: `458f0154eabaf7c5629100fe884ba6b92533c8e7365b3f336d0ebb61203e3407` — rewritten 2026-11-28 as a design record by the event-sourcing-messaging merge; current contract in `docs/PEEGEEQ_EVENT_STORE_GUIDE.md` section 8; the version before the rewrite is at `0b644af1`
+- Recorded before the merge: `e8e7c1e852c138748ce5d4dcb2a9ec91c862f8174d09b9d68fea3503da7d7e8e`
 - Category: Messaging / Event Store
 - Disposition: Merge implemented behavior; retain proposal and implementation history
 - Heading disposition:
@@ -1968,7 +1996,8 @@ entries were not changed.
 
 ### `docs-design/event-sourcing-messaging/PEEGEEQ_SERVER_SIDE_FILTERING_GUIDE.md`
 
-- SHA-256: `3cda9e2ee9dda4d0b7672f42843e01bd392e2cb86814d9e92ea679f92da74cf9`
+- SHA-256: `3cda9e2ee9dda4d0b7672f42843e01bd392e2cb86814d9e92ea679f92da74cf9` (recorded before the merge)
+- Removed 2026-11-28 by the event-sourcing-messaging merge; destination `docs/PEEGEEQ_MESSAGING_GUIDE.md` section 5.2, replacing the deleted `docs/PEEGEEQ_MESSAGING_FEATURES_GUIDE.md` named below; last version at `0b644af1`
 - Category: Messaging / Event Store
 - Disposition: Merge implemented behavior; retain proposal and implementation history
 - Heading disposition:
