@@ -34,7 +34,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import static org.junit.jupiter.api.Assertions.*;
-import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Focused integration tests for DeadLetterQueueManager using TestContainers.
@@ -340,11 +339,11 @@ public class DeadLetterQueueManagerFocusedIntegrationTest extends BaseIntegratio
 
     /**
      * Verifies that the synchronous read wrapper APIs fail fast (via failed Future) when the
-     * dead letter table has been renamed/dropped, logging an ERROR for each call.
+     * dead letter table does not exist, logging an ERROR for each call.
      *
      * <p><strong>INTENTIONAL ERROR TEST:</strong> The next 4 ERROR logs
-     * ('Failed to retrieve dead letter messages ...', etc.) are EXPECTED 
-     * this test renames the table to simulate table unavailability for the sync wrapper paths.
+     * ('Failed to retrieve dead letter messages ...', etc.) are EXPECTED: the manager's pool is
+     * bound to a schema that does not exist, so the table is unavailable for the sync wrapper paths.
      */
     @Test
     @ExpectedErrorLog(
@@ -368,12 +367,11 @@ public class DeadLetterQueueManagerFocusedIntegrationTest extends BaseIntegratio
             throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
             throwableType = io.vertx.pgclient.PgException.class)
     void testSyncReadApisFailFastWhenDeadLetterTableUnavailable(VertxTestContext testContext) {
-        renameDeadLetterTable("dead_letter_queue_tmp")
-            .compose(v -> assertFutureFailure(getDeadLetterMessages("topic", 10, 0)))
-            .compose(v -> assertFutureFailure(getAllDeadLetterMessages(10, 0)))
-            .compose(v -> assertFutureFailure(getDeadLetterMessage(1L)))
-            .compose(v -> assertFutureFailure(getStatistics()))
-            .transform(TestCleanup.cleanup(() -> renameDeadLetterTableBack("dead_letter_queue_tmp")))
+        DeadLetterQueueManager unavailable = missingTableManager();
+        assertFutureFailure(unavailable.fetchDeadLetterMessagesByTopic("topic", 10, 0))
+            .compose(v -> assertFutureFailure(unavailable.fetchAllDeadLetterMessages(10, 0)))
+            .compose(v -> assertFutureFailure(unavailable.fetchDeadLetterMessage(1L)))
+            .compose(v -> assertFutureFailure(unavailable.fetchStatistics()))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
     }
@@ -383,8 +381,8 @@ public class DeadLetterQueueManagerFocusedIntegrationTest extends BaseIntegratio
      * when the dead letter table is unavailable, logging an ERROR for each call.
      *
      * <p><strong>INTENTIONAL ERROR TEST:</strong> The next 4 ERROR logs
-     * ('Failed to retrieve dead letter messages ...', etc.) are EXPECTED 
-     * this test renames the table to simulate unavailability for the async read API paths.
+     * ('Failed to retrieve dead letter messages ...', etc.) are EXPECTED: the manager's pool is
+     * bound to a schema that does not exist, so the table is unavailable for the async read API paths.
      */
     @Test
     @ExpectedErrorLog(
@@ -408,12 +406,11 @@ public class DeadLetterQueueManagerFocusedIntegrationTest extends BaseIntegratio
             throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
             throwableType = io.vertx.pgclient.PgException.class)
     void testAsyncReadApisCompleteExceptionallyWhenDeadLetterTableUnavailable(VertxTestContext testContext) {
-        renameDeadLetterTable("dead_letter_queue_tmp")
-            .compose(v -> assertFutureFailure(deadLetterQueueManager.getDeadLetterMessages("topic", 10, 0)))
-            .compose(v -> assertFutureFailure(deadLetterQueueManager.getAllDeadLetterMessages(10, 0)))
-            .compose(v -> assertFutureFailure(deadLetterQueueManager.getDeadLetterMessage(1L)))
-            .compose(v -> assertFutureFailure(deadLetterQueueManager.getStatistics()))
-            .transform(TestCleanup.cleanup(() -> renameDeadLetterTableBack("dead_letter_queue_tmp")))
+        DeadLetterQueueManager unavailable = missingTableManager();
+        assertFutureFailure(unavailable.getDeadLetterMessages("topic", 10, 0))
+            .compose(v -> assertFutureFailure(unavailable.getAllDeadLetterMessages(10, 0)))
+            .compose(v -> assertFutureFailure(unavailable.getDeadLetterMessage(1L)))
+            .compose(v -> assertFutureFailure(unavailable.getStatistics()))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
     }
@@ -423,8 +420,8 @@ public class DeadLetterQueueManagerFocusedIntegrationTest extends BaseIntegratio
      * when the dead letter table is unavailable, logging an ERROR for each call.
      *
      * <p><strong>INTENTIONAL ERROR TEST:</strong> The next 3 ERROR logs
-     * ('Failed to reprocess/delete/cleanup dead letter ...') are EXPECTED 
-     * this test renames the table to simulate unavailability for the async write API paths.
+     * ('Failed to reprocess/delete/cleanup dead letter ...') are EXPECTED: the manager's pool is
+     * bound to a schema that does not exist, so the table is unavailable for the async write API paths.
      */
     @Test
     @ExpectedErrorLog(
@@ -443,11 +440,10 @@ public class DeadLetterQueueManagerFocusedIntegrationTest extends BaseIntegratio
             throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
             throwableType = io.vertx.pgclient.PgException.class)
     void testAsyncWriteApisCompleteExceptionallyWhenDeadLetterTableUnavailable(VertxTestContext testContext) {
-        renameDeadLetterTable("dead_letter_queue_tmp")
-            .compose(v -> assertFutureFailure(deadLetterQueueManager.reprocessDeadLetterMessage(1L, "reason")))
-            .compose(v -> assertFutureFailure(deadLetterQueueManager.deleteDeadLetterMessage(1L, "reason")))
-            .compose(v -> assertFutureFailure(deadLetterQueueManager.cleanupOldMessages(1)))
-            .transform(TestCleanup.cleanup(() -> renameDeadLetterTableBack("dead_letter_queue_tmp")))
+        DeadLetterQueueManager unavailable = missingTableManager();
+        assertFutureFailure(unavailable.reprocessDeadLetterMessage(1L, "reason"))
+            .compose(v -> assertFutureFailure(unavailable.deleteDeadLetterMessage(1L, "reason")))
+            .compose(v -> assertFutureFailure(unavailable.cleanupOldMessages(1)))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
     }
@@ -457,8 +453,8 @@ public class DeadLetterQueueManagerFocusedIntegrationTest extends BaseIntegratio
      * dead letter table is unavailable, logging an ERROR for each call.
      *
      * <p><strong>INTENTIONAL ERROR TEST:</strong> The next 3 ERROR logs
-     * ('Failed to reprocess/delete/cleanup dead letter ...') are EXPECTED 
-     * this test renames the table to simulate unavailability for the sync write wrapper paths.
+     * ('Failed to reprocess/delete/cleanup dead letter ...') are EXPECTED: the manager's pool is
+     * bound to a schema that does not exist, so the table is unavailable for the sync write wrapper paths.
      */
     @Test
     @ExpectedErrorLog(
@@ -477,11 +473,10 @@ public class DeadLetterQueueManagerFocusedIntegrationTest extends BaseIntegratio
             throwable = ExpectedErrorLog.ThrowablePolicy.CAUSE_CHAIN_CONTAINS,
             throwableType = io.vertx.pgclient.PgException.class)
     void testSyncWriteInternalApisFailFastWhenDeadLetterTableUnavailable(VertxTestContext testContext) {
-        renameDeadLetterTable("dead_letter_queue_tmp")
-            .compose(v -> assertFutureFailure(reprocessDeadLetterMessage(1L, "reason")))
-            .compose(v -> assertFutureFailure(deleteDeadLetterMessage(1L, "reason")))
-            .compose(v -> assertFutureFailure(cleanupOldMessages(1)))
-            .transform(TestCleanup.cleanup(() -> renameDeadLetterTableBack("dead_letter_queue_tmp")))
+        DeadLetterQueueManager unavailable = missingTableManager();
+        assertFutureFailure(unavailable.reprocessDeadLetterMessageRecord(1L, "reason"))
+            .compose(v -> assertFutureFailure(unavailable.removeDeadLetterMessage(1L, "reason")))
+            .compose(v -> assertFutureFailure(unavailable.purgeOldDeadLetterMessages(1)))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
     }
@@ -639,16 +634,30 @@ public class DeadLetterQueueManagerFocusedIntegrationTest extends BaseIntegratio
         );
     }
 
-    private Future<Void> renameDeadLetterTable(String temporaryName) {
-        return reactivePool.withConnection(connection ->
-            connection.query("ALTER TABLE dead_letter_queue RENAME TO " + temporaryName).execute().mapEmpty()
-        );
-    }
-
-    private Future<Void> renameDeadLetterTableBack(String temporaryName) {
-        return reactivePool.withConnection(connection ->
-            connection.query("ALTER TABLE " + temporaryName + " RENAME TO dead_letter_queue").execute().mapEmpty()
-        );
+    /**
+     * A manager whose pool is bound to a schema that does not exist, so every statement fails
+     * with 42P01. Renaming the shared {@code dead_letter_queue} table instead made a manager
+     * start in another class, running at the same time, fail its required-table check.
+     * {@link #tearDown} closes this pool with the connection manager.
+     */
+    private DeadLetterQueueManager missingTableManager() {
+        PostgreSQLContainer postgres = getPostgres();
+        Pool missingSchemaPool = connectionManager.getOrCreateReactivePool("dlq-missing-schema",
+            new PgConnectionConfig.Builder()
+                .host(postgres.getHost())
+                .port(postgres.getFirstMappedPort())
+                .database(postgres.getDatabaseName())
+                .username(postgres.getUsername())
+                .password(postgres.getPassword())
+                .schema("dlq_missing_schema")
+                .build(),
+            new PgPoolConfig.Builder()
+                .maxSize(1)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofSeconds(5))
+                .build());
+        return new DeadLetterQueueManager(missingSchemaPool, objectMapper);
     }
 
     private Future<Void> moveToDeadLetterQueue(String originalTable, long originalId, String topic,
@@ -670,10 +679,6 @@ public class DeadLetterQueueManagerFocusedIntegrationTest extends BaseIntegratio
 
     private Future<Optional<DeadLetterMessage>> getDeadLetterMessage(long id) {
         return deadLetterQueueManager.fetchDeadLetterMessage(id);
-    }
-
-    private Future<Boolean> reprocessDeadLetterMessage(long id, String reason) {
-        return deadLetterQueueManager.reprocessDeadLetterMessageRecord(id, reason);
     }
 
     private Future<Boolean> deleteDeadLetterMessage(long id, String reason) {
