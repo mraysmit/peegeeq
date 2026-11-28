@@ -32,8 +32,11 @@ The assistant memory files hold the history of each rule. This section is the ru
    fails, do not mention committing.
 9. **Test runs.** Commands come from `docs-design/testing/PEEGEEQ-TEST-COMMANDS.md`. Workstation runs are in the
    foreground, through `Tee-Object`, with nothing after it. Never `run_in_background`, never loops or runner scripts.
-   Scope each run to the changed test or module; never use `-Pall-tests` as a verification loop. A run that needs
-   Docker when the workstation has none, and any long run, goes to the Jenkins host or a Jenkins job build. Verdicts
+   Scope each run to the changed test or module; never use `-Pall-tests` as a verification loop. Every run that
+   starts a container or needs PostgreSQL (probes, single classes, guards that touch Docker), and any long run, goes
+   to the Jenkins host or a Jenkins job build, even when the workstation has Docker. The workstation is the owner's
+   machine; such runs slow it to a halt (owner, 2026-11-28: "why are you running these tests on my local machine
+   when you have a powerful jenkins server"). Verdicts
    come from the saved log's per-class `Tests run:` lines, never the exit code. The guard run is the last step, after
    the final test-file edit.
 10. **Severity by condition.** A failure that costs ownership, safety, durability, or availability is ERROR, whatever
