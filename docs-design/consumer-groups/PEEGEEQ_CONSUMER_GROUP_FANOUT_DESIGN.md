@@ -8,6 +8,15 @@
 (V021); heartbeat no longer revives `DEAD`; lifecycle table with `STOPPED` and `PAUSED -> DEAD`;
 `SubscriptionService` and `ConsumerGroup` listings; `subscribe` on an existing row; Gaps 5 and 7.
 
+**Checked:** 2026-11-28 against `16cc90f9`. Every class, method, column, index, function, and
+route below was compared with the code. The schema was compared with a Flyway database and a
+template database built on PostgreSQL 15.13. The cleanup, detection, backfill, and watermark
+behaviours named in this document were run as probes on the Jenkins host. Corrected on that
+date: the `outbox_consumer_groups` columns, the V001 insert trigger, the other SQL writers of
+tracking rows, backfill resume, the dead-group cleanup, the detection job, the retry service,
+the `cancel` row, zero-subscription retention, the clock used by detection, the outbox start
+without a database service, and the Task 6 record location.
+
 **Author:** Mark Andrew Ray-Smith Cityline Ltd
 
 **Originally created:** 2025-11-11
@@ -24,8 +33,9 @@ User guide: [Messaging Guide](../../docs/PEEGEEQ_MESSAGING_GUIDE.md).
 Proposed changes to this contract are not in this document. The delivery outcome redesign
 for finding 20 is in
 [PEEGEEQ_DELIVERY_OUTCOME_REDESIGN_PROPOSAL.md](PEEGEEQ_DELIVERY_OUTCOME_REDESIGN_PROPOSAL.md).
-Parts of it are in code: phase 1 increments 1a and 1b (commit `866a6683`) and the native-queue
-part of phase 6 (commit `b52d93fa`). The rest is not started. The proposal's "Status on
+Parts of it are in code: phase 1 increments 1a and 1b (commit `866a6683`), increment 1d
+(2026-11-28, in the working tree and not yet committed: the dead-group cleanup is deleted),
+and the native-queue part of phase 6 (commit `b52d93fa`). The rest is not started. The proposal's "Status on
 2026-11-21" block states what is in code per phase. This document describes the code at
 `18c27376`, including those parts.
 
@@ -51,7 +61,8 @@ part of phase 6 (commit `b52d93fa`). The rest is not started. The proposal's "St
    4. [Comparison With Other Systems](#comparison-with-other-systems)
 5. [Partitioned Consumption](#partitioned-consumption)
 6. [Release Gates](#release-gates)
-7. [References](#references)
+7. [Verification Record, 2026-11-28](#verification-record-2026-11-28)
+8. [References](#references)
 
 ---
 
@@ -95,7 +106,7 @@ The implementation status of each mode is stated in
 
 | Mode | Schema | Service layer | Production consumer path | Release evidence |
 |---|---|---|---|---|
-| `OFFSET_WATERMARK` | V017, V018 | `PartitionedOffsetManager`, `PartitionAssignmentService`, `PartitionedFetcher`, `WatermarkCalculator`, `WatermarkJob`, `PartitionedConsumerEngine` | `OutboxConsumerGroup.start(SubscriptionOptions)` and `PgNativeConsumerGroup` route `OFFSET_WATERMARK` topics to `PartitionedConsumerEngine` | Task 6 release gate complete (`docs-design/tasks/tasks.md` §6, Jenkins build #11, 2026-09-17) |
+| `OFFSET_WATERMARK` | V017, V018 | `PartitionedOffsetManager`, `PartitionAssignmentService`, `PartitionedFetcher`, `WatermarkCalculator`, `WatermarkJob`, `PartitionedConsumerEngine` | `OutboxConsumerGroup.start(SubscriptionOptions)` and `PgNativeConsumerGroup` route `OFFSET_WATERMARK` topics to `PartitionedConsumerEngine` | Task 6 release gate complete (`docs-design/tasks/archive/TASKS_REGISTER_TO_2026-11-21.md` section 6, Jenkins build #11, 2026-09-17) |
 | `REFERENCE_COUNTING` | V010 | `ConsumerGroupFetcher` (peegeeq-db main), `CompletionTracker` (peegeeq-db **test** scope) | None. See below. | None recorded |
 | Bitmap tracking | `outbox.completed_groups_bitmap` column only (V010) | None | None | None |
 
@@ -107,13 +118,16 @@ evidence are maintained in
 moved `CompletionTracker` to `peegeeq-db/src/test/java/dev/mars/peegeeq/db/consumer/` with
 the commit message "production has no REFERENCE_COUNTING completion writer, so
 peegeeq.completions.total could never fire". No class under any `src/main` tree
-instantiates `ConsumerGroupFetcher` or `CompletionTracker`, and no `src/main` code inserts
-per-group completion rows into `outbox_consumer_groups` except `BackfillService`. For a
+instantiates `ConsumerGroupFetcher` or `CompletionTracker`, and no `src/main` Java code inserts
+per-group rows into `outbox_consumer_groups` except `BackfillService`. Two SQL objects of the
+Flyway set also insert them: the insert trigger `trigger_create_consumer_group_entries` (see
+"Functions and triggers" below) and the function
+`register_consumer_group_for_existing_messages` (V001), which no code calls. For a
 `REFERENCE_COUNTING` topic, `OutboxConsumerGroup.start(SubscriptionOptions)` creates the
 subscription row and then subscribes an `OutboxConsumer`, whose claim query is the queue
 claim with the subscription's start bounds applied. The mode therefore provides the
-subscription lifecycle, heartbeat, dead-group detection and cleanup, backfill, and
-retention rules below, but not per-group message replication. The reason this path was
+subscription lifecycle, heartbeat, dead-group detection, backfill, and retention rules
+below, but not per-group message replication. The reason this path was
 not completed is recorded in [Scalability Conclusions](#scalability-conclusions).
 
 Bitmap tracking was designed and never implemented. The `completed_groups_bitmap` column
@@ -196,17 +210,21 @@ last_heartbeat_at) WHERE subscription_status = 'ACTIVE'`.
 |---|---|---|
 | `id` | BIGSERIAL | PRIMARY KEY |
 | `message_id` | BIGINT | NOT NULL; V001 declares `REFERENCES outbox(id) ON DELETE CASCADE` under the pre-rename name `outbox_message_id` |
-| `group_name` | VARCHAR(255) | NOT NULL |
-| `status` | VARCHAR | `'PENDING'`; CHECK `('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'DEAD_LETTER')` after V016 |
-| `processed_at` | TIMESTAMPTZ | V001 |
+| `group_name` | VARCHAR(255) | Nullable in Flyway: V010 adds it with no `NOT NULL` and drops `consumer_group_name`. `NOT NULL` in the template |
+| `status` | VARCHAR(50) in Flyway, VARCHAR(20) in the template | `'PENDING'`; CHECK `('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'DEAD_LETTER')` after V016. The template CHECK lacks `DEAD_LETTER` (task register D34) |
+| `processing_started_at`, `processed_at` | TIMESTAMPTZ | V001; neither is in the template |
 | `retry_count` | INT | 0 |
 | `error_message` | TEXT | NULL |
+| `created_at` | TIMESTAMPTZ | `NOW()`; V001 |
 
-The template adds `claimed_at`, `completed_at`, `lock_id`, and `lock_until`.
+The template has no foreign key to `outbox` and adds `claimed_at`, `completed_at`, `lock_id`,
+and `lock_until`. The Flyway table has none of those four columns.
 Constraint: `UNIQUE(message_id, group_name)` (V010 names it
 `outbox_consumer_groups_message_id_group_name_key`).
 Index (V010; template `09c`): `idx_outbox_consumer_groups_group_status
-ON outbox_consumer_groups(group_name, status, message_id)`.
+ON outbox_consumer_groups(group_name, status, message_id)`. V001 also creates, in Flyway only,
+`idx_outbox_consumer_groups_message_id`, `idx_outbox_consumer_groups_status`, and
+`idx_outbox_consumer_groups_processing`.
 
 #### Partition tables (V017)
 
@@ -243,7 +261,7 @@ group_name, assigned_instance_id)`.
 | `watermark_id` | BIGINT | NOT NULL 0 |
 | `watermark_updated_at` | TIMESTAMPTZ | `NOW()` |
 
-#### Functions and trigger (V010 §7-§9)
+#### Functions and triggers (V001, V010 §4, §7-§9)
 
 - `set_required_consumer_groups()` (trigger function). Reads `outbox_topics.semantics`
   for `NEW.topic`, treating a missing row as `QUEUE`. For `PUB_SUB` it sets
@@ -261,6 +279,22 @@ group_name, assigned_instance_id)`.
   status is `ACTIVE` and `last_heartbeat_at` is older than `heartbeat_timeout_seconds`.
   The Java `DeadConsumerDetector` applies the stricter `consecutive_misses >=
   dead_after_misses` rule; the SQL function does not.
+- `create_consumer_group_entries_for_new_message()` (trigger function, V001, rewritten in V010
+  §4 for the renamed columns) and its trigger `trigger_create_consumer_group_entries`
+  (`AFTER INSERT ON outbox FOR EACH ROW`). For every new outbox row, on every topic, it inserts
+  one `PENDING` row into `outbox_consumer_groups` for each distinct `group_name` already in that
+  table. It does not test the topic, the semantics, or a subscription. A group that has a
+  tracking row on one topic therefore gets a `PENDING` row for every later message of every
+  other topic (proposal X-2). Run 2026-11-28 on the Jenkins host
+  (`logs/verify-cg-probes2-host-20261128.log`): one `COMPLETED` row for a group on topic A, then
+  one insert on topic B, gave one `PENDING` row for that group on the topic B message. The
+  templates create neither the function nor the trigger.
+- `register_consumer_group_for_existing_messages(group_name)` (V001) was meant to insert a
+  `PENDING` row for every `PENDING` and `PROCESSING` outbox row. Its body still names
+  `outbox_message_id` and `consumer_group_name`, which V010 renamed and dropped, and V010 does
+  not rewrite it. Every call fails: run 2026-11-28 on the Jenkins host, SQLSTATE `42703`,
+  "column "outbox_message_id" of relation "outbox_consumer_groups" does not exist". No code
+  calls it; two migration tests assert only that it exists.
 
 V010 also creates `processed_ledger`, `partition_drop_audit`, and `consumer_group_index`
 with `update_consumer_group_index()`. They are outside this contract.
@@ -401,9 +435,8 @@ Future<Boolean> topicExists(String topic);
 ```
 
 `dev.mars.peegeeq.db.subscription.SubscriptionManager` implements `SubscriptionService`,
-including every default method above. Wiring setters: `setBackfillService(BackfillService)`,
-`setDeadConsumerGroupCleanup(DeadConsumerGroupCleanup)`, and
-`setPartitionedConsumptionServices(PartitionAssignmentService, PartitionedFetcher,
+including every default method above. Wiring setters: `setBackfillService(BackfillService)`
+and `setPartitionedConsumptionServices(PartitionAssignmentService, PartitionedFetcher,
 PartitionedOffsetManager)`. `subscribe` locks the `(topic, group_name)` row first. With no row
 it resolves the start position against the table of the `SubscriptionStore` and inserts the
 row `ACTIVE`. With a row it keeps the stored start bound, resets `consecutive_misses` to 0,
@@ -423,13 +456,32 @@ Future<BackfillResult> startBackfill(String topic, String groupName);
 Future<BackfillResult> startBackfill(String topic, String groupName, BackfillScope messageScope);
 Future<BackfillResult> startBackfill(String topic, String groupName, int batchSize, long maxMessages);
 Future<BackfillResult> startBackfill(String topic, String groupName, int batchSize, long maxMessages, long batchDelayMs);
+Future<BackfillResult> startBackfill(String topic, String groupName, int batchSize, long maxMessages, BackfillScope messageScope);
+Future<BackfillResult> startBackfill(String topic, String groupName, int batchSize, long maxMessages, BackfillScope messageScope, long batchDelayMs);
 Future<Void> cancelBackfill(String topic, String groupName);
 Future<Optional<BackfillProgress>> getBackfillProgress(String topic, String groupName);
 ```
 
-Backfill is batched, checkpointed in `backfill_checkpoint_id`, resumable from
-`IN_PROGRESS`, and cancellable. Inter-batch throttling is a fixed `batchDelayMs` applied
-with a Vert.x timer. There is no latency-adaptive throttling.
+Backfill is batched, checkpointed in `backfill_checkpoint_id`, and cancellable. It requires an
+`ACTIVE` subscription and fails with `IllegalStateException` otherwise. A batch that fails
+with a deadlock (`40P01`) is retried up to three times after 50, 100, and 200 ms. Inter-batch
+throttling is a fixed `batchDelayMs` applied with a Vert.x timer. There is no
+latency-adaptive throttling.
+
+A failed backfill is recorded so that it can be run again. A start on a row whose
+`backfill_status` is `IN_PROGRESS` returns `SKIPPED`, because it treats the row as held by
+another worker. When a step after the lock fails (the count, the total, or a batch, other
+than a retried deadlock), `BackfillService` sets the status from `IN_PROGRESS` to `FAILED`,
+logs an ERROR, and fails the start. A later start resumes a `FAILED` or `CANCELLED` backfill
+from the last checkpoint. Run 2026-11-28 on the Jenkins host: the insert of the tracking rows
+failed, the status became `FAILED`, and a second start completed the backfill with 5 messages
+(`BackfillServiceIntegrationTest`, task register D35).
+
+Two cases still leave the status at `IN_PROGRESS`: the update to `FAILED` itself fails (the
+ERROR says so), or the process stops during the backfill. Nothing releases such a row, so
+later starts return `SKIPPED` and the group does not receive the rest of the backfill until
+an operator changes the status. Releasing it needs a lease or a timeout on the subscription
+row; that is open in D35.
 
 `dev.mars.peegeeq.db.subscription.ZeroSubscriptionValidator`:
 `Future<Boolean> isWriteAllowed(String topic)` and
@@ -445,21 +497,39 @@ topic)`, `detectAllDeadSubscriptions()`, `detectAllDeadSubscriptionsWithDetails(
 `consecutive_misses` for expired heartbeats and marks `DEAD` only when
 `consecutive_misses >= dead_after_misses`.
 
-`dev.mars.peegeeq.db.cleanup.DeadConsumerGroupCleanup`:
-`Future<CleanupResult> cleanupDeadGroup(String topic, String groupName)` and
-`Future<List<CleanupResult>> cleanupAllDeadGroups()`. Cleanup decrements
-`required_consumer_groups` on messages the dead group has not completed, guarded by
-`required_consumer_groups > 0`, removes orphaned tracking rows, and auto-completes
-messages where `completed_consumer_groups >= required_consumer_groups`.
+Detection, `cancel`, and `forceRemoveConsumerGroup` change no message. Marking a message
+processed that no consumer processed would lose it, so they change the subscription row
+only. A `DEAD` or cancelled group's unread messages stay `PENDING` with their
+`required_consumer_groups` count; on a `QUEUE` topic the other groups still claim them. On an
+`OFFSET_WATERMARK` topic the watermark sweep still completes such rows: the watermark counts
+`ACTIVE` subscriptions only, so it passes rows that a `DEAD`, `PAUSED`, or `STOPPED` group
+has not committed, and the sweep marks them `COMPLETED` (task register D44(c); increment 1c
+of the delivery-outcome proposal makes `PAUSED` and `STOPPED` groups count). The class `DeadConsumerGroupCleanup`,
+which marked such messages `COMPLETED` (task register D1), is deleted. The tests that hold
+this are R-1 (`OutboxConsumerGroupDeadDetectionTest`, `peegeeq-outbox`, on a `QUEUE` and an
+`OFFSET_WATERMARK` topic; and the two message tests of `DeadConsumerDetectionJobIntegrationTest`)
+and R-3 (`CancelLeavesMessagesIntegrationTest`, and the message test of
+`ForceRemoveIntegrationTest`).
 
 `dev.mars.peegeeq.db.cleanup.DeadConsumerDetectionJob`: constructed with `Vertx` and a
-`DeadConsumerDetector`; `start()` schedules detection with `vertx.setPeriodic`; `stop()`
-returns `Future<Void>`; `runDetectionOnce()` and `runDetectionOnceWithDetails()` run a
-single cycle; `checkHealth()` returns `Future<HealthStatus>`.
+`DeadConsumerDetector`, and optionally the interval; `start()` schedules detection with
+`vertx.setPeriodic`; `stop()` returns `Future<Void>`; `runDetectionOnce()` and
+`runDetectionOnceWithDetails()` run a single detection pass. `checkHealth()` returns
+`Future<HealthStatus>`. A run that marks at least one subscription `DEAD` logs, for every
+`DEAD` group, the outbox messages that group has not completed (ERROR above 1,000 messages or
+when the oldest is more than 24 hours old) and the subscription summary. No run changes a
+message. `stop()` waits for a run in flight; if that run fails, `stop()` logs WARN and
+succeeds.
+
+`dev.mars.peegeeq.db.cleanup.DeadConsumerDetector` runs its two updates, the miss increment
+and the `DEAD` mark, in one transaction: `PgConnectionManager.withConnection` delegates to
+`withTransaction`.
 
 `dev.mars.peegeeq.db.consumer.ConsumerGroupRetryService` and `ConsumerGroupRetryJob`:
 retry exhaustion moves a tracking row to `DEAD_LETTER` (V016) and the message to
-`dead_letter_queue`.
+`dead_letter_queue`. The dead-letter insert and the status update run on separate
+connections, so a failure between them leaves a dead-letter copy of a row that is still
+`FAILED`. No production code writes a `FAILED` tracking row (proposal X-7).
 
 Partitioned consumption classes in `dev.mars.peegeeq.db.consumer`
 (`peegeeq-db/src/main/java/dev/mars/peegeeq/db/consumer/`):
@@ -513,6 +583,9 @@ creates no subscription row.
 1. Rejects a null options argument with `IllegalArgumentException`.
 2. Moves state `NEW` to `STARTING`; any other state fails with `IllegalStateException`.
 3. Calls `SubscriptionService.subscribe(topic, groupName, SubscriptionStore.OUTBOX, options)`.
+   A group constructed without a `DatabaseService` skips steps 3 and 4: it logs WARN
+   "DatabaseService is null - cannot create subscription", creates no subscription row,
+   applies no start bound, and starts the queue claim path. The start succeeds.
 4. Calls `PartitionedConsumerEngine.isOffsetWatermarkTopic(...)`. If the topic mode is
    `OFFSET_WATERMARK`, it starts a `PartitionedConsumerEngine` with a generated instance id
    and routes every delivered message through `distributeMessage`. Otherwise, or if mode
@@ -544,8 +617,8 @@ leaves the row unchanged.
 | `STOPPED -> ACTIVE`, `DEAD -> ACTIVE` | `SubscriptionService.subscribe`, which `start(SubscriptionOptions)` calls. The stored start bound is kept. |
 | `STOPPED -> ACTIVE` through `resume` | Rejected. `resume` fails on `STOPPED`. |
 | `ACTIVE -> DEAD`, `PAUSED -> DEAD` | `DeadConsumerDetector` after `dead_after_misses` consecutive expired heartbeats. It reads `ACTIVE` and `PAUSED` rows. `mark_dead_consumer_groups()` marks `ACTIVE` rows only, on a single expiry. |
-| `ACTIVE`, `STOPPED`, `PAUSED`, `DEAD` `-> DEAD -> CANCELLED` | `forceRemoveConsumerGroup` (`MARK_DEAD_FROM`), which marks the row `DEAD`, runs the dead-group cleanup, and then marks it `CANCELLED` |
-| `ACTIVE`, `STOPPED`, `PAUSED`, `DEAD` `-> CANCELLED` | `SubscriptionService.cancel` (`CANCEL_FROM`: every status) |
+| `ACTIVE`, `STOPPED`, `PAUSED`, `DEAD` `-> CANCELLED` | `forceRemoveConsumerGroup` (`FORCE_REMOVE_FROM`), in one guarded update. It fails when the group has no subscription and when the subscription is already `CANCELLED`. It changes no message. |
+| `ACTIVE`, `STOPPED`, `PAUSED`, `DEAD` `-> CANCELLED` | `SubscriptionService.cancel` (`CANCEL_FROM`: every status). It changes no message. |
 | `DEAD -> ACTIVE` through a heartbeat | Rejected. `updateHeartbeat` fails on `STOPPED`, `DEAD`, and `CANCELLED` and changes no status. |
 | `CANCELLED -> ACTIVE` or `PAUSED` | Rejected. `pause`, `resume`, and `subscribe` fail with `SubscriptionStateException`; `forceRemoveConsumerGroup` rejects an already-cancelled row |
 
@@ -565,11 +638,14 @@ manual deletion of the row. `ConsumerGroup.stop()` and `close()` change no statu
 | Cleanup batch | 10,000 rows per call | `cleanup_completed_outbox_messages()` |
 
 Messages inserted while a `PUB_SUB` topic has zero `ACTIVE` subscriptions get
-`required_consumer_groups = 0`. The cleanup function retains them for
-`zero_subscription_retention_hours` (default 24) so that a late-registering group can
-still be backfilled. Operators who need a hard guarantee set
+`required_consumer_groups = 0`. The retention settings above are read only by
+`cleanup_completed_outbox_messages()` and by `CleanupService`, and no production code calls
+either, so no outbox row is deleted by them. The function deletes `COMPLETED` rows only; a
+`PENDING` row with `required_consumer_groups = 0` is never deleted by it. Operators
+who need writes refused while a topic has no subscription set
 `block_writes_on_zero_subscriptions = TRUE` and call
-`ZeroSubscriptionValidator.validateWriteAllowed` on the producer path.
+`ZeroSubscriptionValidator.validateWriteAllowed` on the producer path; no producer calls it
+by itself.
 
 ### REST Routes
 
@@ -639,6 +715,7 @@ older copies can map them to the implemented names above.
 | Zero-member check in `start()`; last-member guard in `removeConsumer()` | none |
 | `OutboxConsumer.processPubSubSemantics()`, `processQueueSemantics()`, `getTopicSemantics()` | none; the claim query is queue semantics with subscription bounds |
 | `ConsumerGroupMetrics` | deleted in commit `41b5caa5`; never constructed in production |
+| `DeadConsumerGroupCleanup`, `SubscriptionManager.setDeadConsumerGroupCleanup`, the cleanup counts of `ForceRemoveResult` | deleted in increment 1d of the delivery outcome proposal; detection, `cancel`, and `forceRemoveConsumerGroup` change no message |
 | `OutboxMessageCleanupJob`, `SubscriptionCleanupJob`, `CleanupJobMetrics`, `CleanupConfiguration`, `OutboxCleanupJob` | `cleanup_completed_outbox_messages()` SQL function; `DeadConsumerDetectionJob` |
 | `ResumableBackfillJob`, `BackfillConfiguration` with adaptive p95 throttling | `BackfillService` with fixed `batchDelayMs` |
 | `WatermarkCleanupJob`, partition `DROP` cleanup, `outbox_subscription_offsets`, `outbox_topic_watermarks.oldest_partition` | `WatermarkCalculator.sweep` sets `status = 'COMPLETED'` at or below the watermark; `outbox_partition_offsets` |
@@ -674,11 +751,12 @@ resolutions is removed; the implemented behaviour is in
 [Implemented Contract](#implemented-contract).
 
 **Gap 1: completion arithmetic when the group count changes.**
-Decision: `required_consumer_groups` is a snapshot taken by the insert trigger.
-Dead-group cleanup decrements it for messages the dead group never completed; backfill
+Decision: `required_consumer_groups` is a snapshot taken by the insert trigger. Backfill
 increments it for messages a late joiner will process. `COMPLETED` messages are never
 modified. Reason: snapshot semantics make completion idempotent and avoid a race between
-subscription changes and in-flight messages.
+subscription changes and in-flight messages. The original decision also had dead-group
+cleanup decrement it for messages the dead group never completed. That cleanup marked unread
+messages `COMPLETED` and is deleted (increment 1d); no code decrements the count.
 
 **Gap 2: zero-member consumer groups.**
 Original decision: fail fast in `start()` and refuse to remove the last member.
@@ -694,7 +772,9 @@ Decision: messages inserted while a `PUB_SUB` topic has zero `ACTIVE` subscripti
 (default 24 hours) before cleanup. Optional producer blocking exists through
 `block_writes_on_zero_subscriptions` and `ZeroSubscriptionValidator`. Reason: a 24-hour
 window covers slow provisioning and weekend deployments; blocking is opt-in because
-`QUEUE` topics and intermittent consumers must not be rejected.
+`QUEUE` topics and intermittent consumers must not be rejected. Implemented behaviour: the
+retention window is not applied, because no production code runs the cleanup (see
+[Retention and Cleanup Defaults](#retention-and-cleanup-defaults)).
 
 **Gap 4: hash-based consumer selection.**
 Decision: `Math.abs(hashCode())` was replaced because `Math.abs(Integer.MIN_VALUE)` is
@@ -718,12 +798,19 @@ on database latency was designed and not implemented; `P4_BackfillVsOLTPTest` in
 **Gap 7: dead consumer detection.**
 Decision: heartbeat rows with a configurable timeout, a scheduled detector that requires
 `dead_after_misses` consecutive expired cycles before marking `DEAD` (flapping
-protection), and a cleanup that decrements `required_consumer_groups`. Heartbeat-driven
+protection). The cleanup that the original decision ran on a dead group is deleted
+(increment 1d); detection changes the subscription only. Heartbeat-driven
 resurrection was part of the original decision and was removed in commit `866a6683`: a
-heartbeat on a `DEAD` row now fails, and `resume` or a new `subscribe` reactivates it. All
-timestamps use database `NOW()` to avoid clock skew. Reason: without
-automatic detection a crashed group blocks cleanup indefinitely; a single-miss rule marks
-restarting pods dead.
+heartbeat on a `DEAD` row now fails, and `resume` or a new `subscribe` reactivates it. The
+original decision said all timestamps use database `NOW()` to avoid clock skew. The code does
+not do that. `subscribe` writes `subscribed_at` and `last_heartbeat_at`, and
+`updateHeartbeat` writes `last_heartbeat_at`, from the JVM clock of the caller.
+`DeadConsumerDetector` compares `last_heartbeat_at` with the JVM clock of the instance that
+runs detection. A clock difference between two application hosts larger than the heartbeat
+timeout can therefore mark a live group `DEAD` (static, not reproduced). The group's
+messages are not changed by that. Reason for the detection design: an operator must learn
+that a group has gone silent and which messages it leaves unprocessed; a single-miss rule
+marks restarting pods dead.
 
 **Gap 8: heartbeat write contention and insert-trigger cost.**
 Decision: accepted as-is for the current scale. Heartbeats are one row update per group
@@ -804,7 +891,8 @@ records the pre-implementation ordering guidance.
 
 ## Release Gates
 
-Task 6 (`docs-design/tasks/tasks.md` §6, status COMPLETE, Jenkins build #11, 2026-09-17)
+Task 6 (`docs-design/tasks/archive/TASKS_REGISTER_TO_2026-11-21.md` section 6, status
+COMPLETE, Jenkins build #11, 2026-09-17; console checked 2026-11-28)
 executed the `OFFSET_WATERMARK` release gate with
 `peegeeq-benchmarking/src/test/java/dev/mars/peegeeq/pgqueue/PartitionedConsumptionReleaseGate.java`:
 a 3,600-second run at 200 messages per second total across two isolated tenant schemas,
@@ -824,6 +912,83 @@ path for that matrix to measure. The `PERFORMANCE`-tagged benchmark tests listed
 measurements and are short, harness-driven runs.
 
 No release gate for the fan-out feature is marked pending in this document.
+
+---
+
+## Verification Record, 2026-11-28
+
+This record exists so that a reader can see which statement of this document was checked,
+how, and with what result, and can repeat the check. Each claim of the document at
+`16cc90f9` was checked against the code at `16cc90f9`. Line numbers below are those of the
+document at `16cc90f9`, before the corrections of this date.
+
+Evidence kinds: **A** code read; **B** schema run (a Flyway database and a template database
+on PostgreSQL 15.13, compared through the catalog); **C** probe run on the Jenkins host;
+**D** saved log or console checked. Verdicts: **CONFIRMED**; **WRONG**; **STALE**; **OMITTED**
+(true, but a material fact was missing). Every WRONG, STALE, and OMITTED item is corrected in
+the text above.
+
+Evidence files, all in the project folder (`logs/` is not tracked by git):
+
+- Schema run: `logs/verify-cg-schema-flyway-20261128.log`,
+  `logs/verify-cg-schema-template-20261128.log`, `logs/verify-cg-schema-catalog-20261128.log`,
+  `logs/verify-cg-schema-functions-20261128.log`; the catalog query is
+  `logs/verify-cg-20261128/catalog.sql`.
+- Probe runs: `logs/verify-cg-probes-host-20261128.log` (10 run, 0 failures) and
+  `logs/verify-cg-probes2-host-20261128.log` (12 run, 0 failures). The probe source is
+  `logs/verify-cg-20261128/VerifyCgClaimsProbeTest.java` (SHA-256 `b57e6083...`). It is not in
+  a source tree: each test asserts a defect that the documents state, so it passes while the
+  defect exists. It ran in a clone of `16cc90f9` on the Jenkins host at
+  `/var/lib/jenkins/verify-cg`, copied into `peegeeq-outbox/src/test/java`, with
+  `mvn -B test -Pintegration-tests -pl :peegeeq-outbox -Dtest=VerifyCgClaimsProbeTest`.
+- Guards after the runs: `logs/verify-cg-guards-host-20261128.log` (77 run, 0 failures, with
+  the probe class in the scanned tree).
+- The working verdict list: `logs/verify-cg-20261128/findings.md`.
+
+| Line | Claim | Verdict | Evidence |
+|---|---|---|---|
+| 98, 807 | Task 6 record is `tasks.md` §6 | STALE | A: `tasks.md` has no section 6; the record is `archive/TASKS_REGISTER_TO_2026-11-21.md` section 6 |
+| 106-117 | No `src/main` code instantiates `ConsumerGroupFetcher` or `CompletionTracker`; only `BackfillService` inserts tracking rows | CONFIRMED for Java, OMITTED for SQL | A: `\bName\b` search of every `src/main` tree; the V001 trigger and the V001 function also insert |
+| 119-120 | The bitmap column is never read or set by code | CONFIRMED | A: search; B: the trigger sets 0 |
+| 126-127 | Templates provision V010, V012, V015 columns; V017 tables and V018 column only in Flyway | CONFIRMED | B |
+| 129-147 | `outbox` fan-out columns, status CHECK, three indexes | CONFIRMED (indexes in Flyway only) | B |
+| 149-159 | `outbox_topics` columns, defaults, keys | CONFIRMED | B |
+| 161-191 | `outbox_topic_subscriptions` columns, CHECKs, UNIQUE, no FK, two indexes | CONFIRMED | B |
+| 193-209 | `outbox_consumer_groups.group_name` is `NOT NULL` | WRONG | B: nullable in Flyway (V010 line 117), `NOT NULL` in the template |
+| 193-209 | `outbox_consumer_groups` columns and indexes | OMITTED | B: Flyway also has `processing_started_at`, `created_at`, three V001 indexes, `VARCHAR(50)` status; the template has no FK and `VARCHAR(20)` |
+| 211-244 | Partition tables (V017) | CONFIRMED | B |
+| 246-263 | Bodies of `set_required_consumer_groups`, `cleanup_completed_outbox_messages`, `mark_dead_consumer_groups` | CONFIRMED | B: function bodies |
+| 246-266 | Function and trigger list | OMITTED | B: V001 trigger `trigger_create_consumer_group_entries`; C: it adds a `PENDING` row for a group of another topic (X-2). V001 `register_consumer_group_for_existing_messages`; C: every call fails with `42703` |
+| 272-301 | `ConsumerGroup` methods and defaults | CONFIRMED | A |
+| 303-306 | `stopGracefully` stops the instance and fails with the cause when the status update fails | CONFIRMED | A: `OutboxConsumerGroup` 616-641 |
+| 308-310 | One `createConsumerGroup` signature; no topic method on `QueueFactory` | CONFIRMED | A |
+| 312-336 | `SubscriptionOptions` factories and defaults, `StartPosition`, `BackfillScope` | CONFIRMED | A |
+| 338-370 | `SubscriptionService` abstract and default methods | CONFIRMED | A. Its `startBackfill` Javadoc states `SKIPPED` for `IN_PROGRESS` and the `FAILED` resume rule (D35) |
+| 372-378 | `SubscriptionStore` | CONFIRMED | A: `OutboxFactory`, `PgNativeQueueFactory` |
+| 380-383 | `stopGroup`, `updateSubscriptionSettings` | CONFIRMED | A |
+| 387-401 | `TopicConfig` builder, six `TopicConfigService` methods | CONFIRMED | A. `createTopic` is an upsert (proposal M-3) |
+| 403-416 | `SubscriptionManager` defaults, setters, `subscribe` on an existing row, heartbeat | CONFIRMED | A |
+| 418-428 | `BackfillService` method list | OMITTED | A: two more `startBackfill` overloads with `BackfillScope` |
+| 430-432 | Backfill is resumable from `IN_PROGRESS` | WRONG | A: `BackfillService` 437-445 return `SKIPPED`; C: failed batch, status `IN_PROGRESS`, second start `SKIPPED` (D35) |
+| 430-432 | Batched, checkpointed, cancellable, fixed delay | CONFIRMED | A. Not stated: `ACTIVE` required; deadlock retried three times |
+| 434-438 | `ZeroSubscriptionValidator` | CONFIRMED | A. No production caller (search) |
+| 440-446 | `DeadConsumerDetector` methods and the miss rule | CONFIRMED | A. The two updates run in one transaction (`PgConnectionManager.withConnection` delegates to `withTransaction`) |
+| 448-453 | `DeadConsumerGroupCleanup` | OMITTED | A: the `subscribed_at` guard of step 1; step 3 completes topic-wide. C: unread `QUEUE` message `COMPLETED` after detection (X-4) and after `cancel` (X-5) |
+| 455-458 | `DeadConsumerDetectionJob` API | CONFIRMED | A. Not stated: cleanup only in a run that marks `DEAD`, for every `DEAD` group; `stop()` turns a failed run into success |
+| 460-462 | Retry service moves to `DEAD_LETTER` and the dead-letter queue | CONFIRMED | A. Not stated: the two writes are on separate connections; no production writer of `FAILED` rows |
+| 464-500 | Partitioned class signatures | CONFIRMED | A: the six classes |
+| 511-520 | `OutboxConsumerGroup.start(SubscriptionOptions)` steps | OMITTED | A: without a `DatabaseService` it logs WARN and starts with no subscription |
+| 522-527 | `distributeMessage` routing and exceptions | CONFIRMED | A: `OutboxConsumerGroup` 861-937, `OutboxConsumer` 774-781 |
+| 533-551 | Lifecycle sets and transitions | CONFIRMED | A: `SubscriptionManager` 67-74 and the transition methods |
+| 548 | `cancel` row | OMITTED | A: `cancel` runs the cleanup and fails after `CANCELLED` is committed when it fails; its Javadoc says otherwise |
+| 555-565 | Retention and cleanup defaults | CONFIRMED | B |
+| 567-572 | Zero-subscription rows retained 24 h, then cleaned | WRONG | A: the function deletes `COMPLETED` rows only; neither it nor `CleanupService` has a production caller |
+| 576-624 | REST routes | CONFIRMED | A: `PeeGeeQRestServer` 428-514 |
+| 628-651 | Names that do not exist | CONFIRMED | A: search of every tree |
+| 692-697 | Gap 3 retention window | WRONG as implemented | A: as for 567-572 |
+| 106-109, 708, 722 | Commit `41b5caa5` moved `CompletionTracker` with the quoted message; commit `866a6683` removed heartbeat revival | CONFIRMED | A: `git show` of both commits |
+| 724 | All timestamps use database `NOW()` | WRONG | A: `SubscriptionManager` 376, 462, 940 and `DeadConsumerDetector` 181, 262 use the JVM clock |
+| 805-817 | Task 6 release gate figures | CONFIRMED | D: Jenkins build #11 console and artifacts (see the partitioned design record) |
 
 ---
 
