@@ -3,7 +3,6 @@ package dev.mars.peegeeq.db.fanout;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.BaseIntegrationTest;
 import dev.mars.peegeeq.db.cleanup.DeadConsumerDetector;
-import dev.mars.peegeeq.db.cleanup.DeadConsumerGroupCleanup;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
@@ -23,6 +22,8 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.junit.jupiter.api.parallel.ResourceAccessMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -31,20 +32,22 @@ import java.time.Duration;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
-import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
- * Integration tests proving that flapping protection is required.
+ * Integration tests for flapping protection in dead consumer detection.
  *
- * <p>These tests MUST FAIL against the current implementation, which marks
- * subscriptions DEAD immediately on the first heartbeat timeout. Proper
- * flapping protection should require multiple consecutive missed heartbeats
- * before transitioning to DEAD.</p>
+ * <p>A consumer group that misses one heartbeat, for example during a restart, must not be
+ * marked DEAD. Detection marks a subscription DEAD only after {@code dead_after_misses}
+ * consecutive missed heartbeats, and a heartbeat or a new subscribe resets the count. The
+ * count is stored per (topic, group) row in the database.</p>
  *
- * <p>Once flapping protection is implemented, these tests should pass.</p>
+ * <p>The class holds the {@code dead-consumer-detection} lock. Global detection in another class
+ * would raise the miss counts this class asserts, and the global detection of this class would
+ * mark the expired groups of other classes.</p>
  */
 @Tag(TestCategories.INTEGRATION)
 @Execution(ExecutionMode.SAME_THREAD)
+@ResourceLock(value = "dead-consumer-detection", mode = ResourceAccessMode.READ_WRITE)
 public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(FlappingProtectionIntegrationTest.class);
@@ -88,9 +91,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) {
         if (connectionManager != null) {
-            new DeadConsumerGroupCleanup(connectionManager, SERVICE_ID)
-                    .cleanupAllDeadGroups()
-                    .transform(TestCleanup.cleanup(() -> connectionManager.close()))
+            connectionManager.close()
                     .onSuccess(v -> testContext.completeNow())
                     .onFailure(testContext::failNow);
         } else {
