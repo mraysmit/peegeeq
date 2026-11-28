@@ -64,9 +64,8 @@ manager can start on either schema.
 
 - `PeeGeeQManager` starts `ConsumerGroupRetryService` when the consumer-group retry job is enabled. The
   service writes the status `DEAD_LETTER`, which the template status check refuses (D34).
-- No code sets `outbox.required_consumer_groups` when a message is inserted. Java code only adds one
-  during a backfill (`BackfillService`) and subtracts one when a dead group is cleaned up
-  (`DeadConsumerGroupCleanup`). The only insert-time setter is the Flyway trigger
+- No code sets `outbox.required_consumer_groups` when a message is inserted. The only Java code that
+  changes it adds one during a backfill (`BackfillService`). The only insert-time setter is the Flyway trigger
   `set_required_consumer_groups`, so a new `PUB_SUB` message on a template schema starts at the default of
   1 whatever the number of subscriptions (D42 (a); search of the main sources).
 - `ConsumerGroupFetcher` writes `outbox_consumer_groups.processed_at`, which the template table does not
