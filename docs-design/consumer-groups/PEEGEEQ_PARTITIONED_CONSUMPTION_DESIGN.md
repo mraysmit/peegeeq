@@ -11,6 +11,16 @@
 **Corrected:** 2026-11-21 against `18c27376`: baseline; retry and dead-letter claim removed;
 known open defects added; `REFERENCE_COUNTING` use; watermark ignores `STOPPED` and `PAUSED`.
 
+**Checked:** 2026-11-28 against `16cc90f9`. The release-gate figures below were compared with
+the saved console of Jenkins build #11 and its host artifacts
+(`logs/verify-cg-jenkins-build11-console-20261128.log`,
+`logs/verify-cg-build11-host-baseline-20261128.log`,
+`logs/verify-cg-build11-host-vmstat-20261128.log`); all match. The sequence, rebalance,
+watermark, and lifecycle statements were compared with the six partitioned classes. The
+watermark effect and defects P-4, P-5, P-6, P-13, and P-14 were run as probes on the Jenkins
+host. Corrected on that date: the watermark effect is now a run result; P-6 and P-10 added to
+the open defects.
+
 **Release-gate source SHA-256:**
 `485c930dd264864cd9157fe3378e25e661c51b97afa2120d1cc5bde6c0b54f27`
 
@@ -123,10 +133,12 @@ lifecycle before it can stop influencing cleanup.
 
 `WatermarkCalculator.calculateWatermark` reads offsets only of subscriptions whose status is
 `ACTIVE`. A `STOPPED` or `PAUSED` group is ignored. Its unread rows can therefore fall at or
-below the watermark of the other groups, and the sweep then marks them `COMPLETED`. This
-effect is read from the SQL and was not reproduced. The
-proposal's phase 1 changes the watermark to count `ACTIVE`, `STOPPED`, and `PAUSED`; that
-change is not in code.
+below the watermark of the other groups, and the sweep then marks them `COMPLETED`. Run twice
+on 2026-11-28 on the Jenkins host (`logs/verify-cg-probes-host-20261128.log`,
+`logs/verify-cg-probes2-host-20261128.log`): two groups on one key, one committed past three
+rows and one at 0 and then `PAUSED`; one `calculateAndSweep` marked all three rows `COMPLETED`.
+The paused group never reads them. The proposal's phase 1 changes the watermark to count
+`ACTIVE`, `STOPPED`, and `PAUSED`; that change is not in code.
 
 ## Lifecycle contract
 
@@ -204,17 +216,22 @@ source checksum, and release conclusion.
 ## Known open defects
 
 The [delivery outcome proposal](PEEGEEQ_DELIVERY_OUTCOME_REDESIGN_PROPOSAL.md#offset-path-pub_sub)
-records these defects of the offset path. None is fixed at `18c27376`. The release gate above
-could not have shown P-4, P-5, or P-14; the proposal gives the reasons.
+records these defects of the offset path. None is fixed at `16cc90f9` (checked 2026-11-28).
+The release gate above could not have shown P-4, P-5, or P-14; the proposal gives the reasons.
+The Evidence column names the probe runs of 2026-11-28 on the Jenkins host
+(`logs/verify-cg-probes-host-20261128.log`, `logs/verify-cg-probes2-host-20261128.log`); each
+probe passed in both runs.
 
-| ID | Defect | Planned in |
-|---|---|---|
-| P-1 | A failing handler stops its partition key with no bound. No retry count, no dead letter. Finding 4 in the task register. | Proposal phase 7 |
-| P-4 | The fetch takes `FOR UPDATE ... SKIP LOCKED`. A row that another transaction has locked is skipped, and the batch commit then moves the offset past it. | Proposal phase 3 |
-| P-5 | Offsets are ids. A row whose transaction commits after a higher id was consumed is never fetched, and the sweep later marks it `COMPLETED`. | Proposal phase 3 |
-| P-13 | The sweep completes rows that no group has read. A group or a key with no offset row adds nothing to the watermark. | Proposal phase 3 |
-| P-14 | A running group does not take up a key that was absent at its last rebalance. Discovery runs only inside a join or a leave. | Proposal phase 3 |
-| P-15 | An instance that stops without leaving keeps its keys until another instance joins or leaves. | Proposal phase 3 |
+| ID | Defect | Evidence | Planned in |
+|---|---|---|---|
+| P-1 | A failing handler stops its partition key with no bound. No retry count, no dead letter. Finding 4 in the task register. | Run 2026-10-09 (proposal) | Proposal phase 7 |
+| P-4 | The fetch takes `FOR UPDATE ... SKIP LOCKED`. A row that another transaction has locked is skipped, and the batch commit then moves the offset past it. | Run: two of five rows locked; the fetch returned the other three; after the commit the next fetch returned none, and the two rows stayed `PENDING` | Proposal phase 3 |
+| P-5 | Offsets are ids. A row whose transaction commits after a higher id was consumed is never fetched, and the sweep later marks it `COMPLETED`. | Run: the lower id committed after the higher id was fetched and committed; it was never fetched and the sweep marked it `COMPLETED` | Proposal phase 3 |
+| P-6 | The start position is not applied. `initializeOffset` inserts 0, and the offset path does not read the stored start bound. | Run: a `FROM_NOW` subscription stored a bound above two rows; the partitioned fetch returned both | Proposal phase 3 |
+| P-10 | The engine, the fetcher, and the assignment service do not read `subscription_status`. A paused or stopped group keeps fetching. | Read: none of the three classes names the column (search 2026-11-28) | Proposal phase 3 |
+| P-13 | The sweep completes rows that no group has read. A group or a key with no offset row adds nothing to the watermark. | Run: a row of a key with no offset row was marked `COMPLETED` by the sweep | Proposal phase 3 |
+| P-14 | A running group does not take up a key that was absent at its last rebalance. Discovery runs only inside a join or a leave. | Run: after a new key appeared, 8 s of a running engine delivered and assigned only the first key | Proposal phase 3 |
+| P-15 | An instance that stops without leaving keeps its keys until another instance joins or leaves. | Read | Proposal phase 3 |
 
 ## Evaluated but unapproved ideas
 
@@ -228,6 +245,35 @@ The following are not current implementation tasks:
 
 Any of these requires a concrete use case, a decision in the consolidated register, and a bounded
 TDD plan before implementation.
+
+## Verification record, 2026-11-28
+
+This record exists so that a reader can see which statement of this document was checked,
+how, and with what result. Each claim of the document at `16cc90f9` was checked against the
+code at `16cc90f9`. Line numbers are those of the document at `16cc90f9`. Evidence kinds:
+**A** code read; **C** probe run on the Jenkins host; **D** saved log or console checked. The
+probe runs, the probe source, and the guard run are those named in the verification record of
+`PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md`: `logs/verify-cg-probes-host-20261128.log`,
+`logs/verify-cg-probes2-host-20261128.log`, `logs/verify-cg-20261128/VerifyCgClaimsProbeTest.java`.
+
+| Line | Claim | Verdict | Evidence |
+|---|---|---|---|
+| 9, 14-15 | Baseline; release-gate source SHA-256 `485c930d...` | CONFIRMED | D: build #11 console echoes the SHA-256 and checks out `263309d8`, which no longer resolves |
+| 86-94 | Engine heartbeat and reconcile; new keys only through a rebalance | CONFIRMED | A: engine 259-321 (5 s), `PartitionAssignmentService` 66-140, 207-224; C: P-14 |
+| 96-109 | Fetch, handle, commit sequence; generation fencing; at-least-once | CONFIRMED | A: engine 345-439, fetcher 58-81, offset manager 115-153 |
+| 42-44 | No retry or dead letter on this path | CONFIRMED | A: engine has no retry count and no dead-letter write |
+| 117-129 | Watermark counts `ACTIVE` only; a `PAUSED` group's unread rows are swept | CONFIRMED | A: `WatermarkCalculator` 42-56; C: three unread rows of a `PAUSED` group swept `COMPLETED` |
+| 131-139 | Lifecycle contract | CONFIRMED (static) | A: engine 129-239; `OutboxConsumerGroup` start returns to `NEW` on failure |
+| 168-173 | Build #11: 89 focused tests, then the gate 1 of 1, 90 in all, 0 failures | CONFIRMED | D: module totals 60, 26, 1, 2, then 1 |
+| 175-179 | Host: Ubuntu 24.04, 12 vCPU, 31 GiB, 2 GiB swap, Docker 29.1.3, PostgreSQL 15.13 | CONFIRMED | D: `task6-host-baseline.log` artifact |
+| 183-193 | 360,033 per tenant at 99.99/s; watermark 360017, 16 pending; OLTP 34,792 and 34,789; p50/p95/p99 10 ms; delivery 1,000 ms | CONFIRMED | D: `TASK6_SUMMARY` lines of the console |
+| 195 | WAL about 2.61 GB | CONFIRMED | D: `walBytes=2610364416` |
+| 196 | 96-97% idle, no swap | CONFIRMED | D: 59 of 61 vmstat samples at 96-97% idle, `swpd` 0 |
+| 204-217 | Known open defects P-1, P-4, P-5, P-13, P-14, P-15, none fixed | CONFIRMED; P-6 and P-10 OMITTED | A; C: P-4, P-5, P-6, P-13, P-14 reproduced |
+
+Logs of build #11: `logs/verify-cg-jenkins-build11-console-20261128.log`,
+`logs/verify-cg-build11-host-baseline-20261128.log`,
+`logs/verify-cg-build11-host-vmstat-20261128.log`.
 
 ## References
 
