@@ -67,6 +67,9 @@ public class ConsumerGroupRetryJobLifecycleTest {
         testProps.setProperty("peegeeq.metrics.reporting-interval", "PT10S");
         testProps.setProperty("peegeeq.migration.enabled", "false");
         testProps.setProperty("peegeeq.migration.auto-migrate", "false");
+        // Dead consumer detection runs on the shared schema at manager start. This class does not
+        // test it and does not hold the dead-consumer-detection lock, so it is disabled.
+        testProps.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "false");
 
         // Enable consumer group retry with minimum allowed interval for testing
         testProps.setProperty("peegeeq.queue.consumer-group-retry.enabled", "true");
