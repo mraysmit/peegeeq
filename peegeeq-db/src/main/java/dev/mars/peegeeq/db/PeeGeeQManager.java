@@ -27,7 +27,6 @@ import dev.mars.peegeeq.api.database.DatabaseService;
 
 import dev.mars.peegeeq.db.cleanup.DeadConsumerDetectionJob;
 import dev.mars.peegeeq.db.cleanup.DeadConsumerDetector;
-import dev.mars.peegeeq.db.cleanup.DeadConsumerGroupCleanup;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.consumer.ConsumerGroupRetryJob;
@@ -633,10 +632,10 @@ public class PeeGeeQManager {
     /**
      * Returns a cached SubscriptionService for managing consumer group subscriptions.
      * The service is created lazily on first call and reused thereafter.
-     * Includes BackfillService (with Vertx for rate-limited backfill) and
-     * DeadConsumerGroupCleanup (for admin force-remove) wired.
+     * Includes BackfillService (with Vertx for rate-limited backfill) and the partitioned
+     * consumption services wired.
      *
-     * @return A shared SubscriptionService instance with BackfillService and cleanup wired
+     * @return A shared SubscriptionService instance with BackfillService wired
      */
     public dev.mars.peegeeq.api.subscription.SubscriptionService createSubscriptionService() {
         dev.mars.peegeeq.api.subscription.SubscriptionService service = cachedSubscriptionService;
@@ -654,12 +653,6 @@ public class PeeGeeQManager {
                             clientFactory.getConnectionManager(),
                             PeeGeeQDefaults.DEFAULT_POOL_ID,
                             vertx
-                        )
-                    );
-                    manager.setDeadConsumerGroupCleanup(
-                        new dev.mars.peegeeq.db.cleanup.DeadConsumerGroupCleanup(
-                            clientFactory.getConnectionManager(),
-                            PeeGeeQDefaults.DEFAULT_POOL_ID
                         )
                     );
                     manager.setPartitionedConsumptionServices(
@@ -999,15 +992,13 @@ public class PeeGeeQManager {
                 });
             }
 
-            // Dead consumer detection + cleanup
+            // Dead consumer detection: marks silent groups DEAD and reports the messages they
+            // leave unprocessed. It changes no message.
             if (configuration.getQueueConfig().isDeadConsumerDetectionEnabled()) {
                 long detectionMs = configuration.getQueueConfig().getDeadConsumerDetectionInterval().toMillis();
                 DeadConsumerDetector detector = new DeadConsumerDetector(
                         clientFactory.getConnectionManager(), PeeGeeQDefaults.DEFAULT_POOL_ID);
-                DeadConsumerGroupCleanup cleanup = new DeadConsumerGroupCleanup(
-                        clientFactory.getConnectionManager(), PeeGeeQDefaults.DEFAULT_POOL_ID);
-                deadConsumerDetectionJob = new DeadConsumerDetectionJob(
-                        vertx, detector, cleanup, detectionMs);
+                deadConsumerDetectionJob = new DeadConsumerDetectionJob(vertx, detector, detectionMs);
                 healthCheckManager.registerHealthCheck(
                         deadConsumerDetectionJob.getHealthComponentName(), deadConsumerDetectionJob::checkHealth);
                 deadConsumerDetectionJob.start();
