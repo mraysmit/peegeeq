@@ -40,8 +40,11 @@ import java.util.Optional;
  * </ol>
  *
  * <h3>Resumability:</h3>
- * <p>If the process crashes mid-backfill, calling {@link #startBackfill} again will
- * detect the IN_PROGRESS status and resume from the last checkpoint.</p>
+ * <p>A backfill that fails records the status FAILED, and a backfill that is cancelled records
+ * CANCELLED. A later {@link #startBackfill} resumes either one from the last checkpoint. A start
+ * on a row that is IN_PROGRESS returns SKIPPED, because another worker holds the backfill. A
+ * process that stops during a backfill leaves the row IN_PROGRESS: nothing releases it, so later
+ * starts return SKIPPED until the status is changed by hand.</p>
  *
  * <h3>Cancellation:</h3>
  * <p>Calling {@link #cancelBackfill} sets the status to CANCELLED. The next batch
@@ -66,6 +69,7 @@ public class BackfillService {
     private static final String STATUS_IN_PROGRESS = "IN_PROGRESS";
     private static final String STATUS_COMPLETED = "COMPLETED";
     private static final String STATUS_CANCELLED = "CANCELLED";
+    private static final String STATUS_FAILED = "FAILED";
     private static final String STATUS_NONE = "NONE";
 
     // Deadlock retry configuration
@@ -111,8 +115,9 @@ public class BackfillService {
     /**
      * Starts or resumes a backfill operation for a consumer group subscription.
      *
-     * <p>If a backfill is already IN_PROGRESS, it will resume from the last checkpoint.
-     * If the subscription has no backfill (NONE status), it will start a new backfill.</p>
+     * <p>A backfill with status NONE starts from the subscription's start bound. A FAILED or
+     * CANCELLED backfill resumes from the last checkpoint. A COMPLETED backfill returns
+     * ALREADY_COMPLETED, and an IN_PROGRESS one returns SKIPPED.</p>
      *
      * @param topic The topic name
      * @param groupName The consumer group name
@@ -221,7 +226,9 @@ public class BackfillService {
                     long resumeFromId = lockResult.startFromId();
                     long processedSoFar = lockResult.processedMessages();
 
-                    // Step 2+: Count, initialize, and process (each acquires its own connection)
+                    // Step 2+: Count, initialize, and process (each acquires its own connection).
+                    // From here on the row is IN_PROGRESS. A failure records FAILED, so that a
+                    // later start resumes the backfill instead of skipping it for ever.
                             return countMessagesToBackfill(topic, resumeFromId, maxMessages, messageScope)
                             .compose(totalMessages -> {
                                 if (totalMessages == 0L) {
@@ -262,7 +269,49 @@ public class BackfillService {
                                             }
                                             return result;
                                         });
-                            });
+                            })
+                            .transform(outcome -> outcome.succeeded()
+                                    ? Future.succeededFuture(outcome.result())
+                                    : recordBackfillFailure(trace, topic, groupName, outcome.cause()));
+                });
+    }
+
+    /**
+     * Records that the backfill failed, so that a later start resumes it from the last
+     * checkpoint. Without this the row would stay IN_PROGRESS, and every later start would
+     * return SKIPPED: the group would never receive the rest of the backfill.
+     *
+     * <p>The update applies only to an IN_PROGRESS row, so a CANCELLED status set at the same
+     * time is kept. The returned Future fails with the backfill's failure; a failure to record
+     * FAILED is added to it as a suppressed exception.</p>
+     */
+    private Future<BackfillResult> recordBackfillFailure(TraceCtx trace, String topic, String groupName,
+                                                         Throwable failure) {
+        String sql = """
+            UPDATE outbox_topic_subscriptions
+            SET backfill_status = $3
+            WHERE topic = $1 AND group_name = $2
+              AND backfill_status = $4
+            """;
+        return connectionManager.withTransaction(serviceId, connection ->
+                        connection.preparedQuery(sql)
+                                .execute(Tuple.of(topic, groupName, STATUS_FAILED, STATUS_IN_PROGRESS)))
+                .transform(recorded -> {
+                    try (var scope = TraceContextUtil.mdcScope(trace)) {
+                        if (recorded.succeeded()) {
+                            logger.error("Backfill failed for topic='{}', group='{}'; backfill_status is {} and a later "
+                                            + "start resumes from the last checkpoint: {}",
+                                    topic, groupName,
+                                    recorded.result().rowCount() == 1 ? STATUS_FAILED : "unchanged (no longer IN_PROGRESS)",
+                                    failure.getMessage(), failure);
+                        } else {
+                            failure.addSuppressed(recorded.cause());
+                            logger.error("Backfill failed for topic='{}', group='{}', and recording FAILED also failed; "
+                                            + "backfill_status stays IN_PROGRESS and later starts return SKIPPED: {}",
+                                    topic, groupName, failure.getMessage(), failure);
+                        }
+                    }
+                    return Future.<BackfillResult>failedFuture(failure);
                 });
     }
 
