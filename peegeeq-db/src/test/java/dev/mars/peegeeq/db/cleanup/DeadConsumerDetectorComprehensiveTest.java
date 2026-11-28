@@ -57,7 +57,6 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
-import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Comprehensive integration tests for {@link DeadConsumerDetector}.
@@ -75,6 +74,11 @@ import dev.mars.peegeeq.test.vertx.TestCleanup;
  *   <li>Tests {@link DeadConsumerDetector#getSubscriptionSummary()}</li>
  *   <li>Tests {@link DeadConsumerDetector#countEligibleForDeadDetection(String)} with non-zero results</li>
  * </ul>
+ *
+ * <p>The counts are exact. Only global detection can mark this class's groups DEAD before its
+ * own topic-scoped call, and every class in this module that runs global detection holds the
+ * {@code dead-consumer-detection} lock. The managers of {@link dev.mars.peegeeq.db.BaseIntegrationTest}
+ * run with dead consumer detection disabled.</p>
  *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2026-03-01
@@ -127,9 +131,7 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) {
         if (connectionManager != null) {
-            new DeadConsumerGroupCleanup(connectionManager, SERVICE_ID)
-                    .cleanupAllDeadGroups()
-                    .transform(TestCleanup.cleanup(() -> connectionManager.close()))
+            connectionManager.close()
                     .onSuccess(v -> testContext.completeNow())
                     .onFailure(testContext::failNow);
         } else {
@@ -155,8 +157,7 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
                 .compose(v -> createHealthySubscriptions(topic, 3))
                 .compose(v -> detector.detectDeadSubscriptions(topic))
                 .compose(markedDead -> {
-                    assertTrue(markedDead >= 0 && markedDead <= 5,
-                            "Should detect between 0 and 5 dead consumers (background job may detect some first), got: " + markedDead);
+                    assertEquals(5, markedDead, "All 5 consumers with expired heartbeats must be marked DEAD");
                     return verifyAllDeadConsumersAreDead(topic, 5);
                 })
                 .compose(v -> verifyAllHealthyConsumersAreActive(topic, 3))
@@ -187,8 +188,7 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
                 .compose(v -> setHeartbeatInPast(topic, "paused-group", 120))
                 .compose(v -> detector.detectDeadSubscriptions(topic))
                 .compose(markedDead -> {
-                    assertTrue(markedDead >= 0 && markedDead <= 1,
-                            "PAUSED consumer with expired heartbeat: expected 0 or 1 newly marked, got: " + markedDead);
+                    assertEquals(1, markedDead, "The PAUSED consumer with an expired heartbeat must be marked DEAD");
                     return verifyStatus(topic, "paused-group", "DEAD");
                 })
                 .onSuccess(v -> {
@@ -305,9 +305,8 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
                 })
                 .compose(v -> detector.detectDeadSubscriptions(topic))
                 .compose(markedDead -> {
-                    assertTrue(markedDead >= 0 && markedDead <= 2,
-                            "Should detect at most 2 (active-expired + paused-expired), " +
-                            "background job may have already processed some: got " + markedDead);
+                    assertEquals(2, markedDead,
+                            "Exactly active-expired and paused-expired must be marked DEAD");
                     return Future.all(
                             verifyStatus(topic, "active-expired", "DEAD"),
                             verifyStatus(topic, "paused-expired", "DEAD"),
@@ -332,9 +331,10 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
      * deadCount, totalActiveChecked, totalTopicsAffected, detectionTimeMs,
      * and each {@code DeadSubscriptionInfo} record.
      *
-     * <p>Uses topic-scoped detection first to guarantee our consumer is DEAD,
-     * then validates the global API structure. Resilient to parallel tests
-     * that may also call global detection.</p>
+     * <p>Uses topic-scoped detection first, then the global call. The global result can also
+     * hold groups of other classes whose heartbeats expired, so its counts are lower bounds,
+     * but it must hold this test's group: no other global detection runs while this class
+     * holds the {@code dead-consumer-detection} lock.</p>
      */
     @Test
     void testDetectAllWithDetailedResults(VertxTestContext ctx) {
@@ -346,7 +346,7 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
                 .compose(v -> setHeartbeatInPast(topic, "detail-dead", 120))
                 .compose(v -> detector.detectDeadSubscriptions(topic))
                 .compose(topicDead -> {
-                    // Verify our consumer is DEAD regardless of who detected it
+                    assertEquals(1, topicDead, "Topic-scoped detection must mark detail-dead DEAD");
                     return verifyStatus(topic, "detail-dead", "DEAD")
                             .compose(v -> verifyStatus(topic, "detail-alive", "ACTIVE"));
                 })
@@ -357,52 +357,37 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
                 })
                 .compose(v -> detector.detectAllDeadSubscriptionsWithDetails())
                 .compose(result -> {
-                    // Validate structure our detail-dead-2 should be in the results
                     assertNotNull(result);
                     assertTrue(result.deadCount() >= 1,
                             "Should detect at least 1 dead consumer (detail-dead-2), got " + result.deadCount());
                     assertTrue(result.hasDeadSubscriptions(), "hasDeadSubscriptions() should be true");
-                    assertTrue(result.totalActiveChecked() >= 0,
-                            "totalActiveChecked should be non-negative");
-                    assertTrue(result.detectionTimeMs() >= 0,
-                            "detectionTimeMs should be non-negative");
+                    // detail-alive and detail-dead-2 are both ACTIVE when the population is counted.
+                    assertTrue(result.totalActiveChecked() >= 2,
+                            "totalActiveChecked must count detail-alive and detail-dead-2, got "
+                                    + result.totalActiveChecked());
+                    assertEquals(result.affectedTopics().size(), result.totalTopicsAffected(),
+                            "totalTopicsAffected must equal the distinct topics of the dead subscriptions");
 
-                    // Find our specific dead consumer in the results
                     var ourDead = result.deadSubscriptions().stream()
                             .filter(d -> d.topic().equals(topic) && d.groupName().equals("detail-dead-2"))
                             .findFirst();
+                    assertTrue(ourDead.isPresent(),
+                            "The global result must hold detail-dead-2: " + result.deadSubscriptions());
+                    assertTrue(result.deadSubscriptions().stream()
+                                    .noneMatch(d -> d.topic().equals(topic) && !d.groupName().equals("detail-dead-2")),
+                            "No other group of this topic may be marked by the global call: " + result.deadSubscriptions());
 
-                    if (ourDead.isPresent()) {
-                        // Best case: verify all structured fields
-                        var info = ourDead.get();
-                        assertEquals(topic, info.topic());
-                        assertEquals("detail-dead-2", info.groupName());
-                        assertEquals(60, info.timeoutSeconds());
-                        assertNotNull(info.lastHeartbeat(), "lastHeartbeat should not be null");
-                        assertNotNull(info.overdueDuration(), "overdueDuration should not be null");
-                        assertTrue(info.overdueDuration().getSeconds() >= 50,
-                                "Should be at least 50s overdue, got " + info.overdueDuration().getSeconds() + "s");
-                        assertTrue(info.silenceDuration().getSeconds() >= 100,
-                                "Silent for at least 100s, got " + info.silenceDuration().getSeconds() + "s");
-                        assertTrue(result.affectedTopics().contains(topic),
-                                "Our topic should be in affectedTopics");
-                    } else {
-                        // Consumer was stolen by a parallel test's global detection verify it's DEAD
-                        return getStatus(topic, "detail-dead-2")
-                                .compose(status -> {
-                                    assertEquals("DEAD", status,
-                                            "detail-dead-2 should be DEAD even if detected by another test");
-                                    // Verify at least the general field structure on whatever was returned
-                                    var anyInfo = result.deadSubscriptions().get(0);
-                                    assertNotNull(anyInfo.topic());
-                                    assertNotNull(anyInfo.groupName());
-                                    assertNotNull(anyInfo.lastHeartbeat());
-                                    assertTrue(anyInfo.timeoutSeconds() > 0);
-                                    assertNotNull(anyInfo.overdueDuration());
-                                    return Future.succeededFuture();
-                                });
-                    }
-                    return Future.succeededFuture();
+                    var info = ourDead.get();
+                    assertEquals(60, info.timeoutSeconds());
+                    assertNotNull(info.lastHeartbeat(), "lastHeartbeat should not be null");
+                    assertNotNull(info.overdueDuration(), "overdueDuration should not be null");
+                    assertTrue(info.overdueDuration().getSeconds() >= 50,
+                            "Should be at least 50s overdue, got " + info.overdueDuration().getSeconds() + "s");
+                    assertTrue(info.silenceDuration().getSeconds() >= 100,
+                            "Silent for at least 100s, got " + info.silenceDuration().getSeconds() + "s");
+                    assertTrue(result.affectedTopics().contains(topic),
+                            "Our topic should be in affectedTopics");
+                    return verifyStatus(topic, "detail-alive", "ACTIVE");
                 })
                 .onSuccess(v -> {
                     logger.info("DetectionResult structured fields validated");
@@ -536,13 +521,12 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
                 .compose(v -> setHeartbeatInPast(topic, "eligible-2", 120))
                 .compose(v -> detector.countEligibleForDeadDetection(topic))
                 .compose(eligibleBefore -> {
-                    assertTrue(eligibleBefore >= 0 && eligibleBefore <= 2,
-                            "Should find 0-2 eligible consumers before detection (background job may detect first), got: " + eligibleBefore);
+                    assertEquals(2L, eligibleBefore,
+                            "eligible-1 and eligible-2 must be eligible before detection");
                     return detector.detectDeadSubscriptions(topic);
                 })
                 .compose(markedDead -> {
-                    assertTrue(markedDead >= 0 && markedDead <= 2,
-                            "Should mark 0-2 newly dead, got: " + markedDead);
+                    assertEquals(2, markedDead, "eligible-1 and eligible-2 must be marked DEAD");
                     return detector.countEligibleForDeadDetection(topic);
                 })
                 .compose(eligibleAfter -> {
@@ -588,8 +572,7 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
                 .compose(v -> setHeartbeatInPast(topic, "boundary-group", 65))
                 .compose(v -> detector.detectDeadSubscriptions(topic))
                 .compose(detected -> {
-                    assertTrue(detected >= 0 && detected <= 1,
-                            "Consumer past timeout (65s > 60s) should be detected, got: " + detected);
+                    assertEquals(1, detected, "Consumer past timeout (65s > 60s) must be detected");
                     return verifyStatus(topic, "boundary-group", "DEAD");
                 })
                 .onSuccess(v -> {
