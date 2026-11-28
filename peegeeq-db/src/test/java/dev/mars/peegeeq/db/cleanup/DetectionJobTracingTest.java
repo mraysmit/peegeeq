@@ -28,9 +28,9 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests for tracing propagation in DeadConsumerDetectionJob.
  *
- * <p>Verifies that trace context is correctly propagated through the
- * entire detectioncleanupsummary compose chain, ensuring all log
- * operations include traceId/spanId in MDC.</p>
+ * <p>Verifies that a detection run creates its own trace and leaves no trace context in the
+ * MDC once it has settled, on a healthy run, a run that finds dead consumers, and a failed
+ * run.</p>
  */
 @Tag(TestCategories.CORE)
 @ExtendWith(VertxExtension.class)
@@ -40,21 +40,19 @@ public class DetectionJobTracingTest {
     private PgConnectionManager stubConnectionManager;
 
     @BeforeEach
-    void setUp() {
-        vertx = Vertx.vertx();
+    void setUp(Vertx vertx) {
+        this.vertx = vertx;
         stubConnectionManager = new PgConnectionManager(vertx);
         TraceContextUtil.clearTraceMDC();
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown(VertxTestContext testContext) {
         TraceContextUtil.clearTraceMDC();
-        if (stubConnectionManager != null) {
-            stubConnectionManager.close().onFailure(e -> fail("tearDown close failed: " + e.getMessage()));
-        }
-        if (vertx != null) {
-            vertx.close().onFailure(e -> {});
-        }
+        // VertxExtension owns the Vert.x instance and closes it.
+        (stubConnectionManager != null ? stubConnectionManager.close() : Future.<Void>succeededFuture())
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -62,9 +60,7 @@ public class DetectionJobTracingTest {
         DeadConsumerDetector stubDetector = new StubDetector(
                 new DetectionResult(List.of(), 0, 0, 0),
                 new SubscriptionSummary(0, 0, 0, 0, 0, 0));
-        DeadConsumerGroupCleanup stubCleanup = new StubCleanup();
-        DeadConsumerDetectionJob job = new DeadConsumerDetectionJob(
-                vertx, stubDetector, stubCleanup, 60_000);
+        DeadConsumerDetectionJob job = new DeadConsumerDetectionJob(vertx, stubDetector, 60_000);
 
         // Chain two sequential detection runs
         job.runDetectionOnce()
@@ -83,9 +79,7 @@ public class DetectionJobTracingTest {
         DeadConsumerDetector stubDetector = new StubDetector(
                 new DetectionResult(List.of(), 0, 0, 0),
                 new SubscriptionSummary(0, 0, 0, 0, 0, 0));
-        DeadConsumerGroupCleanup stubCleanup = new StubCleanup();
-        DeadConsumerDetectionJob job = new DeadConsumerDetectionJob(
-                vertx, stubDetector, stubCleanup, 60_000);
+        DeadConsumerDetectionJob job = new DeadConsumerDetectionJob(vertx, stubDetector, 60_000);
 
         job.runDetectionOnce()
                 .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
@@ -96,7 +90,7 @@ public class DetectionJobTracingTest {
     }
 
     @Test
-    void runDetection_withDeadConsumers_tracesPropagatedThroughCleanup(VertxTestContext testContext) {
+    void runDetection_withDeadConsumers_reportsThemAndLeavesMdcClean(VertxTestContext testContext) {
         DetectionResult resultWithDead = new DetectionResult(
                 List.of(new DeadSubscriptionInfo(
                         "test-topic", "dead-group",
@@ -106,14 +100,12 @@ public class DetectionJobTracingTest {
         SubscriptionSummary summary = new SubscriptionSummary(1, 0, 1, 0, 1, 2);
 
         DeadConsumerDetector stubDetector = new StubDetector(resultWithDead, summary);
-        StubCleanup stubCleanup = new StubCleanup();
-        DeadConsumerDetectionJob job = new DeadConsumerDetectionJob(
-                vertx, stubDetector, stubCleanup, 60_000);
+        DeadConsumerDetectionJob job = new DeadConsumerDetectionJob(vertx, stubDetector, 60_000);
 
         job.runDetectionOnce()
                 .onComplete(testContext.succeeding(deadCount -> testContext.verify(() -> {
                     assertEquals(1, deadCount, "Should detect 1 dead consumer");
-                    assertTrue(stubCleanup.wasCleanupCalled(), "Cleanup should have been called");
+                    assertNull(MDC.get("traceId"), "traceId should not leak after a run that found dead consumers");
                     testContext.completeNow();
                 })));
     }
@@ -121,9 +113,7 @@ public class DetectionJobTracingTest {
     @Test
     void runDetection_failurePreservesTraceInErrorLog(VertxTestContext testContext) {
         DeadConsumerDetector failingDetector = new StubDetector(true);
-        DeadConsumerGroupCleanup stubCleanup = new StubCleanup();
-        DeadConsumerDetectionJob job = new DeadConsumerDetectionJob(
-                vertx, failingDetector, stubCleanup, 60_000);
+        DeadConsumerDetectionJob job = new DeadConsumerDetectionJob(vertx, failingDetector, 60_000);
 
         job.runDetectionOnceWithDetails()
                 .onComplete(testContext.failing(throwable -> testContext.verify(() -> {
@@ -138,10 +128,8 @@ public class DetectionJobTracingTest {
         DeadConsumerDetector stubDetector = new StubDetector(
                 new DetectionResult(List.of(), 0, 0, 0),
                 new SubscriptionSummary(0, 0, 0, 0, 0, 0));
-        DeadConsumerGroupCleanup stubCleanup = new StubCleanup();
 
-        DeadConsumerDetectionJob job = new DeadConsumerDetectionJob(
-                vertx, stubDetector, stubCleanup, 60_000);
+        DeadConsumerDetectionJob job = new DeadConsumerDetectionJob(vertx, stubDetector, 60_000);
 
         job.start();
         assertTrue(job.isRunning());
@@ -192,24 +180,6 @@ public class DetectionJobTracingTest {
         @Override
         public Future<SubscriptionSummary> getSubscriptionSummary() {
             return Future.succeededFuture(summary);
-        }
-    }
-
-    private class StubCleanup extends DeadConsumerGroupCleanup {
-        private volatile boolean cleanupCalled = false;
-
-        StubCleanup() {
-            super(stubConnectionManager, "stub");
-        }
-
-        @Override
-        public Future<List<CleanupResult>> cleanupAllDeadGroups() {
-            cleanupCalled = true;
-            return Future.succeededFuture(Collections.emptyList());
-        }
-
-        boolean wasCleanupCalled() {
-            return cleanupCalled;
         }
     }
 }
