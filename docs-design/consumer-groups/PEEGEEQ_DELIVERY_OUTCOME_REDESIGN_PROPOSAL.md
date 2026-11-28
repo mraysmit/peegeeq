@@ -15,17 +15,41 @@ for this check.
 | Phase | In code | Commit |
 |---|---|---|
 | 1, increment 1a | `STOPPED` in the status check (`V021__Add_Stopped_Subscription_Status.sql`, template `08b`) and in both status enums. `SubscriptionService.stopGroup`. `stopGracefully()` of both groups stores `STOPPED` and runs no cleanup. | `866a6683`, 2026-10-12 |
-| 1, increment 1b | Built and not approved by the owner. `SubscriptionManager` enforces the lifecycle table through `PAUSE_FROM`, `RESUME_FROM`, `MARK_DEAD_FROM`, and `CANCEL_FROM`. A heartbeat updates only `ACTIVE` and `PAUSED` rows and changes no status. The stored start bound is kept. `updateSubscriptionSettings`. `SubscriptionStore` is a mandatory argument of `subscribe`. Of the nine corrections of the owner's review, correction 1 is made and awaits review, correction 5 is in code (`TestCleanup`), and corrections 2, 3, 4, 6, 7, 8, and 9 are not made. | `866a6683` |
-| 1, increments 1c, 1d, 1e | Not started. No in-process group sends the subscription heartbeat. Dead detection still reads `ACTIVE` and `PAUSED`. The watermark and `ZeroSubscriptionValidator` still count `ACTIVE` only. `DeadConsumerGroupCleanup` still exists. | None |
+| 1, increment 1b | Built and not approved by the owner. `SubscriptionManager` enforces the lifecycle table through `PAUSE_FROM`, `RESUME_FROM`, `FORCE_REMOVE_FROM` (named `MARK_DEAD_FROM` until increment 1d), and `CANCEL_FROM`. A heartbeat updates only `ACTIVE` and `PAUSED` rows and changes no status. The stored start bound is kept. `updateSubscriptionSettings`. `SubscriptionStore` is a mandatory argument of `subscribe`. Of the nine corrections of the owner's review, correction 1 is made and awaits review, correction 5 is in code (`TestCleanup`), and corrections 2, 3, 4, 6, 7, 8, and 9 are not made. | `866a6683` |
+| 1, increment 1d | `DeadConsumerGroupCleanup` is deleted with its three callers: the detection job, `cancel`, and `forceRemoveConsumerGroup` change no message. Force-remove is one guarded update to `CANCELLED`, and `ForceRemoveResult` and its REST response no longer carry message counts. Red and green runs on the Jenkins host are in the appendix, "Increment 1d, 2026-11-28". | Working tree, 2026-11-28, not committed |
+| 1, increments 1c, 1e | Not started. No in-process group sends the subscription heartbeat. Dead detection still reads `ACTIVE` and `PAUSED`. The watermark and `ZeroSubscriptionValidator` still count `ACTIVE` only. | None |
 | 2 to 5 | Not started. `DeliveryOutcome` exists, but only the native path uses it (phase 6 row). | None |
 | 6, native queue | `DeliveryOutcome` (`peegeeq-api`: `COMPLETED`, `REJECTED`, `UNAVAILABLE`; a failed `Future` is `FAILED`). `queue_message_group_exclusions` (`V022__Create_Queue_Message_Group_Exclusions.sql`, template `04d`). `PgNativeConsumerGroup` dispatch returns an outcome. `REJECTED` inserts an exclusion row and releases the row `AVAILABLE`; the group's claim skips excluded rows. `UNAVAILABLE` releases the row with `visible_at` one polling interval later and the retry count unchanged. The claim delay chosen is `visible_at`, not a scan position. This fixes N-1, N-2, and N-4. | `b52d93fa`, 2026-11-08 |
 | 6, outbox queue | Not started. `outbox_group_exclusions`, the queue replay, and the operator dead-letter of one message do not exist. | None |
 | 7, 8 | Not started. | None |
 
-X-4 is still in production code. `DeadConsumerGroupCleanup.autoCompleteMessages` marks
-`PENDING` and `PROCESSING` outbox rows `COMPLETED` once the completed group count reaches the
-required count. The detection job, `cancel`, and `forceRemoveConsumerGroup` still call it. The
-task register records it as defect D1, planned for increment 1d.
+X-4 and X-5 are removed from the working tree by increment 1d: no code marks a message
+`COMPLETED` because its group is dead, cancelled, or force-removed (task register D1). X-6, the
+missing in-process heartbeat, remains until increment 1e, so a running group can still be
+marked `DEAD`; its messages are no longer changed by that.
+
+**Checked on 2026-11-28** against `16cc90f9`, by reading the code and by runs on the Jenkins
+host. The status block above holds at `16cc90f9`: `V021`, `V022`, templates `04d` and `08b`,
+`STOPPED` in `SubscriptionState` and `SubscriptionStatus`, `DeliveryOutcome` with three values,
+the exclusion insert and `AVAILABLE` release for `REJECTED`, and the `visible_at` delay for
+`UNAVAILABLE` are in code, and `outbox_group_exclusions`, `dead_letter_queue.group_name`, and
+`outbox_partition_offsets.retry_message_id` do not exist. Runs:
+
+| Run | Scope | Result | Log |
+|---|---|---|---|
+| Probe class, first run | Q-4, X-4, X-5, X-6, D35, the watermark with a `PAUSED` group, P-4, P-5, P-6, P-13, P-14 | 10 run, 0 failures; each defect reproduced | `logs/verify-cg-probes-host-20261128.log` |
+| Probe class, second run | The same and X-2, and a call of `register_consumer_group_for_existing_messages` | 12 run, 0 failures; X-2 reproduced; the function fails with `42703` | `logs/verify-cg-probes2-host-20261128.log` |
+| `NativeConsumerGroupDeliveryOutcomeIntegrationTest` | The native-queue part of phase 6 | 9 run, 0 failures | `logs/verify-cg-native-outcome-host-20261128.log` |
+
+The probe class is not in the repository. It ran in a clone of `16cc90f9` on the Jenkins
+host, at `/var/lib/jenkins/verify-cg`. Each defect row whose result was run carries the run in
+its Evidence cell. N-3 is stale in part (its row says why). A search for a backticked class
+name followed by numbers found 118 matches. Eight are test IDs or test counts, for example
+`PartitionedFetcherIntegrationTest` 3.8; each of those tests was read and asserts what the
+row says. Of the 110 line citations, 107 hold the cited code at `9e7f12b0`. Three did not,
+and neither did the parenthesised line 902 of `isSubscriptionNotFoundError`; the four are
+corrected where they stand. The per-item verdicts and the evidence files are in
+[Verification Record, 2026-11-28](#verification-record-2026-11-28).
 
 **Written:** 2026-10-11, as a section of `PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md`.
 
@@ -99,6 +123,7 @@ schema.
 13. [Phase Order and Test Plan](#phase-order-and-test-plan)
 14. [Decisions](#decisions)
 15. [Not Checked](#not-checked)
+16. [Verification Record, 2026-11-28](#verification-record-2026-11-28)
 
 ---
 
@@ -1220,7 +1245,7 @@ Every item was found by reading on 2026-10-11 unless the evidence column says Ru
 | Q-1 | A rejected row with an earlier `created_at` and a higher id stops delivery of an acceptable row. The scan position is an id. The scan order is `created_at, id`. | `OutboxConsumer` 373 to 378, 388, 416, 851 | Run: `logs/probe-outbox-filtered-scan-order-20261010.log`, `logs/probe-outbox-filtered-scan-order-batch-20261010.log` |
 | Q-2 | A rejection is not recorded. The row is claimed and reset on every pass with no bound: 21 passes in 10 s in the first run. | `OutboxConsumer` 775 to 786, 843 to 865 | Run: same logs |
 | Q-3 | A thrown group predicate is turned into the rejection type and takes the same reset. No retry count, no dead letter. An ERROR is logged on every pass. | `OutboxConsumerGroup` 850 to 862 | Read. Three tests of `OutboxConsumerGroupCoreTest` assert it as intended. |
-| Q-4 | The group name scopes no durable state. The claim does not test `subscription_status`, so a paused or cancelled group keeps claiming. | `OutboxConsumer` 347 to 363, 380 to 394 | Read |
+| Q-4 | The group name scopes no durable state. The claim does not test `subscription_status`, so a paused or cancelled group keeps claiming. | `OutboxConsumer` 347 to 363, 380 to 394 | Read Run 2026-11-28, Jenkins host: a running outbox group whose subscription was `PAUSED` received a message sent while paused (`logs/verify-cg-probes-host-20261128.log`, `logs/verify-cg-probes2-host-20261128.log`). |
 | Q-5 | A member at its concurrency limit fails with `IllegalStateException`. The consumer counts a handler failure and dead-letters at the limit. The default limit is 1. It needs more than one consumer thread. With the default of one thread a single row is in flight (test read: `OutboxConsumerGroupFaultToleranceTest.hungHandlerBlocksPollLoop`). | Member 80, 355 to 371; `OutboxConsumer` 797, 902 to 906 | Read |
 | Q-6 | A member predicate runs twice per delivery. If the second result is false the member returns success without calling the handler, and the message is marked `COMPLETED`. | `OutboxConsumerGroup` 878; member 374 to 380 | Read |
 | Q-7 | A throw from the second evaluation leaves the member's in-flight count raised. | Member 364, 374 | Read |
@@ -1235,17 +1260,17 @@ Every item was found by reading on 2026-10-11 unless the evidence column says Ru
 | P-1 | A failing handler stops its partition key with no bound. No retry count, no dead letter. | `PartitionedConsumerEngine` 363 to 374, 411 to 437 | Run: finding 4, `logs/probe-native-partitioned-handler-failure-20261009.log`, `logs/probe-outbox-partitioned-handler-failure-20261009.log` |
 | P-2 | The engine does not branch on the outcome. A group rejection and a transient result stop the partition key the same way. | Engine 411 to 437 | Read |
 | P-3 | The offset commits once per batch, and only if every handler succeeded. Messages ahead of a failing one are delivered again on every tick. | Engine 411 to 437; partitioned design 88 to 101 | Read. `ConsumerGroupFaultIntegrationTest` F1 asserts the repeated delivery as the expected result. |
-| P-4 | The fetch takes `FOR UPDATE ... SKIP LOCKED` on a log read. A row that another transaction has locked is skipped, and the batch commit then moves the offset past it. | `PartitionedFetcher` 107 to 155; engine 425 | The skip is asserted as intended by `PartitionedFetcherIntegrationTest` 3.8 and 3.15. The loss after the commit is Read. |
-| P-5 | Offsets are ids. A row whose transaction commits after a higher id was consumed is never fetched. The sweep later marks it `COMPLETED`, because the stored watermark never moves back. | `PartitionedFetcher` 121, 136; `WatermarkCalculator` 66 to 105 | Read. No test inserts rows out of id order. |
-| P-6 | The start position is not applied. `initializeOffset` inserts 0, and the offset path does not read the stored start bound. | `PartitionedOffsetManager` 63 to 95; `SubscriptionManager` 208 to 245 | Read |
+| P-4 | The fetch takes `FOR UPDATE ... SKIP LOCKED` on a log read. A row that another transaction has locked is skipped, and the batch commit then moves the offset past it. | `PartitionedFetcher` 107 to 155; engine 425 | The skip is asserted as intended by `PartitionedFetcherIntegrationTest` 3.8 and 3.15. The loss after the commit is Read. Run 2026-11-28, Jenkins host: two of five rows locked; the fetch returned the other three; after the commit the next fetch returned none and the two rows stayed `PENDING` (`logs/verify-cg-probes-host-20261128.log`, `logs/verify-cg-probes2-host-20261128.log`). |
+| P-5 | Offsets are ids. A row whose transaction commits after a higher id was consumed is never fetched. The sweep later marks it `COMPLETED`, because the stored watermark never moves back. | `PartitionedFetcher` 121, 136; `WatermarkCalculator` 66 to 105 | Read. No test inserts rows out of id order. Run 2026-11-28, Jenkins host: the lower id, committed after the higher id was fetched and committed, was never fetched, and the sweep marked it `COMPLETED` (`logs/verify-cg-probes-host-20261128.log`, `logs/verify-cg-probes2-host-20261128.log`). |
+| P-6 | The start position is not applied. `initializeOffset` inserts 0, and the offset path does not read the stored start bound. | `PartitionedOffsetManager` 63 to 95; `SubscriptionManager` 208 to 245 | Read Run 2026-11-28, Jenkins host: a `FROM_NOW` subscription stored a bound above two rows, and `fetchPartitioned` returned both (`logs/verify-cg-probes-host-20261128.log`, `logs/verify-cg-probes2-host-20261128.log`). |
 | P-7 | The watermark is the minimum over every partition key of every `ACTIVE` subscription. A key that receives no more messages holds it for the whole topic. | `WatermarkCalculator` 42 to 56 | The minimum over keys is asserted by `WatermarkCalculatorIntegrationTest` 4.1. The stall is Read. |
 | P-8 | The sweep sets `COMPLETED` without `processed_at`. `CleanupService` deletes such a row only when `processed_at` is set, so it never deletes one. | `WatermarkCalculator` 93 to 105; `CleanupService` 89 to 99 | Read. No test asserts `processed_at` after a sweep. |
 | P-9 | No statement deletes an offset row. Partition keys are found from `PENDING` and `PROCESSING` rows only. Keeping the offset row when an instance leaves is asserted (`PartitionAssignmentIntegrationTest` 2.5). | Search of every `src/main` tree; `PartitionAssignmentService` 207 to 224 | Read |
 | P-10 | The engine, the fetcher, and the assignment service do not name `subscription_status`. A paused group keeps fetching, and the watermark stops counting it. `ZeroSubscriptionValidator` counts `ACTIVE` subscriptions only. | Search, 2026-10-11 | Read |
 | P-11 | A native group on an `OFFSET_WATERMARK` topic reads `outbox`. It never sees a message produced to `queue_messages`. OD-15 removes the path: the native API refuses a `PUB_SUB` topic. | `PartitionedFetcher` 114 to 127 | Run for the read of `outbox`: finding 4, native log |
 | P-12 | The WARN text "Fetch failed for partition" reports a handler failure. | Engine 368 | Run: finding 4 |
-| P-13 | The sweep completes rows that no group has read. The watermark is taken over offset rows. A group or a key with no offset row adds nothing to it. A message for such a key is at or below the watermark as soon as every existing offset row has passed its id. | `WatermarkCalculator` 42 to 56, 93 to 105; engine 163 | Read |
-| P-14 | A running group does not take up a key that was absent at its last rebalance. Discovery runs only inside a join or a leave. A group started on an empty topic delivers nothing until another instance joins or leaves. | `PartitionAssignmentService` 207 to 224; engine 262 to 318 | Asserted as intended by `PartitionedConsumerSafetyIntegrationTest.testNewMessageGroupAfterJoin_notAssignedUntilRebalance`. The tests named in the P-13 block and the release gate arrange their sends or joins around it. |
+| P-13 | The sweep completes rows that no group has read. The watermark is taken over offset rows. A group or a key with no offset row adds nothing to it. A message for such a key is at or below the watermark as soon as every existing offset row has passed its id. | `WatermarkCalculator` 42 to 56, 93 to 105; engine 163 | Read Run 2026-11-28, Jenkins host: the row of a key with no offset row was marked `COMPLETED` by `calculateAndSweep` (`logs/verify-cg-probes-host-20261128.log`, `logs/verify-cg-probes2-host-20261128.log`). |
+| P-14 | A running group does not take up a key that was absent at its last rebalance. Discovery runs only inside a join or a leave. A group started on an empty topic delivers nothing until another instance joins or leaves. | `PartitionAssignmentService` 207 to 224; engine 262 to 318 | Asserted as intended by `PartitionedConsumerSafetyIntegrationTest.testNewMessageGroupAfterJoin_notAssignedUntilRebalance`. The tests named in the P-13 block and the release gate arrange their sends or joins around it. Run 2026-11-28, Jenkins host: after a new key appeared, 8 s of a running engine delivered and assigned only the first key (`logs/verify-cg-probes-host-20261128.log`, `logs/verify-cg-probes2-host-20261128.log`). |
 | P-15 | An instance that stops without leaving keeps its keys until another instance joins or leaves. A rebalance counts only instances that own an assignment row with a heartbeat under 30 s old. Nothing else reads that heartbeat. | `PartitionAssignmentService` 36, 226 to 243; search of every `src/main` tree | Read |
 
 P-4 and P-5 in full. The trigger for P-4 is a row lock held when the fetch runs, on a key
@@ -1320,7 +1345,7 @@ for good, with an ERROR and no retry count. That is P-1 again and not a model fo
 |---|---|---|---|
 | N-1 | A message that no member accepts is deleted. Three cases: the member predicate throws, the member predicate returns false, the only member was removed. | `PgNativeConsumerGroup` 755 to 763; member 229 to 236; `PgNativeQueueConsumer` 928 to 931 | Run: finding 3, `logs/probe-native-filter-throws-20261009.log`, `logs/probe-native-filter-variants-20261009.log`. **Fixed** on 2026-11-08 in commit `b52d93fa`. A message that no member accepts gives `UNAVAILABLE` and is released with `visible_at` delayed and the retry count unchanged. A member predicate that throws, with no other member accepting, is a failed delivery: retried, then dead-lettered. Test: `NativeConsumerGroupDeliveryOutcomeIntegrationTest`. |
 | N-2 | A group predicate that returns false gives a succeeded `Future`, the result the runs above delete on. | `PgNativeConsumerGroup` 739 to 747 | Read. Five tests of `PgNativeConsumerGroupLifecycleTest` assert the succeeded result as intended. **Fixed** on 2026-11-08 in commit `b52d93fa`. A group predicate that returns false gives `REJECTED`: one row in `queue_message_group_exclusions`, the message `AVAILABLE` for every other consumer, and the group's claim skips it. |
-| N-3 | Not a defect. A group predicate that throws is not caught in the group. The consumer catches it as a handler failure, raises `retry_count`, and dead-letters at the limit. That matches the ruling. The first two versions said the effect was not determined. | `PgNativeConsumerGroup` 739; `PgNativeQueueConsumer` 796 to 805, 956 to 993 | Read |
+| N-3 | Not a defect. A group predicate that throws is not caught in the group. The consumer catches it as a handler failure, raises `retry_count`, and dead-letters at the limit. That matches the ruling. The first two versions said the effect was not determined. | `PgNativeConsumerGroup` 739; `PgNativeQueueConsumer` 796 to 805, 956 to 993 | Read Checked 2026-11-28 at `16cc90f9`: stale in part. `PgNativeConsumerGroup.dispatch` now catches a throwing group predicate, logs WARN, and returns a failed `Future`; the consumer then raises `retry_count` and dead-letters at the limit, as the ruling requires. Run: `NativeConsumerGroupDeliveryOutcomeIntegrationTest.groupFilterThatThrowsIsRetriedAndDeadLetteredAndNoHandlerRuns`, 9 run, 0 failures in the class (`logs/verify-cg-native-outcome-host-20261128.log`). |
 | N-4 | The member's second predicate check returns success without calling the handler. | Member 251 to 256 | Read. **Fixed** on 2026-11-08 in commit `b52d93fa`. `PgNativeConsumerGroupMember.processMessage` no longer evaluates the filter; the group evaluates each member filter once. |
 | N-5 | A missing connection manager selects the queue path with no mode check. The start log names "REFERENCE_COUNTING mode". | `PgNativeConsumerGroup` 326 to 340, 391 to 392 | Read |
 | N-6 | `start(SubscriptionOptions)` on a group that is already active succeeds for a native group and fails with `IllegalStateException` for an outbox group. | `PgNativeConsumerGroupLifecycleTest.succeedsWhenAlreadyActive`; `OutboxConsumerGroupCoreTest.startWithOptionsFailsWhenAlreadyActive` | Test read |
@@ -1357,11 +1382,11 @@ same class as P-1. It stays under its own number.
 | ID | Defect | Location | Evidence |
 |---|---|---|---|
 | X-1 | No production code writes a group completion. `CompletionTracker` is test scope. `ConsumerGroupFetcher` has no production caller. | Search by class name of every `src/main` tree | Read. Three fan-out benchmarks and `LateJoiningConsumerDemoTest` consume through the fetcher, and the benchmarks complete through the test-scope tracker. No other code completes a group. |
-| X-2 | The `V001` trigger inserts one `PENDING` tracking row for every group name already in `outbox_consumer_groups`, for every new outbox row, on every topic. `BackfillService` creates those names. | `V001`, `V010`; `BackfillService` 766 to 770 | Read |
+| X-2 | The `V001` trigger inserts one `PENDING` tracking row for every group name already in `outbox_consumer_groups`, for every new outbox row, on every topic. `BackfillService` creates those names. | `V001`, `V010`; `BackfillService` 766 to 770 | Read Run 2026-11-28, Jenkins host: a `COMPLETED` row for a group on one topic, then an insert on another topic, gave a `PENDING` row for that group on the new message (`logs/verify-cg-probes2-host-20261128.log`). |
 | X-3 | `BackfillService` changes messages in two ways only: `required_consumer_groups + 1` and a tracking-row insert. It reads no semantics and no mode. The manager wires it. `subscribe` runs it on `FROM_BEGINNING`. A heartbeat that revives a `DEAD` group runs it. | `BackfillService` 755 to 770; `PeeGeeQManager` 660 to 666; `SubscriptionManager` 173 to 196, 571 to 598 | Read. `LateJoiningConsumerDemoTest` shows a late group reading history through the fetcher with no backfill, in three start positions. No test shows a message delivered because of a backfill. |
-| X-4 | Dead-group cleanup marks unprocessed messages `COMPLETED`. Detail below. | `DeadConsumerGroupCleanup` 127 to 158, 259 to 278, 338 to 346; `DeadConsumerDetectionJob` 279 to 288, 316 to 330; `PeeGeeQManager` 1011 to 1021 | Read. The mechanism is asserted by existing tests, on `PUB_SUB` topics only. |
-| X-5 | `cancel` and `forceRemoveConsumerGroup` run the same cleanup. | `SubscriptionManager` 387 to 416, 474 to 491 | Read |
-| X-6 | No in-process group sends the subscription heartbeat. The REST handler is the only production caller of `updateHeartbeat`. The engine's heartbeat updates `outbox_partition_assignments` only. Detection marks a `PAUSED` subscription `DEAD` as it does an `ACTIVE` one (`DeadConsumerDetector` 244 to 260). `FlappingProtectionIntegrationTest.testPausedSubscriptionFlappingProtection` asserts that detection applies to a paused subscription. No test asserts that a running group sends the subscription heartbeat. `ConsumerGroupFaultIntegrationTest` F10 asserts the assignment heartbeat. `DeadConsumerDetectorComprehensiveTest` has two more tests that assert a paused subscription is marked `DEAD`. | Search; `SubscriptionHandler` 314; `PartitionAssignmentService` 164 to 173 | Read |
+| X-4 | Dead-group cleanup marks unprocessed messages `COMPLETED`. Detail below. | `DeadConsumerGroupCleanup` 127 to 158, 259 to 278, 338 to 346; `DeadConsumerDetectionJob` 279 to 288, 316 to 330; `PeeGeeQManager` 1011 to 1021 | Read. The mechanism is asserted by existing tests, on `PUB_SUB` topics only. Run 2026-11-28, Jenkins host: after one detection run the unread `QUEUE` message of a running group was `COMPLETED`, `required_consumer_groups = 0`, no delivery (`logs/verify-cg-probes-host-20261128.log`, `logs/verify-cg-probes2-host-20261128.log`). |
+| X-5 | `cancel` and `forceRemoveConsumerGroup` run the same cleanup. | `SubscriptionManager` 387 to 416, 474 to 491 | Read Run 2026-11-28, Jenkins host: `cancel` of one of two groups on a `QUEUE` topic marked a pending message `COMPLETED` (`logs/verify-cg-probes-host-20261128.log`, `logs/verify-cg-probes2-host-20261128.log`). |
+| X-6 | No in-process group sends the subscription heartbeat. The REST handler is the only production caller of `updateHeartbeat`. The engine's heartbeat updates `outbox_partition_assignments` only. Detection marks a `PAUSED` subscription `DEAD` as it does an `ACTIVE` one (`DeadConsumerDetector` 244 to 260). `FlappingProtectionIntegrationTest.testPausedSubscriptionFlappingProtection` asserts that detection applies to a paused subscription. No test asserts that a running group sends the subscription heartbeat. `ConsumerGroupFaultIntegrationTest` F10 asserts the assignment heartbeat. `DeadConsumerDetectorComprehensiveTest` has two more tests that assert a paused subscription is marked `DEAD`. | Search; `SubscriptionHandler` 314; `PartitionAssignmentService` 164 to 173 | Read Run 2026-11-28, Jenkins host: a running outbox group started with options was marked `DEAD` by one detection run (`logs/verify-cg-probes-host-20261128.log`, `logs/verify-cg-probes2-host-20261128.log`). |
 | X-7 | `ConsumerGroupRetryService` acts on `FAILED` tracking rows. No production statement writes one. Its job runs every 30 s by default. | `peegeeq-default.properties` 44 to 45; finding 4 run: retried 0, moved 0 | Run for the zero result; Read for the rest |
 | X-8 | Two cleanup definitions exist and disagree. No production code calls either. No production job deletes outbox rows. | `CleanupService` 81 to 111; `V010` function; search by name | Read |
 | X-9 | `getBlockedMessageStats` counts with `required_consumer_groups` and tracking rows. | `DeadConsumerDetector` 411 to 436 | Read |
@@ -1513,9 +1538,12 @@ tests. The outbox, native, REST, and example tests use the Flyway path or the te
 
 ### Existing violations of the coding principles, flagged and not copied
 
-- Writes through `withConnection` without a transaction: `PartitionedOffsetManager`,
-  `WatermarkCalculator`, `CleanupService`, `ConsumerGroupRetryService`,
-  `TopicConfigService`.
+- `PartitionedOffsetManager`, `WatermarkCalculator`, `CleanupService`,
+  `ConsumerGroupRetryService`, and `TopicConfigService` write through
+  `PgConnectionManager.withConnection`. It delegates to `withTransaction` (since commit
+  `6002ec7a`, 2026-09-02), so each call is one transaction. Two calls are two transactions:
+  `ConsumerGroupRetryService` writes the dead-letter row and the `DEAD_LETTER` status in two
+  (task register D45 (f)).
 - `SubscriptionManager` 189 to 194, 410 to 415, and 592 to 597 log a failed backfill or a
   failed cancel cleanup at WARN. The failure is also returned to the caller. The first two
   versions said the cancel "still reports the status change". That was wrong: the cancel
@@ -1525,7 +1553,7 @@ tests. The outbox, native, REST, and example tests use the Flyway path or the te
 - `OutboxConsumerGroupMember` holds `vertx` and `filterErrorConfig` fields that nothing
   reads after construction.
 - `DeadConsumerDetector` runs its two updates, the miss count and the `DEAD` mark, through
-  `withConnection` and not in one transaction (156, 228).
+  one `withConnection` call, which is one transaction (156, 228).
 - `PeeGeeQManager` turns a failed job stop into success after a WARN (1076 to 1078, 1083 to
   1085).
 - `PeeGeeQDatabaseSetupService.addQueue` applies the queue template outside a transaction
@@ -2178,6 +2206,55 @@ register states the ruling and the record of the correction.
 - Retry and dead letter for clients of the caller-driven offset routes were not designed
   (rule 11).
 
+## Verification Record, 2026-11-28
+
+This record exists so that a reader can see which statement of this document was checked,
+how, and with what result, and can repeat the check. Evidence kinds: **A** code read; **B**
+schema run; **C** probe run on the Jenkins host; **D** saved log checked; **E** line citation
+compared with the cited commit. Verdicts: **CONFIRMED**, **WRONG**, **STALE**.
+
+Evidence files, all in the project folder (`logs/` is not tracked by git):
+
+- Probe runs: `logs/verify-cg-probes-host-20261128.log` (10 run, 0 failures) and
+  `logs/verify-cg-probes2-host-20261128.log` (12 run, 0 failures); probe source
+  `logs/verify-cg-20261128/VerifyCgClaimsProbeTest.java`. Native phase 6 run:
+  `logs/verify-cg-native-outcome-host-20261128.log` (9 run, 0 failures). Guards after the
+  runs: `logs/verify-cg-guards-host-20261128.log` (77 run, 0 failures).
+- Line citations: script `logs/verify-cg-20261128/dump_citations.py`, output
+  `logs/verify-cg-20261128/citations.txt` (at `9e7f12b0`) and `citations-866a.txt` (at
+  `866a6683`).
+- Run record of the appendix: script `logs/verify-cg-20261128/compare_runs.py`, output
+  `logs/verify-cg-20261128/compare.txt`; log list `lognames.txt`.
+
+Results by kind:
+
+| Kind | Scope | Result |
+|---|---|---|
+| A | Status block of 2026-11-21 | CONFIRMED at `16cc90f9`; details in the "Checked on 2026-11-28" block at the top |
+| C | Q-4, X-2, X-4, X-5, X-6, D35, watermark with a `PAUSED` group, P-4, P-5, P-6, P-13, P-14, the V001 function | Each reproduced; the Evidence cell of each row names the run |
+| C | Native phase 6 (`REJECTED` exclusion, `UNAVAILABLE` release, throwing filters) | CONFIRMED, 9 run, 0 failures |
+| A, C | N-3 | STALE in part; the row says why |
+| D | The appendix run record: 222 named logs | All 222 exist in `logs/` as `f20-p1<increment>-<name>-20261012.log`; 16 names in the text are the start of the file name only (for example `final18`) |
+| D | Stated test counts in the appendix | 127 compared by script with the Maven totals of their logs, all match (`compare.txt`); 25 more, written as "N, 0", compared by hand, all match; the hand comparison is not saved |
+| E | 118 matches of a backticked class name followed by numbers | 8 are test IDs or test counts, each read; 107 of 110 line citations hold the cited code at `9e7f12b0` |
+
+Line citations that did not hold, each corrected where it stands:
+
+| Line | Citation | Verdict | Evidence |
+|---|---|---|---|
+| Review, `ManagementApiHandler` item | 1498, 1563, 1618 | WRONG | E: the `"invalid"` checks are at 1490, 1552, 1607 at `9e7f12b0` |
+| Same item | `isSubscriptionNotFoundError` (902) | WRONG | E: 890 at `9e7f12b0` |
+| Review, `FROM_BEGINNING` item | `SubscriptionManager` 195 to 196 | WRONG | E: the options test is 173 to 174; 195 and 196 close the method |
+| Eventually item | `ConsumerGroupSubscriptionIntegrationTest` 266, 309, 347, 378 | WRONG at the base, STALE now | E: 272, 315, 359, 390 at `866a6683`; the class has no `.eventually(` at `16cc90f9` |
+| Eventually item | 19 lines; 388 lines (71 and 317) | 19 CONFIRMED at `866a6683`; 388 not reproduced; both STALE now | A: `git grep`; 72 and 317 at `9e7f12b0`; at `16cc90f9` 0 and 60 production, 12 test |
+| Eventually item | "Vert.x 5.0.4, the version the project uses" | STALE | A: root `pom.xml` `vertx.version` 5.1.10 |
+
+Citations checked by reading the cited test, because the numbers are test IDs:
+`PartitionedFetcherIntegrationTest` 3.8 and 3.15 assert that locked rows are skipped;
+`WatermarkCalculatorIntegrationTest` 4.1 asserts the minimum over three keys;
+`PartitionAssignmentIntegrationTest` 2.5 asserts that the offset row is kept after the last
+leave; `PartitionedNativeConsumerIntegrationTest` 6.1 to 6.4 exist.
+
 ## Appendix: Task 9 implementation record
 
 Moved here on 2026-11-21 from `docs-design/tasks/tasks.md`, where it was the "Finding 20" part of the
@@ -2395,7 +2472,7 @@ Increments. Each leaves the tree green.
 | 1a | Status value `STOPPED`. `SubscriptionService.stopGroup`. `stopGracefully` stores `STOPPED` and runs no cleanup. A start makes a stopped subscription `ACTIVE`. | Done |
 | 1b | The lifecycle table in the SQL of `SubscriptionManager` (L-1, L-2, L-8, L-10). The start bound and the REST settings update (OD-23: L-4, N-11, and the delivery part of R-7). The four REST handler corrections that the owner's review of 1a lists. | Not approved. Nine corrections. The first is made, and its last part awaits review. |
 | 1c | Detection reads `ACTIVE` only. The watermark and the write validator count `ACTIVE`, `STOPPED`, and `PAUSED` (L-3, L-6, T10-10, R-7 on an offset topic). | Not started |
-| 1d | `DeadConsumerGroupCleanup` loses its callers and is deleted (R-1, R-3). | Not started |
+| 1d | `DeadConsumerGroupCleanup` loses its callers and is deleted (R-1, R-3). | Done in the working tree on 2026-11-28, not committed. Run record: "Increment 1d, 2026-11-28" at the end of this appendix. |
 | 1e | The in-process subscription heartbeat. An instance stops on `STOPPED`, `DEAD`, or `CANCELLED` (R-2, L-5, L-7, L-9, R-9). | Not started |
 
 Increment 1a, what changed.
@@ -2846,12 +2923,12 @@ Found in increment 1b. None is changed.
 - `ConsumerGroupHandler.deleteSubscriptionOptions` returns 204 when `cancel` fails (811
   to 815). `deleteConsumerGroup` logs WARN and answers "Consumer group deleted
   successfully" when the close of the group fails (524 to 536). Read.
-- `ManagementApiHandler` 1498, 1563, and 1618 choose 409 or 503 by the text "invalid" in
-  the message. `SubscriptionHandler.isSubscriptionNotFoundError` (902) decides 404 by
+- `ManagementApiHandler` 1490, 1552, and 1607 choose 409 or 503 by the text "invalid" in
+  the message. `SubscriptionHandler.isSubscriptionNotFoundError` (890) decides 404 by
   message text. Read.
 - `subscribe` with `FROM_BEGINNING` on an existing subscription keeps the stored bound
   and still starts the automatic backfill. The backfill is selected by the options, not
-  by the stored bound (`SubscriptionManager` 195 to 196). Read, not run.
+  by the stored bound (`SubscriptionManager` 173 to 174). Read, not run.
 - A native group whose subscription was created by `SubscriptionService.subscribe` or by
   the REST endpoint with `FROM_NOW` has a bound computed from `outbox` ids. Only the
   native start resolves `FROM_NOW` against `queue_messages`. Read, not run.
@@ -3302,7 +3379,9 @@ Found in phase 1, and not in the proposal before.
   `NativeQueueFeatureTest` and `ConsumerGroupLoadBalancingDemoTest` in one place each.
   Corrected after the owner's review: correction 2 above.
 - `Future.eventually` discards a failure of the cleanup it runs. Run on Vert.x 5.0.4, the
-  version the project uses (`logs/f20-p1a-probe-eventually-20261012.log`). When the first
+  version the project used on 2026-10-12 (`logs/f20-p1a-probe-eventually-20261012.log`).
+  The project uses Vert.x 5.1.10 on 2026-11-28 (root `pom.xml`, `vertx.version`); the probe
+  was not repeated on that version. When the first
   `Future` succeeds and the supplied `Future` fails, the result succeeds with the first
   value. When the supplier throws, the result succeeds with a null value. When the first
   `Future` fails, the result fails with the first failure. A test that stops or closes a
@@ -3312,11 +3391,17 @@ Found in phase 1, and not in the proposal before.
     helper), `PartitionedNativeConsumerIntegrationTest` (7), outbox
     `OutboxOffsetWatermarkOrderingTest` (3), and `OutboxOffsetWatermarkWiringTest` (1).
     Four tests that I wrote in phase 1 close their native group the same way
-    (`ConsumerGroupSubscriptionIntegrationTest` 266, 309, 347, and 378), as the four
-    tests beside them do.
+    (`ConsumerGroupSubscriptionIntegrationTest` 272, 315, 359, and 390 at `866a6683`), as
+    the four tests beside them do.
   - 388 lines of the source trees contain `.eventually(`: 71 in production code and 317
     in tests. Which of them run a cleanup whose failure must be reported was not
     classified.
+  - Checked 2026-11-28 at `16cc90f9`: the 19 lines are confirmed at `866a6683`. The 388
+    count is not reproduced exactly: `git grep` finds 72 production and 317 test lines at
+    `9e7f12b0`, and 72 and 324 at `866a6683`. At
+    `16cc90f9` no test line passes `stopGracefully` to `eventually`, and
+    `ConsumerGroupSubscriptionIntegrationTest` has no `.eventually(`. `.eventually(` is in 60
+    production lines and 12 test lines (`git grep`, `src/main` and `src/test` trees).
   - The coding principles state two things. Line 202: "The supplier's outcome does not
     change the outer Future's outcome". Line 208, in the example below it: "a failure in
     either step fails the test". The run shows that the second is false for the
@@ -3348,3 +3433,120 @@ Not done in increment 1a.
 - The dead-group cleanup still runs from `cancel`, force-remove, and the detection job
   until increment 1d.
 
+
+Increment 1d, 2026-11-28.
+
+Purpose: no message is marked processed because its consumer group is dead, cancelled, or
+force-removed (task register D1; review items X-4 and X-5). Before this increment the
+dead-group cleanup set unread `PENDING` and `PROCESSING` outbox rows to `COMPLETED` after
+every detection run that marked a group `DEAD`, and on every `cancel` and force-remove.
+Detection is on by default and no in-process group sends the subscription heartbeat (X-6),
+so a running group was marked `DEAD` and lost its unread messages minutes after it started.
+The owner started this increment ahead of Task 8 and the 1b review ("start D1 now",
+2026-11-28). It is in the working tree and not committed.
+
+What changed.
+
+- `DeadConsumerGroupCleanup` is deleted. `DeadConsumerDetectionJob` takes no cleanup: its
+  constructors are `(Vertx, DeadConsumerDetector)` and `(Vertx, DeadConsumerDetector, long)`.
+  A run that marks a group `DEAD` still logs the unprocessed messages of every `DEAD` group
+  and the subscription summary; the ERROR lines for more than 1,000 messages or for a
+  message older than 24 hours now say that the group leaves them unprocessed.
+- `SubscriptionManager.cancel` sets `CANCELLED` and nothing else. `setDeadConsumerGroupCleanup`
+  is deleted. `forceRemoveConsumerGroup` reads the status, fails for no row and for
+  `CANCELLED`, and sets `CANCELLED` in one update guarded by `FORCE_REMOVE_FROM` (`ACTIVE`,
+  `STOPPED`, `PAUSED`, `DEAD`; the set was named `MARK_DEAD_FROM`). The intermediate `DEAD`
+  step existed only for the cleanup and is removed.
+- `ForceRemoveResult` (`peegeeq-api`) keeps `topic`, `groupName`, and `previousStatus`; it
+  loses `messagesDecremented`, `orphanRowsRemoved`, `messagesAutoCompleted`, and
+  `totalActions()`. The REST force-remove response loses the same four fields. No other
+  source file, specification, or UI file names them (search of the whole tree).
+- `PeeGeeQManager` wires no cleanup into the subscription service or the detection job.
+- Javadoc of `SubscriptionService.cancel` and `forceRemoveConsumerGroup`, the REST handler,
+  and the detection job state that these calls change no message.
+
+Two choices inside the approved scope, for the owner's review: force-remove became a single
+update instead of `DEAD` then `CANCELLED`, and the counts were removed from the public result
+and the REST response instead of being kept at zero.
+
+Tests written first and run red on the Jenkins host, with the production code of `16cc90f9`
+and only the new tests applied.
+
+| Test | Red result | Log |
+|---|---|---|
+| R-1, `OutboxConsumerGroupDeadDetectionTest` (`peegeeq-outbox`, new): a running group started with options on a `QUEUE` topic, and one on an `OFFSET_WATERMARK` topic with its message held in the handler; heartbeat expired; one detection run | 2 run, 2 failures: expected `PENDING` but was `COMPLETED` | `d1-red-outbox` |
+| R-1 at the service layer, `DeadConsumerDetectionJobIntegrationTest`: the two pipeline tests now assert unchanged messages | 2 failures: expected `PENDING` but was `COMPLETED` | `d1-red-db` |
+| R-3, `CancelLeavesMessagesIntegrationTest` (new): cancel of one of two groups, `QUEUE` and `PUB_SUB` | 2 run, 2 failures: `COMPLETED`, and a required count of 1 instead of 2 | `d1-red-db` |
+| `ForceRemoveIntegrationTest`: force-remove of one of two groups on a `QUEUE` topic | expected `PENDING` but was `COMPLETED` | `d1-red-db` |
+| `ForceRemoveIntegrationTest`: a database failure (a pool on a missing schema) fails force-remove with `42P01` | Red for another reason: the old code refused force-remove without a configured cleanup (`IllegalStateException`) | `d1-red-db` |
+| `SubscriptionLifecycleIntegrationTest` (`peegeeq-rest`): force-remove response fields, a second call 409, an unknown group 404 | 9 run, 1 failure: the response carried the four count fields and `totalActions` | `d1-red-rest` |
+
+The logs are `logs/<name>-host-20261128.log`.
+
+Green on the Jenkins host with the change.
+
+| Scope | Result | Log |
+|---|---|---|
+| `mvn clean install -DskipTests` of the reactor without `peegeeq-management-ui`, `peegeeq-utilities-ui`, and `peegeeq-coverage-report`; test sources are compiled | BUILD SUCCESS, 18 reactor entries | `d1-green-build` |
+| `peegeeq-db`, CORE profile, whole module | 372 run, 0 failures | `d1-green-db-core-module` |
+| `peegeeq-db`, `-Pintegration-tests`, whole module | 808 run in 86 classes, 0 failures | `d1-green-db-it-module` |
+| `peegeeq-outbox`: `OutboxConsumerGroupDeadDetectionTest`, `OutboxConsumerGroupGracefulShutdownTest` | 12 run, 0 failures | `d1-green-outbox` |
+| `peegeeq-rest`: `SubscriptionLifecycleIntegrationTest`, `DeadConsumerAlertingIntegrationTest` | 16 run, 0 failures | `d1-green-rest` |
+| `peegeeq-native`: `ConsumerGroupSubscriptionIntegrationTest` (calls `cancel`) | 12 run, 0 failures | `d1-green-native-cancel` |
+| `peegeeq-rest`: `SubscriptionLifecycleRestIntegrationTest` (calls `cancel`) | 4 run, 0 failures | `d1-green-rest-cancel` |
+
+Tests deleted with the class they tested: `DeadConsumerGroupCleanupIntegrationTest` and
+`CancelCleanupIntegrationTest`. Five classes ran the cleanup over every `DEAD` group of the
+shared test database in their teardown, which also changed the messages of other tests
+running at the same time; their teardown now only closes the connection manager
+(`DeadConsumerDetectorComprehensiveTest`, `DeadConsumerDetectorIntegrationTest`,
+`FlappingProtectionIntegrationTest`, `WatermarkCalculatorIntegrationTest`,
+`SubscriptionManagerEdgeCaseTest`).
+
+Faults fixed in the test files this increment touched: `DetectionJobTracingTest` and
+`ForceRemoveUnitTest` created a second `Vertx` beside the one `VertxExtension` owns, and the
+first did not wait for its closes and discarded a close failure with an empty handler;
+`DeadConsumerDetectionJobIntegrationTest` completed two tests before `job.stop()` settled;
+`DeadConsumerDetectorIntegrationTest` asserted `markedDead >= 0`; the class Javadoc of
+`FlappingProtectionIntegrationTest` said its tests must fail.
+
+Test faults fixed after the increment, 2026-11-28, all run on the Jenkins host:
+
+- `WatermarkCalculatorIntegrationTest` 4.11 and 4.12 waited fixed `setTimer` delays. They now
+  poll the job's counters to a deadline and stop it through `stopAsync()`. The old 4.12 used a
+  5000 ms interval and a 400 ms window, so it could not see a timer that kept firing after
+  stop. The new 4.12 uses a 100 ms interval and a window of ten intervals. A mutation probe
+  that removed both stop fences of `WatermarkJob` failed it: "expected: <3> but was: <13>"
+  (`tf-mutation-4-12`). The unused `getStoredWatermark` is removed.
+- `DeadConsumerDetectorComprehensiveTest` asserted ranges such as `>= 0 && <= 5`, because a
+  global detection in another class could mark its groups first. That race was real: the
+  module runs classes concurrently, `DeadConsumerDetectionJobIntegrationTest` and
+  `FlappingProtectionIntegrationTest` ran global detection without the
+  `dead-consumer-detection` lock, and `ConsumerGroupRetryJobLifecycleTest` started a manager
+  with detection on, which runs a global detection at start. The two classes now hold the
+  lock, the retry-job test disables detection, and the comprehensive test asserts exact
+  counts. Test 6 requires its own group in the global result. Its `totalActiveChecked`
+  bound is now 2 instead of 0. `DeadConsumerDetectionJobIntegrationTest` also waited fixed
+  delays of 1200 ms and 250 ms before it stopped its jobs; it now polls the run count.
+- The whole-module run (`tf-db-it-module`, 809 run, 6 failures, 1 error) showed two more
+  faults. `DeadLetterQueueManagerFocusedIntegrationTest` renamed the shared
+  `dead_letter_queue` table in four tests. A `BaseIntegrationTest` manager that started during
+  the rename failed its table check. Its ERROR could not be attributed to one test, so the
+  gate failed the five tests that were active at that moment. The four tests now use a
+  manager on a schema that does not exist.
+  `SubscriptionManagerCoreTest.testSubscribeWithFromTimestamp` truncated both sides to
+  microseconds while PostgreSQL rounds, and it failed by one microsecond; its start time is
+  now in whole microseconds and compared exactly.
+
+Green: the five changed detection and watermark classes 46 run, 0 failures
+(`tf-green-classes`); `peegeeq-db` CORE module 372 run, 0 failures (`tf-db-core-module`);
+`DeadLetterQueueManagerFocusedIntegrationTest` and `SubscriptionManagerCoreTest` 40 run,
+0 failures (`tf2-classes`); `peegeeq-db` `-Pintegration-tests` module 809 run, 0 failures
+(`tf2-db-it-module`).
+
+Wrong judgment in this increment: the class was deleted with `git rm`, which staged the
+deletion in the index. The index belongs to the owner. The deletion was unstaged at once
+(`git reset -- <file>`); the file stays deleted in the working tree.
+
+Not done in increment 1d: the in-process subscription heartbeat (X-6, increment 1e), so a
+running group is still marked `DEAD` by detection; its messages are no longer changed by it.
