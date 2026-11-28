@@ -126,7 +126,7 @@ Do not use `.eventually(...)` for these steps: it discards the failure of the st
 | Pool acquisition canary | 5 s | Acquires and releases one connection and records the wait. | Metrics enabled |
 | Dead letter purge | 24 hours; the first run is 24 hours after start | Deletes `dead_letter_queue` rows whose `failed_at` is older than 30 days. The interval and the retention are fixed in code (D43). | Always |
 | Stuck-message recovery | Configured recovery check interval | See below. | Recovery enabled; otherwise each run does nothing |
-| Dead consumer detection | Configured interval | Adds one to `consecutive_misses` of each consumer-group subscription whose heartbeat timeout has passed, and marks it `DEAD` when `consecutive_misses` reaches its `dead_after_misses`. It then runs `DeadConsumerGroupCleanup` for the dead groups. | Detection enabled |
+| Dead consumer detection | Configured interval | Adds one to `consecutive_misses` of each consumer-group subscription whose heartbeat timeout has passed, and marks it `DEAD` when `consecutive_misses` reaches its `dead_after_misses`. In a run that marks a group `DEAD` it logs, per dead group, the outbox messages that group has not completed (ERROR above 1,000 messages or when the oldest is more than 24 hours old). It changes no message. | Detection enabled |
 | Consumer-group retry | Configured interval | Resets `FAILED` consumer-group rows to `PENDING`, or moves them to the dead letter queue when the retry limit is reached. | Retry enabled |
 
 The jobs do not stop on failure. They log failures differently (read in code, not run):
