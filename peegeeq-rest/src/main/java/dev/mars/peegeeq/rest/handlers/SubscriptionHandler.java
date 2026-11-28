@@ -400,8 +400,9 @@ public class SubscriptionHandler {
      * Force-removes a consumer group from a topic.
      * DELETE /api/v1/setups/:setupId/subscriptions/:topic/:groupName/force-remove
      *
-     * <p>Administrative endpoint that marks the subscription as DEAD, runs cleanup
-     * to unblock stuck messages, then marks the subscription as CANCELLED.</p>
+     * <p>Administrative endpoint that ends the subscription of a group that is permanently
+     * gone: an ACTIVE, STOPPED, PAUSED, or DEAD subscription becomes CANCELLED. It changes no
+     * message. A missing subscription is 404 and a CANCELLED one is 409.</p>
      */
     public void forceRemoveConsumerGroup(RoutingContext ctx) {
         String setupId = ctx.pathParam("setupId");
@@ -423,11 +424,7 @@ public class SubscriptionHandler {
                     .put("topic", result.topic())
                     .put("groupName", result.groupName())
                     .put("action", "force-removed")
-                    .put("previousStatus", result.previousStatus())
-                    .put("messagesDecremented", result.messagesDecremented())
-                    .put("orphanRowsRemoved", result.orphanRowsRemoved())
-                    .put("messagesAutoCompleted", result.messagesAutoCompleted())
-                    .put("totalActions", result.totalActions()))
+                    .put("previousStatus", result.previousStatus()))
             .onSuccess(json -> ctx.response()
                     .putHeader("Content-Type", "application/json")
                     .end(json.encode()))
