@@ -95,10 +95,11 @@ public interface SubscriptionService {
     
     /**
      * Cancels a subscription.
-     * 
+     *
      * <p>Cancelled subscriptions cannot be reactivated. This is a terminal state.
-     * The consumer group will not receive any messages from this topic.</p>
-     * 
+     * The consumer group will not receive any messages from this topic. Cancel changes no
+     * message: a message the group has not processed is not marked processed.</p>
+     *
      * @param topic The topic name
      * @param groupName The consumer group name
      * @return Future that completes when subscription is cancelled
@@ -144,8 +145,10 @@ public interface SubscriptionService {
     /**
      * Starts or resumes a backfill operation for a consumer group subscription.
      *
-     * <p>If a backfill is already IN_PROGRESS, it will resume from the last checkpoint.
-     * Returns a JSON-encodable result with status and processed message count.</p>
+     * <p>A FAILED or CANCELLED backfill resumes from the last checkpoint. A backfill that is
+     * IN_PROGRESS is not started again: the result status is SKIPPED. A backfill that fails
+     * records FAILED and the returned Future fails. Returns a JSON-encodable result with
+     * status and processed message count.</p>
      *
      * @param topic The topic name
      * @param groupName The consumer group name
@@ -230,20 +233,15 @@ public interface SubscriptionService {
     /**
      * Force-removes a consumer group from a topic.
      *
-     * <p>This is an administrative operation that:</p>
-     * <ol>
-     *   <li>Marks the subscription as DEAD</li>
-     *   <li>Runs dead-group cleanup (decrement required_consumer_groups,
-     *       remove orphaned tracking rows, auto-complete unblocked messages)</li>
-     *   <li>Marks the subscription as CANCELLED (terminal state)</li>
-     * </ol>
-     *
-     * <p>Use this when a consumer group is permanently gone and its presence is
-     * blocking message delivery to other groups.</p>
+     * <p>This administrative operation ends the subscription of a group that is permanently
+     * gone. An ACTIVE, STOPPED, PAUSED, or DEAD subscription becomes CANCELLED, the terminal
+     * state. The returned Future fails when the group has no subscription on the topic and
+     * when the subscription is already CANCELLED. Force-remove changes no message: a message
+     * the group has not processed is not marked processed.</p>
      *
      * @param topic The topic name
      * @param groupName The consumer group name to force-remove
-     * @return Future containing the cleanup result details
+     * @return Future containing the status the subscription had before the removal
      * @throws UnsupportedOperationException if force-remove is not supported by this implementation
      * @since 1.2.0
      */
