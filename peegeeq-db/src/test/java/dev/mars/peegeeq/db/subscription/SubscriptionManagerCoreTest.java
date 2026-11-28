@@ -205,7 +205,10 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
             .semantics(TopicSemantics.PUB_SUB)
             .build();
 
-        Instant startTime = Instant.now().minusSeconds(3600); // 1 hour ago
+        // PostgreSQL stores microseconds and rounds a nanosecond value to the nearest one, so a
+        // start time with nanoseconds could be stored one microsecond later. A start time in whole
+        // microseconds is stored unchanged and can be compared exactly.
+        Instant startTime = Instant.now().minusSeconds(3600).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
         SubscriptionOptions options = SubscriptionOptions.builder()
             .startPosition(StartPosition.FROM_TIMESTAMP)
             .startFromTimestamp(startTime)
@@ -217,10 +220,7 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
             .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNotNull(subscription);
                 assertNotNull(subscription.startFromTimestamp());
-                // PostgreSQL stores timestamps with microsecond precision, so truncate to micros for comparison
-                Instant expectedTruncated = startTime.truncatedTo(java.time.temporal.ChronoUnit.MICROS);
-                Instant actualTruncated = subscription.startFromTimestamp().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
-                assertEquals(expectedTruncated, actualTruncated);
+                assertEquals(startTime, subscription.startFromTimestamp());
                 testContext.completeNow();
             })));
     }
