@@ -386,13 +386,10 @@ Two consequences of the code, both read in code, not run:
 
 - The claim path of a running group does not read the subscription state. Pausing, cancelling or marking a
   subscription `DEAD` does not stop a running group instance; stop the instance (register D44).
-- `DeadConsumerGroupCleanup` can mark undelivered outbox messages `COMPLETED` (register D1). It runs on
-  `cancel`, on `forceRemoveConsumerGroup`, and on every detection run that finds a new `DEAD` subscription; that
-  run cleans up every `DEAD` group, not only the new one. Each run first lowers `required_consumer_groups` on
-  the topic's `PENDING` and `PROCESSING` outbox rows created after the group subscribed, so a later run lowers
-  the count of newer rows again. It then sets every `PENDING` or `PROCESSING` row of the topic whose required
-  count no longer exceeds its completed count to `COMPLETED`. The production path never records a per-group
-  completion, so the completed count stays 0.
+- Detection, `cancel`, and `forceRemoveConsumerGroup` change the subscription only. None of them changes a
+  message: a message that a `DEAD` or cancelled group has not processed stays `PENDING`, and its
+  `required_consumer_groups` count is unchanged. On a `QUEUE` topic the other groups still claim it (register D1
+  records the cleanup that used to mark such messages `COMPLETED`; it is deleted).
 
 Send heartbeats for every subscription you create. A group on an `OFFSET_WATERMARK` topic sends no
 subscription heartbeat: its engine refreshes its partition assignments only. Its subscription therefore becomes
