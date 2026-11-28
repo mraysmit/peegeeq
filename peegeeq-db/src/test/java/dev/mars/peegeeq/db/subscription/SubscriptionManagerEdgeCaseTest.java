@@ -6,7 +6,6 @@ import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
 import dev.mars.peegeeq.api.subscription.SubscriptionStore;
 import dev.mars.peegeeq.db.BaseIntegrationTest;
-import dev.mars.peegeeq.db.cleanup.DeadConsumerGroupCleanup;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
@@ -27,7 +26,6 @@ import java.time.Instant;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
-import dev.mars.peegeeq.test.vertx.TestCleanup;
 
 /**
  * Edge case tests for SubscriptionManager.
@@ -90,9 +88,7 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) {
         if (connectionManager != null) {
-            new DeadConsumerGroupCleanup(connectionManager, "peegeeq-main")
-                    .cleanupAllDeadGroups()
-                    .transform(TestCleanup.cleanup(() -> connectionManager.close()))
+            connectionManager.close()
                     .onSuccess(v -> testContext.completeNow())
                     .onFailure(testContext::failNow);
         } else {
