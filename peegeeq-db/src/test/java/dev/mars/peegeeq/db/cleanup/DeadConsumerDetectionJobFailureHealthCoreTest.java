@@ -4,6 +4,7 @@ import dev.mars.peegeeq.db.cleanup.DeadConsumerDetector.DetectionResult;
 import dev.mars.peegeeq.db.cleanup.DeadConsumerDetector.SubscriptionSummary;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.vertx.TestCleanup;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
@@ -15,7 +16,6 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.function.BooleanSupplier;
 
@@ -36,15 +36,15 @@ class DeadConsumerDetectionJobFailureHealthCoreTest {
         this.vertx = vertx;
         connectionManager = new PgConnectionManager(vertx);
         detector = new ControlledDetector(connectionManager);
-        job = new DeadConsumerDetectionJob(
-                vertx, detector, new NoOpCleanup(connectionManager), 60_000L);
+        job = new DeadConsumerDetectionJob(vertx, detector, 60_000L);
     }
 
     @AfterEach
     void tearDown(VertxTestContext testContext) {
-        Future.<Void>succeededFuture()
-                .compose(v -> job != null ? job.stop() : Future.succeededFuture())
-                .compose(v -> connectionManager != null ? connectionManager.close() : Future.succeededFuture())
+        // Both steps run, and the first failure fails the test.
+        TestCleanup.run(
+                        () -> job != null ? job.stop() : Future.succeededFuture(),
+                        () -> connectionManager != null ? connectionManager.close() : Future.succeededFuture())
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }
@@ -111,17 +111,6 @@ class DeadConsumerDetectionJobFailureHealthCoreTest {
         @Override
         public Future<SubscriptionSummary> getSubscriptionSummary() {
             return Future.succeededFuture(new SubscriptionSummary(0, 0, 0, 0, 0, 0));
-        }
-    }
-
-    private static final class NoOpCleanup extends DeadConsumerGroupCleanup {
-        private NoOpCleanup(PgConnectionManager connectionManager) {
-            super(connectionManager, "failure-health-test");
-        }
-
-        @Override
-        public Future<List<CleanupResult>> cleanupAllDeadGroups() {
-            return Future.succeededFuture(Collections.emptyList());
         }
     }
 }
